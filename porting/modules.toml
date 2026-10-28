@@ -1621,7 +1621,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Brancher.scala"
 destination = "crates/ferrum-silicon/src/rules/brancher.rs"
 status = "skeleton"
-remaining = ["Source feasibility checks and parallel-branch selection exist; scoped branch execution, worker transfer, reporting and result joining remain."]
+remaining = ["Feasibility, branch selection and concrete path/declaration/option/error transfer plus cooperative-join restoration exist. Owned continuations, scheduling/waits, reporting and full cancellation integration remain gated."]
 
 [[modules]]
 repository = "silicon"

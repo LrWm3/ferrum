@@ -329,3 +329,9 @@ Permission-expression scaling now traverses typed plugin children while retainin
 nested wand/type errors. Quantified-permission desugaring preserves an unhandled
 extension RHS as the original quantifier, matching the source fallback; later
 consistency and execution checks still reject unsupported expressions.
+
+Parallel-branch prerequisites now capture and replay path conditions, fresh
+functions/macros, solver options and error counts on another verifier, and restore
+the caller after a cooperative join. A two-solver check covers replay and returned
+declarations. This does not enable `--parallelizeBranches`: owned continuations,
+cooperative scheduling, branch-report ordering and cancellation integration remain.
