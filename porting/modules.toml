@@ -90,19 +90,21 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/GenericArithmeticSolver.scala"
 destination = "crates/ferrum-silver/src/ast/utility/generic_arithmetic_solver.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/GenericAxiomRewriter.scala"
 destination = "crates/ferrum-silver/src/ast/utility/generic_axiom_rewriter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Generic algorithm is available through fallible language adapters; concrete AST/term integration and source logging remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/GenericTriggerGenerator.scala"
 destination = "crates/ferrum-silver/src/ast/utility/generic_trigger_generator.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Generic algorithm is available through fallible language adapters; concrete AST/term integration and source logging remain."]
 
 [[modules]]
 repository = "silver"
