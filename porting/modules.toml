@@ -2564,3 +2564,9 @@ role = "assembly"
 destination = "crates/ferrum-silver/src/verifier/mod.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
+status = "skeleton"
+role = "assembly"
+remaining = ["Connect concrete execution services across evaluator, heap rules, member verification and program orchestration."]

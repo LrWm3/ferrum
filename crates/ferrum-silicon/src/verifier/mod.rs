@@ -3,6 +3,7 @@
 
 pub mod base_verifier;
 pub mod default_main_verifier;
+pub mod native_context;
 pub mod verification_pool_manager;
 pub mod verifier;
 pub mod worker_verifier;
