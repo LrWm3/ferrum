@@ -306,7 +306,7 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/logger/ViperLogger.scala"
 destination = "crates/ferrum-silver/src/logger/viper_logger.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
@@ -606,37 +606,37 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/reporter/Message.scala"
 destination = "crates/ferrum-silver/src/reporter/message.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/reporter/Reporter.scala"
 destination = "crates/ferrum-silver/src/reporter/reporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/reporter/format/package.scala"
 destination = "crates/ferrum-silver/src/reporter/format/package.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/reporter/package.scala"
 destination = "crates/ferrum-silver/src/reporter/package.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/testing/BackendTypeTest.scala"
 destination = "crates/ferrum-silver/src/testing/backend_type_test.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/testing/ProjectInfo.scala"
 destination = "crates/ferrum-silver/src/testing/project_info.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
@@ -690,31 +690,31 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/verifier/Counterexample.scala"
 destination = "crates/ferrum-silver/src/verifier/counterexample.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/verifier/ModelParser.scala"
 destination = "crates/ferrum-silver/src/verifier/model_parser.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/verifier/VerificationError.scala"
 destination = "crates/ferrum-silver/src/verifier/verification_error.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/verifier/VerificationResult.scala"
 destination = "crates/ferrum-silver/src/verifier/verification_result.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/verifier/Verifier.scala"
 destination = "crates/ferrum-silver/src/verifier/verifier.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
