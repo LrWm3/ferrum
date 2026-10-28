@@ -77,6 +77,14 @@ A 126-case matrix passes through both transports. The source minimal consolidati
 mode remains incomplete for some aliased fractional permissions. Native method
 filters currently accept a shared subset of Java/Rust regular expressions and
 reject unsupported syntax explicitly.
+`enableSimplifiedUnfolds` now replays the source predicate-content trees:
+substituted assumptions, scaled permissions, quantified singleton snapshots and
+branch joins. Predicate data is shared with method workers; expression unfolding
+uses the source join distinction. Independent checks cover ordinary/nested and
+fractional predicates, expression unfolding and quantified field/predicate bodies
+across all three join modes on both transports. Selected outcomes also match the
+pinned Scala reference. Wands inside predicate bodies remain rejected by Silver
+consistency; debugger-specific replay remains unsupported.
 `disableISCTriggers` now connects the source no-trigger rules and preambles.
 Ten positive/negative field, predicate and wand cases pass through both transports.
 Three pinned template-name defects are corrected during instantiation, as recorded

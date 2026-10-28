@@ -524,3 +524,45 @@ fn timed_out_session_can_be_reused() {
     }
     }).unwrap().join().unwrap();
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn cached_predicates_preserve_branch_values_and_permission_amounts() {
+    let source = "field f: Int
+        field g: Int
+        predicate P(x: Ref, b: Bool) {
+            b ? (acc(x.f) && x.f == 7) : (acc(x.g) && x.g == 8)
+        }
+        method m(x: Ref, b: Bool) requires acc(P(x, b)) {
+            unfold acc(P(x, b), 1/2);
+            assert b ? (acc(x.f, 1/2) && x.f == 7) : (acc(x.g, 1/2) && x.g == 8);
+        }";
+    for (source, expected) in [
+        (source.to_owned(), 0),
+        (
+            source.replace("assert b ? (acc(x.f, 1/2)", "assert b ? (acc(x.f, write)"),
+            1,
+        ),
+        (source.replace("&& x.g == 8);", "&& x.g == 9);"), 1),
+    ] {
+        let output = run(
+            &source,
+            &[
+                "--enableSimplifiedUnfolds",
+                "--moreJoins",
+                "1",
+                "--numberOfParallelVerifiers",
+                "2",
+            ],
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(expected),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if expected == 1 {
+            assert!(String::from_utf8_lossy(&output.stderr).contains("assert.failed"));
+        }
+    }
+}

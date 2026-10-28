@@ -1731,7 +1731,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/PredicateSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/predicate_supporter.rs"
 status = "skeleton"
-remaining = ["Source predicate fold/unfold algorithms and cached contents flow exist; concrete execution, diagnostics and prover services remain."]
+remaining = ["Source fold/unfold and cached predicate-content replay connect native assumptions, scaled resources, quantified singleton maps and branch joins. Debugger paths and broader compatibility remain incomplete."]
 
 [[modules]]
 repository = "silicon"

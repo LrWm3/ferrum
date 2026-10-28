@@ -28,8 +28,9 @@
 //! Open decisions:
 //! Snapshot and permission scaling, branch continuation and predicate-content ownership.
 //!
-//! Status: partial; fold/unfold and cached-content tree control flow implemented. Concrete
-//! quantified conversion, branch/join, heap, solver and producer/consumer services remain pending.
+//! Status: fold/unfold and cached-content replay are connected to the native solver, heap,
+//! quantified conversion and branch/join services. Simplified unfolding is connected;
+//! debugging retains separate unsupported paths and broader parity remains unproved.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -430,8 +431,8 @@ pub trait PredicateTreeServices<P, D, V>:
         ),
         Self::Error,
     >;
-    /// In joining mode merge the one or two live branches without consolidation;
-    /// otherwise propagate each branch directly to its continuation.
+    /// Branch subtrees call `done` at leaves; joining collects these states before
+    /// invoking the outer continuation, preserving source continuation order.
     fn branch_predicate_contents(
         &mut self,
         state: State<P, D, crate::config::JoinMode>,
@@ -441,9 +442,26 @@ pub trait PredicateTreeServices<P, D, V>:
         left: &mut dyn FnMut(
             &mut Self,
             State<P, D, crate::config::JoinMode>,
+            &mut dyn FnMut(
+                &mut Self,
+                State<P, D, crate::config::JoinMode>,
+            )
+                -> Result<VerificationResult<V>, PredicateExecutionError<Self::Error>>,
         )
             -> Result<VerificationResult<V>, PredicateExecutionError<Self::Error>>,
         right: &mut dyn FnMut(
+            &mut Self,
+            State<P, D, crate::config::JoinMode>,
+            &mut dyn FnMut(
+                &mut Self,
+                State<P, D, crate::config::JoinMode>,
+            )
+                -> Result<VerificationResult<V>, PredicateExecutionError<Self::Error>>,
+        ) -> Result<
+            VerificationResult<V>,
+            PredicateExecutionError<Self::Error>,
+        >,
+        continuation: &mut dyn FnMut(
             &mut Self,
             State<P, D, crate::config::JoinMode>,
         ) -> Result<
@@ -472,7 +490,6 @@ pub fn produce_predicate_contents<P, D: Clone, V, C: PredicateTreeServices<P, D,
     use crate::interfaces::state::chunks::{Chunk as ChunkContract, GeneralChunk};
     use crate::state::chunks::Chunk;
     use crate::state::heap::Heap;
-    use std::cell::RefCell;
     match tree {
         PredicateContentsTree::Leaf { heap, assumptions } => {
             let assumptions = assumptions
@@ -535,13 +552,12 @@ pub fn produce_predicate_contents<P, D: Clone, V, C: PredicateTreeServices<P, D,
                 .replace(condition, replacements)
                 .map_err(PredicateExecutionError::Transform)?;
             let join = !is_unfolding && state.more_joins != crate::config::JoinMode::Off;
-            let continuation = RefCell::new(continuation);
             context.branch_predicate_contents(
                 state,
                 condition,
                 condition_exp,
                 join,
-                &mut |context, state| {
+                &mut |context, state, done| {
                     produce_predicate_contents(
                         factory,
                         context,
@@ -549,16 +565,10 @@ pub fn produce_predicate_contents<P, D: Clone, V, C: PredicateTreeServices<P, D,
                         left,
                         replacements,
                         is_unfolding,
-                        &mut |context, state| {
-                            continuation
-                                .try_borrow_mut()
-                                .map_err(|_| PredicateExecutionError::ReentrantContinuation)?(
-                                context, state,
-                            )
-                        },
+                        done,
                     )
                 },
-                &mut |context, state| {
+                &mut |context, state, done| {
                     produce_predicate_contents(
                         factory,
                         context,
@@ -566,15 +576,10 @@ pub fn produce_predicate_contents<P, D: Clone, V, C: PredicateTreeServices<P, D,
                         right,
                         replacements,
                         is_unfolding,
-                        &mut |context, state| {
-                            continuation
-                                .try_borrow_mut()
-                                .map_err(|_| PredicateExecutionError::ReentrantContinuation)?(
-                                context, state,
-                            )
-                        },
+                        done,
                     )
                 },
+                continuation,
             )
         }
     }

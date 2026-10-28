@@ -106,7 +106,6 @@ impl NativeOptions {
         if config.enable_debugging
             || config.mask_heap_mode
             || config.parallelize_branches
-            || config.enable_simplified_unfolds
             || config.conditionalize_permissions
             || config.frontend.ide_mode_advanced
             || config.generate_block_messages
@@ -262,6 +261,10 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     config_options: Vec<String>,
     predicate_snapshots: crate::supporters::qps::predicate_snap_generator::PredicateSnapGenerator,
     active_program: Option<ferrum_silver::ast::program::Program>,
+    predicate_contents: crate::state::package::OrderedMap<
+        String,
+        Arc<crate::supporters::predicate_verification_unit::PredicateData>,
+    >,
     function_handles: crate::state::package::OrderedMap<String, Arc<FD>>,
     function_heights: std::collections::HashMap<String, i32>,
     function_fresh_variables: Vec<Term>,
@@ -283,6 +286,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             config_options: Vec::new(),
             predicate_snapshots: Default::default(),
             active_program: None,
+            predicate_contents: Default::default(),
             function_handles: Default::default(),
             function_heights: Default::default(),
             function_fresh_variables: Vec::new(),
@@ -337,6 +341,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         self.checkpoint()?;
         self.predicate_snapshots = Default::default();
         self.active_program = None;
+        self.predicate_contents = Default::default();
         self.havoc_counter = 0;
         self.install_preamble()
     }
@@ -6990,8 +6995,10 @@ where
                 &mut |ctx, state| {
                     let pcs = ctx.base.decider.pcs.recorded();
                     let data = PredicateBranchResult {
-                        conditions: pcs.branch_conditions(),
-                        condition_exps: pcs.branch_condition_exps(),
+                        // Recorded path-condition views are newest first; predicate
+                        // trees require the source's outermost-first order.
+                        conditions: pcs.branch_conditions().into_iter().rev().collect(),
+                        condition_exps: pcs.branch_condition_exps().into_iter().rev().collect(),
                         heap: state.h.clone(),
                         assumptions: pcs.assumptions(),
                     };
@@ -7032,11 +7039,11 @@ where
         predicate: &Predicate,
         recorder: crate::supporters::functions::function_recorder::FunctionRecorder<FD>,
     ) -> Result<(), Self::Error> {
-        if matches!(recorder, FunctionRecorder::Noop) {
-            Ok(())
-        } else {
-            Err(NativeError::Unsupported("predicate recorder integration"))
-        }
+        // PredicateVerificationUnit already merges the recorder into the predicate's
+        // collected fresh symbols before invoking this hook. The source does not retain
+        // the recorder separately after addRecorders.
+        let _ = (predicate, recorder);
+        Ok(())
     }
 }
 
@@ -7132,6 +7139,7 @@ where
     ) -> Result<Vec<VerificationResult<VerificationError>>, NativeError<S::Error>> {
         self.checkpoint()?;
         self.active_program = Some(analysis.program.clone());
+        self.predicate_contents = analysis.predicates.clone();
         self.function_handles = analysis.function_handles.clone();
         self.function_heights = analysis.function_heights.clone();
         self.function_fresh_variables = analysis.function_fresh_variables.clone();
@@ -7167,6 +7175,7 @@ where
     ) -> Result<Vec<VerificationResult<VerificationError>>, NativeError<S::Error>> {
         self.checkpoint()?;
         self.active_program = Some(analysis.program.clone());
+        self.predicate_contents = analysis.predicates.clone();
         self.function_handles = analysis.function_handles.clone();
         self.function_heights = analysis.function_heights.clone();
         self.function_fresh_variables = analysis.function_fresh_variables.clone();
@@ -7434,11 +7443,6 @@ where
             )
             .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
         }
-        if self.options.enable_simplified_unfolds {
-            return Err(NativeError::Unsupported(
-                "simplified predicate unfold recorder",
-            ));
-        }
         fn inspect(
             node: &Node,
             program: &ferrum_silver::ast::program::Program,
@@ -7577,6 +7581,7 @@ where
             Sort::Snap,
         )
         .map_err(NativeError::Sort)?;
+        self.predicate_contents = predicates.clone();
         use crate::interfaces::preamble::PreambleReader;
         let reader = crate::decider::smt_lib2_preamble_reader::SmtLib2PreambleReader::default();
         let mut wand_functions = crate::supporters::magic_wand_snap_functions_contributor::MagicWandSnapFunctionsContributor::default();
@@ -8060,7 +8065,15 @@ where
         )>,
         Self::Error,
     > {
-        Ok(None)
+        let Some(data) = self.predicate_contents.get(&predicate.name) else {
+            return Ok(None);
+        };
+        let contents = data.contents.lock().expect("predicate contents poisoned");
+        match (&contents.tree, &contents.params) {
+            (Some(tree), Some(params)) => Ok(Some((tree.clone(), params.clone()))),
+            (None, _) => Ok(None),
+            (Some(_), None) => Err(NativeError::Unsupported("cached predicate parameters")),
+        }
     }
     fn produce_cached_predicate(
         &mut self,
@@ -8079,10 +8092,15 @@ where
         VerificationResult<VerificationError>,
         crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
     > {
-        Err(
-            crate::rules::predicate_supporter::PredicateExecutionError::Service(
-                NativeError::Unsupported("cached predicate contents"),
-            ),
+        let factory = self.factory.clone();
+        crate::rules::predicate_supporter::produce_predicate_contents(
+            &factory,
+            self,
+            state,
+            tree,
+            replacements,
+            false,
+            continuation,
         )
     }
     fn produce_unfolded_body(
@@ -8250,42 +8268,54 @@ where
                         .body
                         .as_ref()
                         .ok_or(EvaluationError::MissingPredicate(predicate.name.clone()))?;
-                    let result = crate::rules::producer::produce_all(
-                        ctx,
-                        bound,
-                        NativeSnapshot::Projection(snapshot),
-                        std::slice::from_ref(predicate_body),
-                        &|_| error.clone(),
-                        &mut |ctx, mut state| {
-                            state.g = scaled.g.clone();
-                            state.function_recorder = state.function_recorder.change_depth_by(-1);
-                            state.record_visited = outer.record_visited;
-                            state.permission_scaling_factor =
-                                outer.permission_scaling_factor.clone();
-                            state.permission_scaling_factor_exp =
-                                outer.permission_scaling_factor_exp.clone();
-                            state.constrainable_arps = old_arps.clone();
-                            state = state.dec_cycle_counter(&Member::Predicate(predicate.clone()));
-                            match ctx.consolidate_optional(state) {
-                                Ok(state) => match crate::rules::evaluator::evaluate(
-                                    ctx,
-                                    state,
-                                    body,
-                                    error,
-                                    continuation,
-                                ) {
-                                    Ok(v) => Ok(v),
-                                    Err(e) => {
-                                        production_callback_error = Some(e);
-                                        Err(ProductionError::Context(
-                                            NativeError::ContinuationAbort,
-                                        ))
-                                    }
-                                },
-                                Err(e) => Err(ProductionError::Context(e)),
-                            }
-                        },
-                    );
+                    let mut finish = |ctx: &mut Self, mut state: State<PD, FD, JoinMode>| {
+                        state.g = scaled.g.clone();
+                        state.function_recorder = state.function_recorder.change_depth_by(-1);
+                        state.record_visited = outer.record_visited;
+                        state.permission_scaling_factor = outer.permission_scaling_factor.clone();
+                        state.permission_scaling_factor_exp =
+                            outer.permission_scaling_factor_exp.clone();
+                        state.constrainable_arps = old_arps.clone();
+                        state = state.dec_cycle_counter(&Member::Predicate(predicate.clone()));
+                        match ctx.consolidate_optional(state) {
+                            Ok(state) => match crate::rules::evaluator::evaluate(
+                                ctx,
+                                state,
+                                body,
+                                error,
+                                continuation,
+                            ) {
+                                Ok(v) => Ok(v),
+                                Err(e) => {
+                                    production_callback_error = Some(e);
+                                    Err(ProductionError::Context(NativeError::ContinuationAbort))
+                                }
+                            },
+                            Err(e) => Err(ProductionError::Context(e)),
+                        }
+                    };
+                    let cached = crate::rules::predicate_supporter::PredicateExecutionServices::cached_predicate_contents(ctx, &bound, predicate)
+                        .map_err(EvaluationError::Context)?;
+                    let result = if let Some((tree, params)) = cached {
+                        let replacements = params
+                            .into_iter()
+                            .zip(std::iter::once(snapshot.clone()).chain(args.iter().cloned()))
+                            .collect();
+                        let factory = ctx.factory.clone();
+                        crate::rules::predicate_supporter::produce_predicate_contents(
+                            &factory, ctx, bound, &tree, &replacements, true,
+                            &mut |ctx, state| finish(ctx, state).map_err(|e| crate::rules::predicate_supporter::PredicateExecutionError::Service(NativeError::Production(format!("{e:?}")))),
+                        ).map_err(|e| ProductionError::Context(NativeError::Production(format!("{e:?}"))))
+                    } else {
+                        crate::rules::producer::produce_all(
+                            ctx,
+                            bound,
+                            NativeSnapshot::Projection(snapshot),
+                            std::slice::from_ref(predicate_body),
+                            &|_| error.clone(),
+                            &mut finish,
+                        )
+                    };
                     if let Some(e) = production_callback_error {
                         return Err(e);
                     }
@@ -13571,5 +13601,189 @@ where
             return Err(error);
         }
         result.map_err(|e| CE::Service(NativeError::Execution(format!("CFG execution: {e:?}"))))
+    }
+}
+
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::predicate_supporter::PredicateLeafQuantification<PD, FD, JoinMode>
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn predicate_leaf_debugging(&self) -> bool {
+        false
+    }
+    fn formal_resource_variables(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        resource: &ResourceKey,
+    ) -> Result<Vec<Term>, Self::Error> {
+        match resource {
+            ResourceKey::Field(_) => Ok(vec![self.factory.predef_receiver_var()]),
+            ResourceKey::Predicate(p) => state
+                .predicate_formal_var_map
+                .get(&p.name)
+                .cloned()
+                .ok_or(NativeError::Unsupported("predicate formal variables")),
+            ResourceKey::Wand(w) => w
+                .ghost_free_wand
+                .magic_wand_subexpressions(&state.program)
+                .map_err(|e| NativeError::Execution(format!("{e:?}")))?
+                .iter()
+                .enumerate()
+                .map(|(i, exp)| {
+                    let sort = self
+                        .base
+                        .symbol_converter
+                        .to_sort(
+                            &exp.typ()
+                                .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?,
+                        )
+                        .map_err(NativeError::Sort)?;
+                    Ok(self.factory.var(
+                        crate::state::identifiers::Identifier::new(format!("x{i}")),
+                        sort,
+                        false,
+                    ))
+                })
+                .collect(),
+        }
+    }
+    fn assume_leaf_snapshot_definition(&mut self, definition: &Term) -> Result<(), Self::Error> {
+        self.base
+            .decider
+            .assume([(definition.clone(), None)], false, true)
+            .map_err(NativeError::Decider)
+    }
+}
+
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::predicate_supporter::PredicateTreeServices<PD, FD, VerificationError>
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn assume_predicate_contents(&mut self, assumptions: &[Term]) -> Result<(), Self::Error> {
+        self.base
+            .decider
+            .assume(assumptions.iter().cloned().map(|t| (t, None)), false, false)
+            .map_err(NativeError::Decider)
+    }
+    fn quantify_predicate_leaf_chunk(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        recorder: FunctionRecorder<FD>,
+        chunk: Chunk,
+    ) -> Result<(FunctionRecorder<FD>, Chunk), Self::Error> {
+        let factory = self.factory.clone();
+        crate::rules::predicate_supporter::quantify_predicate_leaf_chunk(
+            &factory, self, state, recorder, chunk,
+        )
+        .map_err(|e| NativeError::Chunk(format!("predicate leaf quantification: {e:?}")))
+    }
+    fn merge_predicate_contents(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        recorder: FunctionRecorder<FD>,
+        heap: &ListBackedHeap,
+    ) -> Result<(FunctionRecorder<FD>, ListBackedHeap), Self::Error> {
+        let factory = self.factory.clone();
+        let choice = self.consolidation_choice(state)?;
+        crate::rules::state_consolidator::merge_heaps(
+            &factory, self, state, recorder, &state.h, heap, choice,
+        )
+        .map_err(|e| NativeError::Consolidation(format!("predicate leaf merge: {e:?}")))
+    }
+    fn branch_predicate_contents(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        condition: Term,
+        condition_exp: &(Exp, Option<Exp>),
+        join: bool,
+        left: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            &mut dyn FnMut(
+                &mut Self,
+                State<PD, FD, JoinMode>,
+            ) -> Result<
+                VerificationResult<VerificationError>,
+                crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+            >,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+        right: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            &mut dyn FnMut(
+                &mut Self,
+                State<PD, FD, JoinMode>,
+            ) -> Result<
+                VerificationResult<VerificationError>,
+                crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+            >,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+    ) -> Result<
+        VerificationResult<VerificationError>,
+        crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+    > {
+        use crate::rules::predicate_supporter::PredicateExecutionError as PE;
+        let error = std::cell::RefCell::new(None);
+        let result = crate::rules::producer::ProductionContext::branch_production(
+            self,
+            state,
+            condition,
+            &condition_exp.0,
+            condition_exp.1.as_ref(),
+            join,
+            false,
+            &mut |ctx, state, done| match left(ctx, state, &mut |ctx, state| {
+                done(ctx, state).map_err(|e| PE::Service(NativeError::Production(format!("{e:?}"))))
+            }) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    if error.borrow().is_none() {
+                        *error.borrow_mut() = Some(e);
+                    }
+                    Err(ProductionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+            &mut |ctx, state, done| match right(ctx, state, &mut |ctx, state| {
+                done(ctx, state).map_err(|e| PE::Service(NativeError::Production(format!("{e:?}"))))
+            }) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    if error.borrow().is_none() {
+                        *error.borrow_mut() = Some(e);
+                    }
+                    Err(ProductionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+            &mut |ctx, state| match continuation(ctx, state) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    if error.borrow().is_none() {
+                        *error.borrow_mut() = Some(e);
+                    }
+                    Err(ProductionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(e) = error.into_inner() {
+            return Err(e);
+        }
+        result.map_err(|e| PE::Service(NativeError::Production(format!("{e:?}"))))
     }
 }
