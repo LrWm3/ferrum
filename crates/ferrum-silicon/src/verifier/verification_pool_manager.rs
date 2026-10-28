@@ -1787,6 +1787,191 @@ pub struct NativeEvaluationBranchOutput {
     pub declarations: crate::rules::brancher::BranchJoinDeclarations,
     pub warnings: Vec<String>,
 }
+pub struct NativeCfgJoinJob<
+    PD = crate::supporters::predicate_verification_unit::PredicateData,
+    FD = super::native_context::NativeFunctionData,
+> {
+    pub source_worker_id: String,
+    pub snapshot: crate::rules::brancher::BranchTransferSnapshot,
+    pub state: crate::state::state::State<PD, FD, crate::config::JoinMode>,
+    pub mark: crate::decider::path_conditions::Mark,
+    pub condition: Term,
+    pub original: ferrum_silver::ast::expression::Exp,
+    pub rewritten: Option<ferrum_silver::ast::expression::Exp>,
+    pub action: crate::rules::executor::CfgJoinBranch,
+    #[cfg(test)]
+    pub after_start: Option<Arc<dyn Fn() + Send + Sync>>,
+    #[cfg(test)]
+    pub replay_check: Option<Term>,
+}
+pub struct NativeCfgJoinOutput<
+    PD = crate::supporters::predicate_verification_unit::PredicateData,
+    FD = super::native_context::NativeFunctionData,
+> {
+    pub result: crate::interfaces::verification::VerificationResult<
+        ferrum_silver::verifier::verification_error::VerificationError,
+    >,
+    pub entries: Vec<crate::rules::joiner::JoinDataEntry<PD, FD, crate::config::JoinMode, ()>>,
+    pub declarations: crate::rules::brancher::BranchJoinDeclarations,
+    pub warnings: Vec<String>,
+}
+#[cfg(test)]
+static CFG_JOIN_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+pub(crate) trait NativeCfgJoinFuture<S: crate::interfaces::decider::prover::Prover, PD, FD> {
+    fn wait(
+        self: Box<Self>,
+        context: &mut super::native_context::NativeVerifierContext<S, PD, FD>,
+    ) -> CooperativeWait<NativeCfgJoinOutput<PD, FD>, super::native_context::NativeError<S::Error>>;
+}
+pub(crate) trait NativeCfgJoinScheduler<S: crate::interfaces::decider::prover::Prover, PD, FD> {
+    fn report_failure(
+        &self,
+        member: Option<&ferrum_silver::ast::program::Member>,
+        result: &crate::interfaces::verification::VerificationResult<
+            ferrum_silver::verifier::verification_error::VerificationError,
+        >,
+    ) -> Result<(), super::native_context::NativeError<S::Error>>;
+    fn submit(
+        &self,
+        job: NativeCfgJoinJob<PD, FD>,
+    ) -> Result<
+        Box<dyn NativeCfgJoinFuture<S, PD, FD>>,
+        ThreadPoolError<super::native_context::NativeError<S::Error>>,
+    >;
+}
+struct NativeCfgQueueScheduler<S: crate::interfaces::decider::prover::Prover + 'static>
+where
+    S::Error: Send + std::fmt::Debug + 'static,
+{
+    queue: WorkerQueueHandle<NativeMethodWorker<S>>,
+    analysis: Arc<super::native_context::NativeWorkerAnalysis>,
+    reporter: Option<Arc<dyn ferrum_silver::reporter::reporter::Reporter>>,
+    warning_sink: Option<Arc<std::sync::Mutex<Vec<String>>>>,
+}
+struct NativeCfgQueueFuture<S: crate::interfaces::decider::prover::Prover + 'static>
+where
+    S::Error: Send + std::fmt::Debug + 'static,
+{
+    queue: WorkerQueueHandle<NativeMethodWorker<S>>,
+    task: NestedVerificationTask<NativeWorkerOutput, super::native_context::NativeError<S::Error>>,
+}
+impl<S>
+    NativeCfgJoinScheduler<
+        S,
+        crate::supporters::predicate_verification_unit::PredicateData,
+        super::native_context::NativeFunctionData,
+    > for NativeCfgQueueScheduler<S>
+where
+    S: crate::interfaces::decider::prover::Prover + 'static,
+    S::Error: Send + std::fmt::Debug + 'static,
+{
+    fn report_failure(
+        &self,
+        member: Option<&ferrum_silver::ast::program::Member>,
+        result: &crate::interfaces::verification::VerificationResult<
+            ferrum_silver::verifier::verification_error::VerificationError,
+        >,
+    ) -> Result<(), super::native_context::NativeError<S::Error>> {
+        let (Some(reporter), Some(member)) = (&self.reporter, member) else {
+            return Ok(());
+        };
+        if !result.is_fatal() || result.is_reported() {
+            return Ok(());
+        }
+        use ferrum_silver::{
+            reporter::message::Message,
+            verifier::{
+                verification_error::{NativeErrorNodeRenderer, RenderedVerificationError},
+                verification_result::AbstractError,
+            },
+        };
+        let errors = result
+            .with_kind(|kind| match kind {
+                crate::interfaces::verification::ResultKind::Failure(error) => {
+                    RenderedVerificationError::new(error.clone(), Arc::new(NativeErrorNodeRenderer))
+                        .map(|error| vec![AbstractError::Verification(Arc::new(error))])
+                }
+                _ => Ok(Vec::new()),
+            })
+            .map_err(|error| {
+                super::native_context::NativeError::Diagnostic(format!(
+                    "branch error rendering: {error:?}"
+                ))
+            })?;
+        result.set_reported(true);
+        reporter
+            .report(Message::BranchFailure {
+                verifier: "silicon".into(),
+                concerning: Arc::new(member.clone()),
+                errors,
+                cached: false,
+            })
+            .map_err(|error| {
+                super::native_context::NativeError::Diagnostic(format!(
+                    "branch failure reporter: {error:?}"
+                ))
+            })
+    }
+    fn submit(
+        &self,
+        job: NativeCfgJoinJob,
+    ) -> Result<
+        Box<
+            dyn NativeCfgJoinFuture<
+                    S,
+                    crate::supporters::predicate_verification_unit::PredicateData,
+                    super::native_context::NativeFunctionData,
+                >,
+        >,
+        ThreadPoolError<super::native_context::NativeError<S::Error>>,
+    > {
+        #[cfg(test)]
+        CFG_JOIN_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let task = self.queue.submit(NativeWorkerTask {
+            analysis: self.analysis.clone(),
+            target: NativeWorkerTarget::CfgJoin(Box::new(job)),
+            reporter: self.reporter.clone(),
+            warning_sink: self.warning_sink.clone(),
+        })?;
+        Ok(Box::new(NativeCfgQueueFuture {
+            queue: self.queue.clone(),
+            task,
+        }))
+    }
+}
+impl<S>
+    NativeCfgJoinFuture<
+        S,
+        crate::supporters::predicate_verification_unit::PredicateData,
+        super::native_context::NativeFunctionData,
+    > for NativeCfgQueueFuture<S>
+where
+    S: crate::interfaces::decider::prover::Prover + 'static,
+    S::Error: Send + std::fmt::Debug + 'static,
+{
+    fn wait(
+        self: Box<Self>,
+        context: &mut super::native_context::NativeVerifierContext<
+            S,
+            crate::supporters::predicate_verification_unit::PredicateData,
+            super::native_context::NativeFunctionData,
+        >,
+    ) -> CooperativeWait<NativeCfgJoinOutput, super::native_context::NativeError<S::Error>> {
+        let waited = self.queue.wait_cooperatively_with(self.task, |job| {
+            execute_intervening_native_worker_task(context, job)
+        });
+        CooperativeWait {
+            result: waited.result.and_then(|output| match output {
+                NativeWorkerOutput::CfgJoin(output) => Ok(output),
+                _ => Err(ThreadPoolError::Stopped),
+            }),
+            executed_other_task: waited.executed_other_task,
+            awaited_executed_on_current_worker: waited.awaited_executed_on_current_worker,
+        }
+    }
+}
+
 pub enum NativeWorkerOutput {
     Member(
         Vec<
@@ -1796,6 +1981,7 @@ pub enum NativeWorkerOutput {
         >,
     ),
     EvaluationBranch(NativeEvaluationBranchOutput),
+    CfgJoin(NativeCfgJoinOutput),
 }
 
 /// Source method or standalone CFG task after main analysis.
@@ -1803,6 +1989,7 @@ pub enum NativeWorkerTarget {
     Method(ferrum_silver::ast::program::Method),
     Cfg(ferrum_silver::cfg::silver::silver_cfg::SilverCfg),
     EvaluationBranch(Box<NativeEvaluationBranch>),
+    CfgJoin(Box<NativeCfgJoinJob>),
 }
 pub struct NativeWorkerTask {
     pub analysis: std::sync::Arc<super::native_context::NativeWorkerAnalysis>,
@@ -1821,10 +2008,30 @@ pub struct NativeMethodWorker<S: crate::interfaces::decider::prover::Prover> {
     >,
     pub user_args: Option<String>,
     pub config_options: Vec<String>,
+    preamble_frame_ready: bool,
 }
 impl<S: crate::interfaces::decider::prover::Prover> NativeMethodWorker<S> {
     pub fn set_cancellation(&mut self, cancellation: CancellationController) {
         self.context.set_cancellation(cancellation);
+    }
+    pub(crate) fn ensure_preamble_frame(
+        &mut self,
+    ) -> Result<(), super::native_context::NativeError<S::Error>> {
+        self.context.checkpoint()?;
+        if !self.preamble_frame_ready {
+            self.context
+                .base
+                .decider
+                .prover
+                .push(1, self.context.base.decider.push_timeout)
+                .map_err(|e| {
+                    super::native_context::NativeError::Decider(
+                        crate::decider::decider::DeciderError::Prover(e),
+                    )
+                })?;
+            self.preamble_frame_ready = true;
+        }
+        Ok(())
     }
 }
 /// Construct a native worker on its eventual owner thread. The caller supplies
@@ -1865,6 +2072,7 @@ pub fn native_method_worker<S: crate::interfaces::decider::prover::Prover>(
         context: super::native_context::NativeVerifierContext::new(base, factory, options),
         user_args: config.prover_args.clone(),
         config_options,
+        preamble_frame_ready: false,
     }
 }
 
@@ -1879,6 +2087,7 @@ where
     type Task = NativeWorkerTask;
     type Output = NativeWorkerOutput;
     fn start(&mut self) -> Result<(), Self::Error> {
+        self.preamble_frame_ready = false;
         self.context
             .start(self.user_args.as_deref(), &self.config_options)
     }
@@ -1892,10 +2101,30 @@ where
             })
     }
     fn verify(&mut self, task: NativeWorkerTask) -> Result<Self::Output, Self::Error> {
+        self.ensure_preamble_frame()?;
         execute_native_worker_task(&mut self.context, task)
     }
+    fn verify_cooperative(
+        &mut self,
+        task: Self::Task,
+        queue: &WorkerQueueHandle<Self>,
+    ) -> Result<Self::Output, Self::Error> {
+        self.ensure_preamble_frame()?;
+        let scheduler = std::rc::Rc::new(NativeCfgQueueScheduler {
+            queue: queue.clone(),
+            analysis: task.analysis.clone(),
+            reporter: task.reporter.clone(),
+            warning_sink: task.warning_sink.clone(),
+        });
+        let previous = self.context.cfg_join_scheduler.replace(scheduler);
+        let result = execute_native_worker_task(&mut self.context, task);
+        self.context.cfg_join_scheduler = previous;
+        result
+    }
     fn reset(&mut self) -> Result<(), Self::Error> {
-        self.context.reset()
+        self.preamble_frame_ready = false;
+        self.context.reset()?;
+        Ok(())
     }
     fn stop(&mut self) -> Result<(), Self::Error> {
         self.context.stop()
@@ -1905,7 +2134,7 @@ where
 /// Dispatch every queued native task using only the worker-owned context.
 /// Cooperative execution uses the same reporting and scope behavior as the
 /// ordinary worker dispatcher.
-fn execute_native_worker_task<S>(
+pub(super) fn execute_intervening_native_worker_task<S>(
     context: &mut super::native_context::NativeVerifierContext<
         S,
         crate::supporters::predicate_verification_unit::PredicateData,
@@ -1917,6 +2146,117 @@ where
     S: crate::interfaces::decider::prover::Prover,
     S::Error: std::fmt::Debug,
 {
+    use super::native_context::NativeError;
+    use std::sync::atomic::Ordering;
+    if matches!(
+        task.target,
+        NativeWorkerTarget::EvaluationBranch(_) | NativeWorkerTarget::CfgJoin(_)
+    ) {
+        return execute_native_worker_task(context, task);
+    }
+    let saved = crate::rules::brancher::BranchTransferSnapshot::capture(
+        &context.base.decider,
+        context.base.errors_reported.load(Ordering::SeqCst),
+    );
+    let setup = context
+        .base
+        .decider
+        .reset_options()
+        .and_then(|_| {
+            context.base.decider.set_path_conditions(
+                crate::decider::path_conditions::LayeredPathConditionStack::new(
+                    context.base.decider.debug_mode,
+                ),
+            )
+        })
+        .map_err(NativeError::Decider);
+    let result = match setup {
+        Ok(()) => {
+            context.base.errors_reported.store(0, Ordering::SeqCst);
+            execute_native_worker_task(context, task)
+        }
+        Err(error) => Err(error),
+    };
+    let saturation = context.options.after_inhale_timeout.map(|timeout_ms| {
+        crate::interfaces::decider::prover::ProverStateSaturationTimeout {
+            timeout_ms,
+            comment: "after inhale".into(),
+        }
+    });
+    let cleanup = saved
+        .restore_after_cooperative_join(
+            &saved,
+            &mut context.base.decider,
+            &context.base.errors_reported,
+            saturation.as_ref(),
+        )
+        .map_err(NativeError::Decider);
+    match (result, cleanup) {
+        (Ok(output), Ok(())) => Ok(output),
+        (Err(primary), Ok(())) => Err(primary),
+        (Ok(_), Err(cleanup)) => Err(cleanup),
+        (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
+            "intervening task failed: {primary:?}; restoration failed: {cleanup:?}"
+        ))),
+    }
+}
+
+pub(super) fn execute_native_worker_task<S>(
+    context: &mut super::native_context::NativeVerifierContext<
+        S,
+        crate::supporters::predicate_verification_unit::PredicateData,
+        super::native_context::NativeFunctionData,
+    >,
+    task: NativeWorkerTask,
+) -> Result<NativeWorkerOutput, super::native_context::NativeError<S::Error>>
+where
+    S: crate::interfaces::decider::prover::Prover,
+    S::Error: std::fmt::Debug,
+{
+    let outer_warnings = std::mem::take(&mut context.warnings);
+    let result = execute_native_worker_task_inner(context, task);
+    let inner_warnings = std::mem::replace(&mut context.warnings, outer_warnings);
+    context.warnings.extend(inner_warnings);
+    result
+}
+fn finish_worker_warning_delivery<T, E: std::fmt::Debug>(
+    outcome: Result<T, super::native_context::NativeError<E>>,
+    warnings: Vec<String>,
+    delivery: Result<(), super::native_context::NativeError<E>>,
+) -> Result<T, super::native_context::NativeError<E>> {
+    use super::native_context::NativeError;
+    match (outcome, delivery) {
+        (result, Ok(())) => result,
+        (Ok(_), Err(delivery)) => Err(NativeError::BranchWarnings {
+            primary: Box::new(delivery),
+            warnings,
+        }),
+        (Err(primary), Err(delivery)) => Err(NativeError::BranchWarnings {
+            primary: Box::new(NativeError::Cleanup(format!(
+                "worker failed: {primary:?}; warning delivery failed: {delivery:?}"
+            ))),
+            warnings,
+        }),
+    }
+}
+
+fn execute_native_worker_task_inner<S>(
+    context: &mut super::native_context::NativeVerifierContext<
+        S,
+        crate::supporters::predicate_verification_unit::PredicateData,
+        super::native_context::NativeFunctionData,
+    >,
+    task: NativeWorkerTask,
+) -> Result<NativeWorkerOutput, super::native_context::NativeError<S::Error>>
+where
+    S: crate::interfaces::decider::prover::Prover,
+    S::Error: std::fmt::Debug,
+{
+    if let NativeWorkerTarget::CfgJoin(job) = task.target {
+        return context
+            .verify_worker_cfg_join(&task.analysis, *job)
+            .map(NativeWorkerOutput::CfgJoin);
+    }
     if let NativeWorkerTarget::EvaluationBranch(branch) = task.target {
         return context
             .verify_worker_evaluation_branch(&task.analysis, *branch)
@@ -1926,50 +2266,52 @@ where
     let outcome = match &task.target {
         NativeWorkerTarget::Method(method) => context.verify_worker_method(&task.analysis, method),
         NativeWorkerTarget::Cfg(cfg) => context.verify_worker_cfg(&task.analysis, cfg),
-        NativeWorkerTarget::EvaluationBranch(_) => unreachable!(),
+        NativeWorkerTarget::EvaluationBranch(_) | NativeWorkerTarget::CfgJoin(_) => unreachable!(),
     };
     let warnings = std::mem::take(&mut context.warnings);
-    if !warnings.is_empty() {
-        if let Some(sink) = &task.warning_sink {
-            sink.lock()
-                .expect("poisoned native warning sink")
-                .extend(warnings);
-        } else if let Some(reporter) = &task.reporter {
-            use ferrum_silver::{
-                ast::position::Position,
-                reporter::message::Message,
-                verifier::verification_result::{FrontendError, FrontendErrorKind},
-            };
-            reporter
-                .report(Message::WarningsDuringVerification {
-                    warnings: warnings
-                        .into_iter()
-                        .map(|warning| {
-                            FrontendError::new(
-                                FrontendErrorKind::VerifierWarning(warning),
-                                Position::NoPosition,
-                            )
-                        })
-                        .collect(),
-                })
-                .map_err(|error| {
-                    super::native_context::NativeError::Diagnostic(format!(
-                        "worker warning reporter: {error:?}"
-                    ))
-                })?;
-        } else {
-            return Err(super::native_context::NativeError::Unsupported(
-                "worker warnings require reporter or warning sink",
-            ));
-        }
-    }
-    let results = outcome?;
+    let delivery = if warnings.is_empty() {
+        Ok(())
+    } else if let Some(sink) = &task.warning_sink {
+        sink.lock()
+            .expect("poisoned native warning sink")
+            .extend(warnings.iter().cloned());
+        Ok(())
+    } else if let Some(reporter) = &task.reporter {
+        use ferrum_silver::{
+            ast::position::Position,
+            reporter::message::Message,
+            verifier::verification_result::{FrontendError, FrontendErrorKind},
+        };
+        reporter
+            .report(Message::WarningsDuringVerification {
+                warnings: warnings
+                    .iter()
+                    .cloned()
+                    .map(|warning| {
+                        FrontendError::new(
+                            FrontendErrorKind::VerifierWarning(warning),
+                            Position::NoPosition,
+                        )
+                    })
+                    .collect(),
+            })
+            .map_err(|error| {
+                super::native_context::NativeError::Diagnostic(format!(
+                    "worker warning reporter: {error:?}"
+                ))
+            })
+    } else {
+        Err(super::native_context::NativeError::Unsupported(
+            "worker warnings require reporter or warning sink",
+        ))
+    };
+    let results = finish_worker_warning_delivery(outcome, warnings, delivery)?;
     let member = match task.target {
         NativeWorkerTarget::Method(method) => Some(std::sync::Arc::new(
             ferrum_silver::ast::program::Member::Method(method),
         )),
         NativeWorkerTarget::Cfg(_) => None,
-        NativeWorkerTarget::EvaluationBranch(_) => unreachable!(),
+        NativeWorkerTarget::EvaluationBranch(_) | NativeWorkerTarget::CfgJoin(_) => unreachable!(),
     };
     if let Some(reporter) = task.reporter {
         report_member_results(reporter.as_ref(), member.clone(), start.elapsed(), &results)
@@ -2198,7 +2540,7 @@ where
     for outcome in finish_task_batch(tasks, task_error).map_err(NativeParallelError::Worker)? {
         match outcome {
             NativeWorkerOutput::Member(member_results) => results.extend(member_results),
-            NativeWorkerOutput::EvaluationBranch(_) => {
+            NativeWorkerOutput::EvaluationBranch(_) | NativeWorkerOutput::CfgJoin(_) => {
                 return Err(NativeParallelError::Unsupported(
                     "unexpected branch result in member batch",
                 ));
@@ -2720,6 +3062,8 @@ mod thread_pool_tests {
         require_send::<S>();
         require_send::<NativeEvaluationBranch>();
         require_send::<NativeEvaluationBranchOutput>();
+        require_send::<NativeCfgJoinJob>();
+        require_send::<NativeCfgJoinOutput>();
         require_send::<crate::rules::brancher::BranchTransferSnapshot>();
         require_send::<
             crate::rules::joiner::JoinDataEntry<
@@ -2729,6 +3073,28 @@ mod thread_pool_tests {
                 (Term, Option<ferrum_silver::ast::expression::Exp>),
             >,
         >();
+    }
+
+    #[test]
+    fn worker_failure_and_warning_delivery_failure_are_both_retained() {
+        use super::super::native_context::NativeError;
+        let outcome: Result<(), NativeError<()>> = Err(NativeError::Cancelled);
+        let delivery = Err(NativeError::Diagnostic("reporter failed".into()));
+        match finish_worker_warning_delivery(outcome, vec!["unsent warning".into()], delivery) {
+            Err(NativeError::BranchWarnings { primary, warnings }) => {
+                assert_eq!(warnings, ["unsent warning"]);
+                let NativeError::Cleanup(message) = *primary else {
+                    panic!("lost errors")
+                };
+                assert!(message.contains("Cancelled") && message.contains("reporter failed"));
+            }
+            _ => panic!("lost worker failure or warning"),
+        }
+        let outcome: Result<(), NativeError<()>> = Err(NativeError::Cancelled);
+        assert!(matches!(
+            finish_worker_warning_delivery(outcome, vec![], Ok(())),
+            Err(NativeError::Cancelled)
+        ));
     }
 
     #[test]
@@ -3204,6 +3570,7 @@ mod thread_pool_tests {
         workers: usize,
         make: F,
         standalone_cfg: bool,
+        cfg_scheduler: bool,
     ) -> (Vec<bool>, Vec<String>)
     where
         P: crate::interfaces::decider::prover::Prover + 'static,
@@ -3231,7 +3598,10 @@ mod thread_pool_tests {
             sil_front_end_config::SilFrontendConfig,
             sil_frontend::{SilFrontendPhases, standard_plugin_manager},
         };
-        let config = Config::default();
+        let mut config = Config::default();
+        if cfg_scheduler {
+            config.more_joins = crate::config::JoinMode::All;
+        }
         let native_options = NativeOptions::from_config(&config).unwrap();
         let factory = TermFactory::new(TermOptions {
             use_flyweight: false,
@@ -3245,14 +3615,16 @@ mod thread_pool_tests {
         let pool = ThreadVerificationPool::start(workers, move |id| {
             let name = format!("worker-{id}");
             let (prover, identifiers) = worker_make(name.clone(), worker_factory.clone());
-            Ok(native_method_worker(
+            let mut worker = native_method_worker(
                 name,
                 prover,
                 identifiers,
                 worker_factory.clone(),
                 worker_options.clone(),
                 &worker_config,
-            ))
+            );
+            worker.context.cfg_join_scheduler_enabled = cfg_scheduler;
+            Ok(worker)
         })
         .unwrap();
         let pool = std::rc::Rc::new(std::cell::RefCell::new(pool));
@@ -3397,7 +3769,7 @@ mod thread_pool_tests {
             + Sync
             + 'static,
     {
-        run_parallel_source_with_warnings(source, workers, make, false).0
+        run_parallel_source_with_warnings(source, workers, make, false, false).0
     }
     #[cfg(feature = "native-z3")]
     fn run_parallel_linked(source: &str, workers: usize) -> Vec<bool> {
@@ -3464,7 +3836,8 @@ mod thread_pool_tests {
             (prover, identifiers)
         };
         let source = "function f(x: Int): Int { x + 1 } @moreJoins(\"bogus\") method good() { assert f(1) == 2; } method bad() { assert f(1) == 3; } method good2() { assert f(2) == 3; } method good3() { assert f(3) == 4; }";
-        let (fatal, worker_warnings) = run_parallel_source_with_warnings(source, 2, make, false);
+        let (fatal, worker_warnings) =
+            run_parallel_source_with_warnings(source, 2, make, false, false);
         assert_eq!(fatal.iter().filter(|value| **value).count(), 1);
         assert!(
             worker_warnings
@@ -3509,7 +3882,8 @@ mod thread_pool_tests {
             (prover, identifiers)
         };
         let source = "function f(x: Int): Int { x + 1 } @moreJoins(\"bogus\") method good() { assert f(1) == 2; } method bad() { assert f(1) == 3; } method good2() { assert f(2) == 3; } method good3() { assert f(3) == 4; }";
-        let (fatal, worker_warnings) = run_parallel_source_with_warnings(source, 2, make, false);
+        let (fatal, worker_warnings) =
+            run_parallel_source_with_warnings(source, 2, make, false, false);
         assert_eq!(fatal.iter().filter(|value| **value).count(), 1);
         assert!(
             worker_warnings
@@ -3518,6 +3892,82 @@ mod thread_pool_tests {
         );
         assert_eq!(warnings.lock().unwrap().len(), 3);
     }
+    #[test]
+    fn real_stdio_cfg_joins_use_owned_worker_jobs() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        for workers in [1, 2] {
+            let before = CFG_JOIN_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings(
+                "method good() { var b: Bool; if (b) { assert true; } else { assert true; } assert true; } method bad() { var b: Bool; if (b) { assert false; } else { assert true; } assert true; }",
+                workers,
+                make.clone(),
+                true,
+                true,
+            );
+            assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1);
+            assert!(
+                CFG_JOIN_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > before,
+                "CFG join never submitted owned work"
+            );
+        }
+    }
+
+    #[cfg(feature = "native-z3")]
+    #[test]
+    fn real_linked_cfg_joins_use_owned_worker_jobs() {
+        use crate::decider::{
+            native_z3::{LinkedProverOptions, LinkedZ3Prover},
+            z3_prover_api::ApiTimeoutSettings,
+        };
+        let make = |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = LinkedZ3Prover::new(
+                name,
+                factory,
+                LinkedProverOptions {
+                    timeout: ApiTimeoutSettings {
+                        default_timeout_ms: 0,
+                        use_time_bounds: true,
+                        resources_per_millisecond: 1,
+                    },
+                    counterexamples: false,
+                    report_reason_unknown: false,
+                    debug: false,
+                    soft_assertions: false,
+                    custom_options: vec![],
+                    disable_nonlinear: false,
+                },
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        for workers in [1, 2] {
+            let before = CFG_JOIN_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings(
+                "method good() { var b: Bool; if (b) { assert true; } else { assert true; } assert true; } method bad() { var b: Bool; if (b) { assert false; } else { assert true; } assert true; }",
+                workers,
+                make,
+                true,
+                true,
+            );
+            assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1);
+            assert!(CFG_JOIN_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > before);
+        }
+    }
+
     #[cfg(feature = "native-z3")]
     #[test]
     fn real_parallel_cfgs_report_ordered_positive_and_negative_results() {
@@ -3551,6 +4001,7 @@ mod thread_pool_tests {
             2,
             make,
             true,
+            false,
         );
         assert_eq!(fatal.iter().filter(|value| **value).count(), 1);
         assert!(!fatal[0]);

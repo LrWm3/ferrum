@@ -293,6 +293,10 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub factory: TermFactory,
     pub options: NativeOptions,
     pub warnings: Vec<String>,
+    pub(crate) cfg_join_scheduler: Option<
+        std::rc::Rc<dyn super::verification_pool_manager::NativeCfgJoinScheduler<S, PD, FD>>,
+    >,
+    pub(crate) cfg_join_scheduler_enabled: bool,
     /// Owner-local symbolic logger and record constructor. Both are inactive until
     /// the verification lifecycle explicitly installs a member log.
     pub(crate) logging_root: Option<Arc<crate::logger::symb_ex_logger::NativeSymbExLogger>>,
@@ -339,6 +343,8 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             factory,
             options,
             warnings: Vec::new(),
+            cfg_join_scheduler: None,
+            cfg_join_scheduler_enabled: false,
             logging_root: None,
             member_log: None,
             record_factory: None,
@@ -7668,6 +7674,20 @@ where
             ExecutionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
+        if self.cfg_join_scheduler_enabled
+            && state.parallelize_branches
+            && self.cfg_join_scheduler.is_some()
+        {
+            return self.join_cfg_branches_parallel(
+                state,
+                condition,
+                original,
+                rewritten,
+                yes,
+                no,
+                continuation,
+            );
+        }
         let error = std::cell::RefCell::new(None);
         let result = self.join_impure_branches(
             state,
@@ -8432,7 +8452,7 @@ where
         }
     }
     /// Explore an owned evaluation branch on a worker with its own prover.
-    pub fn verify_worker_evaluation_branch(
+    pub(crate) fn verify_worker_evaluation_branch(
         &mut self,
         analysis: &NativeWorkerAnalysis,
         branch: super::verification_pool_manager::NativeEvaluationBranch,
@@ -8453,13 +8473,44 @@ where
         self.predicate_snapshots.snap_map = analysis.snapshot_sorts.clone();
         self.predicate_snapshots.formal_var_map = analysis.snapshot_formals.clone();
         let remote = self.base.unique_id != branch.source_worker_id;
-        let restore = if remote {
-            Some(
-                branch
-                    .snapshot
-                    .install(&mut self.base.decider, &self.base.errors_reported)
-                    .map_err(|e| NativeError::Evaluation(format!("branch setup: {e:?}")))?,
+        let saved_worker = remote.then(|| {
+            crate::rules::brancher::BranchTransferSnapshot::capture(
+                &self.base.decider,
+                self.base
+                    .errors_reported
+                    .load(std::sync::atomic::Ordering::SeqCst),
             )
+        });
+        let saturation = self.options.after_inhale_timeout.map(|timeout_ms| {
+            crate::interfaces::decider::prover::ProverStateSaturationTimeout {
+                timeout_ms,
+                comment: "after inhale".into(),
+            }
+        });
+        let restore = if remote {
+            match branch
+                .snapshot
+                .install(&mut self.base.decider, &self.base.errors_reported)
+            {
+                Ok(restore) => Some(restore),
+                Err(primary) => {
+                    let cleanup = saved_worker
+                        .as_ref()
+                        .unwrap()
+                        .restore_after_cooperative_join(
+                            saved_worker.as_ref().unwrap(),
+                            &mut self.base.decider,
+                            &self.base.errors_reported,
+                            saturation.as_ref(),
+                        );
+                    return Err(match cleanup {
+                        Ok(()) => NativeError::Evaluation(format!("branch setup: {primary:?}")),
+                        Err(cleanup) => NativeError::Cleanup(format!(
+                            "branch setup: {primary:?}; worker restore: {cleanup:?}"
+                        )),
+                    });
+                }
+            }
         } else {
             None
         };
@@ -8515,6 +8566,9 @@ where
             let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
             match (evaluated, cleanup) {
                 (Ok(result), Ok(())) => Ok((result, entries)),
+                (Err(EvaluationError::Context(NativeError::Cancelled)), Ok(())) => {
+                    Err(NativeError::Cancelled)
+                }
                 (Err(e), Ok(())) => {
                     Err(NativeError::Evaluation(format!("branch evaluation: {e:?}")))
                 }
@@ -8546,6 +8600,24 @@ where
                 "branch failed: {primary:?}; option restoration failed: {cleanup:?}"
             ))),
         };
+        let state_cleanup = match &saved_worker {
+            Some(saved) => saved
+                .restore_after_cooperative_join(
+                    saved,
+                    &mut self.base.decider,
+                    &self.base.errors_reported,
+                    saturation.as_ref(),
+                )
+                .map_err(NativeError::Decider),
+            None => Ok(()),
+        };
+        let outcome = match (outcome, state_cleanup) {
+            (outcome, Ok(())) => outcome,
+            (Ok(_), Err(cleanup)) => Err(cleanup),
+            (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
+                "branch: {primary:?}; worker restore: {cleanup:?}"
+            ))),
+        };
         let warnings = self.warnings.split_off(warning_start);
         match outcome {
             Ok(mut output) => {
@@ -8560,8 +8632,199 @@ where
         }
     }
 
+    /// Execute one transferred CFG branch until its owned join point.
+    pub(crate) fn verify_worker_cfg_join(
+        &mut self,
+        analysis: &NativeWorkerAnalysis,
+        branch: super::verification_pool_manager::NativeCfgJoinJob,
+    ) -> Result<super::verification_pool_manager::NativeCfgJoinOutput, NativeError<S::Error>> {
+        use crate::rules::{executor, joiner::JoinDataEntry};
+        self.checkpoint()?;
+        self.active_program = Some(analysis.program.clone());
+        self.predicate_contents = analysis.predicates.clone();
+        self.function_handles = analysis.function_handles.clone();
+        self.function_owners = analysis.function_owners.clone();
+        self.function_heights = analysis.function_heights.clone();
+        self.function_fresh_variables = analysis.function_fresh_variables.clone();
+        self.failed_functions = analysis.failed_functions.clone();
+        self.predicate_snapshots.snap_map = analysis.snapshot_sorts.clone();
+        self.predicate_snapshots.formal_var_map = analysis.snapshot_formals.clone();
+        let remote = self.base.unique_id != branch.source_worker_id;
+        // An unrelated queued branch may run while this worker is suspended.
+        // Restore its original PCS and error count before returning to that task.
+        let saved_worker = remote.then(|| {
+            crate::rules::brancher::BranchTransferSnapshot::capture(
+                &self.base.decider,
+                self.base
+                    .errors_reported
+                    .load(std::sync::atomic::Ordering::SeqCst),
+            )
+        });
+        let saturation = self.options.after_inhale_timeout.map(|timeout_ms| {
+            crate::interfaces::decider::prover::ProverStateSaturationTimeout {
+                timeout_ms,
+                comment: "after inhale".into(),
+            }
+        });
+        let restore = if remote {
+            match branch
+                .snapshot
+                .install(&mut self.base.decider, &self.base.errors_reported)
+            {
+                Ok(restore) => Some(restore),
+                Err(primary) => {
+                    let cleanup = saved_worker
+                        .as_ref()
+                        .unwrap()
+                        .restore_after_cooperative_join(
+                            saved_worker.as_ref().unwrap(),
+                            &mut self.base.decider,
+                            &self.base.errors_reported,
+                            saturation.as_ref(),
+                        );
+                    return Err(match cleanup {
+                        Ok(()) => NativeError::Execution(format!("CFG branch setup: {primary:?}")),
+                        Err(cleanup) => NativeError::Cleanup(format!(
+                            "CFG branch setup: {primary:?}; worker restore: {cleanup:?}"
+                        )),
+                    });
+                }
+            }
+        } else {
+            None
+        };
+        let under_join = branch.state.under_join;
+        let warning_start = self.warnings.len();
+        let result = (|| {
+            self.base
+                .decider
+                .push_scope()
+                .map_err(NativeError::Decider)?;
+            let mut entries = Vec::new();
+            let executed = (|| {
+                self.base
+                    .decider
+                    .set_branch_condition(
+                        branch.condition,
+                        (branch.original, branch.rewritten),
+                        None,
+                    )
+                    .map_err(|e| ExecutionError::Context(NativeError::Decider(e)))?;
+                if let (true, Some(timeout)) = (remote, self.options.after_inhale_timeout) {
+                    self.base
+                        .decider
+                        .prover
+                        .saturate(timeout, "after inhale")
+                        .map_err(|e| {
+                            ExecutionError::Context(NativeError::Decider(DeciderError::Prover(e)))
+                        })?;
+                }
+                #[cfg(test)]
+                if let Some(goal) = &branch.replay_check {
+                    let valid = self
+                        .base
+                        .decider
+                        .prover
+                        .assert_goal(goal, None)
+                        .map_err(|e| {
+                            ExecutionError::Context(NativeError::Decider(DeciderError::Prover(e)))
+                        })?;
+                    assert!(valid, "transferred path was not replayed");
+                }
+                #[cfg(test)]
+                if let Some(hook) = &branch.after_start {
+                    hook();
+                }
+                self.checkpoint().map_err(ExecutionError::Context)?;
+                let state = self
+                    .consolidate_optional(branch.state)
+                    .map_err(ExecutionError::Context)?;
+                executor::execute_cfg_join_branch(
+                    self,
+                    state,
+                    &branch.action,
+                    &mut |context, state| {
+                        let path_conditions =
+                            context.base.decider.pcs.after(branch.mark).map_err(|e| {
+                                ExecutionError::Context(NativeError::Decider(DeciderError::Path(e)))
+                            })?;
+                        entries.push(JoinDataEntry {
+                            state,
+                            data: (),
+                            path_conditions,
+                        });
+                        Ok(VerificationResult::success())
+                    },
+                )
+            })();
+            let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
+            match (executed, cleanup) {
+                (Ok(result), Ok(())) => Ok((result, entries)),
+                (Err(ExecutionError::Context(NativeError::Cancelled)), Ok(())) => {
+                    Err(NativeError::Cancelled)
+                }
+                (Err(e), Ok(())) => Err(NativeError::Execution(format!("CFG branch: {e:?}"))),
+                (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
+                    "CFG branch: {primary:?}; scope cleanup: {cleanup:?}"
+                ))),
+                (Ok(_), Err(cleanup)) => Err(cleanup),
+            }
+        })();
+        let cleanup = match restore {
+            Some(restore) => restore
+                .finish(&mut self.base.decider, under_join)
+                .map_err(NativeError::Decider),
+            None => Ok(crate::rules::brancher::BranchJoinDeclarations::default()),
+        };
+        let result = match (result, cleanup) {
+            (Ok((result, entries)), Ok(declarations)) => {
+                Ok(super::verification_pool_manager::NativeCfgJoinOutput {
+                    result,
+                    entries,
+                    declarations,
+                    warnings: Vec::new(),
+                })
+            }
+            (Err(primary), Ok(_)) => Err(primary),
+            (Ok(_), Err(cleanup)) => Err(cleanup),
+            (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
+                "CFG branch: {primary:?}; options cleanup: {cleanup:?}"
+            ))),
+        };
+        let state_cleanup = match &saved_worker {
+            Some(saved) => saved
+                .restore_after_cooperative_join(
+                    saved,
+                    &mut self.base.decider,
+                    &self.base.errors_reported,
+                    saturation.as_ref(),
+                )
+                .map_err(NativeError::Decider),
+            None => Ok(()),
+        };
+        let result = match (result, state_cleanup) {
+            (result, Ok(())) => result,
+            (Ok(_), Err(cleanup)) => Err(cleanup),
+            (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
+                "CFG branch: {primary:?}; worker restore: {cleanup:?}"
+            ))),
+        };
+        let warnings = self.warnings.split_off(warning_start);
+        match result {
+            Ok(mut output) => {
+                output.warnings = warnings;
+                Ok(output)
+            }
+            Err(primary) if !warnings.is_empty() => Err(NativeError::BranchWarnings {
+                primary: Box::new(primary),
+                warnings,
+            }),
+            Err(primary) => Err(primary),
+        }
+    }
+
     /// Verify one method with an already-started worker prover and replayed preamble.
-    pub fn verify_worker_method(
+    pub(crate) fn verify_worker_method(
         &mut self,
         analysis: &NativeWorkerAnalysis,
         method: &Method,
@@ -8593,12 +8856,17 @@ where
         )?;
         let results = crate::supporters::method_supporter::verify_method(self, state, method)
             .map(flatten_results)
-            .map_err(|e| NativeError::Execution(format!("worker method verification: {e:?}")))?;
+            .map_err(|e| match e {
+                crate::supporters::method_supporter::MethodVerificationError::Service(
+                    NativeError::Cancelled,
+                ) => NativeError::Cancelled,
+                other => NativeError::Execution(format!("worker method verification: {other:?}")),
+            })?;
         Ok(results)
     }
 
     /// Verify an externally supplied CFG on an initialized worker solver.
-    pub fn verify_worker_cfg(
+    pub(crate) fn verify_worker_cfg(
         &mut self,
         analysis: &NativeWorkerAnalysis,
         cfg: &SilverCfg,
@@ -8626,7 +8894,12 @@ where
         let state = self.initial_cfg_state(&analysis.program, &local);
         crate::supporters::cfg_supporter::verify_cfg(self, state, Arc::new(cfg.clone()))
             .map(flatten_results)
-            .map_err(|e| NativeError::Execution(format!("worker CFG verification: {e:?}")))
+            .map_err(|e| match e {
+                crate::supporters::cfg_supporter::CfgVerificationError::Service(
+                    NativeError::Cancelled,
+                ) => NativeError::Cancelled,
+                other => NativeError::Execution(format!("worker CFG verification: {other:?}")),
+            })
     }
 
     /// Verify a function before reporting and scope assignment in a pool orchestrator.
@@ -11117,6 +11390,333 @@ impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
 where
     S::Error: std::fmt::Debug,
 {
+    /// Source-eligible CFG join scheduler; other join families remain synchronous.
+    fn join_cfg_branches_parallel(
+        &mut self,
+        mut state: State<PD, FD, JoinMode>,
+        condition: Term,
+        original: &Exp,
+        rewritten: Option<&Exp>,
+        yes: crate::rules::executor::CfgJoinBranch,
+        no: crate::rules::executor::CfgJoinBranch,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ExecutionError<NativeError<S::Error>>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, ExecutionError<NativeError<S::Error>>> {
+        use crate::rules::{
+            brancher, executor,
+            joiner::{self, JoinDataEntry},
+        };
+        let factory = self.factory.clone();
+        self.base
+            .decider
+            .push_scope()
+            .map_err(|e| ExecutionError::Context(NativeError::Decider(e)))?;
+        let mark = self.base.decider.pcs.mark();
+        state.under_join = true;
+        let block = (|| {
+            let qvars = state
+                .quantified_variables
+                .iter()
+                .map(|(term, _)| term.clone())
+                .collect::<Vec<_>>();
+            let decision = brancher::decide(&factory, &condition, &qvars, false, true, |term| {
+                self.base
+                    .decider
+                    .check(term, self.base.decider.check_timeout)
+            })
+            .map_err(|e| match e {
+                brancher::BranchError::Solver(e) => {
+                    ExecutionError::Context(NativeError::Decider(e))
+                }
+                brancher::BranchError::Traversal(e) => {
+                    ExecutionError::Context(NativeError::BranchTraversal(format!("{e:?}")))
+                }
+            })?;
+            let snapshot = decision.parallelize_else.then(|| {
+                brancher::BranchTransferSnapshot::capture(
+                    &self.base.decider,
+                    self.base
+                        .errors_reported
+                        .load(std::sync::atomic::Ordering::SeqCst),
+                )
+            });
+            let future = if let Some(snapshot) = &snapshot {
+                let job = super::verification_pool_manager::NativeCfgJoinJob {
+                    source_worker_id: self.base.unique_id.clone(),
+                    snapshot: snapshot.clone(),
+                    state: state.clone(),
+                    mark,
+                    condition: factory.not(condition.clone()),
+                    original: Exp::new(ExpKind::Not(original.clone()), Default::default()),
+                    rewritten: rewritten
+                        .map(|e| Exp::new(ExpKind::Not(e.clone()), Default::default())),
+                    action: no.clone(),
+                    #[cfg(test)]
+                    after_start: None,
+                    #[cfg(test)]
+                    replay_check: None,
+                };
+                Some(
+                    self.cfg_join_scheduler
+                        .as_ref()
+                        .expect("scheduler")
+                        .submit(job)
+                        .map_err(|e| {
+                            ExecutionError::Context(NativeError::Diagnostic(format!(
+                                "CFG branch submission: {e:?}"
+                            )))
+                        })?,
+                )
+            } else {
+                None
+            };
+            let run = |this: &mut Self,
+                       active: bool,
+                       positive: bool,
+                       action: &crate::rules::executor::CfgJoinBranch|
+             -> Result<
+                (
+                    VerificationResult<VerificationError>,
+                    Vec<JoinDataEntry<PD, FD, JoinMode, ()>>,
+                ),
+                ExecutionError<NativeError<S::Error>>,
+            > {
+                if !active {
+                    return Ok((VerificationResult::unreachable(), Vec::new()));
+                }
+                this.base
+                    .decider
+                    .push_scope()
+                    .map_err(|e| ExecutionError::Context(NativeError::Decider(e)))?;
+                let guard = if positive {
+                    condition.clone()
+                } else {
+                    factory.not(condition.clone())
+                };
+                let exp = if positive {
+                    original.clone()
+                } else {
+                    Exp::new(ExpKind::Not(original.clone()), Default::default())
+                };
+                let debug = if positive {
+                    rewritten.cloned()
+                } else {
+                    rewritten.map(|e| Exp::new(ExpKind::Not(e.clone()), Default::default()))
+                };
+                let mut entries = Vec::new();
+                let result = (|| {
+                    this.base
+                        .decider
+                        .set_branch_condition(guard, (exp, debug), None)
+                        .map_err(|e| ExecutionError::Context(NativeError::Decider(e)))?;
+                    let state = this
+                        .consolidate_optional(state.clone())
+                        .map_err(ExecutionError::Context)?;
+                    executor::execute_cfg_join_branch(this, state, action, &mut |context, state| {
+                        let path_conditions =
+                            context.base.decider.pcs.after(mark).map_err(|e| {
+                                ExecutionError::Context(NativeError::Decider(DeciderError::Path(e)))
+                            })?;
+                        entries.push(JoinDataEntry {
+                            state,
+                            data: (),
+                            path_conditions,
+                        });
+                        Ok(VerificationResult::success())
+                    })
+                })();
+                let cleanup = this.base.decider.pop_scope().map_err(NativeError::Decider);
+                match (result, cleanup) {
+                    (Ok(result), Ok(())) => Ok((result, entries)),
+                    (Err(e), Ok(())) => Err(e),
+                    (Ok(_), Err(e)) => Err(ExecutionError::Context(e)),
+                    (Err(e), Err(cleanup)) => Err(ExecutionError::Context(NativeError::Cleanup(
+                        format!("CFG branch: {e:?}; scope cleanup: {cleanup:?}"),
+                    ))),
+                }
+            };
+            let then_result = run(self, decision.execute_then, true, &yes);
+            let then_report_error = if state.is_last_retry() {
+                match &then_result {
+                    Ok((result, _)) => self.cfg_join_scheduler.as_ref().and_then(|scheduler| {
+                        scheduler
+                            .report_failure(state.current_member.as_ref(), result)
+                            .err()
+                    }),
+                    Err(_) => None,
+                }
+            } else {
+                None
+            };
+            if let Some(future) = future {
+                let after_then = brancher::BranchTransferSnapshot::capture(
+                    &self.base.decider,
+                    self.base
+                        .errors_reported
+                        .load(std::sync::atomic::Ordering::SeqCst),
+                );
+                let pcs_before = self.base.decider.path_condition_identity();
+                let waited = future.wait(self);
+                let restoration = if !std::sync::Arc::ptr_eq(
+                    &pcs_before,
+                    &self.base.decider.path_condition_identity(),
+                ) && !waited.awaited_executed_on_current_worker
+                {
+                    let saturation = self.options.after_inhale_timeout.map(|timeout_ms| {
+                        crate::interfaces::decider::prover::ProverStateSaturationTimeout {
+                            timeout_ms,
+                            comment: "after inhale".into(),
+                        }
+                    });
+                    after_then
+                        .restore_after_cooperative_join(
+                            snapshot.as_ref().unwrap(),
+                            &mut self.base.decider,
+                            &self.base.errors_reported,
+                            saturation.as_ref(),
+                        )
+                        .err()
+                        .map(NativeError::Decider)
+                } else {
+                    None
+                };
+                let other = match waited.result {
+                    Ok(mut output) => {
+                        self.warnings.append(&mut output.warnings);
+                        Ok(output)
+                    }
+                    Err(super::verification_pool_manager::ThreadPoolError::Worker(
+                        NativeError::BranchWarnings { primary, warnings },
+                    )) => {
+                        self.warnings.extend(warnings);
+                        Err(*primary)
+                    }
+                    Err(super::verification_pool_manager::ThreadPoolError::Worker(error)) => {
+                        Err(error)
+                    }
+                    Err(super::verification_pool_manager::ThreadPoolError::Cancelled) => {
+                        Err(NativeError::Cancelled)
+                    }
+                    Err(error) => Err(NativeError::Diagnostic(format!(
+                        "CFG branch wait: {error:?}"
+                    ))),
+                };
+                match (then_result, other, restoration, then_report_error) {
+                    (Ok((result, mut entries)), Ok(other), None, None) => {
+                        if state.is_last_retry() {
+                            self.cfg_join_scheduler
+                                .as_ref()
+                                .expect("scheduler")
+                                .report_failure(state.current_member.as_ref(), &other.result)
+                                .map_err(ExecutionError::Context)?;
+                        }
+                        other
+                            .declarations
+                            .declare_on(&mut self.base.decider)
+                            .map_err(|e| ExecutionError::Context(NativeError::Decider(e)))?;
+                        entries.extend(other.entries);
+                        Ok((entries, result.combine(|| other.result, true)))
+                    }
+                    (Err(error), Ok(_), None, None) => Err(error),
+                    (Ok(_), Err(error), None, None) => Err(ExecutionError::Context(error)),
+                    (Ok(_), Ok(_), Some(error), None) | (Ok(_), Ok(_), None, Some(error)) => {
+                        Err(ExecutionError::Context(error))
+                    }
+                    (then, other, restoration, reporting) => {
+                        Err(ExecutionError::Context(NativeError::Cleanup(format!(
+                            "CFG join: then={:?}, else={:?}, restoration={restoration:?}, reporting={reporting:?}",
+                            then.err(),
+                            other.err()
+                        ))))
+                    }
+                }
+            } else {
+                if let Some(error) = then_report_error {
+                    return Err(ExecutionError::Context(error));
+                }
+                let (then_result, mut entries) = then_result?;
+                let result = if then_result.continue_verification() {
+                    let (other, other_entries) = run(self, decision.execute_else, false, &no)?;
+                    if state.is_last_retry() {
+                        self.cfg_join_scheduler
+                            .as_ref()
+                            .expect("scheduler")
+                            .report_failure(state.current_member.as_ref(), &other)
+                            .map_err(ExecutionError::Context)?;
+                    }
+                    entries.extend(other_entries);
+                    then_result.combine(|| other, false)
+                } else {
+                    then_result
+                };
+                Ok((entries, result))
+            }
+        })();
+        let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
+        let (entries, result) = match (block, cleanup) {
+            (Ok(value), Ok(())) => value,
+            (Err(e), Ok(())) => return Err(e),
+            (Ok(_), Err(e)) => return Err(ExecutionError::Context(e)),
+            (Err(e), Err(cleanup)) => {
+                return Err(ExecutionError::Context(NativeError::Cleanup(format!(
+                    "CFG join: {e:?}; cleanup: {cleanup:?}"
+                ))));
+            }
+        };
+        let result = VerificationResult::success().and_then(|| result);
+        if !result.continue_verification() {
+            return Ok(result);
+        }
+        if entries.is_empty() {
+            return Ok(result.combine(VerificationResult::success, false));
+        }
+        let (assumptions, feasible) = joiner::joined_conditions(&entries, &factory);
+        let state = match entries.as_slice() {
+            [one] => one.state.clone(),
+            [first, second] => {
+                let merged = first
+                    .state
+                    .merge_recorded(
+                        &first.path_conditions,
+                        &second.state,
+                        &second.path_conditions,
+                        &factory,
+                        false,
+                        &mut |warning| self.warnings.push(warning),
+                    )
+                    .map_err(|e| ExecutionError::Context(NativeError::State(e)))?;
+                let choice = self
+                    .consolidation_choice(&merged)
+                    .map_err(ExecutionError::Context)?;
+                crate::rules::state_consolidator::consolidate(&factory, self, merged, choice, false)
+                    .map_err(|e| {
+                        ExecutionError::Context(NativeError::Consolidation(format!(
+                            "CFG join: {e:?}"
+                        )))
+                    })?
+            }
+            _ => {
+                return Err(ExecutionError::Context(NativeError::Unsupported(
+                    "unexpected CFG join entries",
+                )));
+            }
+        };
+        for group in assumptions {
+            for term in group {
+                self.assume_term(&term).map_err(ExecutionError::Context)?;
+            }
+        }
+        self.assume_term(&feasible)
+            .map_err(ExecutionError::Context)?;
+        let next = continuation(self, state)?;
+        Ok(result.combine(|| next, false))
+    }
+
     /// Source join(resetState=false): collect branch-local outcomes, merge and replay paths.
     fn join_impure_branches<T: Clone>(
         &mut self,
@@ -16423,6 +17023,739 @@ mod owned_branch_worker_tests {
             .wait();
         assert!(matches!(
             cancelled,
+            Err(
+                crate::verifier::verification_pool_manager::ThreadPoolError::Worker(
+                    NativeError::Cancelled
+                )
+            )
+        ));
+        pool.shutdown().unwrap();
+        source.context.base.decider.pop_scope().unwrap();
+        source.stop().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod queued_cfg_isolation_tests {
+    use super::*;
+    use crate::{
+        config::Config,
+        decider::{prover_std_io::ProverStdIo, z3_prover_std_io},
+        rules::{brancher::BranchTransferSnapshot, executor::CfgJoinBranch},
+        verifier::verification_pool_manager::{
+            NativeCfgJoinJob, NativeMethodWorker, NativeWorkerOutput, NativeWorkerTarget,
+            NativeWorkerTask, ThreadBoundWorker, ThreadVerificationPool, WorkerPreambleCommand,
+            WorkerQueueHandle, execute_intervening_native_worker_task, execute_native_worker_task,
+            native_method_worker,
+        },
+    };
+    use ferrum_silver::frontend::{
+        frontend::FrontendPhases,
+        sil_front_end_config::SilFrontendConfig,
+        sil_frontend::{SilFrontendPhases, standard_plugin_manager},
+    };
+    use std::sync::{Condvar, Mutex};
+
+    enum Job {
+        Parent(NativeWorkerTask),
+        CancelParent(NativeWorkerTask),
+        Remote(NativeWorkerTask),
+        Intervening(NativeWorkerTask),
+        OwnSequence {
+            foreign: NativeWorkerTask,
+            own: NativeWorkerTask,
+        },
+        Inline(NativeWorkerTask),
+    }
+    struct TestWorker {
+        native: NativeMethodWorker<ProverStdIo>,
+        started: Arc<(Mutex<bool>, Condvar)>,
+        parent_ready: std::sync::mpsc::Sender<()>,
+        release_tx: std::sync::mpsc::Sender<()>,
+        release_rx: Arc<Mutex<std::sync::mpsc::Receiver<()>>>,
+        requirement: Term,
+    }
+    impl ThreadBoundWorker for TestWorker {
+        type Error =
+            NativeError<<ProverStdIo as crate::interfaces::decider::prover::TextEmitter>::Error>;
+        type Broadcast = WorkerPreambleCommand;
+        type BroadcastResult = Option<String>;
+        type Task = Job;
+        type Output = bool;
+        fn start(&mut self) -> Result<(), Self::Error> {
+            self.native.start()?;
+            assert_eq!(
+                self.native
+                    .context
+                    .base
+                    .decider
+                    .prover
+                    .push_pop_scope_depth(),
+                0
+            );
+            self.native
+                .context
+                .base
+                .decider
+                .set_options(
+                    [("smt.random_seed".into(), "42".into())]
+                        .into_iter()
+                        .collect(),
+                )
+                .map_err(NativeError::Decider)
+        }
+        fn broadcast(
+            &mut self,
+            command: Self::Broadcast,
+        ) -> Result<Self::BroadcastResult, Self::Error> {
+            self.native.broadcast(command)
+        }
+        fn verify(&mut self, _: Job) -> Result<bool, Self::Error> {
+            Err(NativeError::Unsupported("missing cooperative queue"))
+        }
+        fn verify_cooperative(
+            &mut self,
+            job: Job,
+            queue: &WorkerQueueHandle<Self>,
+        ) -> Result<bool, Self::Error> {
+            self.native.ensure_preamble_frame()?;
+            match job {
+                Job::Parent(remote) => {
+                    let future = queue
+                        .submit(Job::Remote(remote))
+                        .map_err(|e| NativeError::Diagnostic(format!("submit: {e:?}")))?;
+                    let (lock, wake) = &*self.started;
+                    let mut started = lock.lock().unwrap();
+                    while !*started {
+                        started = wake.wait(started).unwrap();
+                    }
+                    drop(started);
+                    // A method's precondition is produced in the first member scope.
+                    self.native
+                        .context
+                        .base
+                        .decider
+                        .push_scope()
+                        .map_err(NativeError::Decider)?;
+                    assert_eq!(
+                        self.native
+                            .context
+                            .base
+                            .decider
+                            .prover
+                            .push_pop_scope_depth(),
+                        2
+                    );
+                    let requirement = self.requirement.clone();
+                    self.native
+                        .context
+                        .base
+                        .decider
+                        .assume([(requirement.clone(), None)], false, false)
+                        .map_err(NativeError::Decider)?;
+                    self.native
+                        .context
+                        .base
+                        .errors_reported
+                        .store(7, std::sync::atomic::Ordering::SeqCst);
+                    self.parent_ready.send(()).unwrap();
+                    let waited = queue.wait_cooperatively_with(future, |work| match work {
+                        Job::Intervening(task) => {
+                            let output = execute_intervening_native_worker_task(
+                                &mut self.native.context,
+                                task,
+                            )?;
+                            let NativeWorkerOutput::Member(results) = output else {
+                                return Err(NativeError::Unsupported(
+                                    "unexpected intervening output",
+                                ));
+                            };
+                            let failed = results.iter().any(|r| r.is_fatal());
+                            self.release_tx.send(()).unwrap();
+                            Ok(failed)
+                        }
+                        _ => Err(NativeError::Unsupported("unexpected cooperative task")),
+                    });
+                    assert!(waited.executed_other_task);
+                    assert!(!waited.awaited_executed_on_current_worker);
+                    assert!(
+                        waited
+                            .result
+                            .map_err(|e| NativeError::Diagnostic(format!("wait: {e:?}")))?
+                    );
+                    assert!(
+                        self.native
+                            .context
+                            .base
+                            .decider
+                            .prover
+                            .assert_goal(&requirement, None)
+                            .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?
+                    );
+                    assert_eq!(
+                        self.native
+                            .context
+                            .base
+                            .decider
+                            .options()
+                            .get("smt.random_seed")
+                            .map(String::as_str),
+                        Some("42")
+                    );
+                    assert_eq!(
+                        self.native
+                            .context
+                            .base
+                            .errors_reported
+                            .load(std::sync::atomic::Ordering::SeqCst),
+                        7
+                    );
+                    self.native
+                        .context
+                        .base
+                        .decider
+                        .pop_scope()
+                        .map_err(NativeError::Decider)?;
+                    Ok(true)
+                }
+                Job::OwnSequence { foreign, mut own } => {
+                    self.native
+                        .context
+                        .base
+                        .decider
+                        .push_scope()
+                        .map_err(NativeError::Decider)?;
+                    let opposite = self.native.context.factory.not(self.requirement.clone());
+                    self.native
+                        .context
+                        .base
+                        .decider
+                        .assume([(opposite.clone(), None)], false, false)
+                        .map_err(NativeError::Decider)?;
+                    let mark = self.native.context.base.decider.pcs.mark();
+                    let NativeWorkerTarget::CfgJoin(job) = &mut own.target else {
+                        return Err(NativeError::Unsupported("expected own CFG job"));
+                    };
+                    job.source_worker_id = self.native.context.base.unique_id.clone();
+                    job.snapshot =
+                        BranchTransferSnapshot::capture(&self.native.context.base.decider, 0);
+                    job.mark = mark;
+                    job.replay_check = Some(opposite.clone());
+                    let _foreign = queue
+                        .submit(Job::Inline(foreign))
+                        .map_err(|e| NativeError::Diagnostic(format!("foreign submit: {e:?}")))?;
+                    let own = queue
+                        .submit(Job::Inline(own))
+                        .map_err(|e| NativeError::Diagnostic(format!("own submit: {e:?}")))?;
+                    let waited = queue.wait_cooperatively_with(own, |job| match job {
+                        Job::Inline(task) => {
+                            let output =
+                                execute_native_worker_task(&mut self.native.context, task)?;
+                            let NativeWorkerOutput::CfgJoin(output) = output else {
+                                return Err(NativeError::Unsupported("unexpected branch output"));
+                            };
+                            let restored = self
+                                .native
+                                .context
+                                .base
+                                .decider
+                                .prover
+                                .assert_goal(&opposite, None)
+                                .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+                            assert!(
+                                restored,
+                                "foreign branch replaced parent path before own else"
+                            );
+                            Ok(!output.result.is_fatal())
+                        }
+                        _ => Err(NativeError::Unsupported("unexpected queued task")),
+                    });
+                    assert!(
+                        waited.executed_other_task && waited.awaited_executed_on_current_worker
+                    );
+                    let result = waited
+                        .result
+                        .map_err(|e| NativeError::Diagnostic(format!("wait: {e:?}")))?;
+                    self.native
+                        .context
+                        .base
+                        .decider
+                        .pop_scope()
+                        .map_err(NativeError::Decider)?;
+                    Ok(result)
+                }
+                Job::CancelParent(remote) => {
+                    let future = queue
+                        .submit(Job::Remote(remote))
+                        .map_err(|e| NativeError::Diagnostic(format!("submit: {e:?}")))?;
+                    let (lock, wake) = &*self.started;
+                    let mut started = lock.lock().unwrap();
+                    while !*started {
+                        started = wake.wait(started).unwrap();
+                    }
+                    drop(started);
+                    self.release_tx.send(()).unwrap();
+                    let waited = queue.wait_cooperatively_with(future, |_| {
+                        Err(NativeError::Unsupported("unexpected queued task"))
+                    });
+                    match waited.result {
+                        Err(
+                            crate::verifier::verification_pool_manager::ThreadPoolError::Worker(
+                                NativeError::Cancelled,
+                            ),
+                        ) => Err(NativeError::Cancelled),
+                        Err(e) => Err(NativeError::Diagnostic(format!(
+                            "unexpected wait failure: {e:?}"
+                        ))),
+                        Ok(_) => Err(NativeError::Unsupported("cancelled branch succeeded")),
+                    }
+                }
+                Job::Remote(task) => {
+                    let (lock, wake) = &*self.started;
+                    *lock.lock().unwrap() = true;
+                    wake.notify_all();
+                    self.release_rx.lock().unwrap().recv().unwrap();
+                    let output = execute_native_worker_task(&mut self.native.context, task)?;
+                    let NativeWorkerOutput::CfgJoin(output) = output else {
+                        return Err(NativeError::Unsupported("unexpected CFG branch output"));
+                    };
+                    let retained = self
+                        .native
+                        .context
+                        .base
+                        .decider
+                        .prover
+                        .assert_goal(&self.requirement, None)
+                        .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+                    Ok(!output.result.is_fatal() && output.entries.len() == 1 && !retained)
+                }
+                Job::Intervening(_) | Job::Inline(_) => {
+                    Err(NativeError::Unsupported("unexpected top-level task"))
+                }
+            }
+        }
+        fn reset(&mut self) -> Result<(), Self::Error> {
+            self.native.reset()?;
+            assert_eq!(
+                self.native
+                    .context
+                    .base
+                    .decider
+                    .prover
+                    .push_pop_scope_depth(),
+                0
+            );
+            self.native
+                .context
+                .base
+                .decider
+                .set_options(
+                    [("smt.random_seed".into(), "42".into())]
+                        .into_iter()
+                        .collect(),
+                )
+                .map_err(NativeError::Decider)
+        }
+        fn stop(&mut self) -> Result<(), Self::Error> {
+            self.native.stop()
+        }
+    }
+
+    #[test]
+    fn cooperative_cfg_join_isolates_queued_members_and_cfgs() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let config = Config::default();
+        let options = NativeOptions::from_config(&config).unwrap();
+        let factory = TermFactory::new(crate::state::terms::TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let mut phases = SilFrontendPhases::new(
+            std::path::PathBuf::from("queued.vpr"),
+            standard_plugin_manager(&SilFrontendConfig::new("test")).unwrap(),
+        );
+        let parsed = phases
+            .parse("domain D { function f(): Int } method unrelated() { assert f() == 0; }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let program = phases.prepare_verification(program).unwrap();
+        let method = program.methods[0].clone();
+        let cfg = ferrum_silver::cfg::silver::cfg_generator::statement_to_cfg(
+            method.body.as_ref().unwrap(),
+            true,
+            true,
+        )
+        .unwrap();
+        let analysis = Arc::new(NativeWorkerAnalysis {
+            program: program.clone(),
+            function_owners: vec![],
+            function_handles: Default::default(),
+            predicates: Default::default(),
+            snapshot_sorts: Default::default(),
+            snapshot_formals: Default::default(),
+            function_heights: Default::default(),
+            function_fresh_variables: vec![],
+            failed_functions: Default::default(),
+        });
+        let mut source = {
+            let prover = z3_prover_std_io::new(
+                "source".into(),
+                z3_prover_std_io::settings(std::path::PathBuf::from(&z3)),
+                factory.clone(),
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            native_method_worker(
+                "source".into(),
+                prover,
+                identifiers,
+                factory.clone(),
+                options.clone(),
+                &config,
+            )
+        };
+        source.start().unwrap();
+        source.ensure_preamble_frame().unwrap();
+        let applicable = source
+            .context
+            .base
+            .symbol_converter
+            .domain_function(&analysis.program.domains[0].functions[0], &analysis.program)
+            .unwrap();
+        let declaration = factory.function_decl(applicable.clone());
+        let requirement = factory.equals(factory.app(applicable, vec![]), factory.int_literal(0));
+        source
+            .broadcast(WorkerPreambleCommand::Declare(declaration.clone()))
+            .unwrap();
+        source.context.base.decider.push_scope().unwrap();
+        source
+            .context
+            .base
+            .decider
+            .assume([(requirement.clone(), None)], false, false)
+            .unwrap();
+        let mark = source.context.base.decider.pcs.mark();
+        let snapshot = BranchTransferSnapshot::capture(&source.context.base.decider, 0);
+        let mut state = State::new(
+            program,
+            Default::default(),
+            Default::default(),
+            config.more_joins,
+            &factory,
+            false,
+            false,
+        );
+        state.under_join = true;
+        let from = ferrum_silver::cfg::block::Block::statement(vec![]);
+        let join = ferrum_silver::cfg::block::Block::statement(vec![]);
+        let edge = ferrum_silver::cfg::edge::Edge::Unconditional {
+            source: from,
+            target: join.clone(),
+            kind: ferrum_silver::cfg::edge::Kind::Normal,
+        };
+        let action = CfgJoinBranch::for_test(edge, join);
+        for use_cfg in [false, true] {
+            let started = Arc::new((Mutex::new(false), Condvar::new()));
+            let inspect_started = started.clone();
+            let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let release_rx = Arc::new(Mutex::new(release_rx));
+            let worker_requirement = requirement.clone();
+            let worker_factory = factory.clone();
+            let worker_options = options.clone();
+            let worker_config = config.clone();
+            let path = std::path::PathBuf::from(&z3);
+            let mut pool = ThreadVerificationPool::start(2, move |id| {
+                let name = format!("queued-{id}");
+                let prover = z3_prover_std_io::new(
+                    name.clone(),
+                    z3_prover_std_io::settings(path.clone()),
+                    worker_factory.clone(),
+                    |_| {},
+                );
+                let identifiers = prover.identifier_factory();
+                Ok(TestWorker {
+                    native: native_method_worker(
+                        name,
+                        prover,
+                        identifiers,
+                        worker_factory.clone(),
+                        worker_options.clone(),
+                        &worker_config,
+                    ),
+                    started: started.clone(),
+                    parent_ready: ready_tx.clone(),
+                    release_tx: release_tx.clone(),
+                    release_rx: release_rx.clone(),
+                    requirement: worker_requirement.clone(),
+                })
+            })
+            .unwrap();
+            for epoch in 0..2 {
+                if epoch != 0 {
+                    pool.reset().unwrap();
+                }
+                pool.broadcast(WorkerPreambleCommand::Declare(declaration.clone()))
+                    .unwrap();
+                *inspect_started.0.lock().unwrap() = false;
+                let remote = NativeWorkerTask {
+                    analysis: analysis.clone(),
+                    target: NativeWorkerTarget::CfgJoin(Box::new(NativeCfgJoinJob {
+                        source_worker_id: "source".into(),
+                        snapshot: snapshot.clone(),
+                        state: state.clone(),
+                        mark,
+                        condition: factory.boolean(true),
+                        original: Exp::new(ExpKind::TrueLit, Default::default()),
+                        rewritten: None,
+                        action: action.clone(),
+                        after_start: None,
+                        replay_check: Some(requirement.clone()),
+                    })),
+                    reporter: None,
+                    warning_sink: None,
+                };
+                let parent = pool.submit(Job::Parent(remote)).unwrap();
+                ready_rx.recv().unwrap();
+                let target = if use_cfg {
+                    NativeWorkerTarget::Cfg(cfg.clone())
+                } else {
+                    NativeWorkerTarget::Method(method.clone())
+                };
+                let intervening = pool
+                    .submit(Job::Intervening(NativeWorkerTask {
+                        analysis: analysis.clone(),
+                        target,
+                        reporter: None,
+                        warning_sink: None,
+                    }))
+                    .unwrap();
+                assert!(parent.wait().unwrap());
+                assert!(
+                    intervening.wait().unwrap(),
+                    "unrelated task inherited suspended state: cfg={use_cfg}, epoch={epoch}"
+                );
+            }
+            pool.shutdown().unwrap();
+        }
+        // A parent can help a foreign branch before its own queued else runs.
+        // The foreign branch must restore the parent's contradictory path first.
+        {
+            let make_job = || NativeWorkerTask {
+                analysis: analysis.clone(),
+                target: NativeWorkerTarget::CfgJoin(Box::new(NativeCfgJoinJob {
+                    source_worker_id: "source".into(),
+                    snapshot: snapshot.clone(),
+                    state: state.clone(),
+                    mark,
+                    condition: factory.boolean(true),
+                    original: Exp::new(ExpKind::TrueLit, Default::default()),
+                    rewritten: None,
+                    action: action.clone(),
+                    after_start: None,
+                    replay_check: Some(requirement.clone()),
+                })),
+                reporter: None,
+                warning_sink: None,
+            };
+            let started = Arc::new((Mutex::new(false), Condvar::new()));
+            let (ready_tx, _ready_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let release_rx = Arc::new(Mutex::new(release_rx));
+            let worker_requirement = requirement.clone();
+            let worker_factory = factory.clone();
+            let worker_options = options.clone();
+            let worker_config = config.clone();
+            let path = std::path::PathBuf::from(&z3);
+            let mut pool = ThreadVerificationPool::start(1, move |id| {
+                let name = format!("own-sequence-{id}");
+                let prover = z3_prover_std_io::new(
+                    name.clone(),
+                    z3_prover_std_io::settings(path.clone()),
+                    worker_factory.clone(),
+                    |_| {},
+                );
+                let identifiers = prover.identifier_factory();
+                Ok(TestWorker {
+                    native: native_method_worker(
+                        name,
+                        prover,
+                        identifiers,
+                        worker_factory.clone(),
+                        worker_options.clone(),
+                        &worker_config,
+                    ),
+                    started: started.clone(),
+                    parent_ready: ready_tx.clone(),
+                    release_tx: release_tx.clone(),
+                    release_rx: release_rx.clone(),
+                    requirement: worker_requirement.clone(),
+                })
+            })
+            .unwrap();
+            pool.broadcast(WorkerPreambleCommand::Declare(declaration.clone()))
+                .unwrap();
+            assert!(
+                pool.submit(Job::OwnSequence {
+                    foreign: make_job(),
+                    own: make_job()
+                })
+                .unwrap()
+                .wait()
+                .unwrap()
+            );
+            pool.shutdown().unwrap();
+        }
+        // A completed foreign branch must not contaminate the next ordinary
+        // method or CFG dispatched on its worker.
+        for use_cfg in [false, true] {
+            let worker_factory = factory.clone();
+            let worker_options = options.clone();
+            let worker_config = config.clone();
+            let path = std::path::PathBuf::from(&z3);
+            let mut pool = ThreadVerificationPool::start(1, move |id| {
+                let name = format!("foreign-sequence-{id}");
+                let prover = z3_prover_std_io::new(
+                    name.clone(),
+                    z3_prover_std_io::settings(path.clone()),
+                    worker_factory.clone(),
+                    |_| {},
+                );
+                let identifiers = prover.identifier_factory();
+                Ok(native_method_worker(
+                    name,
+                    prover,
+                    identifiers,
+                    worker_factory.clone(),
+                    worker_options.clone(),
+                    &worker_config,
+                ))
+            })
+            .unwrap();
+            pool.broadcast(WorkerPreambleCommand::Declare(declaration.clone()))
+                .unwrap();
+            let remote = NativeWorkerTask {
+                analysis: analysis.clone(),
+                target: NativeWorkerTarget::CfgJoin(Box::new(NativeCfgJoinJob {
+                    source_worker_id: "source".into(),
+                    snapshot: snapshot.clone(),
+                    state: state.clone(),
+                    mark,
+                    condition: factory.boolean(true),
+                    original: Exp::new(ExpKind::TrueLit, Default::default()),
+                    rewritten: None,
+                    action: action.clone(),
+                    after_start: None,
+                    replay_check: Some(requirement.clone()),
+                })),
+                reporter: None,
+                warning_sink: None,
+            };
+            let result = pool.submit(remote).unwrap().wait().unwrap();
+            assert!(matches!(result, NativeWorkerOutput::CfgJoin(_)));
+            let target = if use_cfg {
+                NativeWorkerTarget::Cfg(cfg.clone())
+            } else {
+                NativeWorkerTarget::Method(method.clone())
+            };
+            let result = pool
+                .submit(NativeWorkerTask {
+                    analysis: analysis.clone(),
+                    target,
+                    reporter: None,
+                    warning_sink: None,
+                })
+                .unwrap()
+                .wait()
+                .unwrap();
+            let NativeWorkerOutput::Member(results) = result else {
+                panic!("unexpected result")
+            };
+            assert!(
+                results.iter().any(|r| r.is_fatal()),
+                "foreign branch contaminated subsequent task: cfg={use_cfg}"
+            );
+            pool.shutdown().unwrap();
+        }
+        // Hold a submitted CFG branch after it has installed its solver state,
+        // then cancel while its parent is cooperatively awaiting its result.
+        let cancellation =
+            crate::verifier::verification_pool_manager::CancellationController::default();
+        let worker_cancellation = cancellation.clone();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        let resume_rx = Arc::new(Mutex::new(resume_rx));
+        let hook = Arc::new(move || {
+            entered_tx.send(()).unwrap();
+            resume_rx.lock().unwrap().recv().unwrap();
+        });
+        let remote = NativeWorkerTask {
+            analysis: analysis.clone(),
+            target: NativeWorkerTarget::CfgJoin(Box::new(NativeCfgJoinJob {
+                source_worker_id: "source".into(),
+                snapshot: snapshot.clone(),
+                state: state.clone(),
+                mark,
+                condition: factory.boolean(true),
+                original: Exp::new(ExpKind::TrueLit, Default::default()),
+                rewritten: None,
+                action: action.clone(),
+                after_start: Some(hook),
+                replay_check: Some(requirement.clone()),
+            })),
+            reporter: None,
+            warning_sink: None,
+        };
+        let started = Arc::new((Mutex::new(false), Condvar::new()));
+        let (ready_tx, _ready_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        let worker_requirement = requirement.clone();
+        let worker_factory = factory.clone();
+        let worker_options = options.clone();
+        let worker_config = config.clone();
+        let path = std::path::PathBuf::from(&z3);
+        let mut pool = ThreadVerificationPool::start(2, move |id| {
+            let name = format!("cancel-cfg-{id}");
+            let prover = z3_prover_std_io::new(
+                name.clone(),
+                z3_prover_std_io::settings(path.clone()),
+                worker_factory.clone(),
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            let mut native = native_method_worker(
+                name,
+                prover,
+                identifiers,
+                worker_factory.clone(),
+                worker_options.clone(),
+                &worker_config,
+            );
+            native.set_cancellation(worker_cancellation.clone());
+            Ok(TestWorker {
+                native,
+                started: started.clone(),
+                parent_ready: ready_tx.clone(),
+                release_tx: release_tx.clone(),
+                release_rx: release_rx.clone(),
+                requirement: worker_requirement.clone(),
+            })
+        })
+        .unwrap();
+        pool.broadcast(WorkerPreambleCommand::Declare(declaration.clone()))
+            .unwrap();
+        let parent = pool.submit(Job::CancelParent(remote)).unwrap();
+        entered_rx.recv().unwrap();
+        cancellation.cancel();
+        resume_tx.send(()).unwrap();
+        assert!(matches!(
+            parent.wait(),
             Err(
                 crate::verifier::verification_pool_manager::ThreadPoolError::Worker(
                     NativeError::Cancelled

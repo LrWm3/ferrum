@@ -82,6 +82,17 @@ pub struct CfgJoinBranch {
     path_id: Option<i32>,
 }
 
+#[cfg(test)]
+impl CfgJoinBranch {
+    pub(crate) fn for_test(edge: SilverEdge, join: SilverBlock) -> Self {
+        Self {
+            edge,
+            join,
+            path_id: Some(0),
+        }
+    }
+}
+
 /// Concrete verifier services preserve branching, failures, logging and solver state.
 pub trait ExecutionContext<P, D, J, V>: Sized {
     type Error;

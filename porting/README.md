@@ -485,3 +485,17 @@ is still not installed by ordinary verification sessions. Additional progress
 events and top-level shutdown attachment remain before reporting profiles can be
 enabled. Source configuration forbids combining ordinary parallel branches with
 advanced logging or stalled-state reporting.
+
+Joined CFG branches now have an internal owner-thread queue scheduler, cooperative
+waiting, source-ordered join entries, declaration transfer and branch-failure
+reporting. Worker solvers reserve their preamble scope lazily after broadcast;
+independent queued members and foreign branches restore the suspended worker's
+path conditions, options and error count. Deterministic negative controls exposed
+false proofs without the reserved scope or foreign-state restoration; corrected
+real-Z3 cases cover queued methods/CFGs, reset, nested branch ordering and active
+cancellation. Both stdio and linked Z3 cover one/two-worker joined CFG execution.
+The public parallel-branch option remains gated: nonjoined continuations and
+other eligible branch families are incomplete, and logger migration is not wired.
+Expression joins remain synchronous as required by the source. Standalone CFGs
+with no current member skip the source's failing member dereference when reporting
+a fatal branch; this remains an explicit compatibility difference.
