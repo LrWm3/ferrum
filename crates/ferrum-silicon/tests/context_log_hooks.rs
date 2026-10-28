@@ -189,6 +189,30 @@ fn context_scope_hooks_capture_full_state_and_reject_missing_factory() {
         assert!(records.iter().any(|r| r.as_any().downcast_ref::<ferrum_silicon::logger::records::scoping::close_scope_record::CloseScopeRecord>().is_some_and(|close| close.ref_id == record.id())));
         Ok(VerificationResult::success())
     }).unwrap();
+    ferrum_silicon::rules::state_consolidator::single_merge(
+        &factory,
+        &mut worker.context,
+        &state,
+        state.function_recorder.clone(),
+        &[],
+        &[],
+        &[],
+    )
+    .unwrap();
+    let records = log.records().unwrap();
+    let record = records.iter().find(|r| r.as_any().is::<ferrum_silicon::logger::records::data::single_merge_record::SingleMergeRecord>()).unwrap();
+    let merge = record.as_any().downcast_ref::<ferrum_silicon::logger::records::data::single_merge_record::SingleMergeRecord>().unwrap();
+    assert!(merge.dest_chunks.as_ref().unwrap().is_empty());
+    assert!(merge.new_chunks.as_ref().unwrap().is_empty());
+    assert!(records.iter().any(|r| r.as_any().downcast_ref::<ferrum_silicon::logger::records::scoping::close_scope_record::CloseScopeRecord>().is_some_and(|close| close.ref_id == record.id())));
+    use ferrum_silicon::rules::execution_flow_controller::RetryContext;
+    let retry = worker.context.open_retry_scope(&state).unwrap();
+    let records = log.records().unwrap();
+    let record = records.iter().find(|r| r.id() == retry.unwrap()).unwrap();
+    let comment = record.as_any().downcast_ref::<ferrum_silicon::logger::records::data::comment_record::CommentRecord<NativeBranchState>>().unwrap();
+    assert_eq!(comment.comment.as_deref(), Some("Retry"));
+    assert!(comment.state.as_ref().unwrap().under_join);
+    worker.context.close_retry_scope(retry).unwrap();
     let disabled = NativeSymbExLogger::of_config(
         &config,
         Arc::new(ferrum_silver::reporter::reporter::NoopReporter),

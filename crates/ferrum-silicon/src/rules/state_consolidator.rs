@@ -56,6 +56,23 @@ use std::sync::Arc;
 
 pub trait ConsolidationServices<P, D, J> {
     type Error;
+    fn open_consolidation_comment(
+        &mut self,
+        _comment: &str,
+        _state: Option<&State<P, D, J>>,
+    ) -> Result<Option<i32>, Self::Error> {
+        Ok(None)
+    }
+    fn open_single_merge_scope(
+        &mut self,
+        _destination: &[Chunk],
+        _incoming: &[Chunk],
+    ) -> Result<Option<i32>, Self::Error> {
+        Ok(None)
+    }
+    fn close_consolidation_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
+        Ok(())
+    }
     /// Match only source-compatible chunk kinds using the configured alias algorithm.
     fn find_merge_candidate(
         &mut self,
@@ -181,6 +198,9 @@ pub fn single_merge<P, D: Clone, J, C: ConsolidationServices<P, D, J>>(
     ),
     ConsolidationError<C::Error>,
 > {
+    let scope = context
+        .open_single_merge_scope(destination, incoming)
+        .map_err(ConsolidationError::Service)?;
     let mut merged = destination.to_vec();
     let mut added = Vec::new();
     let mut equations = InsertionOrderedSet::new();
@@ -233,6 +253,9 @@ pub fn single_merge<P, D: Clone, J, C: ConsolidationServices<P, D, J>>(
             added.insert(0, next.clone());
         }
     }
+    context
+        .close_consolidation_scope(scope)
+        .map_err(ConsolidationError::Service)?;
     Ok((recorder, merged, added, equations))
 }
 /// Merge one heap into another, emitting snapshot equalities before chunk properties.
@@ -259,6 +282,9 @@ pub fn merge_heaps<P, D: Clone, J, C: ConsolidationServices<P, D, J>>(
                 .map_err(ConsolidationError::Service)?,
         ));
     }
+    let scope = context
+        .open_consolidation_comment("Merge", None)
+        .map_err(ConsolidationError::Service)?;
     let mut qvars: Vec<_> = state
         .function_recorder
         .arguments()
@@ -290,6 +316,9 @@ pub fn merge_heaps<P, D: Clone, J, C: ConsolidationServices<P, D, J>>(
             .assume_chunk_properties(state, &heap, chunk)
             .map_err(ConsolidationError::Service)?;
     }
+    context
+        .close_consolidation_scope(scope)
+        .map_err(ConsolidationError::Service)?;
     Ok((recorder, heap))
 }
 /// Source consolidation strategy dispatch and fixed-point merging of the main and reserve heaps.
@@ -319,6 +348,9 @@ pub fn consolidate<P, D: Clone, J: Clone + PartialEq, C: ConsolidationServices<P
     if !enabled {
         return Ok(state);
     }
+    let scope = context
+        .open_consolidation_comment("state consolidation", Some(&state))
+        .map_err(ConsolidationError::Service)?;
     context
         .saturate_before_consolidation()
         .map_err(ConsolidationError::Service)?;
@@ -341,7 +373,11 @@ pub fn consolidate<P, D: Clone, J: Clone + PartialEq, C: ConsolidationServices<P
     );
     for heap in heaps {
         let mut current = heap.values().to_vec();
+        let mut round = 0;
         loop {
+            let round_scope = context
+                .open_consolidation_comment(&format!("Round {round}"), Some(&state))
+                .map_err(ConsolidationError::Service)?;
             let (next_recorder, chunks, _, equations) =
                 single_merge(factory, context, &state, recorder, &[], &current, &qvars)?;
             let changed = !equations.is_empty();
@@ -350,6 +386,10 @@ pub fn consolidate<P, D: Clone, J: Clone + PartialEq, C: ConsolidationServices<P
                 .map_err(ConsolidationError::Service)?;
             recorder = next_recorder;
             current = chunks;
+            context
+                .close_consolidation_scope(round_scope)
+                .map_err(ConsolidationError::Service)?;
+            round += 1;
             if !changed {
                 break;
             }
@@ -366,6 +406,9 @@ pub fn consolidate<P, D: Clone, J: Clone + PartialEq, C: ConsolidationServices<P
         }
         context
             .assume_delayed_properties(&state, &heap)
+            .map_err(ConsolidationError::Service)?;
+        context
+            .close_consolidation_scope(scope)
             .map_err(ConsolidationError::Service)?;
         merged_heaps.push(Arc::new(heap));
     }

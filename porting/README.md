@@ -614,3 +614,10 @@ solver scopes and fatal-result handling before edge execution. An owned
 loop-phase frame carries recorded states, paths, declarations and statements
 through invariant establishment and replay. The outer continuation and local
 cleanup callbacks remain borrowed, so loop execution remains synchronous.
+
+Default heap merging and consolidation now emit the source comment, single-merge
+and fixed-point round scopes, retaining the original state and path conditions.
+Minimal and mask paths keep their source behavior. Retry logging captures the
+post-consolidation state and closes only when the retry reaches its continuation,
+before restoring retry flags. Native reporting profiles remain gated pending
+run-root attachment and remaining record coverage.

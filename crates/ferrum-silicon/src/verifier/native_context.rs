@@ -4563,6 +4563,33 @@ where
     fn close_retry_log(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
+    fn open_retry_scope(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+    ) -> Result<Option<i32>, Self::Error> {
+        let Some(log) = &self.member_log else {
+            return Ok(None);
+        };
+        if log.when_enabled(|| ()).is_none() {
+            return Ok(None);
+        }
+        let factory = self
+            .record_factory
+            .as_ref()
+            .ok_or(NativeError::Unsupported(
+                "active symbolic logger requires record factory",
+            ))?;
+        let record = factory.comment("Retry", Some(state), &self.base.decider.pcs);
+        let renderer = crate::logger::state_reporting::NativeStateRecordRenderer {
+            factory: &self.factory,
+        };
+        log.open_scope(record, &renderer)
+            .map(Some)
+            .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
+    }
+    fn close_retry_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_logged_scope(id)
+    }
 }
 
 /// Adapt the consumer's fallible continuation to the shared source retry algorithm.
@@ -4953,6 +4980,59 @@ where
     S::Error: std::fmt::Debug,
 {
     type Error = NativeError<S::Error>;
+    fn open_consolidation_comment(
+        &mut self,
+        comment: &str,
+        state: Option<&State<PD, FD, JoinMode>>,
+    ) -> Result<Option<i32>, Self::Error> {
+        let Some(log) = &self.member_log else {
+            return Ok(None);
+        };
+        if log.when_enabled(|| ()).is_none() {
+            return Ok(None);
+        }
+        let factory = self
+            .record_factory
+            .as_ref()
+            .ok_or(NativeError::Unsupported(
+                "active symbolic logger requires record factory",
+            ))?;
+        let record = factory.comment(comment, state, &self.base.decider.pcs);
+        let renderer = crate::logger::state_reporting::NativeStateRecordRenderer {
+            factory: &self.factory,
+        };
+        log.open_scope(record, &renderer)
+            .map(Some)
+            .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
+    }
+    fn open_single_merge_scope(
+        &mut self,
+        destination: &[Chunk],
+        incoming: &[Chunk],
+    ) -> Result<Option<i32>, Self::Error> {
+        let Some(log) = &self.member_log else {
+            return Ok(None);
+        };
+        if log.when_enabled(|| ()).is_none() {
+            return Ok(None);
+        }
+        let record = std::sync::Arc::new(
+            crate::logger::records::data::single_merge_record::SingleMergeRecord::new(
+                Some(destination.to_vec()),
+                Some(incoming.to_vec()),
+                Some(&self.base.decider.pcs),
+            ),
+        );
+        let renderer = crate::logger::state_reporting::NativeStateRecordRenderer {
+            factory: &self.factory,
+        };
+        log.open_scope(record, &renderer)
+            .map(Some)
+            .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
+    }
+    fn close_consolidation_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_logged_scope(id)
+    }
     fn find_merge_candidate(
         &mut self,
         state: &State<PD, FD, JoinMode>,

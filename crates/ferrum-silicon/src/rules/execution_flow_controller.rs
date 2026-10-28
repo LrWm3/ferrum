@@ -122,6 +122,16 @@ pub trait RetryContext<P, D, J>: ScopedContext {
         state: &crate::state::state::State<P, D, J>,
     ) -> Result<(), Self::Error>;
     fn close_retry_log(&mut self) -> Result<(), Self::Error>;
+    fn open_retry_scope(
+        &mut self,
+        state: &crate::state::state::State<P, D, J>,
+    ) -> Result<Option<i32>, Self::Error> {
+        self.open_retry_log(state)?;
+        Ok(None)
+    }
+    fn close_retry_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_retry_log()
+    }
 }
 pub trait RetryAction<C, P, D, J, Data, Diagnostic>
 where
@@ -173,7 +183,7 @@ where
     }
     context.rollback_to(mark)?;
     let original = context.consolidate(state)?;
-    context.open_retry_log(&original)?;
+    let retry_scope = context.open_retry_scope(&original)?;
     let (more_complete, more_complete_qp) = context.retry_exhale_modes(&original)?;
     let mut retry_state = original.clone();
     retry_state.retrying = true;
@@ -184,7 +194,7 @@ where
         context,
         retry_state,
         &mut |context, mut result_state, data| {
-            context.close_retry_log()?;
+            context.close_retry_scope(retry_scope)?;
             result_state.retrying = false;
             result_state.more_complete_exhale = original.more_complete_exhale;
             result_state.more_complete_exhale_qp = original.more_complete_exhale_qp;

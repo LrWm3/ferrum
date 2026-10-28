@@ -92,6 +92,12 @@ pub trait NativeRecordFactory<P, D, J> {
         state: &crate::state::state::State<P, D, J>,
         paths: &crate::decider::path_conditions::LayeredPathConditionStack,
     ) -> std::sync::Arc<dyn DataRecord>;
+    fn comment(
+        &self,
+        comment: &str,
+        state: Option<&crate::state::state::State<P, D, J>>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord>;
     fn joining(
         &self,
         state: &crate::state::state::State<P, D, J>,
@@ -166,6 +172,18 @@ where
         std::sync::Arc::new(super::execute_record::ExecuteRecord::new(
             Some(statement.clone()),
             Some(state.clone()),
+            Some(paths),
+        ))
+    }
+    fn comment(
+        &self,
+        comment: &str,
+        state: Option<&crate::state::state::State<P, D, J>>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord> {
+        std::sync::Arc::new(super::comment_record::CommentRecord::new(
+            Some(comment.to_owned()),
+            state.cloned(),
             Some(paths),
         ))
     }
