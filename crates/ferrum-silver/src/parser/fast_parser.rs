@@ -959,6 +959,8 @@ impl ExpressionParser<'_> {
             return Ok(crate::plugin::standard::smoke::unreachable_past_extension::PUnreachable { keyword: crate::plugin::standard::smoke::unreachable_past_extension::unreachable_keyword(pos.clone()), pos }.statement());
         }
         let keyword = match name {
+            "package" => Some(PKw::Package),
+            "apply" => Some(PKw::Apply),
             "fold" => Some(PKw::Fold),
             "unfold" => Some(PKw::Unfold),
             "assert" => Some(PKw::Assert),
@@ -1003,6 +1005,22 @@ impl ExpressionParser<'_> {
                             keyword: token,
                             exp,
                         },
+                    }
+                }
+                PKw::Package | PKw::Apply => {
+                    let exp = self.expression(0)?;
+                    if keyword == PKw::Package {
+                        let proof_script = self.statement_block()?;
+                        PStatementKind::PackageWand {
+                            keyword: token,
+                            exp,
+                            proof_script,
+                        }
+                    } else {
+                        PStatementKind::ApplyWand {
+                            keyword: token,
+                            exp,
+                        }
                     }
                 }
                 PKw::Var => {
@@ -1949,6 +1967,73 @@ impl ExpressionParser<'_> {
                 "epsilon" => Some(PKw::Epsilon),
                 _ => None,
             };
+            if name == "new" {
+                let left = self
+                    .take("(")?
+                    .ok_or_else(|| self.error("expected '(' after new"))?;
+                self.trivia()?;
+                let list_start = self.position(self.cursor);
+                let fields = if let Some(star) = self.take("*")? {
+                    super::parse_ast::PNewFields::All(PReserved::new(PSym::Star, star))
+                } else {
+                    let mut references = Vec::new();
+                    self.trivia()?;
+                    if !self.source[self.cursor..].starts_with(')') {
+                        loop {
+                            self.trivia()?;
+                            let at = self.cursor;
+                            let end = self.identifier_end(at);
+                            if end == at
+                                || !self.source.as_bytes()[at].is_ascii_alphabetic()
+                                    && !matches!(self.source.as_bytes()[at], b'_' | b'$')
+                            {
+                                return Err(self.error("expected field name"));
+                            }
+                            let name = &self.source[at..end];
+                            if self.is_keyword(name) {
+                                return Err(self.error("expected field name"));
+                            }
+                            self.cursor = end;
+                            let reference = PNode::new(
+                                PNodeKind::IdnRef(PIdnRef::with_class(
+                                    name,
+                                    PDeclarationClass::Field,
+                                )),
+                                self.span(at, end),
+                            );
+                            let comma = self
+                                .take(",")?
+                                .map(|span| PReserved::new(PSym::Comma, span));
+                            let more = comma.is_some();
+                            references.push((reference, comma));
+                            if !more {
+                                break;
+                            }
+                        }
+                    }
+                    let end = self.position(self.cursor);
+                    super::parse_ast::PNewFields::Fields(comma_pairs(references, (list_start, end)))
+                };
+                let right = self
+                    .take(")")?
+                    .ok_or_else(|| self.error("expected ')' after new fields"))?;
+                let group_span = (left.0.clone(), right.1.clone());
+                let fields = PGrouped::new(
+                    PReserved::new(PSym::LParen, left),
+                    fields,
+                    PReserved::new(PSym::RParen, right),
+                    group_span,
+                );
+                let expression = self.expr_node(
+                    PExpressionKind::NewExp {
+                        keyword: PReserved::new(PKw::New, span),
+                        fields,
+                    },
+                    self.position(start),
+                    self.position(self.cursor),
+                );
+                return self.suffix(expression);
+            }
             if matches!(name, "unfolding" | "applying" | "asserting") {
                 let operand = if name == "unfolding" {
                     self.atom()?

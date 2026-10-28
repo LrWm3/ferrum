@@ -673,6 +673,14 @@ pub fn check_expression(
         | PExpressionKind::FullPerm(_)
         | PExpressionKind::Wildcard(_)
         | PExpressionKind::Epsilon(_) => (expression.typ, vec![PTypeSubstitution::default()]),
+        PExpressionKind::ResultLit(_) => {
+            if !expression.typ.is_valid_or_undeclared() {
+                return Err(TypeCheckError::Unsupported(
+                    "`result` can only be used in function postconditions",
+                ));
+            }
+            (expression.typ, vec![PTypeSubstitution::default()])
+        }
         PExpressionKind::IdnUse { idnref } => {
             let name = match &idnref.read().expect("poisoned parse node").kind {
                 PNodeKind::IdnRef(reference) => reference.name.clone(),
@@ -1048,6 +1056,27 @@ fn ensure_location_access(expression: &PExpHandle, allow_wand: bool) -> Result<(
 }
 /// Source fold/unfold accepts predicate calls or `acc` around a predicate call,
 /// and rejects abstract predicates before ordinary expression typechecking.
+fn check_new_fields(expression: &PExpHandle) -> Result<bool, TypeCheckError> {
+    let kind = match &expression.node().read().expect("poisoned parse node").kind {
+        PNodeKind::Expression(e) => e.kind.clone(),
+        _ => return Err(TypeCheckError::Unsupported("allocation expression")),
+    };
+    let PExpressionKind::NewExp { fields, .. } = kind else {
+        return Ok(false);
+    };
+    if let super::parse_ast::PNewFields::Fields(fields) = fields.inner() {
+        for reference in fields.to_seq() {
+            let declarations = super::parse_ast::PIdnRef::decls(reference, |_| true);
+            if declarations.len() != 1 {
+                return Err(TypeCheckError::Unsupported(
+                    "undefined or ambiguous allocation field",
+                ));
+            }
+        }
+    }
+    Ok(true)
+}
+
 fn ensure_nonabstract_predicate_access(
     expression: &PExpHandle,
     fold: bool,
@@ -1398,6 +1427,23 @@ fn check_declarations(declarations: &super::parse_ast::PFormalArgs) -> Result<()
     }
     Ok(())
 }
+/// Bind result literals to the enclosing function's declared return type.
+fn bind_function_results(node: &PNodeHandle, typ: &PTypeHandle) -> Result<(), TypeCheckError> {
+    {
+        let mut node = node.write().expect("poisoned parse node");
+        if let PNodeKind::Expression(expression) = &mut node.kind {
+            if matches!(expression.kind, PExpressionKind::ResultLit(_)) {
+                expression.typ = typ.clone();
+            }
+        }
+    }
+    for child in
+        subnodes(node).map_err(|_| TypeCheckError::Unsupported("result expression traversal"))?
+    {
+        bind_function_results(&child, typ)?;
+    }
+    Ok(())
+}
 fn check_program_expression(
     input: &PExpHandle,
     expected: Option<&PTypeHandle>,
@@ -1408,15 +1454,11 @@ fn check_program_expression(
         if matches!(
             kind,
             PNodeKind::Expression(super::parse_ast::PExpression {
-                kind: PExpressionKind::CurrentPerm { .. }
-                    | PExpressionKind::ForPerm { .. }
-                    | PExpressionKind::MagicWandExp { .. },
+                kind: PExpressionKind::ForPerm { .. },
                 ..
             })
         ) {
-            return Err(TypeCheckError::Unsupported(
-                "context-sensitive permission or wand restriction",
-            ));
+            return Err(TypeCheckError::Unsupported("forperm typechecking"));
         }
         for child in
             subnodes(node).map_err(|_| TypeCheckError::Unsupported("expression traversal"))?
@@ -1427,6 +1469,63 @@ fn check_program_expression(
     }
     ensure_supported(input.node())?;
     check_top_expression(input, expected, warn)
+}
+/// Source restrictions on permissions in specifications and wands in function
+/// preconditions/predicate bodies. Inhale-exhale nodes shield their children only
+/// for the specification permission check, not for the separate wand check.
+fn check_expression_context(
+    input: &PExpHandle,
+    forbid_spec_perm: bool,
+    ban_all_perm: bool,
+    forbid_wand: bool,
+) -> Result<(), TypeCheckError> {
+    fn visit(
+        node: &PNodeHandle,
+        inside_inex: bool,
+        forbid_spec_perm: bool,
+        ban_all_perm: bool,
+        forbid_wand: bool,
+    ) -> Result<(), TypeCheckError> {
+        let kind = node.read().expect("poisoned parse node").kind.clone();
+        let mut inside_inex = inside_inex;
+        if let PNodeKind::Expression(expression) = kind {
+            match expression.kind {
+                PExpressionKind::CurrentPerm { .. }
+                    if ban_all_perm || (forbid_spec_perm && !inside_inex) =>
+                {
+                    return Err(TypeCheckError::Unsupported(
+                        "permission introspection is not allowed in this specification",
+                    ));
+                }
+                PExpressionKind::MagicWandExp { .. } if forbid_wand => {
+                    return Err(TypeCheckError::Unsupported(
+                        "magic wands are not supported in function preconditions or predicates",
+                    ));
+                }
+                PExpressionKind::InhaleExhale { .. } => inside_inex = true,
+                _ => {}
+            }
+        }
+        for child in subnodes(node)
+            .map_err(|_| TypeCheckError::Unsupported("expression context traversal"))?
+        {
+            visit(
+                &child,
+                inside_inex,
+                forbid_spec_perm,
+                ban_all_perm,
+                forbid_wand,
+            )?;
+        }
+        Ok(())
+    }
+    visit(
+        input.node(),
+        false,
+        forbid_spec_perm,
+        ban_all_perm,
+        forbid_wand,
+    )
 }
 /// Check core program signatures before bodies, as upstream requires. The first unsupported
 /// or erroneous construct is returned; full diagnostic accumulation and extensions remain pending.
@@ -1604,17 +1703,24 @@ pub fn check_program_core(
                 ..
             } => {
                 for spec in pres.specs().to_seq() {
+                    check_expression_context(spec.exp(), true, false, true)?;
                     check_program_expression(spec.exp(), Some(&impure), &mut *warn)?;
                 }
                 for spec in posts.specs().to_seq() {
+                    check_expression_context(spec.exp(), true, true, false)?;
+                    bind_function_results(spec.exp().node(), &result_type)?;
                     check_program_expression(spec.exp(), Some(&boolean), &mut *warn)?;
                 }
                 if let Some(body) = body {
+                    // The source keeps resultAllowed set through body typechecking;
+                    // the AST consistency check rejects result in a function body.
+                    bind_function_results(body.exp().inner().node(), &result_type)?;
                     check_program_expression(body.exp().inner(), Some(&result_type), &mut *warn)?;
                 }
             }
             PMemberKind::Predicate { body, .. } => {
                 if let Some(body) = body {
+                    check_expression_context(body.exp().inner(), false, false, true)?;
                     check_program_expression(body.exp().inner(), Some(&impure), &mut *warn)?;
                 }
             }
@@ -1627,6 +1733,7 @@ pub fn check_program_core(
                     .into_iter()
                     .chain(posts.specs().to_seq())
                 {
+                    check_expression_context(spec.exp(), true, false, false)?;
                     check_program_expression(spec.exp(), Some(&impure), &mut *warn)?;
                 }
                 if let Some(body) = body {
@@ -1720,15 +1827,14 @@ pub fn check_statement_core(
                     check_program_expression(actual, Some(&typ), &mut *warn)?;
                 }
                 for (target, formal) in actual_targets.into_iter().zip(outputs) {
-                    let idnref = match &target.node().read().expect("poisoned parse node").kind {
-                        PNodeKind::Expression(e) => match &e.kind {
-                            PExpressionKind::IdnUse { idnref } => idnref.clone(),
-                            _ => {
-                                return Err(TypeCheckError::Unsupported(
-                                    "method call field target",
-                                ));
-                            }
-                        },
+                    let target_kind = match &target.node().read().expect("poisoned parse node").kind
+                    {
+                        PNodeKind::Expression(e) => e.kind.clone(),
+                        _ => return Err(TypeCheckError::Unsupported("method call target")),
+                    };
+                    let (idnref, local) = match target_kind {
+                        PExpressionKind::IdnUse { idnref } => (idnref, true),
+                        PExpressionKind::FieldAccess { idnref, .. } => (idnref, false),
                         _ => return Err(TypeCheckError::Unsupported("method call target")),
                     };
                     if let PNodeKind::IdnRef(reference) =
@@ -1736,10 +1842,12 @@ pub fn check_statement_core(
                     {
                         reference.assign_use = true;
                     }
-                    let filter = std::sync::Arc::new(
-                        |node: &PNodeHandle| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Declaration(d) if matches!(d.kind, PDeclarationKind::LocalVar | PDeclarationKind::FormalReturn)),
-                    );
-                    super::parse_ast::PIdnRef::filter_decls(&idnref, filter, |_| true);
+                    if local {
+                        let filter = std::sync::Arc::new(
+                            |node: &PNodeHandle| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Declaration(d) if matches!(d.kind, PDeclarationKind::LocalVar | PDeclarationKind::FormalReturn)),
+                        );
+                        super::parse_ast::PIdnRef::filter_decls(&idnref, filter, |_| true);
+                    }
                     let typ = match &formal.node().read().expect("poisoned parse node").kind {
                         PNodeKind::Declaration(d) => d.typ.clone(),
                         _ => return Err(TypeCheckError::Unsupported("method return")),
@@ -1770,6 +1878,21 @@ pub fn check_statement_core(
                     .typecheck_statement(&mut |body| check_statement_core(body, &mut *warn))?;
             }
         }
+        ref kind @ (S::PackageWand { ref exp, .. } | S::ApplyWand { ref exp, .. }) => {
+            let is_wand = matches!(&exp.node().read().expect("poisoned parse node").kind, PNodeKind::Expression(e) if matches!(e.kind, PExpressionKind::MagicWandExp { .. }));
+            if !is_wand {
+                return Err(TypeCheckError::Unsupported("expected magic wand"));
+            }
+            let wand = type_from_signature(&SignatureType::Wand);
+            check_program_expression(&exp, Some(&wand), &mut *warn)?;
+            if let S::PackageWand {
+                proof_script: Some(proof),
+                ..
+            } = kind
+            {
+                check_statement_core(proof, &mut *warn)?;
+            }
+        }
         ref kind @ (S::Fold { ref exp, .. } | S::Unfold { ref exp, .. }) => {
             ensure_nonabstract_predicate_access(exp, matches!(kind, S::Fold { .. }))?;
             let predicate = type_from_signature(&SignatureType::Predicate);
@@ -1794,6 +1917,7 @@ pub fn check_statement_core(
         } => {
             check_program_expression(cond.inner(), Some(&boolean), &mut *warn)?;
             for inv in invs.specs().to_seq() {
+                check_expression_context(inv.exp(), true, false, false)?;
                 check_program_expression(inv.exp(), Some(&impure), &mut *warn)?;
             }
             check_statement_core(&body, &mut *warn)?;
@@ -1820,7 +1944,16 @@ pub fn check_statement_core(
                     PNodeKind::Declaration(d) => d.typ.clone(),
                     _ => return Err(TypeCheckError::Unsupported("local declaration")),
                 };
-                check_program_expression(&rhs, Some(&typ), &mut *warn)?;
+                if check_new_fields(&rhs)? {
+                    let reference = type_from_signature(&SignatureType::Ref);
+                    if !is_subtype(&typ, &reference) {
+                        return Err(TypeCheckError::Unsupported(
+                            "allocation target must have Ref type",
+                        ));
+                    }
+                } else {
+                    check_program_expression(&rhs, Some(&typ), &mut *warn)?;
+                }
             }
         }
         S::Assign {
@@ -1855,7 +1988,16 @@ pub fn check_statement_core(
                 _ => return Err(TypeCheckError::Unsupported("assignment target")),
             }
             let target_type = check_program_expression(target, None, &mut *warn)?;
-            check_program_expression(&rhs, Some(&target_type), &mut *warn)?;
+            if check_new_fields(&rhs)? {
+                let reference = type_from_signature(&SignatureType::Ref);
+                if !is_subtype(&target_type, &reference) {
+                    return Err(TypeCheckError::Unsupported(
+                        "allocation target must have Ref type",
+                    ));
+                }
+            } else {
+                check_program_expression(&rhs, Some(&target_type), &mut *warn)?;
+            }
         }
         _ => return Err(TypeCheckError::Unsupported("statement typechecking")),
     }

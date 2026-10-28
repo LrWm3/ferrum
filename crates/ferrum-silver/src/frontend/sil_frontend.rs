@@ -374,6 +374,111 @@ mod tests {
         ));
     }
     #[test]
+    fn allocation_rejects_unknown_fields_and_non_reference_targets() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        for source in [
+            "method m() { var x: Ref := new(missing); }",
+            "method m() { var x: Int := new(); }",
+        ] {
+            let parsed = phases.parse(source).unwrap();
+            assert!(phases.analyze(parsed).is_err());
+        }
+    }
+
+    #[test]
+    fn allocation_and_field_call_targets_translate_in_order() {
+        let source = "field a: Int field next: Ref method mk() returns (r: Ref) method m(x: Ref) requires acc(x.next) { var y: Ref := new(*); x.next := mk(); x.next := new(a); }";
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse(source).unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let crate::ast::statement::StmtKind::Seqn { statements, .. } =
+            program.methods[1].body.as_ref().unwrap().kind()
+        else {
+            panic!()
+        };
+        assert!(
+            matches!(statements[0].kind(), crate::ast::statement::StmtKind::NewStmt { fields, .. } if fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>() == vec!["a", "next"])
+        );
+        for statement in &statements[1..] {
+            let crate::ast::statement::StmtKind::Seqn {
+                statements,
+                declarations,
+            } = statement.kind()
+            else {
+                panic!("field target temporary block")
+            };
+            assert_eq!(declarations.len(), 2);
+            assert!(matches!(
+                statements[0].kind(),
+                crate::ast::statement::StmtKind::LocalVarAssign { .. }
+            ));
+            assert!(matches!(
+                statements[2].kind(),
+                crate::ast::statement::StmtKind::FieldAssign { .. }
+            ));
+        }
+        phases.check_consistency(program).unwrap();
+    }
+
+    #[test]
+    fn permission_contexts_and_wand_statements_follow_source_restrictions() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let source = "field f: Int method m(x: Ref) { assert perm(x.f) >= none; package true --* true; apply true --* true; }";
+        let parsed = phases.parse(source).unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let crate::ast::statement::StmtKind::Seqn { statements, .. } =
+            program.methods[0].body.as_ref().unwrap().kind()
+        else {
+            panic!()
+        };
+        assert!(matches!(
+            statements[1].kind(),
+            crate::ast::statement::StmtKind::Package { .. }
+        ));
+        assert!(matches!(
+            statements[2].kind(),
+            crate::ast::statement::StmtKind::Apply(_)
+        ));
+        phases.check_consistency(program).unwrap();
+        let parsed = phases
+            .parse("field f: Int method m(x: Ref) requires perm(x.f) >= none")
+            .unwrap();
+        assert!(phases.analyze(parsed).is_err());
+        let parsed = phases
+            .parse("field f: Int method m(x: Ref) requires [perm(x.f) >= none, true]")
+            .unwrap();
+        assert!(phases.analyze(parsed).is_ok());
+        let parsed = phases
+            .parse("function f(): Bool requires true --* true { true }")
+            .unwrap();
+        assert!(phases.analyze(parsed).is_err());
+        let parsed = phases.parse("predicate p() { true --* true }").unwrap();
+        assert!(phases.analyze(parsed).is_err());
+    }
+
+    #[test]
+    fn function_result_is_typed_in_postconditions_and_rejected_in_methods() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases
+            .parse("function id(x: Int): Int ensures result == x { x }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        assert!(
+            matches!(program.functions[0].posts[0].kind(), crate::ast::expression::ExpKind::EqCmp(left, _) if matches!(left.kind(), crate::ast::expression::ExpKind::Result(crate::ast::r#type::Type::Int)))
+        );
+        phases.check_consistency(program).unwrap();
+        let parsed = phases.parse("method m() { assert result == 1; }").unwrap();
+        assert!(phases.analyze(parsed).is_err());
+    }
+
+    #[test]
     fn asserting_and_applying_expressions_translate() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
@@ -387,21 +492,13 @@ mod tests {
             crate::ast::expression::ExpKind::Asserting(..)
         ));
 
-        // The whole-program checker still deliberately rejects wand contexts;
-        // exercise the typed expression path directly until that restriction is ported.
-        let parsed = crate::parser::fast_parser::parse_expression(
-            "applying (true --* true) in true",
-            "test.vpr",
-        )
-        .unwrap()
-        .expression;
-        let boolean = crate::parser::parse_ast::type_from_signature(
-            &crate::parser::parse_ast_keyword::SignatureType::Bool,
-        );
-        crate::parser::resolver::check_top_expression(&parsed, Some(&boolean), |_, _| {}).unwrap();
-        let translated = crate::parser::translator::translate_expression(&parsed).unwrap();
+        let parsed = phases
+            .parse("function g(): Bool { applying (true --* true) in true }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
         assert!(matches!(
-            translated.kind(),
+            program.functions[0].body.as_ref().unwrap().kind(),
             crate::ast::expression::ExpKind::Applying(..)
         ));
     }
