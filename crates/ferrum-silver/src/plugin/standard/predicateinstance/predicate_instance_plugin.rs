@@ -79,6 +79,7 @@ impl ErrorTransformation for PredicateInstanceErrorTrafo {
         Ok(Some(
             super::predicate_instance_errors::PredicateInstanceNoAccess {
                 offending_node: Node::Exp(expression.clone()),
+                scope: Default::default(),
                 reason: original.error().reason.clone(),
                 cached: original.error().cached,
                 failure_contexts: Vec::new(),

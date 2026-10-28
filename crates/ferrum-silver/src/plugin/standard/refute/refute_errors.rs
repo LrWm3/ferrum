@@ -103,6 +103,7 @@ impl ExtensionErrorReason for RefutationTrue {
 
 #[derive(Clone, Debug)]
 pub struct RefuteFailed {
+    pub scope: Arc<std::sync::RwLock<Option<Arc<crate::ast::program::Member>>>>,
     pub offending_node: Refute,
     pub reason: ErrorReason,
     pub cached: bool,
@@ -129,6 +130,7 @@ impl RefuteFailed {
     pub fn with_node(&self, _node: Node) -> Self {
         Self {
             failure_contexts: Vec::new(),
+            scope: Default::default(),
             ..self.clone()
         }
     }
@@ -136,11 +138,30 @@ impl RefuteFailed {
         Self {
             reason,
             failure_contexts: Vec::new(),
+            scope: Default::default(),
             ..self.clone()
         }
     }
 }
 impl VerificationDiagnostic for RefuteFailed {
+    fn scope(&self) -> Result<Option<Arc<crate::ast::program::Member>>, DiagnosticError> {
+        Ok(self
+            .scope
+            .read()
+            .expect("poisoned plugin diagnostic scope")
+            .clone())
+    }
+    fn set_scope(
+        &self,
+        scope: Option<Arc<crate::ast::program::Member>>,
+    ) -> Result<(), DiagnosticError> {
+        *self
+            .scope
+            .write()
+            .expect("poisoned plugin diagnostic scope") = scope;
+        Ok(())
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -167,6 +188,7 @@ impl VerificationDiagnostic for RefuteFailed {
     fn render(&self) -> Result<String, DiagnosticError> {
         let without_contexts = Self {
             failure_contexts: Vec::new(),
+            scope: Default::default(),
             ..self.clone()
         };
         let mut result = format!(

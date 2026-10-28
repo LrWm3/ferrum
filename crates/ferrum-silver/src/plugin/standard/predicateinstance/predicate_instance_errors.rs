@@ -37,6 +37,7 @@ use std::{any::Any, sync::Arc};
 /// Error attached to generated predicate-instance function precondition failures.
 #[derive(Clone, Debug)]
 pub struct PredicateInstanceNoAccess {
+    pub scope: Arc<std::sync::RwLock<Option<Arc<crate::ast::program::Member>>>>,
     pub offending_node: Node,
     pub reason: ErrorReason,
     pub cached: bool,
@@ -48,6 +49,7 @@ impl PredicateInstanceNoAccess {
         Self {
             offending_node,
             failure_contexts: Vec::new(),
+            scope: Default::default(),
             ..self.clone()
         }
     }
@@ -55,6 +57,7 @@ impl PredicateInstanceNoAccess {
     pub fn with_reason(&self, _reason: ErrorReason) -> Self {
         Self {
             failure_contexts: Vec::new(),
+            scope: Default::default(),
             ..self.clone()
         }
     }
@@ -78,6 +81,24 @@ impl PredicateInstanceNoAccess {
     }
 }
 impl VerificationDiagnostic for PredicateInstanceNoAccess {
+    fn scope(&self) -> Result<Option<Arc<crate::ast::program::Member>>, DiagnosticError> {
+        Ok(self
+            .scope
+            .read()
+            .expect("poisoned plugin diagnostic scope")
+            .clone())
+    }
+    fn set_scope(
+        &self,
+        scope: Option<Arc<crate::ast::program::Member>>,
+    ) -> Result<(), DiagnosticError> {
+        *self
+            .scope
+            .write()
+            .expect("poisoned plugin diagnostic scope") = scope;
+        Ok(())
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -105,6 +126,7 @@ impl VerificationDiagnostic for PredicateInstanceNoAccess {
     fn render(&self) -> Result<String, DiagnosticError> {
         let without_contexts = Self {
             failure_contexts: Vec::new(),
+            scope: Default::default(),
             ..self.clone()
         };
         let mut result = format!(

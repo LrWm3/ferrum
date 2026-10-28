@@ -49,6 +49,7 @@ pub enum SifErrorKind {
 }
 #[derive(Clone, Debug)]
 pub struct SifError {
+    pub scope: Arc<std::sync::RwLock<Option<Arc<crate::ast::program::Member>>>>,
     pub kind: SifErrorKind,
     pub offending_node: Node,
     pub reason: ErrorReason,
@@ -72,6 +73,7 @@ impl SifError {
             reason,
             cached,
             failure_contexts: vec![],
+            scope: Default::default(),
             renderer,
             position,
         })
@@ -84,6 +86,24 @@ impl SifError {
     }
 }
 impl VerificationDiagnostic for SifError {
+    fn scope(&self) -> Result<Option<Arc<crate::ast::program::Member>>, DiagnosticError> {
+        Ok(self
+            .scope
+            .read()
+            .expect("poisoned plugin diagnostic scope")
+            .clone())
+    }
+    fn set_scope(
+        &self,
+        scope: Option<Arc<crate::ast::program::Member>>,
+    ) -> Result<(), DiagnosticError> {
+        *self
+            .scope
+            .write()
+            .expect("poisoned plugin diagnostic scope") = scope;
+        Ok(())
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -321,5 +341,44 @@ impl ExtensionErrorReason for SifTerminationReason {
                 format!("Termination condition {condition} might not be tight.")
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+    use crate::ast::{
+        ast::Metadata,
+        expression::{Exp, ExpKind},
+        program::{Member, Method, MethodData},
+    };
+    use crate::verifier::verification_error::NativeErrorNodeRenderer;
+    #[test]
+    fn cloned_plugin_error_shares_scope_but_source_copy_resets_it() {
+        let meta = Metadata::default();
+        let node = Node::Exp(Exp::new(ExpKind::TrueLit, meta.clone()));
+        let error = SifError::new(
+            SifErrorKind::TerminationChannel,
+            node.clone(),
+            ErrorReason::Dummy,
+            false,
+            Arc::new(NativeErrorNodeRenderer),
+        )
+        .unwrap();
+        let member = Arc::new(Member::Method(Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta,
+        })));
+        error.set_scope(Some(member.clone())).unwrap();
+        assert!(Arc::ptr_eq(
+            &error.clone().scope().unwrap().unwrap(),
+            &member
+        ));
+        assert!(error.with_node(node).unwrap().scope().unwrap().is_none());
     }
 }

@@ -149,6 +149,13 @@ pub trait VerificationDiagnostic: std::fmt::Debug + Send + Sync {
     /// Source AbstractVerificationError.toString includes its ID and cached marker.
     fn render(&self) -> Result<String, DiagnosticError>;
     fn cached(&self) -> bool;
+    /// Source mutable scope belongs to the diagnostic instance, not its equality.
+    fn scope(&self) -> Result<Option<Arc<Member>>, DiagnosticError> {
+        Err(DiagnosticError::Unsupported("diagnostic scope"))
+    }
+    fn set_scope(&self, _scope: Option<Arc<Member>>) -> Result<(), DiagnosticError> {
+        Err(DiagnosticError::Unsupported("diagnostic scope"))
+    }
     /// Source ErrorMessage.isExpected checks the offending node's info marker.
     fn is_expected(&self) -> Result<bool, DiagnosticError> {
         let node = self.offending_node()?;
@@ -293,6 +300,26 @@ pub enum AbstractError {
     Verification(Arc<dyn VerificationDiagnostic>),
 }
 impl AbstractError {
+    pub fn scope(&self) -> Result<Option<Arc<Member>>, DiagnosticError> {
+        match self {
+            Self::Parse(e) => Ok(e.scope()),
+            Self::Frontend(e) => Ok(e.scope()),
+            Self::Verification(e) => e.scope(),
+        }
+    }
+    pub fn set_scope(&self, scope: Option<Arc<Member>>) -> Result<(), DiagnosticError> {
+        match self {
+            Self::Parse(e) => {
+                e.set_scope(scope);
+                Ok(())
+            }
+            Self::Frontend(e) => {
+                e.set_scope(scope);
+                Ok(())
+            }
+            Self::Verification(e) => e.set_scope(scope),
+        }
+    }
     pub fn full_id(&self) -> String {
         match self {
             Self::Parse(e) => e.full_id().into(),

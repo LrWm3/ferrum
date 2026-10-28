@@ -106,6 +106,7 @@ pub enum TerminationErrorKind {
 }
 #[derive(Clone, Debug)]
 pub struct TerminationError {
+    pub scope: Arc<std::sync::RwLock<Option<Arc<crate::ast::program::Member>>>>,
     pub kind: TerminationErrorKind,
     pub offending_node: Node,
     pub reason: crate::verifier::verification_error::ErrorReason,
@@ -130,6 +131,7 @@ impl TerminationError {
             reason,
             cached,
             failure_contexts: Vec::new(),
+            scope: Default::default(),
             renderer,
             position,
         })
@@ -143,6 +145,24 @@ impl TerminationError {
     }
 }
 impl crate::verifier::verification_result::VerificationDiagnostic for TerminationError {
+    fn scope(&self) -> Result<Option<Arc<crate::ast::program::Member>>, DiagnosticError> {
+        Ok(self
+            .scope
+            .read()
+            .expect("poisoned plugin diagnostic scope")
+            .clone())
+    }
+    fn set_scope(
+        &self,
+        scope: Option<Arc<crate::ast::program::Member>>,
+    ) -> Result<(), DiagnosticError> {
+        *self
+            .scope
+            .write()
+            .expect("poisoned plugin diagnostic scope") = scope;
+        Ok(())
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

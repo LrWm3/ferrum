@@ -813,6 +813,7 @@ pub struct VerificationError {
     pub reason: ErrorReason,
     pub cached: bool,
     pub failure_contexts: Vec<Arc<dyn FailureContext>>,
+    scope: Arc<std::sync::RwLock<Option<Arc<crate::ast::program::Member>>>>,
 }
 /// Source ErrorMessage.isExpected checks info only on Infoed offending nodes.
 pub fn node_is_expected(
@@ -827,6 +828,18 @@ pub fn node_is_expected(
     Ok(meta.info.is_failure_expected())
 }
 impl VerificationError {
+    pub fn scope(&self) -> Option<Arc<crate::ast::program::Member>> {
+        self.scope
+            .read()
+            .expect("poisoned verification error scope")
+            .clone()
+    }
+    pub fn set_scope(&self, scope: Option<Arc<crate::ast::program::Member>>) {
+        *self
+            .scope
+            .write()
+            .expect("poisoned verification error scope") = scope;
+    }
     pub fn is_expected(&self) -> Result<bool, super::verification_result::DiagnosticError> {
         match self.kind.offending_node() {
             Some(node) => node_is_expected(&node),
@@ -840,6 +853,7 @@ impl VerificationError {
             reason,
             cached: false,
             failure_contexts: Vec::new(),
+            scope: Arc::new(std::sync::RwLock::new(None)),
         }
     }
     pub fn full_id(&self) -> String {
@@ -852,6 +866,7 @@ impl VerificationError {
             reason,
             cached: self.cached,
             failure_contexts: Vec::new(),
+            scope: Arc::new(std::sync::RwLock::new(None)),
         }
     }
     pub fn with_node(
@@ -863,6 +878,7 @@ impl VerificationError {
             reason: self.reason.clone(),
             cached: self.cached,
             failure_contexts: Vec::new(),
+            scope: Arc::new(std::sync::RwLock::new(None)),
         })
     }
     pub fn readable_message(
@@ -1132,6 +1148,19 @@ impl super::verification_result::VerificationDiagnostic for RenderedVerification
     }
     fn cached(&self) -> bool {
         self.error.cached
+    }
+    fn scope(
+        &self,
+    ) -> Result<Option<Arc<crate::ast::program::Member>>, super::verification_result::DiagnosticError>
+    {
+        Ok(self.error.scope())
+    }
+    fn set_scope(
+        &self,
+        scope: Option<Arc<crate::ast::program::Member>>,
+    ) -> Result<(), super::verification_result::DiagnosticError> {
+        self.error.set_scope(scope);
+        Ok(())
     }
     fn is_expected(&self) -> Result<bool, super::verification_result::DiagnosticError> {
         self.error.is_expected()
@@ -1655,5 +1684,50 @@ mod diagnostic_back_transform_tests {
         let result = diag.transformed_error().unwrap();
         assert!(result.cached());
         assert!(matches!(result.offending_node().unwrap(), Node::Exp(e) if e.same_node(&old)));
+    }
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+    use crate::ast::{
+        ast::Metadata,
+        program::{Field, FieldData, Member},
+        r#type::Type,
+    };
+    use crate::verifier::verification_result::AbstractError;
+
+    #[test]
+    fn error_scope_is_shared_by_handles_and_reset_by_source_copy() {
+        let scope = Arc::new(Member::Field(Field::new(FieldData {
+            name: "f".into(),
+            typ: Type::Int,
+            meta: Metadata::default(),
+        })));
+        let error =
+            VerificationError::new(VerificationErrorKind::Internal(None), ErrorReason::Dummy);
+        let clone = error.clone();
+        error.set_scope(Some(scope.clone()));
+        assert!(Arc::ptr_eq(clone.scope().as_ref().unwrap(), &scope));
+        assert!(error.with_reason(ErrorReason::Dummy).scope().is_none());
+        let stmt = crate::ast::statement::Stmt::new(
+            crate::ast::statement::StmtKind::Assert(crate::ast::expression::Exp::new(
+                crate::ast::expression::ExpKind::TrueLit,
+                Metadata::default(),
+            )),
+            Metadata::default(),
+        );
+        let valid = VerificationError::new(
+            VerificationErrorKind::AssertFailed(stmt),
+            ErrorReason::Dummy,
+        );
+        valid.set_scope(Some(scope.clone()));
+        let rendered =
+            RenderedVerificationError::new(valid, Arc::new(NativeErrorNodeRenderer)).unwrap();
+        let abstract_error = AbstractError::Verification(Arc::new(rendered));
+        assert!(Arc::ptr_eq(
+            abstract_error.scope().unwrap().as_ref().unwrap(),
+            &scope
+        ));
     }
 }

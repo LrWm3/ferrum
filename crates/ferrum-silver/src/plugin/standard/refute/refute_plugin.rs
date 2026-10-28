@@ -255,6 +255,7 @@ pub fn map_refute_results(
                     )),
                 ),
                 offending_stmt: refute.clone().statement(),
+                scope: Default::default(),
                 offending_node: refute,
                 cached: false,
                 failure_contexts: Vec::new(),
