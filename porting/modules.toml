@@ -1703,7 +1703,8 @@ remaining = ["Permission sign assertions and constrainable-ARP bypass exist; deb
 repository = "silicon"
 upstream = "src/main/scala/rules/PredicateSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/predicate_supporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source predicate fold/unfold algorithms and cached contents flow exist; concrete execution, diagnostics and prover services remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1723,7 +1724,8 @@ remaining = ["Inverse axioms, snapshot summaries/caches, matching, permission re
 repository = "silicon"
 upstream = "src/main/scala/rules/StateConsolidator.scala"
 destination = "crates/ferrum-silicon/src/rules/state_consolidator.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Heap consolidation and ordinary/quantified merge algorithms exist; concrete prover, resource and verifier services remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1831,7 +1833,8 @@ remaining = ["Resource selection, native sort helpers and solver emission exist;
 repository = "silicon"
 upstream = "src/main/scala/supporters/CfgSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/cfg_supporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Externally supplied CFG verification exists; concrete execution services remain; upstream program CFG analysis is itself unimplemented."]
 
 [[modules]]
 repository = "silicon"
@@ -1872,7 +1875,8 @@ remaining = ["Resource selection, native sort helpers and solver emission exist;
 repository = "silicon"
 upstream = "src/main/scala/supporters/ExpressionTranslator.scala"
 destination = "crates/ferrum-silicon/src/supporters/expression_translator.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Pure expression translation exists with explicit callbacks; recorded heap-access replacement and full backend wiring remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1892,13 +1896,15 @@ remaining = ["Snapshot sort, combination and decomposition helpers exist; concre
 repository = "silicon"
 upstream = "src/main/scala/supporters/MethodSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/method_supporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Method analysis and separate postcondition/body verification scopes exist; concrete execution, prover, diagnostic and logging services remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/PredicateVerificationUnit.scala"
 destination = "crates/ferrum-silicon/src/supporters/predicate_verification_unit.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Predicate analysis, local body verification, branch-tree and declaration replay exist; concrete execution and verifier services remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1917,7 +1923,8 @@ remaining = ["Snapshot sort, combination and decomposition helpers exist; concre
 repository = "silicon"
 upstream = "src/main/scala/supporters/functions/FunctionData.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/function_data.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Predicate/function recorder aggregation and macro-last replay exist; full function verification and concrete services remain."]
 
 [[modules]]
 repository = "silicon"
