@@ -213,11 +213,38 @@ impl Counterexample for SimpleCounterexample {
 pub type CounterexampleTransformer =
     Arc<dyn Fn(Arc<dyn Counterexample>) -> Arc<dyn Counterexample> + Send + Sync>;
 
+/// Extensible source reason family. Equality is supplied by the extension value.
+pub trait ExtensionErrorReason: fmt::Debug + Send + Sync {
+    fn as_any(&self) -> &dyn std::any::Any;
+    fn equals(&self, other: &dyn ExtensionErrorReason) -> bool;
+    fn id(&self) -> &str;
+    fn offending_node(&self) -> crate::ast::utility::nodes::Node;
+    fn with_node(
+        &self,
+        node: crate::ast::utility::nodes::Node,
+    ) -> Result<ExtensionErrorReasonHandle, super::verification_result::DiagnosticError>;
+    fn readable_message(
+        &self,
+        render: &dyn Fn(
+            &crate::ast::utility::nodes::Node,
+        ) -> Result<String, super::verification_result::DiagnosticError>,
+    ) -> Result<String, super::verification_result::DiagnosticError>;
+}
+#[derive(Clone, Debug)]
+pub struct ExtensionErrorReasonHandle(pub Arc<dyn ExtensionErrorReason>);
+impl PartialEq for ExtensionErrorReasonHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.equals(other.0.as_ref())
+    }
+}
+impl Eq for ExtensionErrorReasonHandle {}
+
 /// Concrete source error reasons. Expression subtypes are retained as their typed
 /// expression handles; constructors that need a particular subtype must validate it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ErrorReason {
     Dummy,
+    Extension(ExtensionErrorReasonHandle),
     Internal {
         node: crate::ast::utility::nodes::Node,
         explanation: String,
@@ -265,6 +292,7 @@ impl ErrorReason {
         use ErrorReason::*;
         match self {
             Dummy => "?",
+            Extension(reason) => reason.0.id(),
             Internal { .. } => "internal",
             FeatureUnsupported { .. } => "feature.unsupported",
             UnexpectedNode { .. } => "unexpected.node",
@@ -297,7 +325,7 @@ impl ErrorReason {
         use ErrorReason::*;
         let exp = |e: &crate::ast::expression::Exp| render(&Node::Exp(e.clone()));
         Ok(match self {
-            Dummy => "?".into(), Internal { explanation,.. } => explanation.clone(),
+            Dummy => "?".into(), Extension(reason) => reason.0.readable_message(render)?, Internal { explanation,.. } => explanation.clone(),
             FeatureUnsupported { node, explanation } => format!("{} is not supported. {explanation}", render(node)?),
             UnexpectedNode { node, explanation,.. } => format!("{} occurred unexpectedly. {explanation}", render(node)?),
             AssertionFalse(e) => format!("Assertion {} might not hold.", exp(e)?),
@@ -331,6 +359,7 @@ impl ErrorReason {
         use ErrorReason::*;
         match self {
             Dummy => None,
+            Extension(reason) => Some(reason.0.offending_node()),
             Internal { node, .. }
             | FeatureUnsupported { node, .. }
             | UnexpectedNode { node, .. }
@@ -368,6 +397,7 @@ impl ErrorReason {
         };
         Ok(match self {
             Dummy => Dummy,
+            Extension(reason) => Extension(reason.0.with_node(replacement)?),
             Internal { explanation, .. } => Internal {
                 node: replacement,
                 explanation: explanation.clone(),
@@ -677,7 +707,7 @@ mod reason_tests {
     }
 }
 
-fn node_position(
+pub fn node_position(
     node: &crate::ast::utility::nodes::Node,
 ) -> Result<crate::ast::position::Position, super::verification_result::DiagnosticError> {
     use super::verification_result::DiagnosticError;
@@ -1072,20 +1102,72 @@ impl super::verification_result::VerificationDiagnostic for RenderedVerification
     fn cached(&self) -> bool {
         self.error.cached
     }
+    fn offending_node(
+        &self,
+    ) -> Result<crate::ast::utility::nodes::Node, super::verification_result::DiagnosticError> {
+        self.error.kind.offending_node().ok_or(
+            super::verification_result::DiagnosticError::Unsupported("dummy diagnostic node"),
+        )
+    }
+    fn reason(&self) -> Result<ErrorReason, super::verification_result::DiagnosticError> {
+        Ok(self.error.reason.clone())
+    }
+    fn with_node(
+        &self,
+        node: crate::ast::utility::nodes::Node,
+    ) -> Result<
+        Arc<dyn super::verification_result::VerificationDiagnostic>,
+        super::verification_result::DiagnosticError,
+    > {
+        Ok(Arc::new(Self::new(
+            self.error.with_node(node)?,
+            self.renderer.clone(),
+        )?))
+    }
+    fn with_reason(
+        &self,
+        reason: ErrorReason,
+    ) -> Result<
+        Arc<dyn super::verification_result::VerificationDiagnostic>,
+        super::verification_result::DiagnosticError,
+    > {
+        Ok(Arc::new(Self::new(
+            self.error.with_reason(reason),
+            self.renderer.clone(),
+        )?))
+    }
+    fn failure_contexts(
+        &self,
+    ) -> Result<Vec<Arc<dyn FailureContext>>, super::verification_result::DiagnosticError> {
+        Ok(self.error.failure_contexts.clone())
+    }
+    fn with_failure_contexts(
+        &self,
+        contexts: Vec<Arc<dyn FailureContext>>,
+    ) -> Result<
+        Arc<dyn super::verification_result::VerificationDiagnostic>,
+        super::verification_result::DiagnosticError,
+    > {
+        let mut error = self.error.clone();
+        error.failure_contexts = contexts;
+        Ok(Arc::new(Self::new(error, self.renderer.clone())?))
+    }
     fn transformed_error(
         &self,
     ) -> Result<
         Arc<dyn super::verification_result::VerificationDiagnostic>,
         super::verification_result::DiagnosticError,
     > {
-        Err(super::verification_result::DiagnosticError::Unsupported(
-            "verification error back transformation and AST reconstruction",
-        ))
+        transform_diagnostic(Arc::new(self.clone()))
     }
 }
 impl RenderedVerificationError {
     pub fn error(&self) -> &VerificationError {
         &self.error
+    }
+    /// Retain the same source-node renderer when an extension changes error family.
+    pub fn renderer(&self) -> Arc<dyn ErrorNodeRenderer> {
+        self.renderer.clone()
     }
     pub fn new(
         error: VerificationError,
@@ -1100,6 +1182,176 @@ impl RenderedVerificationError {
         }
         Ok(Self { error, renderer })
     }
+}
+
+/// Apply source error partial functions in reverse chronological (fold-right) order.
+/// Node back-transformation and reason transformation are separate subsequent steps.
+pub fn apply_error_transformations(
+    mut error: Arc<dyn super::verification_result::VerificationDiagnostic>,
+    transformations: &[Arc<dyn crate::ast::ast::ErrorTransformation>],
+) -> Result<
+    Arc<dyn super::verification_result::VerificationDiagnostic>,
+    super::verification_result::DiagnosticError,
+> {
+    for transform in transformations.iter().rev() {
+        if let Some(next) = transform.transform_error(&error)? {
+            error = next;
+        }
+    }
+    Ok(error)
+}
+
+/// Apply source reason partial functions in reverse chronological (fold-right) order.
+pub fn apply_reason_transformations(
+    mut reason: ErrorReason,
+    transformations: &[Arc<dyn crate::ast::ast::ErrorTransformation>],
+) -> Result<ErrorReason, super::verification_result::DiagnosticError> {
+    for transform in transformations.iter().rev() {
+        if let Some(next) = transform.transform_reason(&reason)? {
+            reason = next;
+        }
+    }
+    Ok(reason)
+}
+
+/// Back-transform expression error nodes. Non-expression products and binders
+/// remain explicit failures until generic node reconstruction is available.
+pub fn back_transform_expression_node(
+    node: crate::ast::utility::nodes::Node,
+) -> Result<crate::ast::utility::nodes::Node, super::verification_result::DiagnosticError> {
+    use super::verification_result::DiagnosticError;
+    use crate::ast::{
+        ast::PreviousNode,
+        expression::{Exp, ExpKind},
+        utility::nodes::Node,
+    };
+    fn pass(e: &Exp) -> Result<Exp, DiagnosticError> {
+        let current = if let Some(link) = &e.metadata().error_trafo.node {
+            let old = link
+                .as_any()
+                .downcast_ref::<PreviousNode>()
+                .ok_or(DiagnosticError::Unsupported("custom node transformation"))?;
+            match &old.0 {
+                Node::Exp(exp) => exp.clone(),
+                _ => return Err(DiagnosticError::Unsupported("non-expression backlink")),
+            }
+        } else {
+            e.clone()
+        };
+        if matches!(
+            current.kind(),
+            ExpKind::Forall(..)
+                | ExpKind::Exists(..)
+                | ExpKind::ForPerm(..)
+                | ExpKind::Let(..)
+                | ExpKind::FieldAccess(..)
+                | ExpKind::FieldAccessPredicate(..)
+        ) {
+            return Err(DiagnosticError::Unsupported(
+                "binder or field product back-transformation",
+            ));
+        }
+        current.map_expression_children(
+            &mut pass,
+            &mut |extension| extension.0.map_expressions(&pass),
+            &mut |_| Err(DiagnosticError::Unsupported("field back-transformation")),
+            &mut |pred| {
+                let view = Exp::new(ExpKind::PredicateAccess(pred.clone()), pred.meta.clone());
+                let transformed = pass(&view)?;
+                match transformed.kind() {
+                    ExpKind::PredicateAccess(p) => Ok(p.clone()),
+                    _ => Err(DiagnosticError::InvalidNode("predicate access backlink")),
+                }
+            },
+            &mut |_| Err(DiagnosticError::Unsupported("trigger back-transformation")),
+        )
+    }
+    let (mut current, view) = match node {
+        Node::Exp(e) => (e, 0),
+        Node::LocalVar(v) => (Exp::new(ExpKind::LocalVar(v.clone()), v.meta.clone()), 1),
+        Node::PredicateAccess(v) => (
+            Exp::new(ExpKind::PredicateAccess(v.clone()), v.meta.clone()),
+            2,
+        ),
+        Node::PredicateAccessPredicate(v) => (
+            Exp::new(ExpKind::PredicateAccessPredicate(v.clone()), v.meta.clone()),
+            3,
+        ),
+        _ => {
+            return Err(DiagnosticError::Unsupported(
+                "non-expression error node back-transformation",
+            ));
+        }
+    };
+    let mut seen = Vec::new();
+    loop {
+        if seen.iter().any(|old: &Exp| old.same_node(&current)) {
+            return Err(DiagnosticError::Unsupported(
+                "cyclic node back-transformation",
+            ));
+        }
+        seen.push(current.clone());
+        let next = pass(&current)?;
+        if next.same_node(&current) {
+            return match (view, next.kind()) {
+                (0, _) => Ok(Node::Exp(next)),
+                (1, ExpKind::LocalVar(v)) => Ok(Node::LocalVar(v.clone())),
+                (2, ExpKind::PredicateAccess(v)) => Ok(Node::PredicateAccess(v.clone())),
+                (3, ExpKind::PredicateAccessPredicate(v)) => {
+                    Ok(Node::PredicateAccessPredicate(v.clone()))
+                }
+                _ => Err(DiagnosticError::InvalidNode(
+                    "back-transformed typed expression node",
+                )),
+            };
+        }
+        current = next;
+    }
+}
+
+/// Source error-then-node-then-reason pipeline for supported expression error nodes.
+/// Generic products and unsupported extension hooks propagate explicit errors.
+pub fn transform_diagnostic(
+    error: Arc<dyn super::verification_result::VerificationDiagnostic>,
+) -> Result<
+    Arc<dyn super::verification_result::VerificationDiagnostic>,
+    super::verification_result::DiagnosticError,
+> {
+    use super::verification_result::DiagnosticError;
+    use crate::ast::utility::nodes::Node;
+    let contexts = error.failure_contexts()?;
+    let node = error.offending_node()?;
+    let Node::Exp(exp) = node else {
+        return Err(DiagnosticError::Unsupported(
+            "non-expression diagnostic back-transformation",
+        ));
+    };
+    let transformed = apply_error_transformations(error, &exp.metadata().error_trafo.error)?;
+    let new_node = back_transform_expression_node(transformed.offending_node()?)?;
+    let transformed = transformed.with_node(new_node)?;
+    let reason = transformed.reason()?;
+    let reason_node = reason.offending_node().ok_or(DiagnosticError::Unsupported(
+        "dummy reason back-transformation",
+    ))?;
+    let reason_meta = match &reason_node {
+        Node::Exp(e) => e.metadata(),
+        Node::LocalVar(v) => &v.meta,
+        Node::PredicateAccess(v) => &v.meta,
+        Node::PredicateAccessPredicate(v) => &v.meta,
+        _ => {
+            return Err(DiagnosticError::Unsupported(
+                "non-expression reason back-transformation",
+            ));
+        }
+    };
+    let reason = apply_reason_transformations(reason, &reason_meta.error_trafo.reason)?;
+    let reason_node = reason.offending_node().ok_or(DiagnosticError::Unsupported(
+        "dummy reason back-transformation",
+    ))?;
+    let reason = reason.with_node(back_transform_expression_node(reason_node)?)?;
+    transformed
+        .with_reason(reason)?
+        .with_failure_contexts(contexts)
 }
 
 /// A source partial verification error is a factory awaiting its reason.
@@ -1168,5 +1420,103 @@ impl PartialVerificationError {
     ) -> Result<String, super::verification_result::DiagnosticError> {
         self.due_to(ErrorReason::Dummy)?
             .readable_message(true, true, render)
+    }
+}
+
+#[cfg(test)]
+mod transformation_order_tests {
+    use super::*;
+    use crate::ast::{
+        ast::{ErrorTransformation, Metadata},
+        expression::{Exp, ExpKind},
+        utility::nodes::Node,
+    };
+    #[derive(Debug)]
+    struct Append(&'static str);
+    impl ErrorTransformation for Append {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn transform_reason(
+            &self,
+            reason: &ErrorReason,
+        ) -> Result<Option<ErrorReason>, super::super::verification_result::DiagnosticError>
+        {
+            let ErrorReason::Internal { node, explanation } = reason else {
+                return Ok(None);
+            };
+            Ok(Some(ErrorReason::Internal {
+                node: node.clone(),
+                explanation: format!("{explanation}{}", self.0),
+            }))
+        }
+    }
+    #[test]
+    fn partial_reason_transformations_fold_right() {
+        let node = Node::Exp(Exp::new(ExpKind::TrueLit, Metadata::default()));
+        let reason = ErrorReason::Internal {
+            node,
+            explanation: String::new(),
+        };
+        let transforms: Vec<Arc<dyn ErrorTransformation>> =
+            vec![Arc::new(Append("a")), Arc::new(Append("b"))];
+        assert!(
+            matches!(apply_reason_transformations(reason, &transforms).unwrap(), ErrorReason::Internal { explanation, .. } if explanation == "ba")
+        );
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_back_transform_tests {
+    use super::*;
+    use crate::ast::{
+        ast::{ErrorTrafo, Metadata, PreviousNode},
+        expression::{Exp, ExpExtra, ExpKind},
+        r#type::Type,
+        utility::nodes::Node,
+    };
+    use crate::verifier::verification_result::VerificationDiagnostic;
+    #[derive(Debug)]
+    struct Renderer;
+    impl ErrorNodeRenderer for Renderer {
+        fn render_node(
+            &self,
+            _: &Node,
+        ) -> Result<String, super::super::verification_result::DiagnosticError> {
+            Ok("node".into())
+        }
+    }
+    #[test]
+    fn expression_backlink_restores_error_node_and_cached_flag() {
+        let old = Exp::with_extra(
+            ExpKind::FuncApp("old".into(), vec![]),
+            Metadata::default(),
+            ExpExtra {
+                typ: Some(Type::Bool),
+                ..Default::default()
+            },
+        );
+        let mut meta = Metadata::default();
+        meta.error_trafo = ErrorTrafo::trafos(
+            vec![],
+            vec![],
+            Some(Arc::new(PreviousNode(Node::Exp(old.clone())))),
+        );
+        let new = Exp::with_extra(
+            ExpKind::FuncApp("new".into(), vec![]),
+            meta,
+            ExpExtra {
+                typ: Some(Type::Bool),
+                ..Default::default()
+            },
+        );
+        let reason = ErrorReason::AssertionFalse(Exp::new(ExpKind::TrueLit, Metadata::default()));
+        let mut error =
+            VerificationError::new(VerificationErrorKind::PreconditionInAppFalse(new), reason);
+        error.cached = true;
+        let diag = RenderedVerificationError::new(error, Arc::new(Renderer)).unwrap();
+        let result = diag.transformed_error().unwrap();
+        assert!(result.cached());
+        assert!(matches!(result.offending_node().unwrap(), Node::Exp(e) if e.same_node(&old)));
     }
 }

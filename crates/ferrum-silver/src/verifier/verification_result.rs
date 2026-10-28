@@ -150,6 +150,37 @@ pub trait VerificationDiagnostic: std::fmt::Debug + Send + Sync {
     fn render(&self) -> Result<String, DiagnosticError>;
     fn cached(&self) -> bool;
     fn transformed_error(&self) -> Result<Arc<dyn VerificationDiagnostic>, DiagnosticError>;
+    fn offending_node(&self) -> Result<crate::ast::utility::nodes::Node, DiagnosticError> {
+        Err(DiagnosticError::Unsupported("diagnostic offending node"))
+    }
+    fn reason(&self) -> Result<super::verification_error::ErrorReason, DiagnosticError> {
+        Err(DiagnosticError::Unsupported("diagnostic reason"))
+    }
+    fn with_node(
+        &self,
+        _node: crate::ast::utility::nodes::Node,
+    ) -> Result<Arc<dyn VerificationDiagnostic>, DiagnosticError> {
+        Err(DiagnosticError::Unsupported("diagnostic with_node"))
+    }
+    fn with_reason(
+        &self,
+        _reason: super::verification_error::ErrorReason,
+    ) -> Result<Arc<dyn VerificationDiagnostic>, DiagnosticError> {
+        Err(DiagnosticError::Unsupported("diagnostic with_reason"))
+    }
+    fn failure_contexts(
+        &self,
+    ) -> Result<Vec<Arc<dyn super::verification_error::FailureContext>>, DiagnosticError> {
+        Err(DiagnosticError::Unsupported("diagnostic failure contexts"))
+    }
+    fn with_failure_contexts(
+        &self,
+        _contexts: Vec<Arc<dyn super::verification_error::FailureContext>>,
+    ) -> Result<Arc<dyn VerificationDiagnostic>, DiagnosticError> {
+        Err(DiagnosticError::Unsupported(
+            "diagnostic with failure contexts",
+        ))
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DiagnosticError {

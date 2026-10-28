@@ -153,6 +153,18 @@ pub trait ExtensionExp: Debug + Send + Sync {
     fn is_forbidden_in_trigger(&self) -> bool {
         true
     }
+    /// Reconstruct expression children for back-transformation. Extensions with
+    /// other rewritable node fields must report unsupported until they can map them.
+    fn map_expressions(
+        &self,
+        _map: &dyn Fn(&Exp) -> Result<Exp, crate::verifier::verification_result::DiagnosticError>,
+    ) -> Result<ExtensionExpHandle, crate::verifier::verification_result::DiagnosticError> {
+        Err(
+            crate::verifier::verification_result::DiagnosticError::Unsupported(
+                "extension expression reconstruction",
+            ),
+        )
+    }
     fn subnodes(
         &self,
     ) -> Result<Vec<super::utility::nodes::Node>, super::utility::nodes::TraversalError> {
@@ -184,6 +196,7 @@ pub struct ExpNode {
     pub meta: Metadata,
     pub extra: ExpExtra,
     pub simplified: RwLock<Option<SimplifiedExp>>,
+    pub(crate) auto_triggered: std::sync::Mutex<Option<SimplifiedExp>>,
     implicit_full_permission: OnceLock<Exp>,
 }
 /// Avoid a strong Arc cycle when the cached simplified expression is itself.
@@ -219,6 +232,7 @@ impl Exp {
             meta,
             extra,
             simplified: RwLock::new(None),
+            auto_triggered: std::sync::Mutex::new(None),
             implicit_full_permission: OnceLock::new(),
         }))
     }

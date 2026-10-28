@@ -33,7 +33,7 @@
 //!
 //! Status: partial; identifier/type helpers, core traversal checks, contract diagnostics,
 //! trigger coverage, wildcard, forperm and precondition-cycle checks are implemented.
-//! Trigger validity, wand context and node-specific checks remain pending.
+//! Context-dependent wand checks are implemented; node-specific checks remain pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -898,5 +898,157 @@ mod trigger_validity_tests {
         assert!(!valid_trigger(&call, &program).unwrap());
         let old = Exp::new(ExpKind::Old(call), m);
         assert!(!valid_trigger(&old, &program).unwrap());
+    }
+}
+
+/// Errors representing source preconditions or unsupported extension traversal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ContextConsistencyError {
+    Traversal(TraversalError),
+    InvalidProofScript,
+    NonLocalProofDeclaration,
+}
+impl From<TraversalError> for ContextConsistencyError {
+    fn from(value: TraversalError) -> Self {
+        Self::Traversal(value)
+    }
+}
+
+/// Context-dependent wand, wildcard and domain-reference checks in source preorder.
+pub fn check_context_dependent_consistency(
+    root: &Node,
+    program: &Program,
+) -> Result<Vec<FrontendError>, ContextConsistencyError> {
+    use crate::ast::{position::Position, program::Declaration, statement::StmtKind};
+    fn report(out: &mut Vec<FrontendError>, message: String, position: Position) {
+        out.push(FrontendError::new(
+            FrontendErrorKind::ConsistencyError(message),
+            position,
+        ));
+    }
+    fn old(
+        n: &Node,
+        right: bool,
+        out: &mut Vec<FrontendError>,
+    ) -> Result<(), ContextConsistencyError> {
+        if let Node::Exp(e) = n {
+            if let ExpKind::MagicWand(l, r) = e.kind() {
+                old(&Node::Exp(l.clone()), false, out)?;
+                old(&Node::Exp(r.clone()), true, out)?;
+                return Ok(());
+            }
+            if matches!(e.kind(), ExpKind::LabelledOld(_, label) if label == "lhs") && !right {
+                report(out, "Wands may use the old[lhs]-expression on the rhs and in their proof script only.".into(), e.metadata().position.clone());
+                return Ok(());
+            }
+        }
+        for child in subnodes(n)? {
+            old(&child, right, out)?;
+        }
+        Ok(())
+    }
+    fn script(
+        n: &Node,
+        locals: &[String],
+        out: &mut Vec<FrontendError>,
+    ) -> Result<(), ContextConsistencyError> {
+        if let Node::Stmt(s) = n {
+            let msg = match s.kind() {
+                StmtKind::FieldAssign { .. } => {
+                    Some("Field assignments are not allowed in magic wand proof scripts.")
+                }
+                StmtKind::NewStmt { .. } => {
+                    Some("New statements statements are not allowed in magic wand proof scripts.")
+                }
+                StmtKind::While { .. } => {
+                    Some("While statements are not allowed in magic wand proof scripts.")
+                }
+                StmtKind::LocalVarAssign { lhs, .. } if !locals.contains(&lhs.name) => Some(
+                    "Can only assign to local variables that were declared inside the proof script.",
+                ),
+                StmtKind::Package { .. } => return Ok(()),
+                _ => None,
+            };
+            if let Some(message) = msg {
+                report(out, message.into(), s.metadata().position.clone());
+                return Ok(());
+            }
+        }
+        for child in subnodes(n)? {
+            script(&child, locals, out)?;
+        }
+        Ok(())
+    }
+    fn walk(
+        n: &Node,
+        p: &Program,
+        inside: bool,
+        access: bool,
+        out: &mut Vec<FrontendError>,
+    ) -> Result<(), ContextConsistencyError> {
+        let mut next_inside = inside;
+        let mut next_access = access;
+        match n {
+            Node::Stmt(s) => if let StmtKind::Package { proof_script, .. } = s.kind() {
+                let StmtKind::Seqn { declarations, .. } = proof_script.kind() else { return Err(ContextConsistencyError::InvalidProofScript) };
+                let mut locals = Vec::new();
+                for d in declarations { match d { Declaration::Local(v) => locals.push(v.name.clone()), _ => return Err(ContextConsistencyError::NonLocalProofDeclaration) } }
+                script(&Node::Stmt(proof_script.clone()), &locals, out)?;
+                next_inside = true;
+            },
+            Node::Exp(e) => match e.kind() {
+                ExpKind::MagicWand(lhs, rhs) => {
+                    old(&Node::Exp(lhs.clone()), false, out)?;
+                    old(&Node::Exp(rhs.clone()), true, out)?;
+                    if !no_ghost_operations(n)? { report(out, "Ghost operations may not occur inside of wands.".into(), e.metadata().position.clone()); }
+                    next_inside = true;
+                }
+                ExpKind::LabelledOld(_, label) if label == "lhs" && !inside => report(out, "Labelled old expressions with \"lhs\" label may only occur inside wands and their proof scripts.".into(), e.metadata().position.clone()),
+                ExpKind::FieldAccessPredicate(..) | ExpKind::PredicateAccessPredicate(_) => next_access = true,
+                ExpKind::WildcardPerm if !access => report(out, "\"wildcard\" can only be used in accessibility predicates".into(), e.metadata().position.clone()),
+                _ => {}
+            },
+            Node::PredicateAccessPredicate(_) => next_access = true,
+            Node::Type(Type::Domain(t)) => match p.find_domain_optionally(&t.domain_name) {
+                None => report(out, format!("DomainType references non-existent domain {}.", t.domain_name), Position::NoPosition),
+                Some(d) if d.interpretations.is_some() => report(out, format!("DomainType {} references domain with interpretation; must use BackendType instead.", t.domain_name), Position::NoPosition),
+                _ => {}
+            },
+            Node::Type(Type::Backend(t)) => match p.find_domain_optionally(&t.viper_name) {
+                None => report(out, format!("BackendType references non-existent domain {}.", t.viper_name), Position::NoPosition),
+                Some(d) if d.interpretations.is_none() => report(out, format!("BackendType {} references domain without interpretation; must use DomainType instead.", t.viper_name), Position::NoPosition),
+                Some(d) if d.interpretations.as_ref() != Some(&t.interpretations) => report(out, format!("BackendType {} has different interpretations than the domain it references.", t.viper_name), Position::NoPosition),
+                _ => {}
+            },
+            _ => {}
+        }
+        for child in subnodes(n)? {
+            walk(&child, p, next_inside, next_access, out)?;
+        }
+        Ok(())
+    }
+    let mut out = Vec::new();
+    walk(root, program, false, false, &mut out)?;
+    Ok(out)
+}
+
+#[cfg(test)]
+mod context_consistency_tests {
+    use super::*;
+    use crate::ast::ast::Metadata;
+    #[test]
+    fn old_lhs_is_allowed_only_in_wand_rhs() {
+        let m = Metadata::default();
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![], vec![], m.clone());
+        let lhs_old = Exp::new(
+            ExpKind::LabelledOld(Exp::new(ExpKind::TrueLit, m.clone()), "lhs".into()),
+            m.clone(),
+        );
+        let wand = Exp::new(ExpKind::MagicWand(lhs_old.clone(), lhs_old), m);
+        let errors = check_context_dependent_consistency(&Node::Exp(wand), &program).unwrap();
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(&errors[0].kind, FrontendErrorKind::ConsistencyError(s) if s.starts_with("Wands may use"))
+        );
     }
 }

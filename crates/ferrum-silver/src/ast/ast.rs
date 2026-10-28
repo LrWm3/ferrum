@@ -135,10 +135,38 @@ impl Info {
     }
 }
 
-/// Placeholder boundary retaining transformation objects without pretending to
-/// execute them. Concrete error/reason/node callbacks depend on verifier errors.
+/// Object-safe extension boundary for source partial error transformations.
+/// An unsupported callback must fail rather than silently discard a transformation.
 pub trait ErrorTransformation: Debug + Send + Sync {
     fn as_any(&self) -> &dyn Any;
+    /// `None` means the source partial function is not defined for this error.
+    fn transform_error(
+        &self,
+        _error: &Arc<dyn crate::verifier::verification_result::VerificationDiagnostic>,
+    ) -> Result<
+        Option<Arc<dyn crate::verifier::verification_result::VerificationDiagnostic>>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Err(
+            crate::verifier::verification_result::DiagnosticError::Unsupported(
+                "error transformation callback",
+            ),
+        )
+    }
+    /// `None` means that this source partial function does not match the reason.
+    fn transform_reason(
+        &self,
+        _reason: &crate::verifier::verification_error::ErrorReason,
+    ) -> Result<
+        Option<crate::verifier::verification_error::ErrorReason>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Err(
+            crate::verifier::verification_result::DiagnosticError::Unsupported(
+                "reason transformation callback",
+            ),
+        )
+    }
 }
 /// Node back-link attached by a direct Viper rewrite.
 #[derive(Clone, Debug)]

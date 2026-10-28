@@ -7,14 +7,14 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Ast.scala"
 destination = "crates/ferrum-silver/src/ast/ast.rs"
 status = "skeleton"
-remaining = ["Metadata composition and typed rewrite backlinks exist; executable error transformations and full common Node contracts remain."]
+remaining = ["Typed error/reason callbacks and node backlinks exist; general metadata reconstruction and complete error-node traversal remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Expression.scala"
 destination = "crates/ferrum-silver/src/ast/expression.rs"
 status = "skeleton"
-remaining = ["Expression families, queries, child reconstruction and implicit permissions exist; full consistency, generic rewriting, trigger generation and pretty printing remain."]
+remaining = ["Expression representation, identity and cached automatic triggers exist; complete local consistency and general reconstruction remain."]
 
 [[modules]]
 repository = "silver"
@@ -60,7 +60,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Consistency.scala"
 destination = "crates/ferrum-silver/src/ast/utility/consistency.rs"
 status = "skeleton"
-remaining = ["Identifier, contract, trigger and expression-context checks exist; complete local node validation and frontend consistency wiring remain."]
+remaining = ["Contract, trigger, permission and wand context checks exist; complete local node checks and frontend consistency integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -74,7 +74,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Expressions.scala"
 destination = "crates/ferrum-silver/src/ast/utility/expressions.rs"
 status = "skeleton"
-remaining = ["Core queries, projections and wand canonicalization exist; complete dependency/proof-obligation helpers and extension reconstruction remain."]
+remaining = ["Heap dependency, contained variables and proof obligations exist; universal reconstruction, complete expression helpers and extension coverage remain."]
 
 [[modules]]
 repository = "silver"
@@ -129,7 +129,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Nodes.scala"
 destination = "crates/ferrum-silver/src/ast/utility/nodes.rs"
 status = "skeleton"
-remaining = ["Ordered traversal, member discovery and expression replacement exist; complete product reconstruction and extension integration remain."]
+remaining = ["Per-occurrence program expression mapping exists; universal product reconstruction and extension member support remain."]
 
 [[modules]]
 repository = "silver"
@@ -143,7 +143,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/QuantifiedPermissions.scala"
 destination = "crates/ferrum-silver/src/ast/utility/quantified_permissions.rs"
 status = "skeleton"
-remaining = ["Quantified resources and common desugaring exist; nested automatic triggers and let desugaring remain."]
+remaining = ["Resource discovery, Let desugaring and nested automatic triggers exist; complete extension integration remains."]
 
 [[modules]]
 repository = "silver"
@@ -157,14 +157,14 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Statements.scala"
 destination = "crates/ferrum-silver/src/ast/utility/statements.rs"
 status = "skeleton"
-remaining = ["Statement queries and expression replacement exist; general reconstruction and extension families remain."]
+remaining = ["Per-occurrence expression mapping and fallible extension callbacks exist; universal statement reconstruction remains."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Triggers.scala"
 destination = "crates/ferrum-silver/src/ast/utility/triggers.rs"
 status = "skeleton"
-remaining = ["Arithmetic adapter exists; Silver trigger discovery, axiom adapter and extension classification remain."]
+remaining = ["Silver trigger and axiom adapters, classification, fresh variables and automatic selection exist; complete extension reconstruction and custom filters remain."]
 
 [[modules]]
 repository = "silver"
@@ -761,14 +761,14 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/verifier/VerificationError.scala"
 destination = "crates/ferrum-silver/src/verifier/verification_error.rs"
 status = "skeleton"
-remaining = ["Concrete error/reason families, model values and failure contexts exist; executable backtransformation, extension contracts and rendering integration remain."]
+remaining = ["Typed diagnostics and bounded expression backtransformation exist; general statements, members, binders, field products and complete extension transformation remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/verifier/VerificationResult.scala"
 destination = "crates/ferrum-silver/src/verifier/verification_result.rs"
 status = "skeleton"
-remaining = ["Frontend and verification diagnostic interfaces exist; final backend-to-frontend conversion and full plugin transformations remain."]
+remaining = ["Diagnostic extension contracts and failure transformations exist; complete backend integration and general node backtransformation remain."]
 
 [[modules]]
 repository = "silver"
