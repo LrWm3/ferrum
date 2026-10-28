@@ -20,4 +20,25 @@
 //! Open decisions:
 //! Agree on resource embedding and override handling with builtin_domains_contributor.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; resource selection and target sort factory implemented.
+//! Domain parsing, instantiation and axiom emission await BuiltinDomainsContributor.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2019 ETH Zurich.
+use crate::state::terms::Sort;
+
+pub const SOURCE_DOMAIN_NAME: &str = "$Map";
+pub fn source_resource(use_old_axiomatization: bool) -> &'static str {
+    let _ = use_old_axiomatization;
+    "/dafny_axioms/maps.vpr"
+}
+/// An explicit arity error replaces the source assertion.
+pub fn target_sort(arguments: &[Sort]) -> Result<Sort, &'static str> {
+    if let [key, value] = arguments {
+        Ok(Sort::Map(Box::new(key.clone()), Box::new(value.clone())))
+    } else {
+        Err("map requires two sort arguments")
+    }
+}

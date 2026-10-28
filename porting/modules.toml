@@ -1765,7 +1765,8 @@ remaining = ["Member mode and option annotations are parsed; complete config and
 repository = "silicon"
 upstream = "src/main/scala/supporters/BuiltinDomainsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/builtin_domains_contributor.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Resource selection, native sort helpers and solver emission exist; full source-domain analysis, instantiation and verifier lifecycle remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1777,31 +1778,36 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/supporters/DefaultMapsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/default_maps_contributor.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Resource selection, native sort helpers and solver emission exist; full source-domain analysis, instantiation and verifier lifecycle remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/DefaultMultisetsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/default_multisets_contributor.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Resource selection, native sort helpers and solver emission exist; full source-domain analysis, instantiation and verifier lifecycle remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/DefaultSequencesContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/default_sequences_contributor.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Resource selection, native sort helpers and solver emission exist; full source-domain analysis, instantiation and verifier lifecycle remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/DefaultSetsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/default_sets_contributor.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Resource selection, native sort helpers and solver emission exist; full source-domain analysis, instantiation and verifier lifecycle remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/Domains.scala"
 destination = "crates/ferrum-silicon/src/supporters/domains.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Resource selection, native sort helpers and solver emission exist; full source-domain analysis, instantiation and verifier lifecycle remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1813,13 +1819,15 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/supporters/MagicWandSnapFunctionsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/magic_wand_snap_functions_contributor.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source existence traversal and bundled declarations are available; full verifier preamble lifecycle remains."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/MaskHeapSnapshotSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/mask_heap_snapshot_supporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Snapshot sort, combination and decomposition helpers exist; concrete verifier resource and predicate adapters remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1843,7 +1851,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/supporters/SnapshotSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/snapshot_supporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Snapshot sort, combination and decomposition helpers exist; concrete verifier resource and predicate adapters remain."]
 
 [[modules]]
 repository = "silicon"

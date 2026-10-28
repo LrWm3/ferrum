@@ -26,4 +26,51 @@
 //! Resolve cache synchronization, source loading and failure propagation with verifier and
 //! frontend.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; ordered collection, reset and solver emission implemented.
+//! Source loading/cache, instantiation, translation and analysis remain pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2019 ETH Zurich.
+use crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet;
+use crate::interfaces::decider::prover::ProverLike;
+use crate::state::terms::{Applicable, Sort, Term, TermFactory};
+
+/// Ordered results of actual domain analysis. Parsing and translation must fill these explicitly.
+#[derive(Default)]
+pub struct BuiltinDomainsContributor {
+    pub sorts: InsertionOrderedSet<Sort>,
+    pub functions: InsertionOrderedSet<Applicable>,
+    pub axioms: InsertionOrderedSet<Term>,
+}
+impl BuiltinDomainsContributor {
+    pub fn reset(&mut self) {
+        self.sorts = InsertionOrderedSet::new();
+        self.functions = InsertionOrderedSet::new();
+        self.axioms = InsertionOrderedSet::new();
+    }
+    pub fn declare_sorts<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        sink: &mut P,
+    ) -> Result<(), P::Error> {
+        for sort in &self.sorts {
+            sink.declare(&factory.sort_decl(sort.clone()))?;
+        }
+        Ok(())
+    }
+    pub fn declare_symbols<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        sink: &mut P,
+    ) -> Result<(), P::Error> {
+        for function in &self.functions {
+            sink.declare(&factory.function_decl(function.clone()))?;
+        }
+        Ok(())
+    }
+    pub fn emit_axioms<P: ProverLike>(&self, sink: &mut P) -> Result<(), P::Error> {
+        sink.assume_axioms(&self.axioms, "Axioms from builtin domains contributor")
+    }
+}

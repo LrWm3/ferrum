@@ -20,4 +20,28 @@
 //! Open decisions:
 //! Reconcile configuration access with verifier and builtin_domains_contributor.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; resource selection and target sort factory implemented.
+//! Domain parsing, instantiation and axiom emission await BuiltinDomainsContributor.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2019 ETH Zurich.
+use crate::state::terms::Sort;
+
+pub const SOURCE_DOMAIN_NAME: &str = "$Multiset";
+pub fn source_resource(use_old_axiomatization: bool) -> &'static str {
+    if use_old_axiomatization {
+        "/dafny_axioms/multisets_old.vpr"
+    } else {
+        "/dafny_axioms/multisets.vpr"
+    }
+}
+/// An explicit arity error replaces the source assertion.
+pub fn target_sort(arguments: &[Sort]) -> Result<Sort, &'static str> {
+    if let [element] = arguments {
+        Ok(Sort::Multiset(Box::new(element.clone())))
+    } else {
+        Err("multisets requires one sort argument")
+    }
+}
