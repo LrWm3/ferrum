@@ -166,6 +166,12 @@ pub trait ExtensionExp: Debug + Send + Sync {
         Err(crate::verifier::verification_result::DiagnosticError::Unsupported("extension scope"))
     }
 
+    /// Render the source extension expression or report that its printer is unavailable.
+    fn pretty_print(&self) -> Result<String, super::pretty::pretty_printer::PrintError> {
+        Err(super::pretty::pretty_printer::PrintError::Unsupported(
+            "extension expression pretty printer",
+        ))
+    }
     fn metadata(&self) -> &Metadata;
     fn with_metadata(&self, metadata: Metadata) -> ExtensionExpHandle;
     /// First-constructor Node products visited by source checkTransitively; excludes maps.

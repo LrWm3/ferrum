@@ -14,7 +14,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Expression.scala"
 destination = "crates/ferrum-silver/src/ast/expression.rs"
 status = "skeleton"
-remaining = ["Native AST construction and traversal exist; complete source extension reconstruction, strategy integration and edge-case coverage remain."]
+remaining = ["Native AST construction, traversal and extension printer hooks exist; complete source extension reconstruction, strategy integration and edge-case coverage remain."]
 
 [[modules]]
 repository = "silver"
@@ -27,14 +27,14 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Program.scala"
 destination = "crates/ferrum-silver/src/ast/program.rs"
 status = "skeleton"
-remaining = ["Identity-bearing member handles, lookup and wand structures exist; consistency, dependency hashes, domain instantiation and CFG integration remain."]
+remaining = ["Identity-bearing member handles, lookup, wand structures and printer hooks exist; complete consistency, dependency hashes, domain instantiation and CFG integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Statement.scala"
 destination = "crates/ferrum-silver/src/ast/statement.rs"
 status = "skeleton"
-remaining = ["Statement families and scope queries exist; complete consistency, generic rewriting, CFG and pretty printing remain."]
+remaining = ["Statement families, scope queries and printer hooks exist; complete consistency, generic rewriting and CFG integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -47,7 +47,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/pretty/PrettyPrinter.scala"
 destination = "crates/ferrum-silver/src/ast/pretty/pretty_printer.rs"
 status = "skeleton"
-remaining = ["Document primitives, type output and common expression output exist; complete member/statement dispatch, annotations and source layout remain."]
+remaining = ["Built-in AST rendering and fallible extension printing hooks are implemented; exact source document layout and concrete plugin printers remain."]
 
 [[modules]]
 repository = "silver"

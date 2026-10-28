@@ -58,6 +58,12 @@ pub trait ExtensionStmt: Debug + Send + Sync {
         )
     }
 
+    /// Render the source extension or report that its printer is unavailable.
+    fn pretty_print(&self) -> Result<String, super::pretty::pretty_printer::PrintError> {
+        Err(super::pretty::pretty_printer::PrintError::Unsupported(
+            "extension pretty printer",
+        ))
+    }
     fn as_any(&self) -> &dyn Any;
     fn equals(&self, other: &dyn ExtensionStmt) -> bool;
     /// Rebuild direct expression children for error back-transformation.
