@@ -1,0 +1,2035 @@
+# Status changes follow coordinator review, not merely file generation.
+# Symbols and integration details live in the destination module comments.
+schema_version = 1
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/Ast.scala"
+destination = "crates/ferrum-silver/src/ast/ast.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/Expression.scala"
+destination = "crates/ferrum-silver/src/ast/expression.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/Position.scala"
+destination = "crates/ferrum-silver/src/ast/position.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/Program.scala"
+destination = "crates/ferrum-silver/src/ast/program.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/Statement.scala"
+destination = "crates/ferrum-silver/src/ast/statement.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/Type.scala"
+destination = "crates/ferrum-silver/src/ast/type.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/pretty/PrettyPrinter.scala"
+destination = "crates/ferrum-silver/src/ast/pretty/pretty_printer.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/BackendTypeFactories.scala"
+destination = "crates/ferrum-silver/src/ast/utility/backend_type_factories.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/Consistency.scala"
+destination = "crates/ferrum-silver/src/ast/utility/consistency.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/DomainInstances.scala"
+destination = "crates/ferrum-silver/src/ast/utility/domain_instances.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/Expressions.scala"
+destination = "crates/ferrum-silver/src/ast/utility/expressions.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/FileLoader.scala"
+destination = "crates/ferrum-silver/src/ast/utility/file_loader.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/Functions.scala"
+destination = "crates/ferrum-silver/src/ast/utility/functions.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/GenericArithmeticSolver.scala"
+destination = "crates/ferrum-silver/src/ast/utility/generic_arithmetic_solver.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/GenericAxiomRewriter.scala"
+destination = "crates/ferrum-silver/src/ast/utility/generic_axiom_rewriter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/GenericTriggerGenerator.scala"
+destination = "crates/ferrum-silver/src/ast/utility/generic_trigger_generator.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/ImpureAssumeRewriter.scala"
+destination = "crates/ferrum-silver/src/ast/utility/impure_assume_rewriter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/InverseFunctions.scala"
+destination = "crates/ferrum-silver/src/ast/utility/inverse_functions.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/Nodes.scala"
+destination = "crates/ferrum-silver/src/ast/utility/nodes.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/Permissions.scala"
+destination = "crates/ferrum-silver/src/ast/utility/permissions.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/QuantifiedPermissions.scala"
+destination = "crates/ferrum-silver/src/ast/utility/quantified_permissions.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/Simplifier.scala"
+destination = "crates/ferrum-silver/src/ast/utility/simplifier.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/Statements.scala"
+destination = "crates/ferrum-silver/src/ast/utility/statements.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/Triggers.scala"
+destination = "crates/ferrum-silver/src/ast/utility/triggers.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/Types.scala"
+destination = "crates/ferrum-silver/src/ast/utility/types.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/ViperStrategy.scala"
+destination = "crates/ferrum-silver/src/ast/utility/viper_strategy.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/Visitor.scala"
+destination = "crates/ferrum-silver/src/ast/utility/visitor.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/chopper/Chopper.scala"
+destination = "crates/ferrum-silver/src/ast/utility/chopper/chopper.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/rewriter/RegexStrategy.scala"
+destination = "crates/ferrum-silver/src/ast/utility/rewriter/regex_strategy.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/rewriter/Rewritable.scala"
+destination = "crates/ferrum-silver/src/ast/utility/rewriter/rewritable.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/rewriter/Strategy.scala"
+destination = "crates/ferrum-silver/src/ast/utility/rewriter/strategy.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/rewriter/TRegex.scala"
+destination = "crates/ferrum-silver/src/ast/utility/rewriter/t_regex.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/ast/utility/rewriter/TRegexAutomaton.scala"
+destination = "crates/ferrum-silver/src/ast/utility/rewriter/t_regex_automaton.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/cfg/Block.scala"
+destination = "crates/ferrum-silver/src/cfg/block.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/cfg/Cfg.scala"
+destination = "crates/ferrum-silver/src/cfg/cfg.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/cfg/CfgTest.scala"
+destination = "crates/ferrum-silver/src/cfg/cfg_test.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/cfg/Edge.scala"
+destination = "crates/ferrum-silver/src/cfg/edge.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/cfg/silver/CfgGenerator.scala"
+destination = "crates/ferrum-silver/src/cfg/silver/cfg_generator.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/cfg/silver/SilverCfg.scala"
+destination = "crates/ferrum-silver/src/cfg/silver/silver_cfg.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/cfg/utility/CfgSimplifier.scala"
+destination = "crates/ferrum-silver/src/cfg/utility/cfg_simplifier.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/cfg/utility/Dominators.scala"
+destination = "crates/ferrum-silver/src/cfg/utility/dominators.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/cfg/utility/LoopDetector.scala"
+destination = "crates/ferrum-silver/src/cfg/utility/loop_detector.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/components/Components.scala"
+destination = "crates/ferrum-silver/src/components/components.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/frontend/Frontend.scala"
+destination = "crates/ferrum-silver/src/frontend/frontend.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/frontend/ReformatterAstProvider.scala"
+destination = "crates/ferrum-silver/src/frontend/reformatter_ast_provider.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/frontend/SilFrontEndConfig.scala"
+destination = "crates/ferrum-silver/src/frontend/sil_front_end_config.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/frontend/SilFrontend.scala"
+destination = "crates/ferrum-silver/src/frontend/sil_frontend.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/frontend/ViperAstProvider.scala"
+destination = "crates/ferrum-silver/src/frontend/viper_ast_provider.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/frontend/ViperFrontendAPI.scala"
+destination = "crates/ferrum-silver/src/frontend/viper_frontend_api.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/frontend/ViperPAstProvider.scala"
+destination = "crates/ferrum-silver/src/frontend/viper_p_ast_provider.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/logger/ViperLogger.scala"
+destination = "crates/ferrum-silver/src/logger/viper_logger.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/parser/FastMessage.scala"
+destination = "crates/ferrum-silver/src/parser/fast_message.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/parser/FastParser.scala"
+destination = "crates/ferrum-silver/src/parser/fast_parser.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/parser/MacroExpander.scala"
+destination = "crates/ferrum-silver/src/parser/macro_expander.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/parser/ParseAst.scala"
+destination = "crates/ferrum-silver/src/parser/parse_ast.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/parser/ParseAstKeyword.scala"
+destination = "crates/ferrum-silver/src/parser/parse_ast_keyword.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/parser/ReformatPrettyPrinter.scala"
+destination = "crates/ferrum-silver/src/parser/reformat_pretty_printer.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/parser/Resolver.scala"
+destination = "crates/ferrum-silver/src/parser/resolver.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/parser/Translator.scala"
+destination = "crates/ferrum-silver/src/parser/translator.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/ParserPluginTemplate.scala"
+destination = "crates/ferrum-silver/src/plugin/parser_plugin_template.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/PluginTemplate.scala"
+destination = "crates/ferrum-silver/src/plugin/plugin_template.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/SilverPlugin.scala"
+destination = "crates/ferrum-silver/src/plugin/silver_plugin.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/SilverPluginManager.scala"
+destination = "crates/ferrum-silver/src/plugin/silver_plugin_manager.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/sif/SIFAstExtensions.scala"
+destination = "crates/ferrum-silver/src/plugin/sif/sif_ast_extensions.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/sif/SIFError.scala"
+destination = "crates/ferrum-silver/src/plugin/sif/sif_error.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/sif/SIFExtendedTransformer.scala"
+destination = "crates/ferrum-silver/src/plugin/sif/sif_extended_transformer.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/sif/SIFPAstExtensions.scala"
+destination = "crates/ferrum-silver/src/plugin/sif/sifp_ast_extensions.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/sif/SIFPlugin.scala"
+destination = "crates/ferrum-silver/src/plugin/sif/sif_plugin.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/adt/AdtASTExtension.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/adt/adt_ast_extension.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/adt/AdtPASTExtension.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/adt/adt_past_extension.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/adt/AdtPlugin.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/adt/adt_plugin.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/adt/encoding/AdtEncoder.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/adt/encoding/adt_encoder.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/adt/encoding/AdtNameManager.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/adt/encoding/adt_name_manager.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/arp/ARPASTExtension.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/arp/arpast_extension.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/arp/ARPPASTExtension.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/arp/arppast_extension.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/arp/ARPPlugin.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/arp/arp_plugin.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/predicateinstance/PredicateInstanceASTExtension.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_ast_extension.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/predicateinstance/PredicateInstanceErrors.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_errors.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/predicateinstance/PredicateInstancePASTExtension.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_past_extension.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/predicateinstance/PredicateInstancePlugin.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_plugin.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/refute/RefuteASTExtension.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/refute/refute_ast_extension.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/refute/RefuteErrors.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/refute/refute_errors.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/refute/RefutePASTExtension.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/refute/refute_past_extension.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/refute/RefutePlugin.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/refute/refute_plugin.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/smoke/SmokeDetectionPlugin.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/smoke/smoke_detection_plugin.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/smoke/UnreachableASTExtension.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/smoke/unreachable_ast_extension.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/smoke/UnreachablePASTExtension.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/smoke/unreachable_past_extension.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/termination/TerminationASTExtension.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/termination/termination_ast_extension.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/termination/TerminationErrors.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/termination/termination_errors.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/termination/TerminationPASTExtension.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/termination/termination_past_extension.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/termination/TerminationPlugin.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/termination/termination_plugin.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/CallGraph.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/call_graph.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/DecreasesCheck.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/decreases_check.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/ErrorTrafoFactory.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/error_trafo_factory.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/ExpTransformer.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/exp_transformer.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/FunctionCheck.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/function_check.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/MethodCheck.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/method_check.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/NestedPredicates.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/nested_predicates.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/ProgramManager.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/program_manager.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/Trafo.scala"
+destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/trafo.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/reporter/Message.scala"
+destination = "crates/ferrum-silver/src/reporter/message.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/reporter/Reporter.scala"
+destination = "crates/ferrum-silver/src/reporter/reporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/reporter/format/package.scala"
+destination = "crates/ferrum-silver/src/reporter/format/package.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/reporter/package.scala"
+destination = "crates/ferrum-silver/src/reporter/package.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/testing/BackendTypeTest.scala"
+destination = "crates/ferrum-silver/src/testing/backend_type_test.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/testing/ProjectInfo.scala"
+destination = "crates/ferrum-silver/src/testing/project_info.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/utility/Caching.scala"
+destination = "crates/ferrum-silver/src/utility/caching.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/utility/Common.scala"
+destination = "crates/ferrum-silver/src/utility/common.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/utility/NameGenerator.scala"
+destination = "crates/ferrum-silver/src/utility/name_generator.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/utility/Paths.scala"
+destination = "crates/ferrum-silver/src/utility/paths.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/utility/ProgramSubmitter.scala"
+destination = "crates/ferrum-silver/src/utility/program_submitter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/utility/Sanitizer.scala"
+destination = "crates/ferrum-silver/src/utility/sanitizer.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/utility/SilNameGenerator.scala"
+destination = "crates/ferrum-silver/src/utility/sil_name_generator.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/utility/TimingUtils.scala"
+destination = "crates/ferrum-silver/src/utility/timing_utils.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/verifier/Counterexample.scala"
+destination = "crates/ferrum-silver/src/verifier/counterexample.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/verifier/ModelParser.scala"
+destination = "crates/ferrum-silver/src/verifier/model_parser.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/verifier/VerificationError.scala"
+destination = "crates/ferrum-silver/src/verifier/verification_error.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/verifier/VerificationResult.scala"
+destination = "crates/ferrum-silver/src/verifier/verification_result.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/main/scala/viper/silver/verifier/Verifier.scala"
+destination = "crates/ferrum-silver/src/verifier/verifier.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/ASTTransformationTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/ast_transformation_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/AnnotationBasedTestSuite.scala"
+destination = "crates/ferrum-silver/tests/upstream/annotation_based_test_suite.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/AnnotationBasedTestSuiteTest.scala"
+destination = "crates/ferrum-silver/tests/upstream/annotation_based_test_suite_test.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/AstAnnotationTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/ast_annotation_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/AstPositionsTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/ast_positions_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/CfgTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/cfg_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/ChopperTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/chopper_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/ConsistencyTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/consistency_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/CounterexampleVariablesTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/counterexample_variables_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/DomainInstanceTest.scala"
+destination = "crates/ferrum-silver/tests/upstream/domain_instance_test.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/EntityHashTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/entity_hash_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/ExpectedCounterexampleAnnotation.scala"
+destination = "crates/ferrum-silver/tests/upstream/expected_counterexample_annotation.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/FeatureCombinationsTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/feature_combinations_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/IOTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/io_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/MethodDependencyTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/method_dependency_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/NameGeneratorTest.scala"
+destination = "crates/ferrum-silver/tests/upstream/name_generator_test.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/ParseTreeTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/parse_tree_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/PluginTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/plugin_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/PrettyPrinterTest.scala"
+destination = "crates/ferrum-silver/tests/upstream/pretty_printer_test.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/ReformatterTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/reformatter_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/RegexTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/regex_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/ResourceBasedTestSuite.scala"
+destination = "crates/ferrum-silver/tests/upstream/resource_based_test_suite.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/RewriteWithCycles.scala"
+destination = "crates/ferrum-silver/tests/upstream/rewrite_with_cycles.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/RewriterTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/rewriter_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/SemanticAnalysisTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/semantic_analysis_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/SilSuite.scala"
+destination = "crates/ferrum-silver/tests/upstream/sil_suite.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/SimplifierTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/simplifier_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/SingleFileSilSuite.scala"
+destination = "crates/ferrum-silver/tests/upstream/single_file_sil_suite.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/StatisticalTestSuite.scala"
+destination = "crates/ferrum-silver/tests/upstream/statistical_test_suite.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/TestAnnotationParser.scala"
+destination = "crates/ferrum-silver/tests/upstream/test_annotation_parser.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/TestAnnotations.scala"
+destination = "crates/ferrum-silver/tests/upstream/test_annotations.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/TestErrors.scala"
+destination = "crates/ferrum-silver/tests/upstream/test_errors.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/TestHelpers.scala"
+destination = "crates/ferrum-silver/tests/upstream/test_helpers.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/TestInput.scala"
+destination = "crates/ferrum-silver/tests/upstream/test_input.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silver"
+upstream = "src/test/scala/UtilityTests.scala"
+destination = "crates/ferrum-silver/tests/upstream/utility_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "annotation/src/main/scala/flyweight.scala"
+destination = "crates/ferrum-silicon/src/annotation/flyweight.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "common/src/main/scala/collections/immutable/InsertionOrderedSet.scala"
+destination = "crates/ferrum-silicon/src/common/collections/immutable/insertion_ordered_set.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "common/src/main/scala/collections/immutable/MultiMap.scala"
+destination = "crates/ferrum-silicon/src/common/collections/immutable/multi_map.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "common/src/main/scala/collections/mutable/MultiMap.scala"
+destination = "crates/ferrum-silicon/src/common/collections/mutable/multi_map.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "common/src/main/scala/collections/package.scala"
+destination = "crates/ferrum-silicon/src/common/collections/package.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "common/src/main/scala/concurrency/package.scala"
+destination = "crates/ferrum-silicon/src/common/concurrency/package.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "common/src/main/scala/config/package.scala"
+destination = "crates/ferrum-silicon/src/common/config/package.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "common/src/main/scala/io/package.scala"
+destination = "crates/ferrum-silicon/src/common/io/package.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "common/src/main/scala/package.scala"
+destination = "crates/ferrum-silicon/src/common/package.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/Config.scala"
+destination = "crates/ferrum-silicon/src/config.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/Silicon.scala"
+destination = "crates/ferrum-silicon/src/silicon.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/Utils.scala"
+destination = "crates/ferrum-silicon/src/utils.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/debugger/DebugExp.scala"
+destination = "crates/ferrum-silicon/src/debugger/debug_exp.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/debugger/DebugParser.scala"
+destination = "crates/ferrum-silicon/src/debugger/debug_parser.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/debugger/DebugTypechecker.scala"
+destination = "crates/ferrum-silicon/src/debugger/debug_typechecker.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/debugger/SiliconDebugger.scala"
+destination = "crates/ferrum-silicon/src/debugger/silicon_debugger.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/decider/CVC5ProverStdIO.scala"
+destination = "crates/ferrum-silicon/src/decider/cvc5_prover_std_io.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/decider/Decider.scala"
+destination = "crates/ferrum-silicon/src/decider/decider.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/decider/PathConditions.scala"
+destination = "crates/ferrum-silicon/src/decider/path_conditions.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/decider/ProverStdIO.scala"
+destination = "crates/ferrum-silicon/src/decider/prover_std_io.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/decider/SMTLib2PreambleReader.scala"
+destination = "crates/ferrum-silicon/src/decider/smt_lib2_preamble_reader.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/decider/SmtlibNameGenerator.scala"
+destination = "crates/ferrum-silicon/src/decider/smtlib_name_generator.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/decider/TermToSMTLib2Converter.scala"
+destination = "crates/ferrum-silicon/src/decider/term_to_smt_lib2_converter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/decider/TermToZ3APIConverter.scala"
+destination = "crates/ferrum-silicon/src/decider/term_to_z3_api_converter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/decider/Z3ProverAPI.scala"
+destination = "crates/ferrum-silicon/src/decider/z3_prover_api.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/decider/Z3ProverStdIO.scala"
+destination = "crates/ferrum-silicon/src/decider/z3_prover_std_io.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/decider/package.scala"
+destination = "crates/ferrum-silicon/src/decider/package.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/extensions/ConditionalPermissionRewriter.scala"
+destination = "crates/ferrum-silicon/src/extensions/conditional_permission_rewriter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/extensions/TryBlockParserPlugin.scala"
+destination = "crates/ferrum-silicon/src/extensions/try_block_parser_plugin.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/extensions/TryBlockStmt.scala"
+destination = "crates/ferrum-silicon/src/extensions/try_block_stmt.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/interfaces/Preamble.scala"
+destination = "crates/ferrum-silicon/src/interfaces/preamble.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/interfaces/Verification.scala"
+destination = "crates/ferrum-silicon/src/interfaces/verification.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/interfaces/VerificationUnit.scala"
+destination = "crates/ferrum-silicon/src/interfaces/verification_unit.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/interfaces/decider/Prover.scala"
+destination = "crates/ferrum-silicon/src/interfaces/decider/prover.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/interfaces/decider/TermConverter.scala"
+destination = "crates/ferrum-silicon/src/interfaces/decider/term_converter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/interfaces/state/Chunks.scala"
+destination = "crates/ferrum-silicon/src/interfaces/state/chunks.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/LogConfig.scala"
+destination = "crates/ferrum-silicon/src/logger/log_config.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/StateReporting.scala"
+destination = "crates/ferrum-silicon/src/logger/state_reporting.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/SymbExLogger.scala"
+destination = "crates/ferrum-silicon/src/logger/symb_ex_logger.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/RecordData.scala"
+destination = "crates/ferrum-silicon/src/logger/records/record_data.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/SymbolicRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/symbolic_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/CommentRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/comment_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/CondExpRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/cond_exp_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/ConditionalEdgeRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/conditional_edge_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/ConsumeRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/consume_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/DataRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/data_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/DeciderAssertRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/decider_assert_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/DeciderAssumeRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/decider_assume_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/EvaluateRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/evaluate_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/ExecuteRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/execute_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/FunctionRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/function_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/ImpliesRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/implies_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/MemberRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/member_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/MethodCallRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/method_call_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/MethodRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/method_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/PredicateRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/predicate_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/ProduceRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/produce_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/ProverAssertRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/prover_assert_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/SingleMergeRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/single_merge_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/data/WellformednessCheckRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/data/wellformedness_check_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/scoping/CloseScopeRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/scoping/close_scope_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/scoping/OpenScopeRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/scoping/open_scope_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/scoping/ScopingRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/scoping/scoping_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/structural/BranchingRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/structural/branching_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/structural/JoiningRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/structural/joining_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/records/structural/StructuralRecord.scala"
+destination = "crates/ferrum-silicon/src/logger/records/structural/structural_record.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/renderer/Renderer.scala"
+destination = "crates/ferrum-silicon/src/logger/renderer/renderer.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/renderer/SimpleTreeRenderer.scala"
+destination = "crates/ferrum-silicon/src/logger/renderer/simple_tree_renderer.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/writer/SymbExLogReportWriter.scala"
+destination = "crates/ferrum-silicon/src/logger/writer/symb_ex_log_report_writer.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/logger/writer/TermWriter.scala"
+destination = "crates/ferrum-silicon/src/logger/writer/term_writer.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/package.scala"
+destination = "crates/ferrum-silicon/src/package.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/reporting/Converter.scala"
+destination = "crates/ferrum-silicon/src/reporting/converter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/reporting/DomainInterpreter.scala"
+destination = "crates/ferrum-silicon/src/reporting/domain_interpreter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/reporting/Exceptions.scala"
+destination = "crates/ferrum-silicon/src/reporting/exceptions.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/reporting/Formatters.scala"
+destination = "crates/ferrum-silicon/src/reporting/formatters.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/reporting/MultiRunCountingRecorder.scala"
+destination = "crates/ferrum-silicon/src/reporting/multi_run_counting_recorder.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/reporting/MultiRunLineRecorder.scala"
+destination = "crates/ferrum-silicon/src/reporting/multi_run_line_recorder.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/reporting/MultiRunRecorder.scala"
+destination = "crates/ferrum-silicon/src/reporting/multi_run_recorder.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/reporting/SiliconResolvedCounterexample.scala"
+destination = "crates/ferrum-silicon/src/reporting/silicon_resolved_counterexample.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/reporting/package.scala"
+destination = "crates/ferrum-silicon/src/reporting/package.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/resources/NonQuantifiedPropertyInterpreter.scala"
+destination = "crates/ferrum-silicon/src/resources/non_quantified_property_interpreter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/resources/Property.scala"
+destination = "crates/ferrum-silicon/src/resources/property.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/resources/PropertyExpressions.scala"
+destination = "crates/ferrum-silicon/src/resources/property_expressions.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/resources/PropertyInterpreter.scala"
+destination = "crates/ferrum-silicon/src/resources/property_interpreter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/resources/QuantifiedPropertyInterpreter.scala"
+destination = "crates/ferrum-silicon/src/resources/quantified_property_interpreter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/resources/ResourceDescriptions.scala"
+destination = "crates/ferrum-silicon/src/resources/resource_descriptions.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/resources/Resources.scala"
+destination = "crates/ferrum-silicon/src/resources/resources.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/Brancher.scala"
+destination = "crates/ferrum-silicon/src/rules/brancher.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/ChunkSupporter.scala"
+destination = "crates/ferrum-silicon/src/rules/chunk_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/Consumer.scala"
+destination = "crates/ferrum-silicon/src/rules/consumer.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/ConsumptionResult.scala"
+destination = "crates/ferrum-silicon/src/rules/consumption_result.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/Evaluator.scala"
+destination = "crates/ferrum-silicon/src/rules/evaluator.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/ExecutionFlowController.scala"
+destination = "crates/ferrum-silicon/src/rules/execution_flow_controller.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/Executor.scala"
+destination = "crates/ferrum-silicon/src/rules/executor.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/FunctionSupporter.scala"
+destination = "crates/ferrum-silicon/src/rules/function_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/HavocSupporter.scala"
+destination = "crates/ferrum-silicon/src/rules/havoc_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/HeapSupporter.scala"
+destination = "crates/ferrum-silicon/src/rules/heap_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/Joiner.scala"
+destination = "crates/ferrum-silicon/src/rules/joiner.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/LetSupporter.scala"
+destination = "crates/ferrum-silicon/src/rules/let_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/MagicWandSupporter.scala"
+destination = "crates/ferrum-silicon/src/rules/magic_wand_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/MaskHeapSupporter.scala"
+destination = "crates/ferrum-silicon/src/rules/mask_heap_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/MoreCompleteExhaleSupporter.scala"
+destination = "crates/ferrum-silicon/src/rules/more_complete_exhale_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/PermissionSupporter.scala"
+destination = "crates/ferrum-silicon/src/rules/permission_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/PredicateSupporter.scala"
+destination = "crates/ferrum-silicon/src/rules/predicate_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/Producer.scala"
+destination = "crates/ferrum-silicon/src/rules/producer.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/QuantifiedChunkSupport.scala"
+destination = "crates/ferrum-silicon/src/rules/quantified_chunk_support.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/StateConsolidator.scala"
+destination = "crates/ferrum-silicon/src/rules/state_consolidator.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/rules/SymbolicExecutionRules.scala"
+destination = "crates/ferrum-silicon/src/rules/symbolic_execution_rules.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/state/Chunks.scala"
+destination = "crates/ferrum-silicon/src/state/chunks.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/state/FunctionPreconditionTransformer.scala"
+destination = "crates/ferrum-silicon/src/state/function_precondition_transformer.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/state/Heap.scala"
+destination = "crates/ferrum-silicon/src/state/heap.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/state/Identifiers.scala"
+destination = "crates/ferrum-silicon/src/state/identifiers.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/state/SnapshotMapCache.scala"
+destination = "crates/ferrum-silicon/src/state/snapshot_map_cache.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/state/State.scala"
+destination = "crates/ferrum-silicon/src/state/state.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/state/Store.scala"
+destination = "crates/ferrum-silicon/src/state/store.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/state/SymbolConverter.scala"
+destination = "crates/ferrum-silicon/src/state/symbol_converter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/state/Terms.scala"
+destination = "crates/ferrum-silicon/src/state/terms.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/state/Triggers.scala"
+destination = "crates/ferrum-silicon/src/state/triggers.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/state/Utils.scala"
+destination = "crates/ferrum-silicon/src/state/utils.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/state/package.scala"
+destination = "crates/ferrum-silicon/src/state/package.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/AnnotationSupporter.scala"
+destination = "crates/ferrum-silicon/src/supporters/annotation_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/BuiltinDomainsContributor.scala"
+destination = "crates/ferrum-silicon/src/supporters/builtin_domains_contributor.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/CfgSupporter.scala"
+destination = "crates/ferrum-silicon/src/supporters/cfg_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/DefaultMapsContributor.scala"
+destination = "crates/ferrum-silicon/src/supporters/default_maps_contributor.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/DefaultMultisetsContributor.scala"
+destination = "crates/ferrum-silicon/src/supporters/default_multisets_contributor.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/DefaultSequencesContributor.scala"
+destination = "crates/ferrum-silicon/src/supporters/default_sequences_contributor.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/DefaultSetsContributor.scala"
+destination = "crates/ferrum-silicon/src/supporters/default_sets_contributor.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/Domains.scala"
+destination = "crates/ferrum-silicon/src/supporters/domains.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/ExpressionTranslator.scala"
+destination = "crates/ferrum-silicon/src/supporters/expression_translator.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/MagicWandSnapFunctionsContributor.scala"
+destination = "crates/ferrum-silicon/src/supporters/magic_wand_snap_functions_contributor.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/MaskHeapSnapshotSupporter.scala"
+destination = "crates/ferrum-silicon/src/supporters/mask_heap_snapshot_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/MethodSupporter.scala"
+destination = "crates/ferrum-silicon/src/supporters/method_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/PredicateVerificationUnit.scala"
+destination = "crates/ferrum-silicon/src/supporters/predicate_verification_unit.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/QuantifierSupporter.scala"
+destination = "crates/ferrum-silicon/src/supporters/quantifier_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/SnapshotSupporter.scala"
+destination = "crates/ferrum-silicon/src/supporters/snapshot_supporter.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/functions/FunctionData.scala"
+destination = "crates/ferrum-silicon/src/supporters/functions/function_data.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/functions/FunctionEncoding.scala"
+destination = "crates/ferrum-silicon/src/supporters/functions/function_encoding.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/functions/FunctionRecorder.scala"
+destination = "crates/ferrum-silicon/src/supporters/functions/function_recorder.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/functions/FunctionVerificationUnit.scala"
+destination = "crates/ferrum-silicon/src/supporters/functions/function_verification_unit.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/functions/HeapAccessReplacingExpressionTranslator.scala"
+destination = "crates/ferrum-silicon/src/supporters/functions/heap_access_replacing_expression_translator.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/functions/MaskHeapFunctionEncoding.scala"
+destination = "crates/ferrum-silicon/src/supporters/functions/mask_heap_function_encoding.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/qps/FieldValueFunctionsContributor.scala"
+destination = "crates/ferrum-silicon/src/supporters/qps/field_value_functions_contributor.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/qps/MaskHeapFunctionsContributor.scala"
+destination = "crates/ferrum-silicon/src/supporters/qps/mask_heap_functions_contributor.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/qps/PredicateAndWandSnapFunctionsContributor.scala"
+destination = "crates/ferrum-silicon/src/supporters/qps/predicate_and_wand_snap_functions_contributor.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/supporters/qps/PredicateSnapGenerator.scala"
+destination = "crates/ferrum-silicon/src/supporters/qps/predicate_snap_generator.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/verifier/BaseVerifier.scala"
+destination = "crates/ferrum-silicon/src/verifier/base_verifier.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/verifier/DefaultMainVerifier.scala"
+destination = "crates/ferrum-silicon/src/verifier/default_main_verifier.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/verifier/VerificationPoolManager.scala"
+destination = "crates/ferrum-silicon/src/verifier/verification_pool_manager.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/verifier/Verifier.scala"
+destination = "crates/ferrum-silicon/src/verifier/verifier.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/main/scala/verifier/WorkerVerifier.scala"
+destination = "crates/ferrum-silicon/src/verifier/worker_verifier.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/ARPPluginTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/arp_plugin_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/AdtPluginTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/adt_plugin_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/ConcurrentInstantiationTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/concurrent_instantiation_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/ErrorMessageTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/error_message_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/GeneralCounterexampleTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/general_counterexample_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/MappedCounterexampleTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/mapped_counterexample_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/MemoryConsumptionTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/memory_consumption_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/NodeBacktranslationTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/node_backtranslation_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/PortableSiliconTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/portable_silicon_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconBackendTypeTest.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_backend_type_test.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconCounterexampleVariablesTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_counterexample_variables_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconQuantifierWeightTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_quantifier_weight_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconTestsConditionalizePermissions.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_conditionalize_permissions.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconTestsGreedyQP.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_greedy_qp.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconTestsMaskHeapMode.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_mask_heap_mode.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconTestsMoreCompleteExhale.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_more_complete_exhale.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconTestsMoreJoins.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_more_joins.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconTestsOldAxiomatization.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_old_axiomatization.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconTestsOldPermSemantics.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_old_perm_semantics.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconTestsParallelBranches.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_parallel_branches.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconTestsQuasihavoc.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_quasihavoc.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconTestsSIFPlugin.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_sif_plugin.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconTestsSimplifiedUnfold.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_simplified_unfold.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SiliconTestsSmokeDetection.scala"
+destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_smoke_detection.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SimpleArithmeticTermSolverTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/simple_arithmetic_term_solver_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/StateReportingTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/state_reporting_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/SymbExLoggerTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/symb_ex_logger_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/TriggerGeneratorTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/trigger_generator_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/TriggerRewriterTests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/trigger_rewriter_tests.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/ViperTutorialExamples.scala"
+destination = "crates/ferrum-silicon/tests/upstream/viper_tutorial_examples.rs"
+status = "mapped"
+
+[[modules]]
+repository = "silicon"
+upstream = "src/test/scala/tests.scala"
+destination = "crates/ferrum-silicon/tests/upstream/tests.rs"
+status = "mapped"
+
+[[scaffolding]]
+destination = "src/lib.rs"
+status = "mapped"
+
+[[scaffolding]]
+destination = "src/main.rs"
+status = "mapped"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/lib.rs"
+status = "mapped"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/lib.rs"
+status = "mapped"

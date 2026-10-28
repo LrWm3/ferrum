@@ -1,0 +1,12 @@
+# Immutable semantic baselines for the comment-only port plans.
+schema_version = 1
+
+[repositories.silver]
+url = "https://github.com/viperproject/silver"
+revision = "c4f54b84703a04434b03e97bfea87dbd09870fd2"
+checkout = "../silver"
+
+[repositories.silicon]
+url = "https://github.com/viperproject/silicon"
+revision = "ff386aec4664231dc6f2cb56d8d35f1623088363"
+checkout = "../silicon"
