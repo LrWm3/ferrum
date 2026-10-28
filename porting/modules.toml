@@ -6,43 +6,43 @@ schema_version = 1
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Ast.scala"
 destination = "crates/ferrum-silver/src/ast/ast.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Expression.scala"
 destination = "crates/ferrum-silver/src/ast/expression.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Position.scala"
 destination = "crates/ferrum-silver/src/ast/position.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Program.scala"
 destination = "crates/ferrum-silver/src/ast/program.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Statement.scala"
 destination = "crates/ferrum-silver/src/ast/statement.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Type.scala"
 destination = "crates/ferrum-silver/src/ast/type.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/pretty/PrettyPrinter.scala"
 destination = "crates/ferrum-silver/src/ast/pretty/pretty_printer.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
@@ -204,55 +204,55 @@ status = "mapped"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/cfg/Block.scala"
 destination = "crates/ferrum-silver/src/cfg/block.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/cfg/Cfg.scala"
 destination = "crates/ferrum-silver/src/cfg/cfg.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/cfg/CfgTest.scala"
 destination = "crates/ferrum-silver/src/cfg/cfg_test.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/cfg/Edge.scala"
 destination = "crates/ferrum-silver/src/cfg/edge.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/cfg/silver/CfgGenerator.scala"
 destination = "crates/ferrum-silver/src/cfg/silver/cfg_generator.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/cfg/silver/SilverCfg.scala"
 destination = "crates/ferrum-silver/src/cfg/silver/silver_cfg.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/cfg/utility/CfgSimplifier.scala"
 destination = "crates/ferrum-silver/src/cfg/utility/cfg_simplifier.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/cfg/utility/Dominators.scala"
 destination = "crates/ferrum-silver/src/cfg/utility/dominators.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/cfg/utility/LoopDetector.scala"
 destination = "crates/ferrum-silver/src/cfg/utility/loop_detector.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
