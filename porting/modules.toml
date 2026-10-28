@@ -930,55 +930,55 @@ status = "mapped"
 repository = "silicon"
 upstream = "annotation/src/main/scala/flyweight.scala"
 destination = "crates/ferrum-silicon/src/annotation/flyweight.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "common/src/main/scala/collections/immutable/InsertionOrderedSet.scala"
 destination = "crates/ferrum-silicon/src/common/collections/immutable/insertion_ordered_set.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "common/src/main/scala/collections/immutable/MultiMap.scala"
 destination = "crates/ferrum-silicon/src/common/collections/immutable/multi_map.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "common/src/main/scala/collections/mutable/MultiMap.scala"
 destination = "crates/ferrum-silicon/src/common/collections/mutable/multi_map.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "common/src/main/scala/collections/package.scala"
 destination = "crates/ferrum-silicon/src/common/collections/package.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "common/src/main/scala/concurrency/package.scala"
 destination = "crates/ferrum-silicon/src/common/concurrency/package.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "common/src/main/scala/config/package.scala"
 destination = "crates/ferrum-silicon/src/common/config/package.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "common/src/main/scala/io/package.scala"
 destination = "crates/ferrum-silicon/src/common/io/package.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "common/src/main/scala/package.scala"
 destination = "crates/ferrum-silicon/src/common/package.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
@@ -1110,37 +1110,37 @@ status = "mapped"
 repository = "silicon"
 upstream = "src/main/scala/interfaces/Preamble.scala"
 destination = "crates/ferrum-silicon/src/interfaces/preamble.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/interfaces/Verification.scala"
 destination = "crates/ferrum-silicon/src/interfaces/verification.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/interfaces/VerificationUnit.scala"
 destination = "crates/ferrum-silicon/src/interfaces/verification_unit.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/interfaces/decider/Prover.scala"
 destination = "crates/ferrum-silicon/src/interfaces/decider/prover.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/interfaces/decider/TermConverter.scala"
 destination = "crates/ferrum-silicon/src/interfaces/decider/term_converter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/interfaces/state/Chunks.scala"
 destination = "crates/ferrum-silicon/src/interfaces/state/chunks.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
@@ -1578,73 +1578,73 @@ status = "mapped"
 repository = "silicon"
 upstream = "src/main/scala/state/Chunks.scala"
 destination = "crates/ferrum-silicon/src/state/chunks.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/state/FunctionPreconditionTransformer.scala"
 destination = "crates/ferrum-silicon/src/state/function_precondition_transformer.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/state/Heap.scala"
 destination = "crates/ferrum-silicon/src/state/heap.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/state/Identifiers.scala"
 destination = "crates/ferrum-silicon/src/state/identifiers.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/state/SnapshotMapCache.scala"
 destination = "crates/ferrum-silicon/src/state/snapshot_map_cache.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/state/State.scala"
 destination = "crates/ferrum-silicon/src/state/state.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/state/Store.scala"
 destination = "crates/ferrum-silicon/src/state/store.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/state/SymbolConverter.scala"
 destination = "crates/ferrum-silicon/src/state/symbol_converter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/state/Terms.scala"
 destination = "crates/ferrum-silicon/src/state/terms.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/state/Triggers.scala"
 destination = "crates/ferrum-silicon/src/state/triggers.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/state/Utils.scala"
 destination = "crates/ferrum-silicon/src/state/utils.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/state/package.scala"
 destination = "crates/ferrum-silicon/src/state/package.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
