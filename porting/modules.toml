@@ -1504,13 +1504,15 @@ status = "ported"
 repository = "silicon"
 upstream = "src/main/scala/reporting/Converter.scala"
 destination = "crates/ferrum-silicon/src/reporting/converter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native model evaluation, collection/heap reconstruction and rendering/interpreter contracts exist; automatic raw model assembly, domain/function discovery, complete source printers and backend counterexample integration remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/reporting/DomainInterpreter.scala"
 destination = "crates/ferrum-silicon/src/reporting/domain_interpreter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native model evaluation, collection/heap reconstruction and rendering/interpreter contracts exist; automatic raw model assembly, domain/function discovery, complete source printers and backend counterexample integration remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1523,7 +1525,8 @@ remaining = ["External tool and prover diagnostic conversion exist; concrete pro
 repository = "silicon"
 upstream = "src/main/scala/reporting/Formatters.scala"
 destination = "crates/ferrum-silicon/src/reporting/formatters.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native model evaluation, collection/heap reconstruction and rendering/interpreter contracts exist; automatic raw model assembly, domain/function discovery, complete source printers and backend counterexample integration remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1550,7 +1553,8 @@ remaining = ["Source tracking, native typed registry and lifecycle exist; verifi
 repository = "silicon"
 upstream = "src/main/scala/reporting/SiliconResolvedCounterexample.scala"
 destination = "crates/ferrum-silicon/src/reporting/silicon_resolved_counterexample.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native model evaluation, collection/heap reconstruction and rendering/interpreter contracts exist; automatic raw model assembly, domain/function discovery, complete source printers and backend counterexample integration remain."]
 
 [[modules]]
 repository = "silicon"
