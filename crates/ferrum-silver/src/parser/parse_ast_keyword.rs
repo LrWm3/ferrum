@@ -59,7 +59,7 @@ pub trait PReservedString {
     fn token(&self) -> &'static str;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PToken {
     Keyword(PKw),
     Symbol(PSym),

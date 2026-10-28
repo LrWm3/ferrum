@@ -43,8 +43,10 @@ distinguish semantic requirements, adopted interfaces and open design choices.
   metadata. Release guards before recursive traversal or callbacks; do not use
   unsafe `Send` or discard source metadata to bypass ownership constraints. The current
   parser graph is partial: strong resolution links can form cycles, and weak
-  navigation/owner links can lose relationships when roots are dropped. These
-  lifetimes must be resolved before parser ownership is considered complete.
+  navigation/owner links can lose relationships when roots are dropped. Typed
+  bracket handles retain their expressions without cycles, and linked fields
+  share immutable owner annotations. Raw node navigation and owner identity
+  still require lifetime work before parser ownership is considered complete.
 - Term construction receives explicit options. Flyweight terms use a shared,
   process-wide strong pool, preserving reuse across verifier contexts. Each term
   keeps a stable equality mode; reject mixing modes in one graph. Recursive

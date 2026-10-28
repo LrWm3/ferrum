@@ -342,7 +342,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ParseAst.scala"
 destination = "crates/ferrum-silver/src/parser/parse_ast.rs"
 status = "skeleton"
-remaining = ["Typed mutable graph, signatures, substitutions and traversal exist; macro types, expression equality, copying/rewriting, grammar/resolution integration and graph ownership remain. Strong declaration links can cycle; weak navigation and owner links can detach."]
+remaining = ["Typed graph, substitutions, expression equality, macro types and traversal exist; copying/rewriting, grammar/resolution and plugin equality remain. Strong declaration links can cycle; raw bracket and weak navigation/owner identities can detach. Typed brackets retain expressions and linked fields share immutable annotations."]
 
 [[modules]]
 repository = "silver"

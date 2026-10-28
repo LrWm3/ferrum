@@ -33,9 +33,9 @@
 //! Agree on mutable node handles, stable scope identity, parent links and copy/rewrite semantics
 //! with all parser modules and shared conventions.
 //!
-//! Status: partial; graph, identifiers, types, expressions and fresh IDs begun.
-//! Macro types, general expression structural equality (including binary operator
-//! spelling), parser/rewriter integration and graph ownership are still pending.
+//! Status: partial; graph, identifiers, types, expression equality and fresh IDs begun.
+//! Macro validity, type-subnode and substitution operations retain upstream's failure before
+//! expansion. Extension equality, parser/rewriter integration and graph ownership remain pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -459,7 +459,36 @@ pub enum PDomainTypeKind {
 #[derive(Clone, Debug)]
 pub struct PTypeHandle(PNodeHandle);
 impl PTypeHandle {
+    /// Macro types wrap a call and derive their position from it, as in the parser.
+    pub fn macro_type(call: PExpHandle) -> Self {
+        Self::new(
+            PTypeKind::Macro { call },
+            (Position::NoPosition, Position::NoPosition),
+        )
+    }
+    pub fn macro_call(&self) -> Option<PExpHandle> {
+        match self.kind() {
+            PTypeKind::Macro { call } => Some(call),
+            _ => None,
+        }
+    }
     pub fn new(kind: PTypeKind, pos: Span) -> Self {
+        let pos = if let PTypeKind::Macro { call } = &kind {
+            let node = call.node().read().expect("poisoned parse node");
+            assert!(
+                matches!(
+                    &node.kind,
+                    PNodeKind::Expression(PExpression {
+                        kind: PExpressionKind::Call { .. },
+                        ..
+                    })
+                ),
+                "macro type requires a call expression"
+            );
+            node.pos.clone()
+        } else {
+            pos
+        };
         Self(PNode::new(PNodeKind::Type(kind), pos))
     }
     pub fn node(&self) -> &PNodeHandle {
@@ -488,7 +517,7 @@ pub type PSingleTypeGroup = super::parse_ast_keyword::PGrouped<
     super::parse_ast_keyword::PSym,
 >;
 
-/// The currently ported syntactic and internal type forms; macro types depend on PCall.
+/// Syntactic and internal type forms; macro types exist until macro expansion.
 #[derive(Clone, Debug)]
 pub enum PTypeKind {
     Primitive {
@@ -518,6 +547,9 @@ pub enum PTypeKind {
             PPairArgument<PTypeHandle, PTypeHandle>,
             super::parse_ast_keyword::PSym,
         >,
+    },
+    Macro {
+        call: PExpHandle,
     },
     Unknown,
     BoolImpure,
@@ -686,6 +718,7 @@ impl PTypeHandle {
                 arg_types.iter().all(Self::is_valid_or_undeclared)
                     && result_type.is_valid_or_undeclared()
             }
+            Macro { .. } => panic!("upstream PMacroType validity is unavailable before expansion"),
             Primitive { .. } | BoolImpure | BoolWand | BoolPredicate => true,
         }
     }
@@ -710,6 +743,7 @@ impl PTypeHandle {
             | BoolImpure
             | BoolWand
             | BoolPredicate
+            | Macro { .. }
             | Function { .. } => true,
         }
     }
@@ -753,6 +787,9 @@ impl PTypeHandle {
                     variables.extend(arg.free_type_variables());
                 }
                 variables.extend(result_type.free_type_variables());
+            }
+            Macro { .. } => {
+                panic!("upstream PMacroType type subnodes are unavailable before expansion")
             }
             Primitive { .. } | Unknown | BoolImpure | BoolWand | BoolPredicate => {}
         }
@@ -820,7 +857,7 @@ pub struct PExpression {
     pub typ: PTypeHandle,
     /// Binder substitutions may initially be absent; operator applications start with an empty list.
     pub type_substitutions: Option<Vec<PTypeSubstitution>>,
-    pub brackets: Option<PExpressionBrackets>,
+    brackets: Option<PExpressionBracketMeta>,
 }
 impl PExpression {
     /// Construct the source's initial expression type and substitution state.
@@ -871,15 +908,21 @@ impl PExpression {
     }
 }
 
-/// Bracket metadata points back to its owning expression, so its inner edge is weak.
-/// A bracket handle retained independently of that expression cannot keep the inner
-/// expression alive. This differs from the source's traced graph and must be reconciled
-/// with graph ownership before detached bracket nodes are relied on.
+/// The expression retains the group node, whose inner edge is weak to avoid a cycle.
+#[derive(Clone, Debug)]
+struct PExpressionBracketMeta {
+    left: SymbolToken,
+    right: SymbolToken,
+    node: PNodeHandle,
+}
+/// A typed bracket handle retains the inner expression even when detached. A raw group
+/// node handle does not retain it; graph-level ownership remains a separate concern.
 #[derive(Clone, Debug)]
 pub struct PExpressionBrackets {
     pub left: SymbolToken,
     pub right: SymbolToken,
     pub node: PNodeHandle,
+    expression: PExpHandle,
 }
 impl PExpressionBrackets {
     pub fn new(left: SymbolToken, expression: &PExpHandle, right: SymbolToken, pos: Span) -> Self {
@@ -891,14 +934,38 @@ impl PExpressionBrackets {
             },
             pos,
         );
-        Self { left, right, node }
+        Self {
+            left,
+            right,
+            node,
+            expression: expression.clone(),
+        }
     }
     pub fn expression(&self) -> Option<PExpHandle> {
-        let inner = match &self.node.read().expect("poisoned parse node").kind {
-            PNodeKind::ExpressionBrackets { inner, .. } => inner.upgrade(),
-            _ => panic!("bracket handle points to a different node kind"),
-        }?;
-        Some(PExpHandle::from_node(inner).expect("bracket inner is not an expression"))
+        Some(self.expression.clone())
+    }
+}
+impl PExpHandle {
+    pub fn set_brackets(&self, brackets: PExpressionBrackets) {
+        assert!(
+            Arc::ptr_eq(self.node(), brackets.expression.node()),
+            "brackets must enclose this expression"
+        );
+        self.update(|exp| {
+            exp.brackets = Some(PExpressionBracketMeta {
+                left: brackets.left,
+                right: brackets.right,
+                node: brackets.node,
+            })
+        });
+    }
+    pub fn brackets(&self) -> Option<PExpressionBrackets> {
+        self.snapshot().brackets.map(|meta| PExpressionBrackets {
+            left: meta.left,
+            right: meta.right,
+            node: meta.node,
+            expression: self.clone(),
+        })
     }
 }
 
@@ -1267,12 +1334,20 @@ pub enum PDeclarationKind {
     FormalReturn,
     LogicalVar,
     LocalVar,
-    /// The source field holds its PFields owner strongly. This weak back-link
-    /// avoids an Arc cycle, but detached fields can lose the owner and its
-    /// annotations; graph-owner lifetime still needs reconciliation.
+    /// Owner identity is weak to avoid a cycle; cached annotations keep detached
+    /// field metadata available after the enclosing PFields node is dropped.
     Field {
         fields: Option<WeakPNodeHandle>,
+        annotations: Arc<[PAnnotation]>,
     },
+}
+impl PDeclarationKind {
+    pub fn field() -> Self {
+        Self::Field {
+            fields: None,
+            annotations: Arc::from([]),
+        }
+    }
 }
 #[derive(Clone, Debug)]
 pub struct PDeclaration {
@@ -1493,9 +1568,21 @@ pub struct PMethodReturns {
 }
 #[derive(Clone, Debug)]
 pub struct PMember {
-    pub annotations: Vec<PAnnotation>,
+    annotations: Arc<[PAnnotation]>,
     pub scope_id: PScopeId,
     pub kind: PMemberKind,
+}
+impl PMember {
+    pub fn new(annotations: Vec<PAnnotation>, kind: PMemberKind) -> Self {
+        Self {
+            annotations: annotations.into(),
+            scope_id: fresh_scope_id(),
+            kind,
+        }
+    }
+    pub fn annotations(&self) -> &[PAnnotation] {
+        &self.annotations
+    }
 }
 #[derive(Clone, Debug)]
 pub enum PDefineBody {
@@ -1774,6 +1861,7 @@ pub fn subnodes(node: &PNodeHandle) -> Result<Vec<PNodeHandle>, ChildrenNotPorte
                     }
                     children.extend(result_type.graph_nodes());
                 }
+                PTypeKind::Macro { call } => children.extend(call.graph_nodes()),
                 PTypeKind::Unknown
                 | PTypeKind::BoolImpure
                 | PTypeKind::BoolWand
@@ -2280,7 +2368,11 @@ fn statement_subnodes(kind: PStatementKind) -> Vec<PNodeHandle> {
 
 fn member_subnodes(member: PMember) -> Vec<PNodeHandle> {
     use PMemberKind::*;
-    let mut nodes = member.annotations.graph_nodes();
+    let mut nodes: Vec<_> = member
+        .annotations
+        .iter()
+        .flat_map(PGraphElement::graph_nodes)
+        .collect();
     macro_rules! add { ($($item:expr),* $(,)?) => {{ $( nodes.extend($item.graph_nodes()); )* }}; }
     match member.kind {
         Extension(extension) => nodes.extend(extension.subnodes()),
@@ -2493,6 +2585,9 @@ impl PTypeHandle {
             | (BoolImpure, BoolImpure)
             | (BoolWand, BoolWand)
             | (BoolPredicate, BoolPredicate) => true,
+            (Macro { call: a }, Macro { call: b }) => a
+                .try_structurally_equals(&b)
+                .expect("macro type equality requires extension-specific expression equality"),
             (
                 Function {
                     arg_types: a,
@@ -2622,6 +2717,9 @@ impl PTypeHandle {
                 },
                 pos,
             ),
+            Macro { .. } => {
+                panic!("upstream PMacroType substitution is unavailable before expansion")
+            }
             Primitive { .. } | Unknown | BoolImpure | BoolWand | BoolPredicate => self.clone(),
         }
     }
@@ -4021,6 +4119,56 @@ impl PDomainFunctionArg {
     }
 }
 impl PDeclarationHandle {
+    /// Resolver links a field to its PFields declaration before checking its type.
+    pub fn set_field_owner(&self, owner: &PMemberHandle) {
+        let annotations = match &owner.0.read().expect("poisoned parse node").kind {
+            PNodeKind::Member(PMember {
+                kind: PMemberKind::Fields { .. },
+                annotations,
+                ..
+            }) => annotations.clone(),
+            _ => panic!("field owner must be PFields"),
+        };
+        let mut node = self.0.write().expect("poisoned parse node");
+        match &mut node.kind {
+            PNodeKind::Declaration(PDeclaration {
+                kind:
+                    PDeclarationKind::Field {
+                        fields,
+                        annotations: cached,
+                    },
+                ..
+            }) => {
+                *fields = Some(Arc::downgrade(owner.node()));
+                *cached = annotations;
+            }
+            _ => panic!("expected a field declaration"),
+        }
+    }
+    pub fn field_annotations(&self) -> Vec<PAnnotation> {
+        let (owner, cached) = match &self.0.read().expect("poisoned parse node").kind {
+            PNodeKind::Declaration(PDeclaration {
+                kind:
+                    PDeclarationKind::Field {
+                        fields,
+                        annotations,
+                    },
+                ..
+            }) => (fields.as_ref().and_then(Weak::upgrade), annotations.clone()),
+            _ => panic!("expected a field declaration"),
+        };
+        match owner {
+            Some(owner) => match &owner.read().expect("poisoned parse node").kind {
+                PNodeKind::Member(PMember {
+                    kind: PMemberKind::Fields { .. },
+                    annotations,
+                    ..
+                }) => annotations.to_vec(),
+                _ => panic!("field owner must be PFields"),
+            },
+            None => cached.to_vec(),
+        }
+    }
     pub fn from_binding(kind: PDeclarationKind, binding: PIdnTypeBinding) -> Self {
         Self::new(
             PDeclaration {
@@ -4231,4 +4379,376 @@ pub struct PAnnotationsPosition {
         crate::ast::position::FilePosition,
         crate::ast::position::FilePosition,
     ),
+}
+
+/// Extension-owned nodes need an equality implementation from their plugin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExtensionEqualityUnavailable;
+
+fn source_node_equals(
+    a: &PNodeHandle,
+    b: &PNodeHandle,
+) -> Result<bool, ExtensionEqualityUnavailable> {
+    if Arc::ptr_eq(a, b) {
+        return Ok(true);
+    }
+    let left = a.read().expect("poisoned parse node").kind.clone();
+    let right = b.read().expect("poisoned parse node").kind.clone();
+    // An extension can define equality against other node classes too; its
+    // result is not known merely because the other discriminant differs.
+    fn is_extension(kind: &PNodeKind) -> bool {
+        matches!(
+            kind,
+            PNodeKind::Extension(_)
+                | PNodeKind::Expression(PExpression {
+                    kind: PExpressionKind::Extension(_),
+                    ..
+                })
+                | PNodeKind::Statement(PStatement {
+                    kind: PStatementKind::Extension(_)
+                })
+                | PNodeKind::Member(PMember {
+                    kind: PMemberKind::Extension(_),
+                    ..
+                })
+        )
+    }
+    if is_extension(&left) || is_extension(&right) {
+        return Err(ExtensionEqualityUnavailable);
+    }
+    match (&left, &right) {
+        (PNodeKind::IdnDef(a), PNodeKind::IdnDef(b)) => return Ok(a.name == b.name),
+        (PNodeKind::IdnRef(a), PNodeKind::IdnRef(b)) => return Ok(a.name == b.name),
+        (PNodeKind::Reserved(a), PNodeKind::Reserved(b)) => return Ok(a == b),
+        (PNodeKind::RawString(a), PNodeKind::RawString(b)) => return Ok(a == b),
+        (PNodeKind::Type(_), PNodeKind::Type(_)) => {
+            reject_extension_equality(a)?;
+            reject_extension_equality(b)?;
+            let a = PTypeHandle::from_node(a.clone()).expect("expected type");
+            let b = PTypeHandle::from_node(b.clone()).expect("expected type");
+            return Ok(a.structurally_equals(&b));
+        }
+        (PNodeKind::Expression(a), PNodeKind::Expression(b)) => {
+            return expression_kind_equals(&a.kind, &b.kind);
+        }
+        (
+            PNodeKind::Statement(PStatement {
+                kind: PStatementKind::Extension(_),
+            }),
+            PNodeKind::Statement(PStatement {
+                kind: PStatementKind::Extension(_),
+            }),
+        )
+        | (
+            PNodeKind::Member(PMember {
+                kind: PMemberKind::Extension(_),
+                ..
+            }),
+            PNodeKind::Member(PMember {
+                kind: PMemberKind::Extension(_),
+                ..
+            }),
+        ) => return Err(ExtensionEqualityUnavailable),
+        (PNodeKind::Declaration(a), PNodeKind::Declaration(b))
+            if std::mem::discriminant(&a.kind) != std::mem::discriminant(&b.kind) =>
+        {
+            return Ok(false);
+        }
+        (PNodeKind::Member(a), PNodeKind::Member(b))
+            if std::mem::discriminant(&a.kind) != std::mem::discriminant(&b.kind) =>
+        {
+            return Ok(false);
+        }
+        (PNodeKind::DomainMember(a), PNodeKind::DomainMember(b))
+            if std::mem::discriminant(a) != std::mem::discriminant(b) =>
+        {
+            return Ok(false);
+        }
+        (PNodeKind::Statement(a), PNodeKind::Statement(b))
+            if std::mem::discriminant(&a.kind) != std::mem::discriminant(&b.kind) =>
+        {
+            return Ok(false);
+        }
+        (PNodeKind::Extension(_), PNodeKind::Extension(_)) => {
+            return Err(ExtensionEqualityUnavailable);
+        }
+        _ if std::mem::discriminant(&left) != std::mem::discriminant(&right)
+            && !matches!(
+                (&left, &right),
+                (
+                    PNodeKind::Grouped { .. },
+                    PNodeKind::ExpressionBrackets { .. }
+                ) | (
+                    PNodeKind::ExpressionBrackets { .. },
+                    PNodeKind::Grouped { .. }
+                )
+            ) =>
+        {
+            return Ok(false);
+        }
+        _ => {}
+    }
+    let left_children = subnodes(a).expect("known parse node children");
+    let right_children = subnodes(b).expect("known parse node children");
+    if left_children.len() != right_children.len() {
+        return Ok(false);
+    }
+    for (left, right) in left_children.iter().zip(&right_children) {
+        if !source_node_equals(left, right)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn reject_extension_equality(node: &PNodeHandle) -> Result<(), ExtensionEqualityUnavailable> {
+    let kind = node.read().expect("poisoned parse node").kind.clone();
+    if matches!(
+        kind,
+        PNodeKind::Extension(_)
+            | PNodeKind::Expression(PExpression {
+                kind: PExpressionKind::Extension(_),
+                ..
+            })
+            | PNodeKind::Statement(PStatement {
+                kind: PStatementKind::Extension(_)
+            })
+            | PNodeKind::Member(PMember {
+                kind: PMemberKind::Extension(_),
+                ..
+            })
+    ) {
+        return Err(ExtensionEqualityUnavailable);
+    }
+    for child in subnodes(node).expect("known parse node children") {
+        reject_extension_equality(&child)?;
+    }
+    Ok(())
+}
+
+fn expression_kind_equals(
+    a: &PExpressionKind,
+    b: &PExpressionKind,
+) -> Result<bool, ExtensionEqualityUnavailable> {
+    use PExpressionKind::*;
+    // PMagicWandExp is a PBinExp; upstream compares binary operator spelling rather than its token object.
+    fn binary(exp: &PExpressionKind) -> Option<(&PExpHandle, &str, &PExpHandle)> {
+        match exp {
+            BinExp { left, op, right } => Some((left, op.display(), right)),
+            MagicWandExp { left, wand, right } => Some((left, wand.display(), right)),
+            _ => None,
+        }
+    }
+    if let (Some((al, ao, ar)), Some((bl, bo, br))) = (binary(a), binary(b)) {
+        return Ok(ao == bo
+            && al.try_structurally_equals(bl)?
+            && ar.try_structurally_equals(br)?);
+    }
+    if std::mem::discriminant(a) != std::mem::discriminant(b) {
+        return Ok(false);
+    }
+    match (a, b) {
+        (Extension(_), Extension(_)) => return Err(ExtensionEqualityUnavailable),
+        (IntLit(a), IntLit(b)) => return Ok(a == b),
+        (
+            VersionedIdnUse {
+                idnref: a,
+                version: av,
+                separator: as_,
+            },
+            VersionedIdnUse {
+                idnref: b,
+                version: bv,
+                separator: bs,
+            },
+        ) => return Ok(a.name == b.name && av == bv && as_ == bs),
+        (
+            SeqSlice {
+                start: as_,
+                end: ae,
+                ..
+            },
+            SeqSlice {
+                start: bs, end: be, ..
+            },
+        ) if as_.is_some() != bs.is_some() || ae.is_some() != be.is_some() => return Ok(false),
+        _ => {}
+    }
+    let left = expression_subnodes(a.clone());
+    let right = expression_subnodes(b.clone());
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    for (left, right) in left.iter().zip(&right) {
+        if !source_node_equals(left, right)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+impl PExpHandle {
+    pub fn try_structurally_equals(
+        &self,
+        other: &Self,
+    ) -> Result<bool, ExtensionEqualityUnavailable> {
+        source_node_equals(self.node(), other.node())
+    }
+}
+impl PartialEq for PExpHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.try_structurally_equals(other)
+            .expect("structural equality requires an extension-specific implementation")
+    }
+}
+
+#[cfg(test)]
+mod source_equality_and_lifetime_tests {
+    use super::*;
+    use crate::ast::position::LineColumnPosition;
+    use crate::parser::parse_ast_keyword::{PDelimited, PGrouped, PKw, PReserved, PSym, PSymOp};
+
+    fn pos(line: i32) -> Span {
+        let p = Position::LineColumn(LineColumnPosition::new(line, 1).into());
+        (p.clone(), p)
+    }
+    fn int(value: i32, line: i32) -> PExpHandle {
+        PExpHandle::new(
+            PExpression::from_kind(PExpressionKind::IntLit(value.into())),
+            pos(line),
+        )
+    }
+    fn binary(left: PExpHandle, op: PSymOp, right: PExpHandle, line: i32) -> PExpHandle {
+        PExpHandle::new(
+            PExpression::from_kind(PExpressionKind::BinExp {
+                left,
+                op: PReserved::new(PBinaryOp::Symbol(op), pos(line)),
+                right,
+            }),
+            pos(line),
+        )
+    }
+    #[test]
+    fn expression_equality_uses_source_structure_and_binary_spelling() {
+        let a = binary(int(1, 1), PSymOp::Plus, int(2, 1), 1);
+        let b = binary(int(1, 5), PSymOp::Plus, int(2, 6), 9);
+        let c = binary(int(1, 1), PSymOp::Minus, int(2, 1), 1);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        let w = PExpHandle::new(
+            PExpression::from_kind(PExpressionKind::MagicWandExp {
+                left: int(1, 1),
+                wand: PReserved::implied(PSymOp::Wand),
+                right: int(2, 1),
+            }),
+            pos(1),
+        );
+        assert_eq!(w, binary(int(1, 5), PSymOp::Wand, int(2, 5), 5));
+        let slice = |start: Option<PExpHandle>, end: Option<PExpHandle>| {
+            PExpHandle::new(
+                PExpression::from_kind(PExpressionKind::SeqSlice {
+                    seq: int(0, 1),
+                    left: PReserved::implied(PSymOp::LBracket),
+                    start,
+                    dots: PReserved::implied(PSymOp::DotDot),
+                    end,
+                    right: PReserved::implied(PSymOp::RBracket),
+                }),
+                pos(1),
+            )
+        };
+        assert_ne!(slice(Some(int(2, 1)), None), slice(None, Some(int(2, 1))));
+    }
+    #[test]
+    fn typed_brackets_keep_expression_without_forming_cycle() {
+        let exp = int(3, 1);
+        let weak = Arc::downgrade(exp.node());
+        let brackets = PExpressionBrackets::new(
+            PReserved::implied(PSym::LParen),
+            &exp,
+            PReserved::implied(PSym::RParen),
+            pos(1),
+        );
+        exp.set_brackets(brackets.clone());
+        assert!(Arc::ptr_eq(&exp.brackets().unwrap().node, &brackets.node));
+        drop(exp);
+        assert!(brackets.expression().is_some());
+        drop(brackets);
+        assert!(weak.upgrade().is_none());
+    }
+    #[test]
+    fn linked_field_retains_shared_annotations_after_owner_drop() {
+        let annotation = PAnnotation::new(
+            PReserved::implied(PSym::At),
+            PRawString::new("key".into(), pos(1)),
+            PGrouped::implied(
+                PSym::LParen,
+                PDelimited::<PStringLiteral, SymbolToken>::empty(),
+                PSym::RParen,
+            ),
+            pos(1),
+        );
+        let field = PDeclarationHandle::from_binding(
+            PDeclarationKind::field(),
+            PIdnTypeBinding {
+                idndef: PNode::new(PNodeKind::IdnDef(PIdnDef { name: "f".into() }), pos(1)),
+                colon: PReserved::implied(PSym::Colon),
+                typ: PTypeHandle::new(
+                    PTypeKind::Primitive {
+                        name: PReserved::implied(PKw::Int),
+                    },
+                    pos(1),
+                ),
+                pos: pos(1),
+            },
+        );
+        let fields = PDelimited::implied(vec![field.clone()], PReserved::implied(PSym::Comma));
+        let owner = PMemberHandle::new(
+            PMember::new(
+                vec![annotation.clone()],
+                PMemberKind::Fields {
+                    keyword: PReserved::implied(PKw::Field),
+                    fields,
+                    semi: None,
+                },
+            ),
+            pos(1),
+        );
+        field.set_field_owner(&owner);
+        drop(owner);
+        let retained = field.field_annotations();
+        assert_eq!(retained.len(), 1);
+        assert!(Arc::ptr_eq(retained[0].node(), annotation.node()));
+    }
+    #[test]
+    fn macro_type_keeps_call_and_upstream_unavailable_operations() {
+        let args = PGrouped::implied(
+            PSym::LParen,
+            PDelimited::<PExpHandle, SymbolToken>::empty(),
+            PSym::RParen,
+        );
+        let call = PExpHandle::new(
+            PExpression::from_kind(PExpressionKind::Call {
+                idnref: PNode::new(PNodeKind::IdnRef(PIdnRef::new("m")), pos(4)),
+                call_args: args,
+                type_annotated: None,
+                extra_local_type_variables: vec![],
+                domain_type_renaming: None,
+                domain_substitution: None,
+            }),
+            pos(4),
+        );
+        let macro_type = PTypeHandle::macro_type(call.clone());
+        assert_eq!(macro_type.node().read().unwrap().pos, pos(4));
+        assert!(Arc::ptr_eq(
+            macro_type.macro_call().unwrap().node(),
+            call.node()
+        ));
+        assert!(macro_type.is_ground() && macro_type.is_pure());
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                || macro_type.is_valid_or_undeclared()
+            ))
+            .is_err()
+        );
+    }
 }
