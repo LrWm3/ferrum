@@ -401,3 +401,11 @@ translation or verification. Its inherited finish path transforms diagnostics,
 runs plugin finish hooks, keeps the first duplicate readable error, stores the
 result and emits the source overall message. Shared reporter reset hooks and
 complete command-line orchestration remain open.
+
+The recording log root now owns ordered member logs and their shared ID counter,
+constructs method/function/predicate records, closes retained logs and renders
+their trees. Configuration files preserve the source line-joining behavior and
+warn before falling back to defaults on read/JSON/product errors. Files use UTF-8
+and native error details. The pinned source's close behavior is retained: it
+closes existing member logs without permanently closing the root. Timed-state
+composition and verifier event producers remain separate integration work.

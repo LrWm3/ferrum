@@ -1268,8 +1268,7 @@ status = "ported"
 repository = "silicon"
 upstream = "src/main/scala/logger/LogConfig.scala"
 destination = "crates/ferrum-silicon/src/logger/log_config.rs"
-status = "skeleton"
-remaining = ["Source defaults, matching and JSON product format exist; logger-run configuration file loading remains."]
+status = "ported"
 
 [[modules]]
 repository = "silicon"
@@ -1283,7 +1282,7 @@ repository = "silicon"
 upstream = "src/main/scala/logger/SymbExLogger.scala"
 destination = "crates/ferrum-silicon/src/logger/symb_ex_logger.rs"
 status = "skeleton"
-remaining = ["Member scope/branch recording and tree rendering exist; root-run ownership, configuration decoding, periodic reporting and exact renderers remain."]
+remaining = ["Recording root/member ownership, configuration loading, scope/branch records, tree rendering and filters exist. State-report composition, runtime event producers and exact numeric diagnostic formatting remain."]
 
 [[modules]]
 repository = "silicon"

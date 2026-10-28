@@ -30,7 +30,8 @@
 //! verifier and state_reporting.
 //!
 //! Status: member scope/branch recording, filters, query tracking and macro/statistic collection implemented.
-//! Root run ownership, configuration decoding, state reporting and exact double formatting remain.
+//! Recording-run ownership and configuration loading are connected. State reporting,
+//! verifier event integration and exact double formatting remain.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -88,6 +89,103 @@ pub struct MemberSymbExLog {
     state: Mutex<MemberLogState>,
 }
 
+/// The source recording root: one shared ID sequence and insertion-ordered
+/// member logs for a verification run. State-reporting composition is separate.
+pub struct SymbExLog {
+    pub log_config: LogConfig,
+    ids: Arc<AtomicI32>,
+    // Member equality is structural, but the heterogeneous AST has no Hash contract.
+    members: Mutex<Vec<(ferrum_silver::ast::program::Member, Arc<MemberSymbExLog>)>>,
+}
+impl SymbExLog {
+    pub fn new(log_config: LogConfig) -> Self {
+        Self {
+            log_config,
+            ids: Arc::new(AtomicI32::new(0)),
+            members: Mutex::new(Vec::new()),
+        }
+    }
+    pub fn from_config_file(path: Option<&std::path::Path>, warn: impl FnMut(String)) -> Self {
+        Self::new(LogConfig::load_or_default(path, warn))
+    }
+    pub fn fresh_uid(&self) -> i32 {
+        self.ids.fetch_add(1, Ordering::Relaxed)
+    }
+    pub fn open_member_scope(
+        &self,
+        member: ferrum_silver::ast::program::Member,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+        renderer: &dyn RecordRenderer,
+    ) -> Result<Arc<MemberSymbExLog>, RecordError> {
+        use super::records::data::{
+            function_record::FunctionRecord, method_record::MethodRecord,
+            predicate_record::PredicateRecord,
+        };
+        use ferrum_silver::ast::program::Member;
+        let record: Arc<dyn MemberRecord> = match &member {
+            Member::Method(value) => Arc::new(MethodRecord::new(Some(value.clone()), Some(paths))),
+            Member::Predicate(value) => {
+                Arc::new(PredicateRecord::new(Some(value.clone()), Some(paths)))
+            }
+            Member::Function(value) => {
+                Arc::new(FunctionRecord::new(Some(value.clone()), Some(paths)))
+            }
+            _ => return Err(RecordError::Unsupported("symbolic log member kind")),
+        };
+        let log = Arc::new(MemberSymbExLog::new(
+            LogMode::Recording,
+            self.log_config.clone(),
+            self.ids.clone(),
+        ));
+        {
+            let mut members = self.members.lock().map_err(|_| RecordError::Poisoned)?;
+            if let Some((_, retained)) = members.iter_mut().find(|(old, _)| old == &member) {
+                *retained = log.clone();
+            } else {
+                members.push((member, log.clone()));
+            }
+        }
+        log.open_member_scope(record, renderer)?;
+        Ok(log)
+    }
+    pub fn logs(&self) -> Result<Vec<Arc<MemberSymbExLog>>, RecordError> {
+        Ok(self
+            .members
+            .lock()
+            .map_err(|_| RecordError::Poisoned)?
+            .iter()
+            .map(|(_, log)| log.clone())
+            .collect())
+    }
+    /// The pinned source closes retained members without setting its root
+    /// `closed` flag. Preserve that behavior: a later member can still be opened.
+    pub fn close(&self) -> Result<(), RecordError> {
+        for (_, log) in self
+            .members
+            .lock()
+            .map_err(|_| RecordError::Poisoned)?
+            .iter()
+        {
+            log.close()?;
+        }
+        Ok(())
+    }
+    pub fn to_simple_tree_string(
+        &self,
+        text: &dyn RecordRenderer,
+        factory: &crate::state::terms::TermFactory,
+    ) -> Result<String, RecordError> {
+        use super::renderer::{renderer::Renderer, simple_tree_renderer::SimpleTreeRenderer};
+        let records = self
+            .logs()?
+            .iter()
+            .map(|log| log.records())
+            .collect::<Result<Vec<_>, _>>()?;
+        SimpleTreeRenderer { text, factory }
+            .render(&records.iter().map(Vec::as_slice).collect::<Vec<_>>())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,6 +210,52 @@ mod tests {
         fn source_line_column(&self, _: &Node) -> Result<String, RecordError> {
             Err(RecordError::Unsupported("unexpected position"))
         }
+    }
+    #[test]
+    fn root_shares_ids_replaces_equal_members_and_closes_retained_logs() {
+        use crate::decider::path_conditions::LayeredPathConditionStack;
+        use ferrum_silver::ast::program::{Member, Predicate, PredicateData};
+        let member = |name: &str| {
+            Member::Predicate(Predicate::new(PredicateData {
+                name: name.into(),
+                formal_args: vec![],
+                body: None,
+                meta: Default::default(),
+            }))
+        };
+        let root = SymbExLog::new(LogConfig::default());
+        let paths = LayeredPathConditionStack::new(false);
+        let first = root.open_member_scope(member("p"), &paths, &Text).unwrap();
+        assert_eq!(first.records().unwrap()[0].id(), 0);
+        assert_eq!(root.fresh_uid(), 2);
+        let second = root.open_member_scope(member("q"), &paths, &Text).unwrap();
+        assert_eq!(second.records().unwrap()[0].id(), 3);
+        let replacement = root.open_member_scope(member("p"), &paths, &Text).unwrap();
+        let retained = root.logs().unwrap();
+        assert_eq!(retained.len(), 2);
+        assert!(Arc::ptr_eq(&retained[0], &replacement));
+        assert!(Arc::ptr_eq(&retained[1], &second));
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        assert_eq!(
+            root.to_simple_tree_string(&Text, &factory).unwrap(),
+            "predicate p\n\npredicate q\n\n"
+        );
+        root.close().unwrap();
+        assert!(replacement.is_closed().unwrap());
+        assert!(second.is_closed().unwrap());
+        // Source replacement removes the previous member from root ownership.
+        assert!(!first.is_closed().unwrap());
+        assert!(
+            !root
+                .open_member_scope(member("r"), &paths, &Text)
+                .unwrap()
+                .is_closed()
+                .unwrap()
+        );
     }
     #[test]
     fn nested_branch_scopes_retain_source_tree_indentation() {

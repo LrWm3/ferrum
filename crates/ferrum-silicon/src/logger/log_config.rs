@@ -75,6 +75,29 @@ impl LogConfig {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogConfigError(pub String);
 impl LogConfig {
+    /// Source `parseLogConfig`: remove line separators before decoding and warn
+    /// once before falling back for either an I/O, JSON or product-format error.
+    /// Native files use UTF-8; diagnostic details use the native error text.
+    pub fn load_or_default(path: Option<&std::path::Path>, mut warn: impl FnMut(String)) -> Self {
+        let Some(path) = path else {
+            return Self::default();
+        };
+        let loaded = std::fs::read_to_string(path)
+            .map_err(|error| error.to_string())
+            .and_then(|content| {
+                let joined: String = content.split(['\r', '\n']).collect();
+                serde_json::from_str(&joined).map_err(|error| error.to_string())
+            })
+            .and_then(|value| Self::from_json(&value).map_err(|error| error.0));
+        loaded.unwrap_or_else(|error| {
+            warn(format!(
+                "Could not parse the configuration for the symbolic execution logger at {}: {error} The default configuration will be used instead.",
+                path.display()
+            ));
+            Self::default()
+        })
+    }
+
     /// The JSON product format requires all six fields; `default` is only used
     /// when no configuration file is supplied. Record values may be absent/null.
     pub fn from_json(value: &serde_json::Value) -> Result<Self, LogConfigError> {
@@ -123,5 +146,57 @@ impl LogConfig {
             if let Some(value) = &r.value { fields.insert("value".into(),serde_json::json!(value)); }
             serde_json::Value::Object(fields)
         }).collect::<Vec<_>>()})
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_loading_joins_lines_and_warns_before_fallback() {
+        let path = std::env::temp_dir().join(format!(
+            "ferrum-log-config-loading-{}.json",
+            std::process::id()
+        ));
+        let mut warnings = Vec::new();
+        let mut expected = LogConfig::default();
+        expected.record_configs.push(RecordConfig {
+            kind: "method".into(),
+            value: None,
+        });
+        let text = expected
+            .to_json()
+            .to_string()
+            .replace("method", "meth\r\nod");
+        std::fs::write(&path, text).unwrap();
+        assert_eq!(
+            LogConfig::load_or_default(Some(&path), |w| warnings.push(w)),
+            expected
+        );
+        assert!(warnings.is_empty());
+        for invalid in ["{", "{}"] {
+            std::fs::write(&path, invalid).unwrap();
+            assert_eq!(
+                LogConfig::load_or_default(Some(&path), |w| warnings.push(w)),
+                LogConfig::default()
+            );
+        }
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(
+            LogConfig::load_or_default(Some(&path), |w| warnings.push(w)),
+            LogConfig::default()
+        );
+        assert_eq!(warnings.len(), 3);
+        assert!(
+            warnings
+                .iter()
+                .all(|w| w.contains(&path.display().to_string())
+                    && w.ends_with("The default configuration will be used instead."))
+        );
+        assert_eq!(
+            LogConfig::load_or_default(None, |_| panic!("default must not warn")),
+            LogConfig::default()
+        );
     }
 }
