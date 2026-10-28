@@ -7503,34 +7503,8 @@ where
         condition: TermValue,
         original: &Exp,
         rewritten: Option<&Exp>,
-        yes: &mut dyn FnMut(
-            &mut Self,
-            State<PD, FD, JoinMode>,
-            &mut dyn FnMut(
-                &mut Self,
-                State<PD, FD, JoinMode>,
-            ) -> Result<
-                VerificationResult<VerificationError>,
-                ExecutionError<Self::Error>,
-            >,
-        ) -> Result<
-            VerificationResult<VerificationError>,
-            ExecutionError<Self::Error>,
-        >,
-        no: &mut dyn FnMut(
-            &mut Self,
-            State<PD, FD, JoinMode>,
-            &mut dyn FnMut(
-                &mut Self,
-                State<PD, FD, JoinMode>,
-            ) -> Result<
-                VerificationResult<VerificationError>,
-                ExecutionError<Self::Error>,
-            >,
-        ) -> Result<
-            VerificationResult<VerificationError>,
-            ExecutionError<Self::Error>,
-        >,
+        yes: crate::rules::executor::CfgJoinBranch,
+        no: crate::rules::executor::CfgJoinBranch,
         continuation: &mut dyn FnMut(
             &mut Self,
             State<PD, FD, JoinMode>,
@@ -7545,18 +7519,24 @@ where
             condition,
             original,
             rewritten,
-            &mut |ctx, state, done| match yes(ctx, state, &mut |ctx, state| {
-                done(ctx, state, ()).map_err(ExecutionError::Context)
-            }) {
+            &mut |ctx, state, done| match crate::rules::executor::execute_cfg_join_branch(
+                ctx,
+                state,
+                &yes,
+                &mut |ctx, state| done(ctx, state, ()).map_err(ExecutionError::Context),
+            ) {
                 Ok(value) => Ok(value),
                 Err(e) => {
                     *error.borrow_mut() = Some(e);
                     Err(NativeError::ContinuationAbort)
                 }
             },
-            &mut |ctx, state, done| match no(ctx, state, &mut |ctx, state| {
-                done(ctx, state, ()).map_err(ExecutionError::Context)
-            }) {
+            &mut |ctx, state, done| match crate::rules::executor::execute_cfg_join_branch(
+                ctx,
+                state,
+                &no,
+                &mut |ctx, state| done(ctx, state, ()).map_err(ExecutionError::Context),
+            ) {
                 Ok(value) => Ok(value),
                 Err(e) => {
                     *error.borrow_mut() = Some(e);
@@ -11031,7 +11011,8 @@ where
         let mark = self.base.decider.pcs.mark();
         let mut state = state;
         state.under_join = true;
-        let entries = std::cell::RefCell::new(Vec::<JoinDataEntry<PD, FD, JoinMode, T>>::new());
+        let mut then_entries = Vec::<JoinDataEntry<PD, FD, JoinMode, T>>::new();
+        let mut else_entries = Vec::<JoinDataEntry<PD, FD, JoinMode, T>>::new();
         let saved_error = std::cell::RefCell::new(None);
         let block = crate::rules::executor::CfgContext::branch_edge(
             self,
@@ -11047,7 +11028,7 @@ where
                         .pcs
                         .after(mark)
                         .map_err(|e| NativeError::Decider(DeciderError::Path(e)))?;
-                    entries.borrow_mut().push(JoinDataEntry {
+                    then_entries.push(JoinDataEntry {
                         state,
                         data,
                         path_conditions: paths,
@@ -11070,7 +11051,7 @@ where
                         .pcs
                         .after(mark)
                         .map_err(|e| NativeError::Decider(DeciderError::Path(e)))?;
-                    entries.borrow_mut().push(JoinDataEntry {
+                    else_entries.push(JoinDataEntry {
                         state,
                         data,
                         path_conditions: paths,
@@ -11104,7 +11085,8 @@ where
         if !block.continue_verification() {
             return Ok(block);
         }
-        let entries = entries.into_inner();
+        let mut entries = then_entries;
+        entries.extend(else_entries);
         if entries.is_empty() {
             return Ok(block.combine(VerificationResult::success, false));
         }
@@ -15577,34 +15559,8 @@ where
         condition: Term,
         condition_exp: &(Exp, Option<Exp>),
         join: bool,
-        left: &mut dyn FnMut(
-            &mut Self,
-            State<PD, FD, JoinMode>,
-            &mut dyn FnMut(
-                &mut Self,
-                State<PD, FD, JoinMode>,
-            ) -> Result<
-                VerificationResult<VerificationError>,
-                crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
-            >,
-        ) -> Result<
-            VerificationResult<VerificationError>,
-            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
-        >,
-        right: &mut dyn FnMut(
-            &mut Self,
-            State<PD, FD, JoinMode>,
-            &mut dyn FnMut(
-                &mut Self,
-                State<PD, FD, JoinMode>,
-            ) -> Result<
-                VerificationResult<VerificationError>,
-                crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
-            >,
-        ) -> Result<
-            VerificationResult<VerificationError>,
-            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
-        >,
+        left: crate::rules::predicate_supporter::PredicateContentsAction,
+        right: crate::rules::predicate_supporter::PredicateContentsAction,
         continuation: &mut dyn FnMut(
             &mut Self,
             State<PD, FD, JoinMode>,
@@ -15626,26 +15582,42 @@ where
             condition_exp.1.as_ref(),
             join,
             false,
-            &mut |ctx, state, done| match left(ctx, state, &mut |ctx, state| {
-                done(ctx, state).map_err(|e| PE::Service(NativeError::Production(format!("{e:?}"))))
-            }) {
-                Ok(v) => Ok(v),
-                Err(e) => {
-                    if error.borrow().is_none() {
-                        *error.borrow_mut() = Some(e);
+            &mut |ctx, state, done| {
+                match crate::rules::predicate_supporter::execute_predicate_contents_action(
+                    ctx,
+                    state,
+                    &left,
+                    &mut |ctx, state| {
+                        done(ctx, state)
+                            .map_err(|e| PE::Service(NativeError::Production(format!("{e:?}"))))
+                    },
+                ) {
+                    Ok(v) => Ok(v),
+                    Err(e) => {
+                        if error.borrow().is_none() {
+                            *error.borrow_mut() = Some(e);
+                        }
+                        Err(ProductionError::Context(NativeError::ContinuationAbort))
                     }
-                    Err(ProductionError::Context(NativeError::ContinuationAbort))
                 }
             },
-            &mut |ctx, state, done| match right(ctx, state, &mut |ctx, state| {
-                done(ctx, state).map_err(|e| PE::Service(NativeError::Production(format!("{e:?}"))))
-            }) {
-                Ok(v) => Ok(v),
-                Err(e) => {
-                    if error.borrow().is_none() {
-                        *error.borrow_mut() = Some(e);
+            &mut |ctx, state, done| {
+                match crate::rules::predicate_supporter::execute_predicate_contents_action(
+                    ctx,
+                    state,
+                    &right,
+                    &mut |ctx, state| {
+                        done(ctx, state)
+                            .map_err(|e| PE::Service(NativeError::Production(format!("{e:?}"))))
+                    },
+                ) {
+                    Ok(v) => Ok(v),
+                    Err(e) => {
+                        if error.borrow().is_none() {
+                            *error.borrow_mut() = Some(e);
+                        }
+                        Err(ProductionError::Context(NativeError::ContinuationAbort))
                     }
-                    Err(ProductionError::Context(NativeError::ContinuationAbort))
                 }
             },
             &mut |ctx, state| match continuation(ctx, state) {

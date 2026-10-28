@@ -73,6 +73,15 @@ pub enum ExecutionError<E> {
     Traversal(ferrum_silver::ast::utility::nodes::TraversalError),
     ExpressionType(ferrum_silver::ast::expression::ExpressionTypeError),
 }
+/// Owned traversal to the join point of a CFG branch. The alternate path ID
+/// is allocated when the branch actually runs, as in the source continuation.
+#[derive(Clone)]
+pub struct CfgJoinBranch {
+    edge: ferrum_silver::cfg::silver::silver_cfg::SilverEdge,
+    join: ferrum_silver::cfg::silver::silver_cfg::SilverBlock,
+    path_id: Option<i32>,
+}
+
 /// Concrete verifier services preserve branching, failures, logging and solver state.
 pub trait ExecutionContext<P, D, J, V>: Sized {
     type Error;
@@ -774,24 +783,8 @@ pub trait CfgContext<P, D, J, V>: ExecutionContext<P, D, J, V> {
         condition: TermValue,
         original: &Exp,
         rewritten: Option<&Exp>,
-        yes: &mut dyn FnMut(
-            &mut Self,
-            State<P, D, J>,
-            &mut dyn FnMut(
-                &mut Self,
-                State<P, D, J>,
-            )
-                -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
-        ) -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
-        no: &mut dyn FnMut(
-            &mut Self,
-            State<P, D, J>,
-            &mut dyn FnMut(
-                &mut Self,
-                State<P, D, J>,
-            )
-                -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
-        ) -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
+        yes: CfgJoinBranch,
+        no: CfgJoinBranch,
         continuation: &mut dyn FnMut(
             &mut Self,
             State<P, D, J>,
@@ -994,25 +987,15 @@ where
                             term,
                             first,
                             rewritten.as_ref(),
-                            &mut |context, state, done| {
-                                follow_edge(
-                                    context,
-                                    state,
-                                    &edges[0],
-                                    Some(&join_for_yes),
-                                    path_id,
-                                    done,
-                                )
+                            CfgJoinBranch {
+                                edge: edges[0].clone(),
+                                join: join_for_yes.clone(),
+                                path_id: Some(path_id),
                             },
-                            &mut |context, state, done| {
-                                follow_edge(
-                                    context,
-                                    state,
-                                    &edges[1],
-                                    Some(&join_for_no),
-                                    next_path_id(),
-                                    done,
-                                )
+                            CfgJoinBranch {
+                                edge: edges[1].clone(),
+                                join: join_for_no.clone(),
+                                path_id: None,
                             },
                             &mut |context, state| {
                                 if join_point.is_some_and(|outer| outer == &new_join) {
@@ -1117,6 +1100,28 @@ where
     context.end_edges().map_err(ExecutionError::Context)?;
     Ok(result)
 }
+pub(crate) fn execute_cfg_join_branch<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    branch: &CfgJoinBranch,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    follow_edge(
+        context,
+        state,
+        &branch.edge,
+        Some(&branch.join),
+        branch.path_id.unwrap_or_else(next_path_id),
+        continuation,
+    )
+}
+
 fn follow_edge<C, P, D, J: Clone, V>(
     context: &mut C,
     mut state: State<P, D, J>,
@@ -1357,4 +1362,13 @@ where
         })
     })?;
     Ok(first.combine(|| second, false))
+}
+
+#[cfg(test)]
+mod cfg_join_action_tests {
+    #[test]
+    fn cfg_join_action_is_send() {
+        fn require_send<T: Send>() {}
+        require_send::<super::CfgJoinBranch>();
+    }
 }

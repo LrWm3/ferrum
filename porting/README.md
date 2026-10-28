@@ -433,3 +433,11 @@ Shutdown joins outside logger locks; a blocked callback can delay it. Callback
 self-close signals shutdown without joining its own thread, whose dependencies
 remain owned until it exits. Verifier event/lifecycle wiring and advanced trace
 emission are still incomplete; public reporting profiles remain gated.
+
+Joined CFG branches now carry owned edge/join/path actions, and predicate-content
+branches carry owned subtree/replacement actions. Their post-join continuations
+remain local, and execution remains synchronous. Alternate CFG path IDs are still
+allocated lazily. These are source-eligible boundaries for future scheduling;
+expression joins explicitly disable parallelism in the pinned source. The public
+parallel-branch flag stays gated. A rejected evaluation-scheduling experiment is
+not part of the admitted port.

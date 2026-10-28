@@ -439,28 +439,8 @@ pub trait PredicateTreeServices<P, D, V>:
         condition: Term,
         condition_exp: &(Exp, Option<Exp>),
         join: bool,
-        left: &mut dyn FnMut(
-            &mut Self,
-            State<P, D, crate::config::JoinMode>,
-            &mut dyn FnMut(
-                &mut Self,
-                State<P, D, crate::config::JoinMode>,
-            )
-                -> Result<VerificationResult<V>, PredicateExecutionError<Self::Error>>,
-        )
-            -> Result<VerificationResult<V>, PredicateExecutionError<Self::Error>>,
-        right: &mut dyn FnMut(
-            &mut Self,
-            State<P, D, crate::config::JoinMode>,
-            &mut dyn FnMut(
-                &mut Self,
-                State<P, D, crate::config::JoinMode>,
-            )
-                -> Result<VerificationResult<V>, PredicateExecutionError<Self::Error>>,
-        ) -> Result<
-            VerificationResult<V>,
-            PredicateExecutionError<Self::Error>,
-        >,
+        left: PredicateContentsAction,
+        right: PredicateContentsAction,
         continuation: &mut dyn FnMut(
             &mut Self,
             State<P, D, crate::config::JoinMode>,
@@ -470,6 +450,42 @@ pub trait PredicateTreeServices<P, D, V>:
         >,
     ) -> Result<VerificationResult<V>, PredicateExecutionError<Self::Error>>;
 }
+/// Owned predicate subtree work for a branch; the caller supplies its leaf continuation.
+#[derive(Clone)]
+pub struct PredicateContentsAction {
+    factory: TermFactory,
+    tree: PredicateContentsTree,
+    replacements: std::collections::HashMap<Term, Term>,
+    is_unfolding: bool,
+}
+pub(crate) fn execute_predicate_contents_action<
+    P,
+    D: Clone,
+    V,
+    C: PredicateTreeServices<P, D, V>,
+>(
+    context: &mut C,
+    state: State<P, D, crate::config::JoinMode>,
+    action: &PredicateContentsAction,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, crate::config::JoinMode>,
+    ) -> Result<
+        VerificationResult<V>,
+        PredicateExecutionError<C::Error>,
+    >,
+) -> Result<VerificationResult<V>, PredicateExecutionError<C::Error>> {
+    produce_predicate_contents(
+        &action.factory,
+        context,
+        state,
+        &action.tree,
+        &action.replacements,
+        action.is_unfolding,
+        continuation,
+    )
+}
+
 /// Produce a cached predicate tree, substituting assumptions and chunks, scaling
 /// each chunk's permission, converting quantified singleton resources and merging leaves.
 pub fn produce_predicate_contents<P, D: Clone, V, C: PredicateTreeServices<P, D, V>>(
@@ -557,27 +573,17 @@ pub fn produce_predicate_contents<P, D: Clone, V, C: PredicateTreeServices<P, D,
                 condition,
                 condition_exp,
                 join,
-                &mut |context, state, done| {
-                    produce_predicate_contents(
-                        factory,
-                        context,
-                        state,
-                        left,
-                        replacements,
-                        is_unfolding,
-                        done,
-                    )
+                PredicateContentsAction {
+                    factory: factory.clone(),
+                    tree: (**left).clone(),
+                    replacements: replacements.clone(),
+                    is_unfolding,
                 },
-                &mut |context, state, done| {
-                    produce_predicate_contents(
-                        factory,
-                        context,
-                        state,
-                        right,
-                        replacements,
-                        is_unfolding,
-                        done,
-                    )
+                PredicateContentsAction {
+                    factory: factory.clone(),
+                    tree: (**right).clone(),
+                    replacements: replacements.clone(),
+                    is_unfolding,
                 },
                 continuation,
             )
@@ -708,4 +714,13 @@ pub fn quantify_predicate_leaf_chunk<
     )
     .map_err(PredicateLeafQuantificationError::Chunk)?;
     Ok((recorder.record_fvf_and_domain(map_definition), new_chunk))
+}
+
+#[cfg(test)]
+mod owned_predicate_action_tests {
+    #[test]
+    fn predicate_contents_action_is_send() {
+        fn require_send<T: Send>() {}
+        require_send::<super::PredicateContentsAction>();
+    }
 }

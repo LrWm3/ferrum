@@ -1647,7 +1647,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Evaluator.scala"
 destination = "crates/ferrum-silicon/src/rules/evaluator.rs"
 status = "skeleton"
-remaining = ["Native expression evaluation and owned join-branch actions are connected synchronously; actual branch scheduling, debugger hooks and broad source compatibility remain."]
+remaining = ["Native evaluation and owned expression join actions retain synchronous execution. Logging/debugger hooks and broad source compatibility remain; source expression joins disable parallelism."]
 
 [[modules]]
 repository = "silicon"
@@ -1661,7 +1661,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Executor.scala"
 destination = "crates/ferrum-silicon/src/rules/executor.rs"
 status = "skeleton"
-remaining = ["Native source discovery, template emission and rule dispatch exist; concrete solver, diagnostics, recursive translator and verifier integration remain."]
+remaining = ["Native CFG execution and owned joined-edge actions exist; source-eligible branch scheduling, execution logging/debugger paths and full source compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1730,7 +1730,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/PredicateSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/predicate_supporter.rs"
 status = "skeleton"
-remaining = ["Source fold/unfold and cached predicate-content replay connect native assumptions, scaled resources, quantified singleton maps and branch joins. Debugger paths and broader compatibility remain incomplete."]
+remaining = ["Native predicate production/unfolding and owned subtree actions exist; source-eligible joined scheduling, logging/debugger paths and broad compatibility remain."]
 
 [[modules]]
 repository = "silicon"
