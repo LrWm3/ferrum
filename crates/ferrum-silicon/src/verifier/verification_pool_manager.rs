@@ -4067,6 +4067,77 @@ method unrelated(x: Ref) requires acc(x.f) ensures acc(x.f) { x.f := 5; }
     }
 
     #[test]
+    fn real_stdio_nonjoined_cfg_continuations_cross_loop_boundaries() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+method good(x: Ref, b: Bool, c: Bool) returns (r: Int)
+  requires acc(x.f)
+  ensures acc(x.f) && r >= 1
+{
+  var i: Int := 0;
+  while (i < 1)
+    invariant 0 <= i && i <= 1
+    invariant acc(x.f)
+    invariant i == 1 ==> x.f >= 1
+  {
+    if (b) { x.f := 1; } else { x.f := 2; }
+    i := i + 1;
+  }
+  if (c) { r := x.f; } else { r := x.f + 1; }
+}
+method bad(x: Ref, b: Bool) returns (r: Int)
+  requires acc(x.f)
+  ensures acc(x.f) && r == 0
+{
+  var i: Int := 0;
+  while (i < 1)
+    invariant 0 <= i && i <= 1
+    invariant acc(x.f)
+    invariant i == 1 ==> x.f >= 1
+  {
+    if (b) { x.f := 1; } else { x.f := 2; }
+    i := i + 1;
+  }
+  r := x.f;
+}
+"#;
+        let body_only = source.replace("if (c) { r := x.f; } else { r := x.f + 1; }", "r := x.f;");
+        let exit_only = source.replace("if (b) { x.f := 1; } else { x.f := 2; }", "x.f := 1;");
+        for source in [body_only.as_str(), exit_only.as_str()] {
+            for workers in [1, 2] {
+                let before = CONTINUATION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1);
+                assert!(
+                    CONTINUATION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > before,
+                    "loop continuation never executed"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn real_stdio_cfg_joins_use_owned_worker_jobs() {
         let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
             return;

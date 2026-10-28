@@ -782,3 +782,11 @@ terminal errors. Actual Z3 regressions cover nested branches, permission loss,
 postcondition failures, two fatal branches and forced foreign-worker restoration.
 The public option stays gated while loop/nested-wait isolation and remaining
 continuation boundaries are completed; see [continuations.md](continuations.md).
+
+Owned CFG terminals now propagate through loop-body replay and loop exit paths,
+while invariant collectors and local phase cleanup stay on the waiting caller.
+Real Z3 checks exercise body-only and exit-only branches with one and two workers.
+Cancellation checks retain the typed error, drain the submitted else, and restore
+parent solver depth/options. Joined CFG/predicate scheduling falls back to the
+synchronous path for active logging, packaging and extended exhale. Nonjoined
+producer/consumer caller frames remain the next continuation boundary.

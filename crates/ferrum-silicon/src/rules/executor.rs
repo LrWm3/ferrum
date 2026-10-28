@@ -36,8 +36,9 @@
 //! CFG path reporting, branch state, snapshots and continuation/verifier ownership.
 //!
 //! Status: partial; statement and CFG execution use native verifier services. Owned CFG
-//! terminals support internally gated branch jobs; loop propagation and diagnostic coverage
-//! remain under review. Opaque callbacks retain synchronous execution.
+//! terminals support internally gated branch jobs through loop bodies and exits. Owned
+//! permission-rule callers and diagnostic coverage remain incomplete; opaque callbacks
+//! retain synchronous execution.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -1210,6 +1211,7 @@ where
             statements,
             join_point,
             path_id,
+            owned,
             continuation,
         )?,
         BlockKind::Precondition(_) | BlockKind::Postcondition(_) => {
@@ -1715,6 +1717,7 @@ fn execute_loop_head_successors<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
     frame: &LoopHeadSuccessorFrame,
+    owned: Option<&CfgContinuationTerminal>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -1750,7 +1753,7 @@ where
         &frame.edges,
         frame.join_point.as_ref(),
         frame.path_id,
-        None,
+        owned,
         continuation,
     )?;
     Ok(checked.combine(|| followed, false))
@@ -1773,6 +1776,7 @@ fn execute_loop_phases<C, P, D, J: Clone, V>(
     leftover: State<P, D, J>,
     frame: &LoopPhaseExecutionFrame<P, D, J>,
     debug_record: Option<&(String, crate::state::state::HeapRecord)>,
+    owned: Option<&CfgContinuationTerminal>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -1800,7 +1804,7 @@ where
                 return Ok(VerificationResult::success());
             }
             execute_all(context, state, &frame.statements, &mut |context, state| {
-                execute_loop_head_successors(context, state, &frame.successors, continuation)
+                execute_loop_head_successors(context, state, &frame.successors, owned, continuation)
             })
         })?;
         accumulated = accumulated.combine(|| result, false);
@@ -1819,6 +1823,7 @@ fn execute_loop_head<C, P, D, J: Clone, V>(
     statements: &[Stmt],
     join_point: Option<&SilverBlock>,
     path_id: i32,
+    owned: Option<&CfgContinuationTerminal>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -1931,6 +1936,7 @@ where
                 leftover,
                 &frame,
                 debug_record.as_ref(),
+                owned,
                 continuation,
             )
         })

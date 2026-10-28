@@ -44,14 +44,25 @@ branches, permission consumption, method postconditions, two fatal branches and
 unrelated queued methods. Forced foreign-worker tests check both replay and
 restoration; removing restoration makes the negative control fail. An injected
 scheduler checks mandatory draining after execution and reporter errors.
+Cancellation tests cover an in-flight terminal job and cancellation of the then
+action after else submission, retaining typed cancellation and restoring parent
+solver depth and options before return.
 
 ## Remaining scope
 
-The public parallel-branch option remains gated. Loop successor propagation is
-under review; the same-worker isolation fix is shared by terminal, joined and
-evaluation jobs. A deterministic regression also checks that an outer branch
-cannot falsely prove an assertion from the suspended inner branch's assumptions. Active logger scope migration, general borrowed callback
-entry points and broad parallel compatibility are not complete. Conditional scope
+The public parallel-branch option remains gated. Loop successor propagation now
+carries the terminal through replayed loop-body and exit paths. Invariant
+collection stays local, and backedges stop at invariant re-establishment. Actual
+Z3 checks separately exercise forks in the body and after the exit edge with one
+and two workers. The same-worker isolation fix is shared by terminal, joined and
+evaluation jobs; a regression prevents an outer branch from falsely proving an
+assertion using the suspended inner branch's assumptions.
+
+Nonjoined permission production/consumption, predicate contents, active logger
+scope migration and general borrowed callback entry points still need owned
+caller frames. They retain synchronous execution. Joined CFG/predicate dispatch
+also falls back synchronously when member logging, packaging or extended exhale
+is active. Broad parallel compatibility remains incomplete. Conditional scope
 closures may be bypassed only when the native context proves them to be no-ops;
 active member logging disables this owned terminal dispatch.
 

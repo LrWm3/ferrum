@@ -8550,6 +8550,9 @@ where
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
         if self.joined_branch_scheduler_enabled
             && state.parallelize_branches
+            && !state.is_in_package
+            && !state.exhale_ext
+            && self.member_log.is_none()
             && self.joined_branch_scheduler.is_some()
         {
             return self.join_owned_branches_parallel(
@@ -18369,6 +18372,9 @@ where
         if join
             && self.joined_branch_scheduler_enabled
             && state.parallelize_branches
+            && !state.is_in_package
+            && !state.exhale_ext
+            && self.member_log.is_none()
             && self.joined_branch_scheduler.is_some()
         {
             let error = std::cell::RefCell::new(None);
@@ -20563,92 +20569,111 @@ mod queued_cfg_isolation_tests {
         }
         // Hold a submitted CFG branch after it has installed its solver state,
         // then cancel while its parent is cooperatively awaiting its result.
-        let cancellation =
-            crate::verifier::verification_pool_manager::CancellationController::default();
-        let worker_cancellation = cancellation.clone();
-        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
-        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
-        let resume_rx = Arc::new(Mutex::new(resume_rx));
-        let hook = Arc::new(move || {
-            entered_tx.send(()).unwrap();
-            resume_rx.lock().unwrap().recv().unwrap();
-        });
-        let remote = NativeWorkerTask {
-            analysis: analysis.clone(),
-            target: NativeWorkerTarget::Join(Box::new(NativeJoinJob {
-                source_worker_id: "source".into(),
-                snapshot: snapshot.clone(),
-                state: state.clone(),
-                mark: Some(mark),
-                condition: factory.boolean(true),
-                original: Exp::new(ExpKind::TrueLit, Default::default()),
-                rewritten: None,
-                action: crate::verifier::verification_pool_manager::NativeJoinAction::Cfg(
-                    action.clone(),
-                ),
-                after_start: Some(hook),
-                replay_check: Some(requirement.clone()),
-            })),
-            reporter: None,
-            warning_sink: None,
-        };
-        let started = Arc::new((Mutex::new(false), Condvar::new()));
-        let (ready_tx, _ready_rx) = std::sync::mpsc::channel();
-        let (release_tx, release_rx) = std::sync::mpsc::channel();
-        let release_rx = Arc::new(Mutex::new(release_rx));
-        let worker_requirement = requirement.clone();
-        let worker_factory = factory.clone();
-        let worker_options = options.clone();
-        let worker_config = config.clone();
-        let path = std::path::PathBuf::from(&z3);
-        let mut pool = ThreadVerificationPool::start(2, move |id| {
-            let name = format!("cancel-cfg-{id}");
-            let prover = z3_prover_std_io::new(
-                name.clone(),
-                z3_prover_std_io::settings(path.clone()),
-                worker_factory.clone(),
-                |_| {},
-            );
-            let identifiers = prover.identifier_factory();
-            let mut native = native_method_worker(
-                name,
-                prover,
-                identifiers,
-                worker_factory.clone(),
-                worker_options.clone(),
-                &worker_config,
-            );
-            native.set_cancellation(worker_cancellation.clone());
-            Ok(TestWorker {
-                native,
-                started: started.clone(),
-                parent_ready: ready_tx.clone(),
-                release_tx: release_tx.clone(),
-                release_rx: release_rx.clone(),
-                requirement: worker_requirement.clone(),
+        for terminal_cancel in [false, true] {
+            let cancellation =
+                crate::verifier::verification_pool_manager::CancellationController::default();
+            let worker_cancellation = cancellation.clone();
+            let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+            let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+            let resume_rx = Arc::new(Mutex::new(resume_rx));
+            let hook = Arc::new(move || {
+                entered_tx.send(()).unwrap();
+                resume_rx.lock().unwrap().recv().unwrap();
+            });
+            let remote = NativeWorkerTask {
+                analysis: analysis.clone(),
+                target: NativeWorkerTarget::Join(Box::new(NativeJoinJob {
+                    source_worker_id: "source".into(),
+                    snapshot: snapshot.clone(),
+                    state: if terminal_cancel {
+                        let mut s = state.clone();
+                        s.under_join = false;
+                        s.method_cfg = Some(Arc::new(cfg.clone()));
+                        s
+                    } else {
+                        state.clone()
+                    },
+                    mark: if terminal_cancel { None } else { Some(mark) },
+                    condition: factory.boolean(true),
+                    original: Exp::new(ExpKind::TrueLit, Default::default()),
+                    rewritten: None,
+                    action: if terminal_cancel {
+                        crate::verifier::verification_pool_manager::NativeJoinAction::Continuation(
+                            terminal_action.clone(),
+                        )
+                    } else {
+                        crate::verifier::verification_pool_manager::NativeJoinAction::Cfg(
+                            action.clone(),
+                        )
+                    },
+                    after_start: Some(hook),
+                    replay_check: Some(requirement.clone()),
+                })),
+                reporter: None,
+                warning_sink: None,
+            };
+            let started = Arc::new((Mutex::new(false), Condvar::new()));
+            let (ready_tx, _ready_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let release_rx = Arc::new(Mutex::new(release_rx));
+            let worker_requirement = requirement.clone();
+            let worker_factory = factory.clone();
+            let worker_options = options.clone();
+            let worker_config = config.clone();
+            let path = std::path::PathBuf::from(&z3);
+            let mut pool = ThreadVerificationPool::start(2, move |id| {
+                let name = format!("cancel-cfg-{id}");
+                let prover = z3_prover_std_io::new(
+                    name.clone(),
+                    z3_prover_std_io::settings(path.clone()),
+                    worker_factory.clone(),
+                    |_| {},
+                );
+                let identifiers = prover.identifier_factory();
+                let mut native = native_method_worker(
+                    name,
+                    prover,
+                    identifiers,
+                    worker_factory.clone(),
+                    worker_options.clone(),
+                    &worker_config,
+                );
+                native.set_cancellation(worker_cancellation.clone());
+                Ok(TestWorker {
+                    native,
+                    started: started.clone(),
+                    parent_ready: ready_tx.clone(),
+                    release_tx: release_tx.clone(),
+                    release_rx: release_rx.clone(),
+                    requirement: worker_requirement.clone(),
+                })
             })
-        })
-        .unwrap();
-        pool.broadcast(WorkerPreambleCommand::Declare(declaration.clone()))
             .unwrap();
-        let parent = pool.submit(Job::CancelParent(remote)).unwrap();
-        entered_rx.recv().unwrap();
-        cancellation.cancel();
-        resume_tx.send(()).unwrap();
-        assert!(matches!(
-            parent.wait(),
-            Err(
-                crate::verifier::verification_pool_manager::ThreadPoolError::Worker(
-                    NativeError::Cancelled
+            pool.broadcast(WorkerPreambleCommand::Declare(declaration.clone()))
+                .unwrap();
+            let parent = pool.submit(Job::CancelParent(remote)).unwrap();
+            entered_rx.recv().unwrap();
+            cancellation.cancel();
+            resume_tx.send(()).unwrap();
+            assert!(matches!(
+                parent.wait(),
+                Err(
+                    crate::verifier::verification_pool_manager::ThreadPoolError::Worker(
+                        NativeError::Cancelled
+                    )
                 )
-            )
-        ));
-        pool.shutdown().unwrap();
+            ));
+            pool.shutdown().unwrap();
+        }
         source.context.base.decider.pop_scope().unwrap();
         // A submitted else must be waited even if the then continuation or
         // branch-failure reporter fails. The scheduler is owner-local, like the
         // real cooperative queue, but records wait deterministically.
-        struct Probe(std::rc::Rc<std::cell::Cell<usize>>, bool);
+        struct Probe(
+            std::rc::Rc<std::cell::Cell<usize>>,
+            bool,
+            Option<crate::verifier::verification_pool_manager::CancellationController>,
+        );
         struct ProbeFuture(std::rc::Rc<std::cell::Cell<usize>>);
         impl
             crate::verifier::verification_pool_manager::NativeJoinFuture<
@@ -20725,13 +20750,19 @@ mod queued_cfg_isolation_tests {
                     >,
                 >,
             > {
+                if let Some(cancel) = &self.2 {
+                    cancel.cancel();
+                }
                 Ok(Box::new(ProbeFuture(self.0.clone())))
             }
         }
         for reporter_error in [false, true] {
             let waited = std::rc::Rc::new(std::cell::Cell::new(0));
-            source.context.joined_branch_scheduler =
-                Some(std::rc::Rc::new(Probe(waited.clone(), reporter_error)));
+            source.context.joined_branch_scheduler = Some(std::rc::Rc::new(Probe(
+                waited.clone(),
+                reporter_error,
+                None,
+            )));
             let mut branch_state = state.clone();
             branch_state.under_join = false;
             branch_state.method_cfg = reporter_error.then(|| Arc::new(cfg.clone()));
@@ -20751,6 +20782,44 @@ mod queued_cfg_isolation_tests {
                 "submitted else must be drained after error"
             );
         }
+        let waited = std::rc::Rc::new(std::cell::Cell::new(0));
+        let cancellation =
+            crate::verifier::verification_pool_manager::CancellationController::default();
+        source.context.set_cancellation(cancellation.clone());
+        source.context.joined_branch_scheduler = Some(std::rc::Rc::new(Probe(
+            waited.clone(),
+            false,
+            Some(cancellation),
+        )));
+        let mut branch_state = state.clone();
+        branch_state.under_join = false;
+        branch_state.method_cfg = Some(Arc::new(cfg.clone()));
+        let original = Exp::new(ExpKind::TrueLit, Default::default());
+        let depth_before = source.context.base.decider.prover.push_pop_scope_depth();
+        let options_before = source.context.base.decider.options().clone();
+        let result = source.context.branch_owned_cfg_continuations(
+            branch_state,
+            requirement.clone(),
+            &original,
+            None,
+            terminal_action.clone(),
+            terminal_action.clone(),
+        );
+        assert_eq!(
+            source.context.base.decider.prover.push_pop_scope_depth(),
+            depth_before
+        );
+        assert_eq!(source.context.base.decider.options(), &options_before);
+        assert!(matches!(
+            result,
+            Err(ExecutionError::Context(NativeError::Cancelled))
+        ));
+        assert_eq!(
+            waited.get(),
+            1,
+            "cancelled then must still drain submitted else"
+        );
+        source.context.cancellation = None;
         source.stop().unwrap();
     }
 }
