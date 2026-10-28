@@ -73,6 +73,8 @@ Ordinary failure contexts now capture and render source counterexample views,
 caller-store transformations and branch conditions. Alternative function
 verification order is connected; debugger and remaining reporting profiles are
 still incomplete.
+The current continuation boundary and remaining nonjoined scheduling work are
+recorded in [porting/continuations.md](porting/continuations.md).
 Full compatibility and comparative performance remain unmeasured.
 
 ## Upstream baseline and scope
