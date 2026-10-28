@@ -577,6 +577,51 @@ mod tests {
         phases.check_consistency(program).unwrap();
     }
     #[test]
+    fn typed_collection_and_ascribed_calls_copy_through_macros() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("domain D[T] { function empty(): D[T] } define v (empty(): D[Int]) define m Map[Int, Bool]() define s Seq[Int]() method f() { var x: D[Int] := v; var a: Map[Int, Bool] := m; var b: Seq[Int] := s; }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+    }
+    #[test]
+    fn interpreted_domains_and_functions_reach_typed_ast() {
+        use crate::ast::r#type::Type;
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse(r#"domain BV interpretation (SMTLIB: "(_ BitVec 32)", Boogie: "bv32") { function toBV(x: Int): BV interpretation "(_ int2bv 32)" } method m() { var x: BV := toBV(1); assert x == toBV(1); }"#).unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        assert_eq!(
+            program.domains[0].interpretations.as_ref().unwrap()["SMTLIB"],
+            "(_ BitVec 32)"
+        );
+        assert_eq!(
+            program.domains[0].functions[0].interpretation.as_deref(),
+            Some("(_ int2bv 32)")
+        );
+        assert!(matches!(
+            program.domains[0].functions[0].typ,
+            Type::Backend(_)
+        ));
+        fn has_backend_call(node: crate::ast::utility::nodes::Node) -> bool {
+            use crate::ast::utility::nodes::{Node, subnodes};
+            if let Node::Exp(exp) = &node {
+                if matches!(exp.kind(), crate::ast::expression::ExpKind::BackendFuncApp(name, _) if name == "toBV")
+                {
+                    assert_eq!(exp.0.extra.interpretation.as_deref(), Some("(_ int2bv 32)"));
+                    return true;
+                }
+            }
+            subnodes(&node).unwrap().into_iter().any(has_backend_call)
+        }
+        assert!(has_backend_call(crate::ast::utility::nodes::Node::Program(
+            program.clone()
+        )));
+        phases.check_consistency(program).unwrap();
+    }
+    #[test]
     fn macro_identifier_aliases_expand_in_call_positions() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
@@ -593,6 +638,13 @@ mod tests {
                 )
                 .is_err()
         );
+    }
+    #[test]
+    fn macro_renamer_matches_source_across_nested_body_scopes() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("define bad { if (true) { var x: Int := 0; } assert x == 1; } method m() { var x: Int := 1; bad; }").unwrap();
+        assert!(phases.analyze(parsed).is_err());
     }
     #[test]
     fn macro_generated_names_do_not_leak_between_sibling_blocks() {
@@ -714,6 +766,35 @@ mod tests {
             )
             .unwrap();
         assert!(phases.analyze(parsed).is_err());
+    }
+    #[test]
+    fn macro_annotations_survive_graph_copying() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("define check(v) { @s(\"stmt\") assert @e(\"expr\") v; } method m() { check(true); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let body = program.methods[0].body.as_ref().unwrap();
+        let crate::ast::statement::StmtKind::Seqn { statements, .. } = body.kind() else {
+            panic!("expected block")
+        };
+        let crate::ast::statement::StmtKind::Assert(exp) = statements[0].kind() else {
+            panic!("expected assert")
+        };
+        assert!(
+            statements[0]
+                .metadata()
+                .info
+                .find(&|i| matches!(i, crate::ast::ast::Info::Annotation(_)))
+                .is_some()
+        );
+        assert!(
+            exp.metadata()
+                .info
+                .find(&|i| matches!(i, crate::ast::ast::Info::Annotation(_)))
+                .is_some()
+        );
+        phases.check_consistency(program).unwrap();
     }
     #[test]
     fn expression_and_statement_annotations_retain_metadata() {

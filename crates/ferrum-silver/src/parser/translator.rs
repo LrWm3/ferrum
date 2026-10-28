@@ -195,6 +195,22 @@ pub fn translate_type(typ: &PTypeHandle) -> Result<Type, TranslationError> {
                     if declarations.len() != 1 {
                         return Err(TranslationError::InvalidType);
                     }
+                    let interpreted = match &declaration.read().expect("poisoned parse node").kind {
+                        PNodeKind::Member(super::parse_ast::PMember {
+                            kind:
+                                super::parse_ast::PMemberKind::Domain {
+                                    interpretations, ..
+                                },
+                            ..
+                        }) => interpretations.as_ref().map(|i| i.interps()),
+                        _ => None,
+                    };
+                    if let Some(interpretations) = interpreted {
+                        return Ok(Type::Backend(crate::ast::r#type::BackendType::new(
+                            name,
+                            interpretations,
+                        )));
+                    }
                     let params = match &declaration.read().expect("poisoned parse node").kind {
                         PNodeKind::Member(super::parse_ast::PMember {
                             kind: super::parse_ast::PMemberKind::Domain { type_vars, .. },
@@ -431,6 +447,12 @@ fn translate_expression_with_fields(
                 let adt_name = match &owner.read().expect("poisoned parse node").kind { PNodeKind::Member(super::parse_ast::PMember { kind: super::parse_ast::PMemberKind::Extension(ext), .. }) => declaration_name(&ext.as_any().downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdt>().ok_or(TranslationError::InvalidType)?.idndef)?, _ => return Err(TranslationError::InvalidType) };
                 let type_vars = domain_substitution.ok_or(TranslationError::Unsupported("unresolved ADT constructor substitution"))?.iter().map(|(name, typ)| Ok((crate::ast::r#type::TypeVar::new(name), translate_type(typ)?))).collect::<Result<_, TranslationError>>()?;
                 return Ok(crate::plugin::standard::adt::adt_ast_extension::AdtConstructorApp { name, args, type_vars, typ: translate_type(&expression.typ)?, adt_name, meta }.expression());
+            }
+            if let PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function { interpretation: Some(interpretation), result_type, .. }) = &declaration {
+                return Ok(Exp::with_extra(
+                    ExpKind::BackendFuncApp(name, args), meta,
+                    crate::ast::expression::ExpExtra { typ: Some(translate_type(result_type)?), interpretation: Some(interpretation.interpretation.grouped.inner.text.clone()), ..Default::default() },
+                ));
             }
             if matches!(
                 declaration,
@@ -1590,20 +1612,7 @@ pub fn translate_program_core(
                 interpretations,
                 members,
                 ..
-            } if interpretations.is_none()
-                && members.inner().to_seq().iter().all(|m| {
-                    matches!(
-                        &m.node().read().expect("poisoned parse node").kind,
-                        PNodeKind::DomainMember(
-                            super::parse_ast::PDomainMember::Axiom { .. }
-                                | super::parse_ast::PDomainMember::Function {
-                                    interpretation: None,
-                                    ..
-                                }
-                        )
-                    )
-                }) =>
-            {
+            } => {
                 let domain_name = declaration_name(&idndef)?;
                 let mut axioms = Vec::new();
                 let mut domain_functions = Vec::new();
@@ -1620,6 +1629,7 @@ pub fn translate_program_core(
                         idndef,
                         args,
                         result_type,
+                        interpretation,
                         ..
                     }) = kind
                     {
@@ -1649,7 +1659,8 @@ pub fn translate_program_core(
                             formal_args,
                             typ: translate_type(&result_type)?,
                             unique: unique.is_some(),
-                            interpretation: None,
+                            interpretation: interpretation
+                                .map(|i| i.interpretation.grouped.inner.text),
                             domain_name: domain_name.clone(),
                             meta,
                         }));
@@ -1708,7 +1719,7 @@ pub fn translate_program_core(
                         })
                         .transpose()?
                         .unwrap_or_default(),
-                    interpretations: None,
+                    interpretations: interpretations.map(|i| i.interps()),
                     meta: member_meta,
                 }));
             }

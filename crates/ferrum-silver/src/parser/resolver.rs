@@ -497,13 +497,11 @@ fn visit_names(
                     let adt = extension.as_any().downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdt>().expect("checked ADT");
                     add_named_declaration(current, node, &adt.idndef, DeclarationVisibility::Global, DeclarationUniqueness::None, true, messages)?;
                 }
-                PMemberKind::Domain { idndef, interpretations, members, .. }
-                    if interpretations.is_none() && members.inner().to_seq().iter().all(|m| matches!(&m.node().read().expect("poisoned parse node").kind, PNodeKind::DomainMember(super::parse_ast::PDomainMember::Axiom { .. } | super::parse_ast::PDomainMember::Function { interpretation: None, .. }))) =>
+                PMemberKind::Domain { idndef, .. } =>
                 {
                     add_named_declaration(current, node, idndef, DeclarationVisibility::Global, DeclarationUniqueness::Global, true, messages)?;
                 }
-                PMemberKind::Domain { .. }
-                | PMemberKind::Define { .. }
+                PMemberKind::Define { .. }
                 | PMemberKind::Extension(_) => {
                     return Err(NameAnalysisError::Unsupported(
                         "domain or macro name analysis",
@@ -546,7 +544,7 @@ fn visit_names(
         },
         PNodeKind::IdnRef(_) => current.new_ref(node.clone()),
         PNodeKind::DomainMember(super::parse_ast::PDomainMember::Axiom { .. }) => scope = Some(DeclarationMap::new(true, false)),
-        PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function { idndef, interpretation: None, .. }) => {
+        PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function { idndef, .. }) => {
             add_named_declaration(current, node, idndef, DeclarationVisibility::Global, DeclarationUniqueness::Global, true, messages)?;
             scope = Some(DeclarationMap::new(true, false));
         },
@@ -563,8 +561,7 @@ fn visit_names(
             add_named_declaration(current, node, &ctor.idndef, DeclarationVisibility::Global, DeclarationUniqueness::Global, true, messages)?;
         }
         PNodeKind::Extension(extension) if extension.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdtDerivingInfo>() => {}
-        PNodeKind::DomainMember(_)
-        | PNodeKind::DefineParam { .. }
+        PNodeKind::DefineParam { .. }
         | PNodeKind::Extension(_) => {
             return Err(NameAnalysisError::Unsupported(
                 "domain, macro or extension name analysis",
@@ -899,10 +896,7 @@ pub fn check_expression(
                 matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Member(member) if matches!(member.kind, PMemberKind::Function { .. } | PMemberKind::Predicate { .. }))
                     || matches!(
                         &node.read().expect("poisoned parse node").kind,
-                        PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function {
-                            interpretation: None,
-                            ..
-                        })
+                        PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function { .. })
                     ) || matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Extension(extension) if extension.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>())
             });
             super::parse_ast::PIdnRef::filter_decls(&idnref, predicate, |_| true);
@@ -955,7 +949,6 @@ pub fn check_expression(
                 PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function {
                     args,
                     result_type,
-                    interpretation: None,
                     ..
                 }) => {
                     let domain = super::parse_ast::get_ancestor(&candidates[0], |node| {
@@ -1963,24 +1956,7 @@ pub fn check_program_core(
                     .map_err(|_| TypeCheckError::Unsupported("ADT derivation field"))?;
                 }
             }
-            PMemberKind::Domain {
-                interpretations,
-                members,
-                ..
-            } if interpretations.is_none()
-                && members.inner().to_seq().iter().all(|m| {
-                    matches!(
-                        &m.node().read().expect("poisoned parse node").kind,
-                        PNodeKind::DomainMember(
-                            super::parse_ast::PDomainMember::Axiom { .. }
-                                | super::parse_ast::PDomainMember::Function {
-                                    interpretation: None,
-                                    ..
-                                }
-                        )
-                    )
-                }) =>
-            {
+            PMemberKind::Domain { members, .. } => {
                 for member in members.inner().to_seq() {
                     let kind = member
                         .node()
@@ -2042,24 +2018,7 @@ pub fn check_program_core(
                 if extension
                     .as_any()
                     .is::<crate::plugin::standard::adt::adt_past_extension::PAdt>() => {}
-            PMemberKind::Domain {
-                interpretations,
-                members,
-                ..
-            } if interpretations.is_none()
-                && members.inner().to_seq().iter().all(|m| {
-                    matches!(
-                        &m.node().read().expect("poisoned parse node").kind,
-                        PNodeKind::DomainMember(
-                            super::parse_ast::PDomainMember::Axiom { .. }
-                                | super::parse_ast::PDomainMember::Function {
-                                    interpretation: None,
-                                    ..
-                                }
-                        )
-                    )
-                }) =>
-            {
+            PMemberKind::Domain { members, .. } => {
                 for member in members.inner().to_seq() {
                     let axiom = match &member.node().read().expect("poisoned parse node").kind {
                         PNodeKind::DomainMember(super::parse_ast::PDomainMember::Axiom {
@@ -2083,10 +2042,7 @@ pub fn check_program_core(
                                 || !matches!(
                                     &candidates[0].read().expect("poisoned parse node").kind,
                                     PNodeKind::DomainMember(
-                                        super::parse_ast::PDomainMember::Function {
-                                            interpretation: None,
-                                            ..
-                                        }
+                                        super::parse_ast::PDomainMember::Function { .. }
                                     )
                                 )
                             {

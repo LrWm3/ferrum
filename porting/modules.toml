@@ -364,7 +364,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/MacroExpander.scala"
 destination = "crates/ferrum-silver/src/parser/macro_expander.rs"
 status = "skeleton"
-remaining = ["Source macro copying and hygienic substitution cover quantifiers, let, local declarations, labels/goto, loops, identifier aliases and scope tracking. Global domain/extension name seeding remains conservative; extension products and exact token-wrapper positions require completion."]
+remaining = ["Source sequential renaming and substitution cover supported expression/statement macros, including typed/annotated bodies and nested declarations. Macro extension specs and other unsupported products, token-wrapper positions and conservative global name seeding remain."]
 
 [[modules]]
 repository = "silver"

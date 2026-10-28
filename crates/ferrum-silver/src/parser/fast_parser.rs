@@ -34,7 +34,7 @@
 //!
 //! Status: partial; common expressions, types, fields, functions, predicates and methods are
 //! implemented, with injectable recursive import loading. Macro expansion, arbitrary extension
-//! hooks, domain interpretations, error recovery and remaining grammar forms are pending.
+//! hooks, error recovery and remaining grammar forms are pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -741,6 +741,51 @@ impl ExpressionParser<'_> {
         Ok(PNode::new(
             PNodeKind::IdnDef(PIdnDef { name: name.into() }),
             self.span(start, self.cursor),
+        ))
+    }
+    fn interpretation_keyword(&mut self) -> Result<Option<PReserved<PKw>>, SyntaxError> {
+        self.trivia()?;
+        let start = self.cursor;
+        let end = self.identifier_end(start);
+        if &self.source[start..end] != "interpretation" {
+            return Ok(None);
+        }
+        self.cursor = end;
+        Ok(Some(PReserved::new(
+            PKw::Interpretation,
+            self.span(start, end),
+        )))
+    }
+    fn string_literal(&mut self) -> Result<super::parse_ast::PStringLiteral, SyntaxError> {
+        self.trivia()?;
+        let quote = self.cursor;
+        if !self.source[quote..].starts_with('"') {
+            return Err(self.error("expected string literal"));
+        }
+        self.cursor += 1;
+        let raw_start = self.cursor;
+        let length = self.source[raw_start..]
+            .find('"')
+            .ok_or_else(|| self.error("unterminated string literal"))?;
+        if length == 0 {
+            return Err(self.error("expected nonempty string literal"));
+        }
+        self.cursor += length;
+        let raw = super::parse_ast::PRawString::new(
+            self.source[raw_start..self.cursor].into(),
+            self.span(raw_start, self.cursor),
+        );
+        let close = self.cursor;
+        self.cursor += 1;
+        let pos = self.span(quote, self.cursor);
+        Ok(super::parse_ast::PStringLiteral::new(
+            PGrouped::new(
+                PReserved::new(PSym::Quote, self.span(quote, quote + 1)),
+                raw,
+                PReserved::new(PSym::Quote, self.span(close, self.cursor)),
+                pos.clone(),
+            ),
+            pos,
         ))
     }
     fn annotations(&mut self) -> Result<Vec<super::parse_ast::PAnnotation>, SyntaxError> {
@@ -1457,37 +1502,47 @@ impl ExpressionParser<'_> {
             "define" => {
                 let keyword = PReserved::new(PKw::Define, keyword_span);
                 let idndef = self.identifier_definition()?;
-                let parameters = if let Some(left) = self.take("(")? {
-                    let begin = left.0.clone();
-                    self.trivia()?;
-                    let list_begin = self.position(self.cursor);
-                    let mut params = Vec::new();
-                    if !self.source[self.cursor..].starts_with(')') {
-                        loop {
-                            let id = self.identifier_definition()?;
-                            let pos = id.read().expect("poisoned parse node").pos.clone();
-                            let param = super::parse_ast::define_param(id, pos);
-                            let comma = self.take(",")?.map(|p| PReserved::new(PSym::Comma, p));
-                            let more = comma.is_some();
-                            params.push((param, comma));
-                            if !more {
-                                break;
+                let parameter_start = self.cursor;
+                let parsed_parameters = (|| -> Result<_, SyntaxError> {
+                    Ok(if let Some(left) = self.take("(")? {
+                        let begin = left.0.clone();
+                        self.trivia()?;
+                        let list_begin = self.position(self.cursor);
+                        let mut params = Vec::new();
+                        if !self.source[self.cursor..].starts_with(')') {
+                            loop {
+                                let id = self.identifier_definition()?;
+                                let pos = id.read().expect("poisoned parse node").pos.clone();
+                                let param = super::parse_ast::define_param(id, pos);
+                                let comma = self.take(",")?.map(|p| PReserved::new(PSym::Comma, p));
+                                let more = comma.is_some();
+                                params.push((param, comma));
+                                if !more {
+                                    break;
+                                }
                             }
                         }
+                        let list = comma_pairs(params, (list_begin, self.position(self.cursor)));
+                        let right = self
+                            .take(")")?
+                            .ok_or_else(|| self.error("expected ')' after macro parameters"))?;
+                        let end = right.1.clone();
+                        Some(PGrouped::new(
+                            PReserved::new(PSym::LParen, left),
+                            list,
+                            PReserved::new(PSym::RParen, right),
+                            (begin, end),
+                        ))
+                    } else {
+                        None
+                    })
+                })();
+                let parameters = match parsed_parameters {
+                    Ok(parameters) => parameters,
+                    Err(_) => {
+                        self.cursor = parameter_start;
+                        None
                     }
-                    let list = comma_pairs(params, (list_begin, self.position(self.cursor)));
-                    let right = self
-                        .take(")")?
-                        .ok_or_else(|| self.error("expected ')' after macro parameters"))?;
-                    let end = right.1.clone();
-                    Some(PGrouped::new(
-                        PReserved::new(PSym::LParen, left),
-                        list,
-                        PReserved::new(PSym::RParen, right),
-                        (begin, end),
-                    ))
-                } else {
-                    None
                 };
                 let body = if let Some(stmt) = self.statement_block()? {
                     super::parse_ast::PDefineBody::Statement(stmt)
@@ -1698,6 +1753,62 @@ impl ExpressionParser<'_> {
                 } else {
                     None
                 };
+                let interpretations = if let Some(keyword) = self.interpretation_keyword()? {
+                    let start = keyword.position().0.clone();
+                    let left = self
+                        .take("(")?
+                        .ok_or_else(|| self.error("expected '(' after domain interpretation"))?;
+                    let group_start = left.0.clone();
+                    let mut entries = Vec::new();
+                    self.trivia()?;
+                    if !self.source[self.cursor..].starts_with(')') {
+                        loop {
+                            self.trivia()?;
+                            let name_start = self.cursor;
+                            let name = self.identifier_definition()?;
+                            let name_pos = name.read().expect("poisoned parse node").pos.clone();
+                            let text = match &name.read().expect("poisoned parse node").kind {
+                                PNodeKind::IdnDef(id) => id.name.clone(),
+                                _ => unreachable!(),
+                            };
+                            let name = super::parse_ast::PRawString::new(text, name_pos);
+                            let colon = self.take(":")?.ok_or_else(|| {
+                                self.error("expected ':' in domain interpretation")
+                            })?;
+                            let lit = self.string_literal()?;
+                            let entry = super::parse_ast::PDomainInterpretation::new(
+                                name,
+                                PReserved::new(PSym::Colon, colon),
+                                lit,
+                                self.span(name_start, self.cursor),
+                            );
+                            let comma = self.take(",")?.map(|p| PReserved::new(PSym::Comma, p));
+                            let more = comma.is_some();
+                            entries.push((entry, comma));
+                            if !more {
+                                break;
+                            }
+                        }
+                    }
+                    let right = self
+                        .take(")")?
+                        .ok_or_else(|| self.error("expected ')' after domain interpretations"))?;
+                    let end = right.1.clone();
+                    let list = comma_pairs(entries, (group_start.clone(), end.clone()));
+                    let grouped = PGrouped::new(
+                        PReserved::new(PSym::LParen, left),
+                        list,
+                        PReserved::new(PSym::RParen, right),
+                        (group_start, end.clone()),
+                    );
+                    Some(super::parse_ast::PDomainInterpretations::new(
+                        keyword,
+                        grouped,
+                        (start, end),
+                    ))
+                } else {
+                    None
+                };
                 let left = self
                     .take("{")?
                     .ok_or_else(|| self.error("expected '{' in domain"))?;
@@ -1809,6 +1920,18 @@ impl ExpressionParser<'_> {
                             .take(":")?
                             .ok_or_else(|| self.error("expected domain function result type"))?;
                         let result_type = self.typ()?;
+                        let interpretation = if let Some(keyword) = self.interpretation_keyword()? {
+                            let start = keyword.position().0.clone();
+                            let interpretation = self.string_literal()?;
+                            let end = interpretation.position().1.clone();
+                            Some(super::parse_ast::PDomainFunctionInterpretation::new(
+                                keyword,
+                                interpretation,
+                                (start, end),
+                            ))
+                        } else {
+                            None
+                        };
                         super::parse_ast::PDomainMember::Function {
                             annotations,
                             unique,
@@ -1817,7 +1940,7 @@ impl ExpressionParser<'_> {
                             args,
                             colon: PReserved::new(PSym::Colon, colon),
                             result_type,
-                            interpretation: None,
+                            interpretation,
                             scope_id: fresh_scope_id(),
                         }
                     } else {
@@ -1844,7 +1967,7 @@ impl ExpressionParser<'_> {
                     keyword,
                     idndef,
                     type_vars,
-                    interpretations: None,
+                    interpretations,
                     members,
                 }
             }
