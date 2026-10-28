@@ -58,6 +58,8 @@ and dispatches methods or supported standalone CFGs to thread-owned solvers with
 ordered preamble broadcast, result collection and warning delivery. The default
 native profile remains single-worker; nested branch parallelism, cancellation
 and advanced reporting/configuration profiles still require integration.
+Source consolidation, chunk-order and cache options now reach the same context,
+as do method filters with an explicitly restricted regular-expression grammar.
 Full compatibility and comparative performance remain unmeasured.
 
 ## Upstream baseline and scope

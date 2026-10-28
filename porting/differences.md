@@ -211,6 +211,12 @@ in `prepare` because `SilFrontendConfig.exit` includes `parseOnly`; Ferrum does
 not reproduce that early-return bug. Native help covers common options; exact
 Scallop help, abbreviation and diagnostic compatibility remains pending.
 
+Method filters preserve whole-name inclusion followed by exclusion. Native
+matching accepts ASCII letters, digits, underscore, dot, star, question mark,
+alternation, and escaped literal dot/dollar after source wildcard conversion.
+Other Java regular-expression constructs return an explicit unsupported error;
+they are not silently interpreted with different Rust regex semantics.
+
 The native CLI reports source dependency metadata and elapsed time, honoring
 `--dependencies` and `--no-timing`. Elapsed time uses a monotonic Rust clock
 instead of wall-clock subtraction; common result wording retains Ferrum naming.

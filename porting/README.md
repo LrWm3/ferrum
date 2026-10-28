@@ -57,6 +57,15 @@ parallelism, active-query cancellation and advanced profiles remain incomplete;
 standalone CFG-only contributor analysis has upstream TODOs. No parallel speedup
 has been measured against upstream.
 
+Source consolidation modes, quantified chunk ordering and the distinct
+`disableCaches` / `disableValueMapCaching` policies now reach the native context.
+Method inclusion/exclusion uses whole-name matching in both sequential and pooled
+execution; functions and predicates still run independently of method selection.
+A 126-case matrix passes through both transports. The source minimal consolidation
+mode remains incomplete for some aliased fractional permissions. Native method
+filters currently accept a shared subset of Java/Rust regular expressions and
+reject unsupported syntax explicitly.
+
 The opt-in SIF plugin now connects paired domain/permission values, relational
 predicate helpers, optimized loops and AST return/termination control. Source
 `old` assertions and inactive `inhale false` guards retain their transformed

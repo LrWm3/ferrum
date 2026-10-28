@@ -80,6 +80,11 @@ pub struct NativeOptions {
     pub respect_function_pre_permission_amounts: bool,
     pub qp_split_timeout: i32,
     pub assume_injectivity_on_inhale: bool,
+    pub disable_chunk_order_heuristics: bool,
+    pub disable_value_map_caching: bool,
+    pub disable_caches: bool,
+    pub include_methods: regex::Regex,
+    pub exclude_methods: regex::Regex,
 }
 impl NativeOptions {
     /// Select only features for which the native execution and reporting context is connected.
@@ -108,15 +113,11 @@ impl NativeOptions {
             || config.log_config.is_some()
             || config.log_level.is_some()
             || !config.logger.is_empty()
-            || config.state_consolidation_mode != crate::config::StateConsolidationMode::Default
             || config.set_axiomatization_file.is_some()
             || config.multiset_axiomatization_file.is_some()
             || config.sequence_axiomatization_file.is_some()
             || config.map_axiomatization_file.is_some()
-            || config.disable_value_map_caching
             || config.disable_isc_triggers
-            || config.disable_chunk_order_heuristics
-            || config.disable_caches
             || config.simplify_on_consume
             || config.enable_branchcondition_reporting
             || config.alternative_function_verification_order
@@ -126,11 +127,27 @@ impl NativeOptions {
                 "requested timeout, logging, solver, worker, cache or encoding policy is not connected",
             ));
         }
-        if config.include_methods != ".*" || !config.exclude_methods.is_empty() {
-            return Err(NativeError::Unsupported(
-                "method inclusion/exclusion filters",
-            ));
+        fn method_pattern(
+            pattern: &str,
+        ) -> Result<regex::Regex, NativeError<crate::decider::prover_std_io::ProverError>> {
+            // Java's regex supports constructs with semantics absent in Rust's regex crate.
+            // Admit a shared subset and fail explicitly for the remainder.
+            let mut chars = pattern.chars();
+            while let Some(ch) = chars.next() {
+                if ch == '\\' {
+                    if !matches!(chars.next(), Some('.' | '$')) {
+                        return Err(NativeError::Unsupported("method filter regular expression"));
+                    }
+                } else if !(ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '*' | '?' | '|'))
+                {
+                    return Err(NativeError::Unsupported("method filter regular expression"));
+                }
+            }
+            regex::Regex::new(&format!(r"\A(?:{pattern})\z"))
+                .map_err(|error| NativeError::Diagnostic(format!("invalid method filter: {error}")))
         }
+        let include_methods = method_pattern(&config.include_methods)?;
+        let exclude_methods = method_pattern(&config.exclude_methods)?;
         let [prelude, contract, unfold, inhale, repetition] = config
             .saturation_weights
             .timeouts(config.prover_saturation_timeout);
@@ -158,6 +175,11 @@ impl NativeOptions {
                 .respect_function_pre_perm_amounts,
             qp_split_timeout: config.qp_split_timeout,
             assume_injectivity_on_inhale: config.frontend.assume_injectivity_on_inhale,
+            disable_chunk_order_heuristics: config.disable_chunk_order_heuristics,
+            disable_value_map_caching: config.disable_value_map_caching,
+            disable_caches: config.disable_caches,
+            include_methods,
+            exclude_methods,
         })
     }
 }
@@ -3723,7 +3745,10 @@ where
                 chunks: chunks.clone(),
                 arguments: args.to_vec(),
             };
-            let sum = if let Some(summary) = state.ss_cache.get(&key) {
+            let cached = (!self.options.disable_caches)
+                .then(|| state.ss_cache.get(&key))
+                .flatten();
+            let sum = if let Some(summary) = cached {
                 summary.permission.clone()
             } else {
                 let sum = crate::rules::more_complete_exhale_supporter::permission_sum(
@@ -4252,10 +4277,22 @@ where
         let chunks = native_quantified_chunks(heap, resource);
         let factory = self.factory.clone();
         let trigger = state.heap_dependent_triggers.contains(resource);
+        let cache_options = self.options.clone();
         let (state, snapshot, permission) =
             crate::rules::quantified_chunk_support::heap_summarising_maps(
-                &factory, self, state, resource, source, &formals, &chunks, None, None, trigger,
-                false, false, false,
+                &factory,
+                self,
+                state,
+                resource,
+                source,
+                &formals,
+                &chunks,
+                None,
+                None,
+                trigger,
+                false,
+                cache_options.disable_value_map_caching,
+                cache_options.disable_caches,
             )
             .map_err(|e| NativeError::Chunk(format!("quantified current permission: {e:?}")))?;
         if trigger {
@@ -4308,9 +4345,9 @@ where
                 })
                 .collect(),
         };
-        let cached = state
-            .sm_cache
-            .get(&key, None)
+        let cached = (!self.options.disable_value_map_caching)
+            .then(|| state.sm_cache.get(&key, None))
+            .flatten()
             .map(|(definition, total)| (definition.clone(), total.clone()));
         let trigger = state.heap_dependent_triggers.contains(resource);
         let (mut state, map, total, cached_definition) = if let Some((definition, total)) = cached {
@@ -4352,6 +4389,7 @@ where
                 })?;
             (state, chunk.fvf_ref().clone(), total, None)
         } else {
+            let cache_options = self.options.clone();
             let (state, definition, permission) =
                 crate::rules::quantified_chunk_support::heap_summarising_maps(
                     &factory,
@@ -4365,8 +4403,8 @@ where
                     None,
                     trigger,
                     false,
-                    false,
-                    false,
+                    cache_options.disable_value_map_caching,
+                    cache_options.disable_caches,
                 )
                 .map_err(|e| {
                     ChunkExecutionError::Context(NativeError::Chunk(format!(
@@ -4506,24 +4544,28 @@ where
                         "field assignment split: {e:?}"
                     )))
                 })?;
-            let hints =
-                qp::extract_hints(&factory, None, std::slice::from_ref(receiver)).map_err(|e| {
+            let candidates = if ctx.options.disable_chunk_order_heuristics {
+                relevant.clone()
+            } else {
+                let hints = qp::extract_hints(&factory, None, std::slice::from_ref(receiver))
+                    .map_err(|e| {
+                        ChunkExecutionError::Context(NativeError::Chunk(format!(
+                            "field assignment hints: {e:?}"
+                        )))
+                    })?;
+                qp::single_receiver_chunk_order(
+                    &factory,
+                    ctx,
+                    &relevant,
+                    std::slice::from_ref(receiver),
+                    &hints,
+                )
+                .map_err(|e| {
                     ChunkExecutionError::Context(NativeError::Chunk(format!(
-                        "field assignment hints: {e:?}"
+                        "field assignment ordering: {e:?}"
                     )))
-                })?;
-            let candidates = qp::single_receiver_chunk_order(
-                &factory,
-                ctx,
-                &relevant,
-                std::slice::from_ref(receiver),
-                &hints,
-            )
-            .map_err(|e| {
-                ChunkExecutionError::Context(NativeError::Chunk(format!(
-                    "field assignment ordering: {e:?}"
-                )))
-            })?;
+                })?
+            };
             if state.heap_dependent_triggers.contains(resource) {
                 let (definition, cache) =
                     qp::GeneralConsumptionExecution::summarise_general_consumed(
@@ -7555,8 +7597,9 @@ where
     fn end_worker_preamble(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
-    fn excluded_method(&mut self, _: &ferrum_silver::ast::program::Method) -> bool {
-        false
+    fn excluded_method(&mut self, method: &ferrum_silver::ast::program::Method) -> bool {
+        !self.options.include_methods.is_match(&method.name)
+            || self.options.exclude_methods.is_match(&method.name)
     }
     fn queue_method(
         &mut self,
@@ -10420,7 +10463,7 @@ where
             resource: source.clone(),
             relevant_chunks: cached_chunks,
         };
-        let cached = (!state.exhale_ext)
+        let cached = (!state.exhale_ext && !self.options.disable_caches)
             .then(|| state.sm_cache.get(&key, None))
             .flatten()
             .map(|(definition, _)| definition.clone());
@@ -10450,7 +10493,9 @@ where
                 };
                 total = factory.perm_plus(total, permission);
             }
-            cache = cache.with_entry(key, definition.clone(), total, None);
+            if !self.options.disable_value_map_caching {
+                cache = cache.with_entry(key, definition.clone(), total, None);
+            }
             definition
         };
         if state.sm_domain_needed {
@@ -10889,7 +10934,7 @@ where
             resource: source.clone(),
             relevant_chunks: chunks,
         };
-        let cached = (!state.exhale_ext)
+        let cached = (!state.exhale_ext && !self.options.disable_caches)
             .then(|| state.sm_cache.get(&key, None))
             .flatten()
             .map(|(definition, _)| definition.clone());
@@ -10931,7 +10976,9 @@ where
                 };
                 total = factory.perm_plus(total, permission);
             }
-            cache = cache.with_entry(key, definition.clone(), total, None);
+            if !self.options.disable_value_map_caching {
+                cache = cache.with_entry(key, definition.clone(), total, None);
+            }
             definition
         };
         let instantiations = match resource {
@@ -10963,7 +11010,7 @@ where
         self.options.exhale_mode_qp == crate::config::ExhaleMode::MoreComplete
     }
     fn disable_quantified_chunk_ordering(&self) -> bool {
-        false
+        self.options.disable_chunk_order_heuristics
     }
     fn disable_quantified_triggers(&self) -> bool {
         false
@@ -11768,7 +11815,7 @@ where
             resource: source.clone(),
             relevant_chunks: chunks,
         };
-        let cached = (!state.exhale_ext)
+        let cached = (!state.exhale_ext && !self.options.disable_caches)
             .then(|| state.sm_cache.get(&key, domain_condition))
             .flatten()
             .map(|(definition, _)| definition.clone());
@@ -11812,7 +11859,9 @@ where
                 };
                 total = factory.perm_plus(total, permission);
             }
-            cache = cache.with_entry(key, definition.clone(), total, domain_condition.cloned());
+            if !self.options.disable_value_map_caching {
+                cache = cache.with_entry(key, definition.clone(), total, domain_condition.cloned());
+            }
             definition
         };
         if state.sm_domain_needed {
@@ -11838,7 +11887,7 @@ where
         self.options.exhale_mode_qp == crate::config::ExhaleMode::MoreComplete
     }
     fn disable_general_chunk_ordering(&self) -> bool {
-        false
+        self.options.disable_chunk_order_heuristics
     }
     fn disable_general_isc_triggers(&self) -> bool {
         false
@@ -11898,6 +11947,7 @@ where
         let chunks: Vec<_> = chunks.iter().cloned().map(Chunk::QuantifiedField).collect();
         let trigger = state.heap_dependent_triggers.contains(&resource);
         let factory = self.factory.clone();
+        let cache_options = self.options.clone();
         crate::rules::quantified_chunk_support::heap_summarising_maps(
             &factory,
             self,
@@ -11910,8 +11960,8 @@ where
             None,
             trigger,
             false,
-            false,
-            false,
+            cache_options.disable_value_map_caching,
+            cache_options.disable_caches,
         )
         .map_err(|e| NativeError::Consolidation(format!("quantified bound summaries: {e:?}")))
     }
@@ -12601,7 +12651,11 @@ where
             chunks: chunks.to_vec(),
             arguments: args.to_vec(),
         };
-        if let Some(summary) = state.ss_cache.get(&key).cloned() {
+        if let Some(summary) = (!self.options.disable_caches)
+            .then(|| state.ss_cache.get(&key))
+            .flatten()
+            .cloned()
+        {
             if let (Some(tagged), Some(definitions)) =
                 (summary.tagged_snapshot, summary.definitions)
             {
