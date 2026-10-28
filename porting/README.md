@@ -65,6 +65,10 @@ A 126-case matrix passes through both transports. The source minimal consolidati
 mode remains incomplete for some aliased fractional permissions. Native method
 filters currently accept a shared subset of Java/Rust regular expressions and
 reject unsupported syntax explicitly.
+`disableISCTriggers` now connects the source no-trigger rules and preambles.
+Ten positive/negative field, predicate and wand cases pass through both transports.
+Three pinned template-name defects are corrected during instantiation, as recorded
+in [differences.md](differences.md).
 
 The opt-in SIF plugin now connects paired domain/permission values, relational
 predicate helpers, optimized loops and AST return/termination control. Source

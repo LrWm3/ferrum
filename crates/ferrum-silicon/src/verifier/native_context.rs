@@ -83,6 +83,7 @@ pub struct NativeOptions {
     pub disable_chunk_order_heuristics: bool,
     pub disable_value_map_caching: bool,
     pub disable_caches: bool,
+    pub disable_isc_triggers: bool,
     pub include_methods: regex::Regex,
     pub exclude_methods: regex::Regex,
 }
@@ -117,7 +118,6 @@ impl NativeOptions {
             || config.multiset_axiomatization_file.is_some()
             || config.sequence_axiomatization_file.is_some()
             || config.map_axiomatization_file.is_some()
-            || config.disable_isc_triggers
             || config.simplify_on_consume
             || config.enable_branchcondition_reporting
             || config.alternative_function_verification_order
@@ -178,6 +178,7 @@ impl NativeOptions {
             disable_chunk_order_heuristics: config.disable_chunk_order_heuristics,
             disable_value_map_caching: config.disable_value_map_caching,
             disable_caches: config.disable_caches,
+            disable_isc_triggers: config.disable_isc_triggers,
             include_methods,
             exclude_methods,
         })
@@ -4290,7 +4291,7 @@ where
                 None,
                 None,
                 trigger,
-                false,
+                cache_options.disable_isc_triggers,
                 cache_options.disable_value_map_caching,
                 cache_options.disable_caches,
             )
@@ -4402,7 +4403,7 @@ where
                     None,
                     None,
                     trigger,
-                    false,
+                    cache_options.disable_isc_triggers,
                     cache_options.disable_value_map_caching,
                     cache_options.disable_caches,
                 )
@@ -4589,6 +4590,7 @@ where
             ctx.base.decider.clear_model();
             let codomain = factory.predef_receiver_var();
             let condition = factory.equals(codomain.clone(), receiver.clone());
+            let disable_isc_triggers = ctx.options.disable_isc_triggers;
             let (outcome, mut state, mut remaining, untouched) = qp::remove_quantified_permissions(
                 &factory,
                 ctx,
@@ -4603,7 +4605,7 @@ where
                 Some(std::slice::from_ref(receiver)),
                 factory.full_perm(),
                 None,
-                false,
+                disable_isc_triggers,
                 false,
             )
             .map_err(|e| {
@@ -5521,6 +5523,7 @@ where
                             )
                             .map_err(EvaluationError::Context);
                     }
+                    let disable_isc_triggers = ctx.options.disable_isc_triggers;
                     let (inverse, images) = qp::fresh_inverse_functions(
                         &factory,
                         ctx,
@@ -5534,7 +5537,7 @@ where
                         &[],
                         None,
                         &qid,
-                        false,
+                        disable_isc_triggers,
                     )
                     .map_err(|e| {
                         EvaluationError::Context(NativeError::Chunk(format!(
@@ -7409,7 +7412,7 @@ where
                     &self.base.symbol_converter,
                     &mut self.base.term_converter,
                     &reader,
-                    false,
+                    self.options.disable_isc_triggers,
                     |sort| Ok::<_, String>(sort.to_string()),
                 )
                 .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
@@ -7419,7 +7422,7 @@ where
                     &self.predicate_snapshots,
                     &mut self.base.term_converter,
                     &reader,
-                    false,
+                    self.options.disable_isc_triggers,
                     |sort| Ok::<_, String>(sort.to_string()),
                     |wand| {
                         ferrum_silver::ast::pretty::pretty_printer::pretty_expression(wand)
@@ -10350,6 +10353,7 @@ where
             .is_used_as_trigger(&resource)
             .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
         let factory = self.factory.clone();
+        let disable_isc_triggers = self.options.disable_isc_triggers;
         let (snapshot_map, value_definitions, domain_definitions) =
             crate::rules::quantified_chunk_support::summarise_snapshot_map(
                 &factory,
@@ -10360,7 +10364,7 @@ where
                 &[first.clone(), second.clone()],
                 None,
                 trigger,
-                false,
+                disable_isc_triggers,
             )
             .map_err(|e| NativeError::Chunk(format!("quantified snapshot summary: {e:?}")))?;
         let equations = value_definitions.clone();
@@ -10472,9 +10476,18 @@ where
         let definition = if let Some(cached) = cached {
             cached
         } else {
+            let disable_isc_triggers = self.options.disable_isc_triggers;
             let (snapshot_map, value_definitions, domain_definitions) =
                 crate::rules::quantified_chunk_support::summarise_snapshot_map(
-                    &factory, self, state, resource, formals, &chunks, None, true, false,
+                    &factory,
+                    self,
+                    state,
+                    resource,
+                    formals,
+                    &chunks,
+                    None,
+                    true,
+                    disable_isc_triggers,
                 )
                 .map_err(|e| NativeError::Chunk(format!("singleton trigger summary: {e:?}")))?;
             let definition = SnapshotMapDefinition {
@@ -10943,6 +10956,7 @@ where
         let definition = if let Some(definition) = cached {
             definition
         } else {
+            let disable_isc_triggers = self.options.disable_isc_triggers;
             let (snapshot_map, value_definitions, domain_definitions) =
                 crate::rules::quantified_chunk_support::summarise_snapshot_map(
                     &factory,
@@ -10953,7 +10967,7 @@ where
                     consumed,
                     None,
                     state.heap_dependent_triggers.contains(resource),
-                    false,
+                    disable_isc_triggers,
                 )
                 .map_err(|e| NativeError::Chunk(format!("consumed snapshot summary: {e:?}")))?;
             let definition = SnapshotMapDefinition {
@@ -11013,7 +11027,7 @@ where
         self.options.disable_chunk_order_heuristics
     }
     fn disable_quantified_triggers(&self) -> bool {
-        false
+        self.options.disable_isc_triggers
     }
     fn debug_quantified_consumption(&self) -> bool {
         false
@@ -11358,7 +11372,7 @@ where
         self.options.unsafe_wildcard_optimization
     }
     fn disable_isc_triggers(&self) -> bool {
-        false
+        self.options.disable_isc_triggers
     }
 }
 
@@ -11437,7 +11451,7 @@ where
         self.options.unsafe_wildcard_optimization
     }
     fn consumption_disable_isc_triggers(&self) -> bool {
-        false
+        self.options.disable_isc_triggers
     }
 }
 
@@ -11824,6 +11838,7 @@ where
         let definition = if let Some(definition) = cached {
             definition
         } else {
+            let disable_isc_triggers = self.options.disable_isc_triggers;
             let (snapshot_map, value_definitions, domain_definitions) =
                 crate::rules::quantified_chunk_support::summarise_snapshot_map(
                     &factory,
@@ -11834,7 +11849,7 @@ where
                     consumed,
                     domain_condition,
                     state.heap_dependent_triggers.contains(resource),
-                    false,
+                    disable_isc_triggers,
                 )
                 .map_err(|e| {
                     NativeError::Chunk(format!("general consumed snapshot summary: {e:?}"))
@@ -11890,7 +11905,7 @@ where
         self.options.disable_chunk_order_heuristics
     }
     fn disable_general_isc_triggers(&self) -> bool {
-        false
+        self.options.disable_isc_triggers
     }
     fn debug_general_consumption(&self) -> bool {
         false
@@ -11959,7 +11974,7 @@ where
             None,
             None,
             trigger,
-            false,
+            cache_options.disable_isc_triggers,
             cache_options.disable_value_map_caching,
             cache_options.disable_caches,
         )

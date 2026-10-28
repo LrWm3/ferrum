@@ -156,10 +156,18 @@ impl FieldValueFunctionsContributor {
                     .read_parametric_preamble(decl_file, &replacements)
                     .map_err(FieldContributorError::Resource)?,
             });
+            // The pinned no-trigger template refers to the value type where the
+            // declarations use the field-specific FVF sort. Correct only its
+            // instantiation; bundled upstream resource bytes remain unchanged.
+            let mut axiom_replacements = Vec::new();
+            if disable_isc_triggers {
+                axiom_replacements.push(("$FVF<$T$>".into(), "$FVF<$FLD$>".into()));
+            }
+            axiom_replacements.extend(replacements.iter().cloned());
             axioms.push(PreambleBlock {
                 comment: format!("{axiom_file} [{}: {display}]", field.name),
                 commands: reader
-                    .read_parametric_preamble(axiom_file, &replacements)
+                    .read_parametric_preamble(axiom_file, &axiom_replacements)
                     .map_err(FieldContributorError::Resource)?,
             });
         }

@@ -231,3 +231,13 @@ ownership; embedders choose the stack when creating that thread. No native Z3
 context is transferred between threads. The evaluator's large dispatch body is
 split into non-inlined expression families without changing continuation order.
 Both runtimes still have finite stacks; recursive inputs can exceed that bound.
+
+## No-trigger snapshot-map templates
+
+The pinned `field_value_functions_axioms_no_triggers.smt2` refers to the value
+type in `$FVF<$T$>`, while its contributor declares `$FVF<$FLD$>`. The predicate
+counterpart similarly uses `$PSF<$S$>` instead of `$PSF<$PRD$>` and contains an
+unsubstituted `$FRD$` domain placeholder. These produce undeclared SMT sorts or
+symbols when `disableISCTriggers` is enabled. Ferrum corrects those three
+references during template instantiation, for fields, predicates and wands.
+Bundled upstream resource bytes and the triggered path remain unchanged.

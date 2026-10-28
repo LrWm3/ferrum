@@ -183,10 +183,19 @@ impl PredicateAndWandSnapFunctionsContributor {
                     .read_parametric_preamble(declaration_file, &replacements)
                     .map_err(PredicateWandContributorError::Resource)?,
             });
+            // The pinned no-trigger template uses a snapshot-sort-based PSF
+            // name and a misspelled domain placeholder. Instantiate both with
+            // the declared resource identifier without changing resource bytes.
+            let mut axiom_replacements = Vec::new();
+            if disable_isc_triggers {
+                axiom_replacements.push(("$PSF<$S$>".into(), "$PSF<$PRD$>".into()));
+                axiom_replacements.push(("$FRD$".into(), "$PRD$".into()));
+            }
+            axiom_replacements.extend(replacements.iter().cloned());
             axioms.push(PreambleBlock {
                 comment: format!("{axiom_file} [{}: {display}]", predicate.name),
                 commands: reader
-                    .read_parametric_preamble(axiom_file, &replacements)
+                    .read_parametric_preamble(axiom_file, &axiom_replacements)
                     .map_err(PredicateWandContributorError::Resource)?,
             });
         }
@@ -210,10 +219,19 @@ impl PredicateAndWandSnapFunctionsContributor {
                     .read_parametric_preamble(declaration_file, &replacements)
                     .map_err(PredicateWandContributorError::Resource)?,
             });
+            // The pinned no-trigger template uses a snapshot-sort-based PSF
+            // name and a misspelled domain placeholder. Instantiate both with
+            // the declared resource identifier without changing resource bytes.
+            let mut axiom_replacements = Vec::new();
+            if disable_isc_triggers {
+                axiom_replacements.push(("$PSF<$S$>".into(), "$PSF<$PRD$>".into()));
+                axiom_replacements.push(("$FRD$".into(), "$PRD$".into()));
+            }
+            axiom_replacements.extend(replacements.iter().cloned());
             axioms.push(PreambleBlock {
                 comment: format!("{axiom_file} [{id}: {display}]"),
                 commands: reader
-                    .read_parametric_preamble(axiom_file, &replacements)
+                    .read_parametric_preamble(axiom_file, &axiom_replacements)
                     .map_err(PredicateWandContributorError::Resource)?,
             });
         }
