@@ -185,14 +185,16 @@ impl TriggerGenerator {
 
 /// Native adapter for Silver's generic arithmetic isolation algorithm.
 /// Source rendering is supplied explicitly until Silicon term display is complete.
-pub struct SimpleArithmeticSolver<'a, R> {
+pub struct SimpleArithmeticSolver<'a, R, T> {
     pub factory: &'a TermFactory,
     pub render: R,
+    pub render_sort: T,
 }
-impl<R, E> ferrum_silver::ast::utility::generic_arithmetic_solver::ArithmeticAdapter
-    for SimpleArithmeticSolver<'_, R>
+impl<R, T, E> ferrum_silver::ast::utility::generic_arithmetic_solver::ArithmeticAdapter
+    for SimpleArithmeticSolver<'_, R, T>
 where
     R: Fn(&Term) -> Result<String, E>,
+    T: Fn(&crate::state::terms::Sort) -> Result<String, E>,
     E: From<UnsupportedSubterms>,
 {
     type Exp = Term;
@@ -206,7 +208,7 @@ where
         (self.render)(var)
     }
     fn render_type(&self, typ: &Self::Type) -> Result<String, E> {
-        Ok(format!("{typ:?}"))
+        (self.render_sort)(typ)
     }
     fn var_exp(&self, var: &Term) -> Term {
         var.clone()

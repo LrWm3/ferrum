@@ -1557,7 +1557,8 @@ remaining = ["Source feasibility checks and parallel-branch selection exist; sco
 repository = "silicon"
 upstream = "src/main/scala/rules/ChunkSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/chunk_supporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Greedy chunk matching, permission consumption, retry/lookup and production exist; complete matching mode and concrete verifier services remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1600,13 +1601,15 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/rules/HavocSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/havoc_supporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Single/quantified havoc condition data and substitution exist; statement orchestration and concrete verifier services remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/HeapSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/heap_supporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Ordinary resource production/consumption, current permission, field access/assignment and havoc exist; quantified adapters and concrete verifier services remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1666,7 +1669,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/QuantifiedChunkSupport.scala"
 destination = "crates/ferrum-silicon/src/rules/quantified_chunk_support.rs"
 status = "skeleton"
-remaining = ["InverseFunctions, SnapshotMapDefinition and PermMapDefinition data exist; quantified construction/consumption/production rules and proof obligations remain."]
+remaining = ["Inverse axioms, snapshot summaries/caches, matching, permission removal and quantified production/consumption algorithms exist; package transfer and concrete solver/fresh/property services remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1746,7 +1749,7 @@ repository = "silicon"
 upstream = "src/main/scala/state/Triggers.scala"
 destination = "crates/ferrum-silicon/src/state/triggers.rs"
 status = "skeleton"
-remaining = ["Term trigger classification and arithmetic adapter exist; generic trigger generation and axiom adapter integration remain."]
+remaining = ["Term trigger classification and arithmetic adapter exist; concrete trigger-generation integration and source-compatible rendering adapter remain."]
 
 [[modules]]
 repository = "silicon"

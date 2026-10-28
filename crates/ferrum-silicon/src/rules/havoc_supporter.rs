@@ -26,4 +26,63 @@
 //! Open decisions:
 //! Quantified evaluation result and solver ownership.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; havoc condition data and substitution implemented. Statement execution remains.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2019 ETH Zurich.
+use crate::rules::quantified_chunk_support::InverseFunctions;
+use crate::state::terms::{Term, TermFactory, UnsupportedTriggerTransform};
+use std::collections::HashMap;
+
+/// Data for replacing a single resource or an injective quantified family.
+#[derive(Clone, Debug)]
+pub enum HavocHelperData {
+    One(Vec<Term>),
+    All {
+        inverse_functions: InverseFunctions,
+        codomain_vars: Vec<Term>,
+        images_of_codomain: Vec<Term>,
+    },
+}
+
+/// Source replacement condition, with simultaneous inverse/codomain substitutions.
+pub fn replacement_condition(
+    factory: &TermFactory,
+    lhs: &Term,
+    chunk_args: &[Term],
+    info: &HavocHelperData,
+) -> Result<Term, UnsupportedTriggerTransform> {
+    match info {
+        HavocHelperData::One(args) => Ok(factory.and(
+            std::iter::once(lhs.clone()).chain(
+                chunk_args
+                    .iter()
+                    .zip(args)
+                    .map(|(a, b)| factory.equals(a.clone(), b.clone())),
+            ),
+        )),
+        HavocHelperData::All {
+            inverse_functions,
+            codomain_vars,
+            images_of_codomain,
+        } => {
+            let inverse: HashMap<_, _> = inverse_functions
+                .qvars_to_inverses_of(factory, chunk_args)
+                .into_iter()
+                .collect();
+            let codomain: HashMap<_, _> = codomain_vars
+                .iter()
+                .cloned()
+                .zip(chunk_args.iter().cloned())
+                .collect();
+            let condition = factory.replace(lhs, &inverse)?;
+            let images = images_of_codomain
+                .iter()
+                .map(|image| factory.replace(image, &codomain))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(factory.and(std::iter::once(condition).chain(images)))
+        }
+    }
+}
