@@ -760,3 +760,10 @@ parsing and semantic analysis before its existing finish/reporting hooks. It
 reports phase warnings and overall results and preserves captured plugin setup
 exceptions. Focused checks cover success, semantic failure and missing plugins;
 this provider does not invoke the backend.
+
+Native branch services now pass source and rewritten guards through a shared
+decider adapter, including both feasible branch polarities and scoped worker
+paths. Let definitions retain their grouped equality records, and existential
+precondition assumptions retain their forall expressions. Focused real-Z3
+checks exercise these expression paths, replay definitions and missing-payload
+errors. Production debug configuration remains disabled.

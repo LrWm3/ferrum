@@ -1619,9 +1619,41 @@ where
         original: &Exp,
         rewritten: Option<&Exp>,
     ) -> Result<(), Self::Error> {
+        let debug = if self.base.decider.debug_mode {
+            let rewritten =
+                rewritten.ok_or(NativeError::Unsupported("missing let debug expression"))?;
+            let local = Exp::new(ExpKind::LocalVar(variable.clone()), variable.meta.clone());
+            let original = Exp::new(
+                ExpKind::EqCmp(local.clone(), original.clone()),
+                Default::default(),
+            );
+            let final_exp = Exp::new(ExpKind::EqCmp(local, rewritten.clone()), Default::default());
+            let simplify = |e: &Exp| {
+                ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                    Ok::<_, std::convert::Infallible>(true)
+                })
+            };
+            let child = crate::debugger::debug_exp::DebugExp::create(
+                None,
+                Some(original),
+                Some(final_exp),
+                None,
+                false,
+                Default::default(),
+                false,
+                &simplify,
+            )
+            .map_err(|e| NativeError::Diagnostic(format!("let debug simplification: {e:?}")))?;
+            Some(crate::debugger::debug_exp::DebugExp::group(
+                "letvar assignment".into(),
+                [child].into_iter().collect(),
+            ))
+        } else {
+            None
+        };
         self.base
             .decider
-            .assume([(equality.clone(), None)], false, true)
+            .assume([(equality.clone(), debug)], false, true)
             .map_err(NativeError::Decider)
     }
     fn merge_evaluation_states(
@@ -1751,10 +1783,8 @@ where
                         rewritten.map(|e| Exp::new(ExpKind::Not(e.clone()), Metadata::default()))
                     };
                     let result = (|| {
-                        this.base
-                            .decider
-                            .set_branch_condition(branch_term, (branch_exp, rewritten_exp), None)
-                            .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+                        this.set_native_branch_condition(branch_term, branch_exp, rewritten_exp)
+                            .map_err(EvaluationError::Context)?;
                         let branch_state = this
                             .consolidate_optional(joined_state.clone())
                             .map_err(EvaluationError::Context)?;
@@ -2223,7 +2253,40 @@ where
         original: &Exp,
         rewritten: Option<&Exp>,
     ) -> Result<(), Self::Error> {
-        self.assume_term(term)
+        self.checkpoint()?;
+        let debug = if self.base.decider.debug_mode {
+            let rewritten = rewritten.ok_or(NativeError::Unsupported(
+                "missing existential precondition debug expression",
+            ))?;
+            let simplify = |e: &Exp| {
+                ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                    Ok::<_, std::convert::Infallible>(true)
+                })
+            };
+            Some(
+                crate::debugger::debug_exp::DebugExp::create(
+                    None,
+                    Some(original.clone()),
+                    Some(rewritten.clone()),
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .map_err(|e| {
+                    NativeError::Diagnostic(format!(
+                        "existential precondition debug simplification: {e:?}"
+                    ))
+                })?,
+            )
+        } else {
+            None
+        };
+        self.base
+            .decider
+            .assume([(term.clone(), debug)], false, false)
+            .map_err(NativeError::Decider)
     }
     fn check_smoke(&mut self) -> Result<bool, Self::Error> {
         self.base
@@ -4915,6 +4978,43 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD>
 where
     S::Error: std::fmt::Debug,
 {
+    /// Source setCurrentBranchCondition carries both source and rewritten guards.
+    fn set_native_branch_condition(
+        &mut self,
+        condition: Term,
+        original: Exp,
+        rewritten: Option<Exp>,
+    ) -> Result<(), NativeError<S::Error>> {
+        let simplify = |e: &Exp| {
+            ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                Ok::<_, std::convert::Infallible>(true)
+            })
+        };
+        let debug = if let Some(final_exp) = &rewritten {
+            Some(
+                crate::debugger::debug_exp::DebugExp::create(
+                    None,
+                    Some(original.clone()),
+                    Some(final_exp.clone()),
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .map_err(|e| {
+                    NativeError::Diagnostic(format!("branch debug simplification: {e:?}"))
+                })?,
+            )
+        } else {
+            None
+        };
+        self.base
+            .decider
+            .set_branch_condition(condition, (original, rewritten), debug)
+            .map_err(NativeError::Decider)
+    }
+
     /// Source Decider.fresh(AbstractLocalVar): preserve parser type and versioned AST.
     fn fresh_debuggable_local(
         &mut self,
@@ -8365,10 +8465,8 @@ where
                 rewritten.map(|e| Exp::new(ExpKind::Not(e.clone()), Default::default()))
             };
             let result = (|| {
-                this.base
-                    .decider
-                    .set_branch_condition(guard, (expr, debug), None)
-                    .map_err(|e| ExecutionError::Context(NativeError::Decider(e)))?;
+                this.set_native_branch_condition(guard, expr, debug)
+                    .map_err(ExecutionError::Context)?;
                 let branch_state = this
                     .consolidate_optional(state.clone())
                     .map_err(ExecutionError::Context)?;
@@ -9543,14 +9641,12 @@ where
                 .map_err(NativeError::Decider)?;
             let mut entries = Vec::new();
             let evaluated = (|| {
-                self.base
-                    .decider
-                    .set_branch_condition(
-                        branch.condition,
-                        (branch.original, branch.rewritten),
-                        None,
-                    )
-                    .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+                self.set_native_branch_condition(
+                    branch.condition,
+                    branch.original,
+                    branch.rewritten,
+                )
+                .map_err(EvaluationError::Context)?;
                 if let (true, Some(timeout)) = (remote, self.options.after_inhale_timeout) {
                     self.base
                         .decider
@@ -9724,14 +9820,12 @@ where
                 .map_err(NativeError::Decider)?;
             let mut entries = Vec::new();
             let executed = (|| {
-                self.base
-                    .decider
-                    .set_branch_condition(
-                        branch.condition,
-                        (branch.original, branch.rewritten),
-                        None,
-                    )
-                    .map_err(|e| ExecutionError::Context(NativeError::Decider(e)))?;
+                self.set_native_branch_condition(
+                    branch.condition,
+                    branch.original,
+                    branch.rewritten,
+                )
+                .map_err(ExecutionError::Context)?;
                 if let (true, Some(timeout)) = (remote, self.options.after_inhale_timeout) {
                     self.base
                         .decider
@@ -11978,36 +12072,7 @@ where
         original: Exp,
         rewritten: Option<Exp>,
     ) -> Result<(), Self::Error> {
-        let simplify = |e: &Exp| {
-            ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
-                Ok::<_, std::convert::Infallible>(true)
-            })
-        };
-        let debug = if let Some(final_exp) = &rewritten {
-            Some(
-                crate::debugger::debug_exp::DebugExp::create(
-                    None,
-                    Some(original.clone()),
-                    Some(final_exp.clone()),
-                    None,
-                    false,
-                    Default::default(),
-                    false,
-                    &simplify,
-                )
-                .map_err(|e| {
-                    NativeError::Diagnostic(format!(
-                        "quantifier branch debug simplification: {e:?}"
-                    ))
-                })?,
-            )
-        } else {
-            None
-        };
-        self.base
-            .decider
-            .set_branch_condition(condition, (original, rewritten), debug)
-            .map_err(NativeError::Decider)
+        self.set_native_branch_condition(condition, original, rewritten)
     }
     fn path_after(
         &mut self,
@@ -12812,10 +12877,8 @@ where
                 };
                 let mut entries = Vec::new();
                 let result = (|| {
-                    this.base
-                        .decider
-                        .set_branch_condition(guard, (exp, debug), None)
-                        .map_err(|e| ExecutionError::Context(NativeError::Decider(e)))?;
+                    this.set_native_branch_condition(guard, exp, debug)
+                        .map_err(ExecutionError::Context)?;
                     let state = this
                         .consolidate_optional(state.clone())
                         .map_err(ExecutionError::Context)?;
@@ -18376,7 +18439,7 @@ where
 #[cfg(test)]
 mod owned_branch_worker_tests {
     use super::*;
-    use crate::rules::executor::ExecutionContext;
+    use crate::rules::executor::{CfgContext, ExecutionContext};
     use crate::state::store::Store;
     use crate::supporters::method_supporter::MethodVerificationServices;
     use crate::{
@@ -18801,6 +18864,178 @@ mod owned_branch_worker_tests {
         assert!(recorded.iter().any(|entry| entry.description()
             == Some("Nested auxiliary terms: globals (aux)")
             && entry.term() == Some(&auxiliary_term)));
+        let branch_local = LocalVar::new(
+            "branch_debug".into(),
+            ferrum_silver::ast::r#type::Type::Bool,
+            Default::default(),
+        );
+        let (branch_term, branch_rewritten) = worker.context.fresh_local(&branch_local).unwrap();
+        let branch_original = Exp::new(ExpKind::LocalVar(branch_local), Default::default());
+        let seen = std::cell::RefCell::new(Vec::new());
+        let branch_result = worker
+            .context
+            .branch_edge(
+                state.clone(),
+                branch_term.clone(),
+                &branch_original,
+                branch_rewritten.as_ref(),
+                &mut |ctx, _| {
+                    let entries = ctx.base.decider.pcs.recorded().assumption_exps();
+                    assert!(
+                        entries
+                            .iter()
+                            .any(|entry| entry.term() == Some(&branch_term)
+                                && entry.original_exp().is_some()
+                                && entry.final_exp().is_some())
+                    );
+                    seen.borrow_mut().push(true);
+                    Ok(VerificationResult::success())
+                },
+                &mut |ctx, _| {
+                    let negated = factory.not(branch_term.clone());
+                    let entries = ctx.base.decider.pcs.recorded().assumption_exps();
+                    assert!(entries.iter().any(|entry| entry.term() == Some(&negated)
+                        && matches!(entry.original_exp().map(Exp::kind), Some(ExpKind::Not(..)))
+                        && matches!(entry.final_exp().map(Exp::kind), Some(ExpKind::Not(..)))));
+                    seen.borrow_mut().push(false);
+                    Ok(VerificationResult::success())
+                },
+            )
+            .unwrap();
+        assert!(!branch_result.is_fatal());
+        assert_eq!(*seen.borrow(), [true, false]);
+        let missing = worker.context.branch_edge(
+            state.clone(),
+            branch_term.clone(),
+            &branch_original,
+            None,
+            &mut |_, _| Ok(VerificationResult::success()),
+            &mut |_, _| Ok(VerificationResult::success()),
+        );
+        assert!(matches!(
+            missing,
+            Err(ExecutionError::Context(NativeError::Decider(
+                DeciderError::MissingDebugExpression
+            )))
+        ));
+
+        let let_decl = LocalVarDecl::new(
+            "let_value".into(),
+            ferrum_silver::ast::r#type::Type::Int,
+            Default::default(),
+        );
+        let let_body = Exp::new(
+            ExpKind::LocalVar(let_decl.local_var()),
+            let_decl.meta.clone(),
+        );
+        let let_value = Exp::new(ExpKind::IntLit(7.into()), Default::default());
+        let let_exp = Exp::new(
+            ExpKind::Let(let_decl, let_value, let_body),
+            Default::default(),
+        );
+        let mut let_rewritten = None;
+        crate::rules::evaluator::evaluate(
+            &mut worker.context,
+            state.clone(),
+            &let_exp,
+            &error,
+            &mut |_, _, _, debug| {
+                let_rewritten = debug;
+                Ok(VerificationResult::success())
+            },
+        )
+        .unwrap();
+        assert!(matches!(let_rewritten.unwrap().kind(), ExpKind::Let(..)));
+        let let_assumptions = worker.context.base.decider.pcs.recorded().assumption_exps();
+        let let_group = let_assumptions
+            .iter()
+            .find(|entry| entry.description() == Some("letvar assignment"))
+            .expect("let definition debug group");
+        assert!(let_group.children().iter().any(|entry| matches!(
+            entry.original_exp().map(Exp::kind),
+            Some(ExpKind::EqCmp(..))
+        ) && matches!(
+            entry.final_exp().map(Exp::kind),
+            Some(ExpKind::EqCmp(..))
+        )));
+        let let_term = let_group.term().expect("let definition term");
+        assert!(
+            worker
+                .context
+                .base
+                .decider
+                .pcs
+                .recorded()
+                .definitions_only()
+                .defining_assumptions()
+                .contains(let_term)
+        );
+        let exists_decl = LocalVarDecl::new(
+            "exists_value".into(),
+            ferrum_silver::ast::r#type::Type::Int,
+            Default::default(),
+        );
+        let exists = Exp::new(
+            ExpKind::Exists(
+                vec![exists_decl],
+                vec![],
+                Exp::new(ExpKind::TrueLit, Default::default()),
+            ),
+            Default::default(),
+        );
+        let mut exists_rewritten = None;
+        crate::rules::evaluator::evaluate(
+            &mut worker.context,
+            state.clone(),
+            &exists,
+            &error,
+            &mut |_, _, _, debug| {
+                exists_rewritten = debug;
+                Ok(VerificationResult::success())
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            exists_rewritten.unwrap().kind(),
+            ExpKind::Exists(..)
+        ));
+        let bool_type = ferrum_silver::parser::parse_ast::type_from_signature(
+            &ferrum_silver::parser::parse_ast_keyword::SignatureType::Bool,
+        );
+        let exists_term = worker
+            .context
+            .base
+            .decider
+            .fresh_variable(&factory, "exists_pre", &Sort::Bool, false, Some(bool_type))
+            .unwrap();
+        let forall = Exp::new(
+            ExpKind::Forall(
+                vec![],
+                vec![],
+                Exp::new(ExpKind::TrueLit, Default::default()),
+            ),
+            Default::default(),
+        );
+        worker
+            .context
+            .assume_existential_preconditions(&exists_term, &forall, Some(&forall))
+            .unwrap();
+        let records = worker.context.base.decider.pcs.recorded().assumption_exps();
+        assert!(
+            records
+                .iter()
+                .any(|entry| entry.term() == Some(&exists_term)
+                    && entry.original_exp().is_some()
+                    && entry.final_exp().is_some())
+        );
+        assert!(matches!(
+            worker
+                .context
+                .assume_existential_preconditions(&exists_term, &forall, None),
+            Err(NativeError::Unsupported(
+                "missing existential precondition debug expression"
+            ))
+        ));
         worker.context.executor_debug_for_test = false;
         worker.context.evaluator_debug_for_test = false;
         worker.context.base.decider.debug_mode = false;
