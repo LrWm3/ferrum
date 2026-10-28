@@ -187,3 +187,7 @@ matching the option's documented purpose. The pinned Silver runner instead exits
 in `prepare` because `SilFrontendConfig.exit` includes `parseOnly`; Ferrum does
 not reproduce that early-return bug. Native help covers common options; exact
 Scallop help, abbreviation and diagnostic compatibility remains pending.
+
+The native CLI reports source dependency metadata and elapsed time, honoring
+`--dependencies` and `--no-timing`. Elapsed time uses a monotonic Rust clock
+instead of wall-clock subtraction; common result wording retains Ferrum naming.

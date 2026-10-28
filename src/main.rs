@@ -34,6 +34,7 @@
 
 fn main() -> std::process::ExitCode {
     use ferrum::{RunOutcome, silver::verifier::verification_result::VerificationResult};
+    let started = std::time::Instant::now();
     let args = match std::env::args_os()
         .skip(1)
         .map(|a| a.into_string())
@@ -62,6 +63,19 @@ fn main() -> std::process::ExitCode {
         println!("ferrum {}", env!("CARGO_PKG_VERSION"));
         return std::process::ExitCode::SUCCESS;
     }
+    if config.frontend.dependencies {
+        println!("The following dependencies are used:");
+        for dependency in [
+            ferrum::silicon::decider::z3_prover_std_io::profile(),
+            ferrum::silicon::decider::cvc5_prover_std_io::profile(),
+        ] {
+            println!(
+                "  {} {}, located at {}.",
+                dependency.name, dependency.minimum_version, dependency.dependency_url
+            );
+        }
+    }
+    let time_info = !config.frontend.no_timing;
     let report = match ferrum::run_file(config) {
         Ok(report) => report,
         Err(error) => {
@@ -72,20 +86,29 @@ fn main() -> std::process::ExitCode {
     for warning in report.warnings {
         eprintln!("{warning}");
     }
+    let time = if time_info {
+        let milliseconds = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
+        let elapsed =
+            ferrum::silver::reporter::format::package::format_millis_readably(milliseconds)
+                .expect("nonnegative elapsed duration has a representable residual timestamp");
+        format!(" in {elapsed}")
+    } else {
+        String::new()
+    };
     match report.outcome {
         RunOutcome::Parsed => {
-            println!("Parsing completed.");
+            println!("Parsing completed{time}.");
             std::process::ExitCode::SUCCESS
         }
         RunOutcome::Verified(VerificationResult::Success) => {
-            println!("Verification succeeded.");
+            println!("Verification succeeded{time}.");
             std::process::ExitCode::SUCCESS
         }
         RunOutcome::Verified(VerificationResult::Failure(errors)) => {
             for error in &errors {
                 eprintln!("{}", error.render().unwrap_or_else(|_| error.full_id()));
             }
-            eprintln!("Verification failed with {} error(s).", errors.len());
+            eprintln!("Verification failed with {} error(s){time}.", errors.len());
             std::process::ExitCode::from(1)
         }
     }

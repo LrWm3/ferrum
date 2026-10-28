@@ -50,7 +50,7 @@ fn check(source: &str, expected: i32) {
 fn final_report_groups_duplicate_branch_failures() {
     let output = run(
         "method test(b: Bool) { if (b) { } else { } assert false; }",
-        &["--numberOfErrorsToReport", "0"],
+        &["--numberOfErrorsToReport", "0", "--no-timing"],
     );
     let errors = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(1), "{errors}");
