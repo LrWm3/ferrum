@@ -67,6 +67,13 @@ pub trait MainVerificationServices {
         analysis: &Self::Analysis,
     ) -> Result<Self::Task, Self::Error>;
     fn await_task(&mut self, task: Self::Task) -> Result<Vec<Self::Result>, Self::Error>;
+    /// Optional internal trace seam; public advanced logging remains separately gated.
+    fn report_trace_before_termination(
+        &mut self,
+        _analysis: &Self::Analysis,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
     fn report_termination_and_optional_trace(&mut self) -> Result<(), Self::Error>;
     fn run_optional_debugger(&mut self, results: &[Self::Result]) -> Result<(), Self::Error>;
 }
@@ -111,6 +118,7 @@ pub fn verify<S: MainVerificationServices>(
     for task in tasks {
         results.extend(services.await_task(task)?);
     }
+    services.report_trace_before_termination(&analysis)?;
     services.report_termination_and_optional_trace()?;
     services.run_optional_debugger(&results)?;
     Ok(results)

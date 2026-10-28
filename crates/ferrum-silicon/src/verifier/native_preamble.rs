@@ -160,6 +160,10 @@ pub struct NativePreambleData {
     domains: DefaultDomainsContributor,
 }
 impl NativePreambleData {
+    /// Source domain contributor axioms, excluding uniqueness and collection axioms.
+    pub fn domain_axioms(&self) -> impl Iterator<Item = &crate::state::terms::Term> {
+        self.domains.axioms.iter()
+    }
     /// Ground sorts in the same order as the contributor declarations.
     pub fn sorts(&self) -> impl Iterator<Item = &crate::state::terms::Sort> {
         self.domains.sorts.iter()
@@ -640,9 +644,7 @@ mod tests {
         );
         let rendered = data
             .domains
-            .domains
-            .axioms
-            .iter()
+            .domain_axioms()
             .map(|axiom| smt.convert_term(axiom).unwrap())
             .collect::<Vec<_>>()
             .join("\n");

@@ -679,3 +679,11 @@ unconditional final-heap lookup even while debug recording is disabled. Loop
 consumption captures one finished leftover record for all replayed phases, and
 key heaps finish only at source success continuations. Debug-enabled execution
 remains gated and has not received an end-to-end compatibility pass.
+
+An explicitly enabled internal trace now snapshots the actual ordered domain
+contributor axioms and main function-unit postconditions after member work,
+then reports before termination. Traced method/CFG workers must carry the same
+run-owned root and an owner-local record factory; missing or mismatched setup
+fails before execution. The default parallel factory still lacks this setup,
+so public trace profiles remain gated. Repeated native runs currently report
+only current-run postconditions, unlike the pinned source reset behavior.

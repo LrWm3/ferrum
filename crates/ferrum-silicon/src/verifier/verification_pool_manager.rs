@@ -2280,6 +2280,7 @@ where
             .verify_worker_evaluation_branch(&task.analysis, *branch)
             .map(NativeWorkerOutput::EvaluationBranch);
     }
+    context.validate_trace_worker(&task.analysis)?;
     let start = std::time::Instant::now();
     let outcome = match &task.target {
         NativeWorkerTarget::Method(method) => context.verify_worker_method(&task.analysis, method),
@@ -2579,6 +2580,9 @@ where
             }
         }
     }
+    context
+        .report_trace_before_termination(&analysis)
+        .map_err(NativeParallelError::Main)?;
     if let Some(reporter) = &reporter {
         reporter
             .report(ferrum_silver::reporter::message::Message::VerificationTermination)

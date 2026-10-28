@@ -297,6 +297,7 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     /// Owner-local symbolic logger and record constructor. Both are inactive until
     /// the verification lifecycle explicitly installs a member log.
     pub(crate) logging_root: Option<Arc<crate::logger::symb_ex_logger::NativeSymbExLogger>>,
+    trace_reporting_enabled: bool,
     pub(crate) member_log: Option<Arc<crate::logger::symb_ex_logger::MemberSymbExLog>>,
     decider_log_formatter: Option<fn(f64) -> String>,
     pub(crate) record_factory: Option<
@@ -346,6 +347,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             warnings: Vec::new(),
             debug_heap_recorder: Default::default(),
             logging_root: None,
+            trace_reporting_enabled: false,
             member_log: None,
             decider_log_formatter: None,
             record_factory: None,
@@ -405,6 +407,10 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         self.member_log = member;
         self.record_factory = factory;
         self.rebind_decider_logging();
+    }
+    /// Explicit internal trace seam; this does not enable a public logging profile.
+    pub fn set_trace_reporting_enabled(&mut self, enabled: bool) {
+        self.trace_reporting_enabled = enabled;
     }
     /// Install a run-owned root; callers must also supply its full-state factory.
     /// The public logging profiles stay gated until all event producers are wired.
@@ -9146,6 +9152,8 @@ where
 
 /// Member data built once during source-ordered program analysis.
 pub struct NativeAnalysis {
+    // None denotes worker-only analysis, which does not own the main contributor.
+    domain_axioms: Option<Vec<Term>>,
     functions: std::cell::RefCell<
         crate::supporters::functions::function_verification_unit::FunctionVerificationUnit<
             NativeFunctionData,
@@ -9159,11 +9167,29 @@ pub struct NativeAnalysis {
     snapshot_sorts: crate::state::package::OrderedMap<String, Sort>,
     snapshot_formals: crate::state::package::OrderedMap<String, Vec<Term>>,
 }
+impl NativeAnalysis {
+    /// Snapshot the actual source contributors after function verification. Worker-only
+    /// analyses deliberately have no main domain contributor and cannot produce a trace.
+    pub fn trace_axioms(&self) -> Result<(Vec<Term>, Vec<Term>), &'static str> {
+        let domains = self
+            .domain_axioms
+            .as_ref()
+            .ok_or("main domain axioms unavailable")?;
+        let functions = self
+            .functions
+            .try_borrow()
+            .map_err(|_| "function analysis is borrowed")?;
+        Ok((domains.clone(), functions.postcondition_axioms.clone()))
+    }
+}
 /// Owned analysis retained after function and predicate verification for worker methods.
 /// Strong owners keep the weak function handles valid throughout worker execution.
 /// A worker must replay the source-ordered main and member preamble before using this.
 #[derive(Clone)]
 pub struct NativeWorkerAnalysis {
+    // A trace-enabled main run requires each method/CFG worker to use this exact root.
+    trace_root_required: bool,
+    trace_root: Option<Arc<crate::logger::symb_ex_logger::NativeSymbExLogger>>,
     program: ferrum_silver::ast::program::Program,
     function_owners: Vec<(
         String,
@@ -9217,6 +9243,12 @@ where
         analysis: &NativeAnalysis,
     ) -> NativeWorkerAnalysis {
         NativeWorkerAnalysis {
+            trace_root_required: self.trace_reporting_enabled,
+            trace_root: if self.trace_reporting_enabled {
+                self.logging_root.clone()
+            } else {
+                None
+            },
             program: program.clone(),
             function_owners: analysis.functions.borrow().data.clone(),
             function_handles: analysis.function_handles.clone(),
@@ -9227,6 +9259,34 @@ where
             function_fresh_variables: self.function_fresh_variables.clone(),
             failed_functions: self.failed_functions.clone(),
         }
+    }
+    /// Fail before a traced owner task runs if its logger cannot contribute to the main trace.
+    pub(crate) fn validate_trace_worker(
+        &self,
+        analysis: &NativeWorkerAnalysis,
+    ) -> Result<(), NativeError<S::Error>> {
+        if !analysis.trace_root_required {
+            return Ok(());
+        }
+        let expected = analysis
+            .trace_root
+            .as_ref()
+            .ok_or(NativeError::Unsupported("main trace logger unavailable"))?;
+        let actual = self
+            .logging_root
+            .as_ref()
+            .ok_or(NativeError::Unsupported("worker trace logger unavailable"))?;
+        if !Arc::ptr_eq(expected, actual) {
+            return Err(NativeError::Unsupported(
+                "worker trace logger differs from main",
+            ));
+        }
+        if self.record_factory.is_none() {
+            return Err(NativeError::Unsupported(
+                "worker trace record factory unavailable",
+            ));
+        }
+        Ok(())
     }
     /// Explore an owned evaluation branch on a worker with its own prover.
     pub(crate) fn verify_worker_evaluation_branch(
@@ -9617,6 +9677,7 @@ where
         unit.program = Some(analysis.program.clone());
         unit.data = analysis.function_owners.clone();
         let local = NativeAnalysis {
+            domain_axioms: None,
             functions: std::cell::RefCell::new(unit),
             function_handles: analysis.function_handles.clone(),
             predicates: analysis.predicates.clone(),
@@ -9660,6 +9721,7 @@ where
         unit.program = Some(analysis.program.clone());
         unit.data = analysis.function_owners.clone();
         let local = NativeAnalysis {
+            domain_axioms: None,
             functions: std::cell::RefCell::new(unit),
             function_handles: analysis.function_handles.clone(),
             predicates: analysis.predicates.clone(),
@@ -10369,7 +10431,17 @@ where
         self.failed_functions.clear();
         self.quantified_counter = 0;
         self.heap_supporter_counter = 0;
+        let domain_axioms = if let Some(preamble) = &general_preamble {
+            preamble.domains.domain_axioms().cloned().collect()
+        } else if let Some((domains, _)) = &legacy_preamble {
+            domains.domain_axioms().cloned().collect()
+        } else {
+            return Err(NativeError::Unsupported(
+                "main domain contributor unavailable",
+            ));
+        };
         Ok(NativeAnalysis {
+            domain_axioms: Some(domain_axioms),
             functions: std::cell::RefCell::new(functions),
             function_handles,
             predicates,
@@ -10573,6 +10645,39 @@ where
     }
     fn await_task(&mut self, task: Self::Task) -> Result<Vec<Self::Result>, Self::Error> {
         Ok(flatten_results(task))
+    }
+    fn report_trace_before_termination(
+        &mut self,
+        analysis: &NativeAnalysis,
+    ) -> Result<(), Self::Error> {
+        if !self.trace_reporting_enabled {
+            return Ok(());
+        }
+        let root = self
+            .logging_root
+            .as_ref()
+            .ok_or(NativeError::Unsupported("trace logger unavailable"))?;
+        if !matches!(
+            root.as_ref(),
+            crate::logger::symb_ex_logger::NativeSymbExLogger::Enabled(_)
+        ) {
+            return Err(NativeError::Unsupported("trace logger disabled"));
+        }
+        let reporter = self
+            .preprocessing_reporter
+            .as_ref()
+            .ok_or(NativeError::Unsupported("trace reporter unavailable"))?;
+        let (axioms, postconditions) = analysis.trace_axioms().map_err(NativeError::Unsupported)?;
+        let message = crate::logger::trace_report::execution_trace_report(
+            root,
+            &self.factory,
+            axioms,
+            postconditions,
+        )
+        .map_err(|error| NativeError::Diagnostic(format!("trace assembly: {error:?}")))?;
+        reporter
+            .report(message)
+            .map_err(|error| NativeError::Diagnostic(format!("trace reporter: {error:?}")))
     }
     fn report_termination_and_optional_trace(&mut self) -> Result<(), Self::Error> {
         if let Some(reporter) = &self.preprocessing_reporter {
@@ -17123,6 +17228,240 @@ mod worker_analysis_contract_tests {
         }
     }
     #[test]
+    fn trace_collects_actual_contributors_before_termination_and_rejects_missing_inputs() {
+        use super::*;
+        use crate::{
+            config::Config,
+            decider::z3_prover_std_io,
+            logger::{
+                log_config::LogConfig,
+                symb_ex_logger::{NativeSymbExLogger, SymbExLog},
+            },
+            state::terms::TermOptions,
+            verifier::{
+                default_main_verifier::MainVerificationServices,
+                verification_pool_manager::native_method_worker,
+            },
+        };
+        use ferrum_silver::reporter::{
+            message::Message,
+            reporter::{NoopReporter, PollingReporter},
+        };
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let config = Config::default();
+        let prover = z3_prover_std_io::new(
+            "trace-test".into(),
+            z3_prover_std_io::settings("z3".into()),
+            factory.clone(),
+            |_| {},
+        );
+        let identifiers = prover.identifier_factory();
+        let mut worker = native_method_worker(
+            "trace-test".into(),
+            prover,
+            identifiers,
+            factory.clone(),
+            NativeOptions::from_config(&config).unwrap(),
+            &config,
+        );
+        let mut functions = crate::supporters::functions::function_verification_unit::FunctionVerificationUnit::default();
+        functions.postcondition_axioms.push(factory.int_literal(7));
+        let mut analysis = NativeAnalysis {
+            domain_axioms: Some(vec![factory.int_literal(2), factory.int_literal(3)]),
+            functions: std::cell::RefCell::new(functions),
+            function_handles: Default::default(),
+            predicates: Default::default(),
+            snapshot_sorts: Default::default(),
+            snapshot_formals: Default::default(),
+        };
+        worker.context.set_trace_reporting_enabled(true);
+        assert!(matches!(
+            worker.context.report_trace_before_termination(&analysis),
+            Err(NativeError::Unsupported("trace logger unavailable"))
+        ));
+        let root = Arc::new(NativeSymbExLogger::Enabled(SymbExLog::new(
+            LogConfig::default(),
+        )));
+        worker.context.set_logging_root(Some(root), None);
+        assert!(matches!(
+            worker.context.report_trace_before_termination(&analysis),
+            Err(NativeError::Unsupported("trace reporter unavailable"))
+        ));
+        let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+        worker
+            .context
+            .set_preprocessing_reporter(Some(reporter.clone()));
+        analysis.domain_axioms = None;
+        assert!(matches!(
+            worker.context.report_trace_before_termination(&analysis),
+            Err(NativeError::Unsupported("main domain axioms unavailable"))
+        ));
+        analysis.domain_axioms = Some(vec![factory.int_literal(2), factory.int_literal(3)]);
+        worker
+            .context
+            .report_trace_before_termination(&analysis)
+            .unwrap();
+        worker
+            .context
+            .report_termination_and_optional_trace()
+            .unwrap();
+        let Message::ExecutionTrace {
+            axioms,
+            function_post_axioms,
+            ..
+        } = reporter.get_new_message().unwrap()
+        else {
+            panic!("trace expected")
+        };
+        assert_eq!(
+            axioms.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            ["2", "3"]
+        );
+        assert_eq!(
+            function_post_axioms
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            ["7"]
+        );
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::VerificationTermination
+        ));
+        struct RejectTrace(std::sync::atomic::AtomicUsize);
+        impl ferrum_silver::reporter::reporter::Reporter for RejectTrace {
+            fn name(&self) -> &str {
+                "reject-trace"
+            }
+            fn report(
+                &self,
+                message: Message,
+            ) -> Result<(), ferrum_silver::reporter::reporter::ReportError> {
+                if matches!(message, Message::ExecutionTrace { .. }) {
+                    Err(ferrum_silver::reporter::reporter::ReportError::Unsupported(
+                        "trace rejected",
+                    ))
+                } else {
+                    self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Ok(())
+                }
+            }
+        }
+        let reject = Arc::new(RejectTrace(std::sync::atomic::AtomicUsize::new(0)));
+        worker
+            .context
+            .set_preprocessing_reporter(Some(reject.clone()));
+        let result = (|| {
+            worker.context.report_trace_before_termination(&analysis)?;
+            worker.context.report_termination_and_optional_trace()
+        })();
+        assert!(
+            matches!(result, Err(NativeError::Diagnostic(message)) if message.contains("trace rejected"))
+        );
+        assert_eq!(reject.0.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+    #[test]
+    fn traced_worker_requires_same_root_and_owner_local_record_factory() {
+        use super::*;
+        use crate::{
+            config::Config,
+            decider::z3_prover_std_io,
+            logger::{
+                log_config::LogConfig,
+                records::data::data_record::FullStateRecordFactory,
+                symb_ex_logger::{NativeSymbExLogger, SymbExLog},
+            },
+            state::terms::TermOptions,
+            verifier::verification_pool_manager::native_method_worker,
+        };
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let config = Config::default();
+        let make = |id: &str| {
+            let prover = z3_prover_std_io::new(
+                id.into(),
+                z3_prover_std_io::settings("z3".into()),
+                factory.clone(),
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            native_method_worker(
+                id.into(),
+                prover,
+                identifiers,
+                factory.clone(),
+                NativeOptions::from_config(&config).unwrap(),
+                &config,
+            )
+        };
+        let mut main = make("main");
+        let mut worker = make("worker");
+        let analysis = NativeAnalysis {
+            domain_axioms: Some(vec![]),
+            functions: std::cell::RefCell::new(Default::default()),
+            function_handles: Default::default(),
+            predicates: Default::default(),
+            snapshot_sorts: Default::default(),
+            snapshot_formals: Default::default(),
+        };
+        let program = ferrum_silver::ast::program::Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Default::default(),
+        );
+        let untraced = main.context.worker_analysis(&program, &analysis);
+        worker.context.validate_trace_worker(&untraced).unwrap();
+        main.context.set_trace_reporting_enabled(true);
+        let missing_main = main.context.worker_analysis(&program, &analysis);
+        assert!(matches!(
+            worker.context.validate_trace_worker(&missing_main),
+            Err(NativeError::Unsupported("main trace logger unavailable"))
+        ));
+        let root = Arc::new(NativeSymbExLogger::Enabled(SymbExLog::new(
+            LogConfig::default(),
+        )));
+        main.context.set_logging_root(Some(root.clone()), None);
+        let traced = main.context.worker_analysis(&program, &analysis);
+        assert!(matches!(
+            worker.context.validate_trace_worker(&traced),
+            Err(NativeError::Unsupported("worker trace logger unavailable"))
+        ));
+        let other = Arc::new(NativeSymbExLogger::Enabled(SymbExLog::new(
+            LogConfig::default(),
+        )));
+        worker
+            .context
+            .set_logging_root(Some(other), Some(std::rc::Rc::new(FullStateRecordFactory)));
+        assert!(matches!(
+            worker.context.validate_trace_worker(&traced),
+            Err(NativeError::Unsupported(
+                "worker trace logger differs from main"
+            ))
+        ));
+        worker.context.set_logging_root(Some(root.clone()), None);
+        assert!(matches!(
+            worker.context.validate_trace_worker(&traced),
+            Err(NativeError::Unsupported(
+                "worker trace record factory unavailable"
+            ))
+        ));
+        worker
+            .context
+            .set_logging_root(Some(root), Some(std::rc::Rc::new(FullStateRecordFactory)));
+        worker.context.validate_trace_worker(&traced).unwrap();
+    }
+    #[test]
     fn worker_analysis_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<super::NativeWorkerAnalysis>();
@@ -18001,6 +18340,8 @@ mod owned_branch_worker_tests {
             Default::default(),
         );
         let analysis = Arc::new(NativeWorkerAnalysis {
+            trace_root_required: false,
+            trace_root: None,
             program: program.clone(),
             function_owners: vec![],
             function_handles: Default::default(),
@@ -18544,6 +18885,8 @@ mod queued_cfg_isolation_tests {
         )
         .unwrap();
         let analysis = Arc::new(NativeWorkerAnalysis {
+            trace_root_required: false,
+            trace_root: None,
             program: program.clone(),
             function_owners: vec![],
             function_handles: Default::default(),

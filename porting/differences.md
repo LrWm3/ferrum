@@ -304,3 +304,20 @@ resolver boundary and is labeled accordingly. Direct reset retains its original
 typed error, while concrete execute reports the captured exception and preserves
 the plugin error if reporting also fails. Focused provider checks exercise the
 actual StdIo path and plugin/reporting failure combination.
+
+## Execution trace lifetime across runs
+
+Pinned Silicon FunctionVerificationUnit.reset retains postConditionAxioms when
+DefaultMainVerifier resets its existing function supporter. Ferrum currently
+constructs a fresh context, factory and function unit for each native session
+run, so its internal trace contains current-run function postconditions only.
+The trace uses the actual ordered domain contributor axioms, excluding
+uniqueness and collection preamble blocks, and the main function unit records.
+Cross-run trace compatibility remains incomplete; prior terms are not copied
+across unrelated factories. Public advanced reporting stays gated.
+
+Parallel trace callers must install the shared run logger and a local record
+factory in every worker. Ferrum checks their identity before traced method/CFG
+execution and rejects missing setup. This is an explicit assembly requirement
+while the default native parallel factory and decider formatting lifecycle
+remain to be connected to public logging configuration.
