@@ -666,3 +666,9 @@ receiving reporter renders the message, so retained logs preserve subsequent
 record updates. Unsupported native record/term rendering returns a reporting
 error instead of panicking. Top-level axiom collection and runtime activation
 remain separate integration steps.
+
+Native decider logging now follows the active member when an explicit statistics
+formatter is installed. Replacing a member rebinds the decider; replacing the
+root or resetting the context clears stale attachments. Closing a member retains
+the source attachment until the next member. Exact JVM floating-point formatting
+and automatic public profile setup remain separate requirements.

@@ -91,6 +91,94 @@ fn context_scope_hooks_capture_full_state_and_reject_missing_factory() {
     worker
         .context
         .set_member_logging(Some(log.clone()), Some(Rc::new(FullStateRecordFactory)));
+    // Decider attachment requires an explicitly supplied source-compatible formatter.
+    worker
+        .context
+        .base
+        .decider
+        .assume_sequence([], None)
+        .unwrap();
+    assert!(
+        !log.records()
+            .unwrap()
+            .iter()
+            .any(|r| r.type_string() == "decider assume")
+    );
+    worker
+        .context
+        .set_decider_logging_formatter(Some(|n| n.to_string()));
+    worker
+        .context
+        .base
+        .decider
+        .assume_sequence([], None)
+        .unwrap();
+    assert_eq!(
+        log.records()
+            .unwrap()
+            .iter()
+            .filter(|r| r.type_string() == "decider assume")
+            .count(),
+        1
+    );
+    let second_member = root
+        .open_member_scope(
+            Member::Predicate(Predicate::new(PredicateData {
+                name: "q".into(),
+                formal_args: vec![],
+                body: None,
+                meta: Default::default(),
+            })),
+            &LayeredPathConditionStack::new(false),
+            &renderer,
+        )
+        .unwrap();
+    worker.context.set_member_logging(
+        Some(second_member.clone()),
+        Some(Rc::new(FullStateRecordFactory)),
+    );
+    worker
+        .context
+        .base
+        .decider
+        .assume_sequence([], None)
+        .unwrap();
+    assert_eq!(
+        log.records()
+            .unwrap()
+            .iter()
+            .filter(|r| r.type_string() == "decider assume")
+            .count(),
+        1
+    );
+    assert_eq!(
+        second_member
+            .records()
+            .unwrap()
+            .iter()
+            .filter(|r| r.type_string() == "decider assume")
+            .count(),
+        1
+    );
+    worker.context.set_decider_logging_formatter(None);
+    worker
+        .context
+        .base
+        .decider
+        .assume_sequence([], None)
+        .unwrap();
+    assert_eq!(
+        second_member
+            .records()
+            .unwrap()
+            .iter()
+            .filter(|r| r.type_string() == "decider assume")
+            .count(),
+        1
+    );
+    worker
+        .context
+        .set_member_logging(Some(log.clone()), Some(Rc::new(FullStateRecordFactory)));
     let evaluate = worker.context.open_evaluation_scope(&state, &expr).unwrap();
     let produce = worker.context.open_produce_scope(&state, &expr).unwrap();
     let consume = worker

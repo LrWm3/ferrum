@@ -298,6 +298,7 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     /// the verification lifecycle explicitly installs a member log.
     pub(crate) logging_root: Option<Arc<crate::logger::symb_ex_logger::NativeSymbExLogger>>,
     pub(crate) member_log: Option<Arc<crate::logger::symb_ex_logger::MemberSymbExLog>>,
+    decider_log_formatter: Option<fn(f64) -> String>,
     pub(crate) record_factory: Option<
         std::rc::Rc<
             dyn crate::logger::records::data::data_record::NativeRecordFactory<PD, FD, JoinMode>,
@@ -346,6 +347,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             debug_heap_recorder: Default::default(),
             logging_root: None,
             member_log: None,
+            decider_log_formatter: None,
             record_factory: None,
             joined_branch_scheduler: None,
             joined_branch_scheduler_enabled: false,
@@ -373,6 +375,22 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             _state_types: PhantomData,
         }
     }
+    /// Supply the source-compatible floating-point formatter required for decider statistics.
+    /// None disables decider event logging without changing the installed member log.
+    pub fn set_decider_logging_formatter(&mut self, formatter: Option<fn(f64) -> String>) {
+        self.decider_log_formatter = formatter;
+        self.rebind_decider_logging();
+    }
+    fn rebind_decider_logging(&mut self) {
+        let logging = self.member_log.clone().zip(self.decider_log_formatter).map(
+            |(member, render_double)| crate::decider::decider::DeciderLogging {
+                member,
+                factory: self.factory.clone(),
+                render_double,
+            },
+        );
+        self.base.decider.set_logging(logging);
+    }
     /// Install a member log and its full-state record constructor for this owner.
     /// Run/member lifecycle management is intentionally a separate integration step.
     pub fn set_member_logging(
@@ -386,6 +404,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
     ) {
         self.member_log = member;
         self.record_factory = factory;
+        self.rebind_decider_logging();
     }
     /// Install a run-owned root; callers must also supply its full-state factory.
     /// The public logging profiles stay gated until all event producers are wired.
@@ -401,6 +420,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         self.logging_root = root;
         self.member_log = None;
         self.record_factory = factory;
+        self.rebind_decider_logging();
     }
     fn open_member_log(
         &mut self,
@@ -425,6 +445,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             root.open_member_scope(member, &self.base.decider.pcs, &renderer)
                 .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))?,
         );
+        self.rebind_decider_logging();
         Ok(())
     }
     fn close_member_log(&self) -> Result<(), NativeError<S::Error>> {
@@ -933,6 +954,8 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
     /// Reinitialize the solver and reinstall all static options before another verification run.
     pub fn reset(&mut self) -> Result<(), NativeError<S::Error>> {
         self.checkpoint()?;
+        self.member_log = None;
+        self.rebind_decider_logging();
         self.base.reset().map_err(NativeError::Decider)?;
         self.checkpoint()?;
         self.quantifier_trigger_events.clear();
