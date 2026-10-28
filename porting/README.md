@@ -541,3 +541,10 @@ source. Focused one/two-worker positive and negative cases submit real predicate
 jobs, pass through stdio and linked Z3, and agree with the pinned JVM result.
 Evaluator, joined producer/consumer and nonjoined continuations retain their
 existing synchronous behavior. The public parallel-branch option remains gated.
+
+Synchronous expression, function, unfold/apply and impure joins now open a
+full-state JoiningRecord before entering their local solver scope and close it
+at the source continuation boundary, including successful joins with no entries.
+Fatal results and execution errors leave the scope open. A focused real-Z3 check
+covers original-state capture and the empty/error boundaries. Parallel join
+logging and remaining rule events are still separate from these optional hooks.

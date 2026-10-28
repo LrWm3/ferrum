@@ -235,3 +235,148 @@ fn member_lifecycle_opens_and_closes_the_run_log() {
     worker.context.close_predicate_verification().unwrap();
     assert!(disabled.logs().unwrap().is_empty());
 }
+
+#[test]
+#[ignore = "requires Z3; set FERRUM_TEST_Z3"]
+fn joining_scope_captures_initial_state_and_closes_only_after_success() {
+    use ferrum_silicon::{
+        interfaces::{decider::prover::TextEmitter, verification::VerificationResult},
+        logger::records::{
+            scoping::close_scope_record::CloseScopeRecord,
+            structural::joining_record::JoiningRecord,
+        },
+        rules::evaluator::EvaluationError,
+    };
+    use ferrum_silver::ast::{
+        program::{Function, FunctionData},
+        r#type::Type,
+    };
+    let z3 = std::env::var_os("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+    let config = Config::default();
+    let factory = TermFactory::new(TermOptions {
+        use_flyweight: false,
+        use_old_axiomatization: false,
+        mask_heap_mode: false,
+    });
+    let prover = z3_prover_std_io::new(
+        "test".into(),
+        z3_prover_std_io::settings(z3.into()),
+        factory.clone(),
+        |_| {},
+    );
+    let identifiers = prover.identifier_factory();
+    let mut worker = native_method_worker(
+        "test".into(),
+        prover,
+        identifiers,
+        factory.clone(),
+        NativeOptions::from_config(&config).unwrap(),
+        &config,
+    );
+    worker.context.base.decider.start(None).unwrap();
+    worker
+        .context
+        .base
+        .decider
+        .prover
+        .emit("(set-option :print-success true)")
+        .unwrap();
+    let program = Program::new(
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        Default::default(),
+    );
+    let state = NativeBranchState::new(
+        program,
+        Default::default(),
+        Default::default(),
+        JoinMode::Off,
+        &factory,
+        false,
+        false,
+    );
+    let root = SymbExLog::new(LogConfig::default());
+    let renderer = NativeStateRecordRenderer { factory: &factory };
+    let predicate = Predicate::new(PredicateData {
+        name: "p".into(),
+        formal_args: vec![],
+        body: None,
+        meta: Default::default(),
+    });
+    let log = root
+        .open_member_scope(
+            Member::Predicate(predicate),
+            &LayeredPathConditionStack::new(false),
+            &renderer,
+        )
+        .unwrap();
+    worker
+        .context
+        .set_member_logging(Some(log.clone()), Some(Rc::new(FullStateRecordFactory)));
+    let function = Function::new(FunctionData {
+        name: "f".into(),
+        formal_args: vec![],
+        typ: Type::Bool,
+        pres: vec![],
+        posts: vec![],
+        body: None,
+        meta: Default::default(),
+    });
+    worker
+        .context
+        .join_function_application(
+            state.clone(),
+            &function,
+            &[],
+            None,
+            &mut |_ctx, _state, _done| Ok(VerificationResult::success()),
+            &mut |_, _, _, _| panic!("empty join must not continue"),
+        )
+        .unwrap();
+    let records = log.records().unwrap();
+    let joining = records
+        .iter()
+        .find_map(|r| {
+            r.as_any()
+                .downcast_ref::<JoiningRecord<NativeBranchState>>()
+        })
+        .unwrap();
+    assert!(!joining.state.as_ref().unwrap().under_join);
+    assert!(records.iter().any(|r| {
+        r.as_any()
+            .downcast_ref::<CloseScopeRecord>()
+            .is_some_and(|c| c.ref_id == joining.header.id())
+    }));
+    let result = worker.context.join_function_application(
+        state,
+        &function,
+        &[],
+        None,
+        &mut |_ctx, _state, _done| {
+            Err(EvaluationError::Context(NativeError::Unsupported(
+                "test error",
+            )))
+        },
+        &mut |_, _, _, _| unreachable!(),
+    );
+    assert!(result.is_err());
+    let records = log.records().unwrap();
+    let joins: Vec<_> = records
+        .iter()
+        .filter_map(|r| {
+            r.as_any()
+                .downcast_ref::<JoiningRecord<NativeBranchState>>()
+        })
+        .collect();
+    assert_eq!(joins.len(), 2);
+    assert!(!records.iter().any(|r| {
+        r.as_any()
+            .downcast_ref::<CloseScopeRecord>()
+            .is_some_and(|c| c.ref_id == joins[1].header.id())
+    }));
+    worker.context.base.decider.stop().unwrap();
+}

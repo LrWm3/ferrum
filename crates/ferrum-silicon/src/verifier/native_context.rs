@@ -464,6 +464,30 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             .map(Some)
             .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
     }
+    fn open_joining_scope(
+        &self,
+        state: &State<PD, FD, JoinMode>,
+    ) -> Result<Option<i32>, NativeError<S::Error>> {
+        let Some(log) = &self.member_log else {
+            return Ok(None);
+        };
+        if log.when_enabled(|| ()).is_none() {
+            return Ok(None);
+        }
+        let factory = self
+            .record_factory
+            .as_ref()
+            .ok_or(NativeError::Unsupported(
+                "active symbolic logger requires record factory",
+            ))?;
+        let record = factory.joining(state, &self.base.decider.pcs);
+        let renderer = crate::logger::state_reporting::NativeStateRecordRenderer {
+            factory: &self.factory,
+        };
+        log.open_scope(record, &renderer)
+            .map(Some)
+            .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
+    }
     fn close_logged_scope(&self, id: Option<i32>) -> Result<(), NativeError<S::Error>> {
         match (&self.member_log, id) {
             (None, None) => Ok(()),
@@ -1424,6 +1448,9 @@ where
             )));
         }
         let factory = self.factory.clone();
+        let joining_scope = self
+            .open_joining_scope(&state)
+            .map_err(EvaluationError::Context)?;
         self.base
             .decider
             .push_scope()
@@ -1552,6 +1579,8 @@ where
         if !result.continue_verification() {
             return Ok(result);
         }
+        self.close_logged_scope(joining_scope)
+            .map_err(EvaluationError::Context)?;
         if entries.is_empty() {
             return Ok(result.combine(VerificationResult::success, false));
         }
@@ -1943,6 +1972,9 @@ where
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
         use crate::rules::joiner::{self, JoinDataEntry};
         let factory = self.factory.clone();
+        let joining_scope = self
+            .open_joining_scope(&state)
+            .map_err(EvaluationError::Context)?;
         self.base
             .decider
             .push_scope()
@@ -1978,6 +2010,8 @@ where
         if !result.continue_verification() {
             return Ok(result);
         }
+        self.close_logged_scope(joining_scope)
+            .map_err(EvaluationError::Context)?;
         if entries.is_empty() {
             return Ok(result.combine(VerificationResult::success, false));
         }
@@ -10517,6 +10551,9 @@ where
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<NativeError<S::Error>>> {
         use crate::rules::joiner::{self, JoinDataEntry};
         let factory = self.factory.clone();
+        let joining_scope = self
+            .open_joining_scope(&state)
+            .map_err(EvaluationError::Context)?;
         self.base
             .decider
             .push_scope()
@@ -10562,6 +10599,8 @@ where
         if !block.continue_verification() {
             return Ok(block);
         }
+        self.close_logged_scope(joining_scope)
+            .map_err(EvaluationError::Context)?;
         if entries.is_empty() {
             return Ok(block.combine(VerificationResult::success, false));
         }
@@ -10645,6 +10684,9 @@ where
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<NativeError<S::Error>>> {
         use crate::rules::joiner::{self, JoinDataEntry};
         let factory = self.factory.clone();
+        let joining_scope = self
+            .open_joining_scope(&state)
+            .map_err(EvaluationError::Context)?;
         self.base
             .decider
             .push_scope()
@@ -10712,6 +10754,8 @@ where
         if !block.continue_verification() {
             return Ok(block);
         }
+        self.close_logged_scope(joining_scope)
+            .map_err(EvaluationError::Context)?;
         if entries.is_empty() {
             return Ok(block.combine(VerificationResult::success, false));
         }
@@ -11954,6 +11998,7 @@ where
         >,
     ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
         use crate::rules::joiner::{self, JoinDataEntry};
+        let joining_scope = self.open_joining_scope(&state)?;
         self.base
             .decider
             .push_scope()
@@ -12035,6 +12080,7 @@ where
         if !block.continue_verification() {
             return Ok(block);
         }
+        self.close_logged_scope(joining_scope)?;
         let mut entries = then_entries;
         entries.extend(else_entries);
         if entries.is_empty() {
