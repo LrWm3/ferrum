@@ -44,8 +44,9 @@ predicate triggers now connect to the native context. Magic-wand packaging,
 application and applying expressions connect to reserve heaps and snapshots,
 including single-location and general quantified resource transfers during
 packaging.
-Full trigger rewriting and advanced execution or reporting profiles remain
-incomplete; unsupported paths return execution errors.
+Source quantifier preprocessing now generates ordinary and arithmetic-rewritten
+triggers before conditional-permission rewriting and contributor analysis. Advanced
+execution/reporting profiles remain incomplete; unsupported paths return execution errors.
 Interpreted backend types now preserve source SMT operations, including bitvectors
 and floating-point values.
 An optional `native-z3` Cargo feature links Z3 4.16 directly and exposes the

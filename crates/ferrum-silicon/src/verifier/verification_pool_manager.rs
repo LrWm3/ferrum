@@ -1822,6 +1822,7 @@ where
 {
     use super::default_main_verifier::MainVerificationServices;
     use crate::interfaces::decider::prover::Prover;
+    context.set_preprocessing_reporter(reporter.clone());
     let program = context
         .preprocess(original)
         .map_err(NativeParallelError::Main)?;

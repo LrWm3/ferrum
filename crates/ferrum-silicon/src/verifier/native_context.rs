@@ -68,6 +68,8 @@ pub struct NativeOptions {
     pub after_unfold_timeout: Option<i32>,
     pub before_repetition_timeout: Option<i32>,
     pub enable_simplified_unfolds: bool,
+    pub conditionalize_permissions: bool,
+    pub print_translated_program: bool,
     pub set_axiomatization_file: Option<std::path::PathBuf>,
     pub multiset_axiomatization_file: Option<std::path::PathBuf>,
     pub sequence_axiomatization_file: Option<std::path::PathBuf>,
@@ -120,11 +122,9 @@ impl NativeOptions {
         if config.enable_debugging
             || config.mask_heap_mode
             || config.parallelize_branches
-            || config.conditionalize_permissions
             || config.frontend.ide_mode_advanced
             || config.generate_block_messages
             || config.print_method_cf_gs
-            || config.print_translated_program
         {
             return Err(NativeError::Unsupported(
                 "requested verifier configuration is not connected",
@@ -174,6 +174,8 @@ impl NativeOptions {
             after_unfold_timeout: unfold.map(|x| x.timeout_ms),
             before_repetition_timeout: repetition.map(|x| x.timeout_ms),
             enable_simplified_unfolds: config.enable_simplified_unfolds,
+            conditionalize_permissions: config.conditionalize_permissions,
+            print_translated_program: config.print_translated_program,
             set_axiomatization_file: config.set_axiomatization_file.as_ref().map(Into::into),
             multiset_axiomatization_file: config
                 .multiset_axiomatization_file
@@ -276,6 +278,9 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub factory: TermFactory,
     pub options: NativeOptions,
     pub warnings: Vec<String>,
+    /// Source-order quantifier trigger choices from preprocessing, for reporter delivery.
+    pub quantifier_trigger_events: Vec<crate::utils::ast::QuantifierTriggerEvent>,
+    preprocessing_reporter: Option<Arc<dyn ferrum_silver::reporter::reporter::Reporter>>,
     cancellation: Option<crate::verifier::verification_pool_manager::CancellationController>,
     havoc_counter: u64,
     config_options: Vec<String>,
@@ -301,6 +306,8 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             factory,
             options,
             warnings: Vec::new(),
+            quantifier_trigger_events: Vec::new(),
+            preprocessing_reporter: None,
             cancellation: None,
             havoc_counter: 0,
             config_options: Vec::new(),
@@ -316,6 +323,13 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             heap_supporter_counter: 0,
             _state_types: PhantomData,
         }
+    }
+    /// Set the reporter used for source-ordered quantifier preprocessing events.
+    pub fn set_preprocessing_reporter(
+        &mut self,
+        reporter: Option<Arc<dyn ferrum_silver::reporter::reporter::Reporter>>,
+    ) {
+        self.preprocessing_reporter = reporter;
     }
     /// Install the same latched cancellation controller used by the session and workers.
     pub fn set_cancellation(
@@ -359,6 +373,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         self.checkpoint()?;
         self.base.reset().map_err(NativeError::Decider)?;
         self.checkpoint()?;
+        self.quantifier_trigger_events.clear();
         self.predicate_snapshots = Default::default();
         self.active_program = None;
         self.predicate_contents = Default::default();
@@ -7417,6 +7432,71 @@ where
         };
         if !program.extensions.is_empty() {
             return Err(NativeError::Unsupported("program extension analysis"));
+        }
+        self.quantifier_trigger_events.clear();
+        let triggered = crate::utils::ast::auto_trigger_program_with_callback(program, |event| {
+            use ferrum_silver::reporter::message::Message;
+            if let Some(reporter) = &self.preprocessing_reporter {
+                if event.triggers.is_empty() {
+                    use ferrum_silver::verifier::verification_result::{
+                        FrontendError, FrontendErrorKind,
+                    };
+                    reporter
+                        .report(Message::WarningsDuringVerification {
+                            warnings: vec![FrontendError::new(
+                                FrontendErrorKind::VerifierWarning(
+                                    "No triggers provided or inferred for quantifier.".into(),
+                                ),
+                                event.rewritten.metadata().position.clone(),
+                            )],
+                        })
+                        .map_err(|e| {
+                            NativeError::Diagnostic(format!("quantifier warning reporter: {e:?}"))
+                        })?;
+                }
+                reporter
+                    .report(Message::QuantifierChosenTriggers {
+                        quantifier: event.rewritten.clone(),
+                        triggers: event.triggers.clone(),
+                        old_triggers: event.old_triggers.clone(),
+                    })
+                    .map_err(|e| {
+                        NativeError::Diagnostic(format!("quantifier trigger reporter: {e:?}"))
+                    })?;
+            } else if event.triggers.is_empty() {
+                self.warnings
+                    .push("No triggers provided or inferred for quantifier.".into());
+            }
+            self.quantifier_trigger_events.push(event.clone());
+            Ok::<_, NativeError<S::Error>>(())
+        })
+        .map_err(|e| match e {
+            crate::utils::ast::AutoTriggerWithCallbackError::Preprocessing(e) => {
+                NativeError::Diagnostic(format!("quantifier trigger preprocessing: {e:?}"))
+            }
+            crate::utils::ast::AutoTriggerWithCallbackError::Callback(e) => e,
+        })?;
+        let program = &triggered;
+        let rewritten = if self.options.conditionalize_permissions {
+            Some(
+                crate::extensions::conditional_permission_rewriter::rewrite(
+                    program,
+                    !self.options.respect_function_pre_permission_amounts,
+                )
+                .map_err(|e| {
+                    NativeError::Diagnostic(format!("conditional permission rewriting: {e:?}"))
+                })?,
+            )
+        } else {
+            None
+        };
+        let program = rewritten.as_ref().unwrap_or(program);
+        if self.options.print_translated_program {
+            let rendered = ferrum_silver::ast::pretty::pretty_printer::pretty_node(&Node::Program(
+                program.clone(),
+            ))
+            .map_err(|e| NativeError::Diagnostic(format!("translated program rendering: {e:?}")))?;
+            println!("{rendered}");
         }
         let general = use_general_preamble(program, &self.base.symbol_converter, &self.factory)
             .map_err(NativeError::Preamble)?;

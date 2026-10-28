@@ -23,7 +23,8 @@ quantified permissions, ForPerm, heap-dependent triggers and recursive-function
 predicate triggers now reach the native solver. Independent checks cover 27
 quantified-resource cases, including fractional ownership, consumed permissions,
 disjoint snapshots and failing assertions; 21 function cases and four existing
-native runner regressions also pass. Full trigger rewriting and advanced reporting remain incomplete. No comparative speed improvement
+native runner regressions also pass. Remaining trigger forms and advanced reporting
+still need broader compatibility checks. No comparative speed improvement
 has been established.
 Single-resource and quantified heap havoc now replace selected snapshots while
 preserving permissions and unrelated chunks. Independent CLI checks cover aliases,
@@ -97,6 +98,16 @@ file does not invalidate its root entry. Used malformed sources fail explicitly;
 unused ones are not loaded. Full/stripped axioms, generic domains and quantified
 resource dependencies are checked on both transports; selected full/stripped
 outcomes also match the pinned Scala reference.
+Quantifier preprocessing now runs bottom-up on pure `forall` and all `exists`
+expressions, with standard trigger selection and the source arithmetic-rewrite
+fallback. Typed warnings and trigger choices reach configured reporters immediately;
+reporter failure stops traversal. Conditional-permission rewriting then runs before
+contributor analysis; `printTranslatedProgram` prints that rewritten program.
+Ninety-four cases per transport cover function/domain/quantified-resource regressions,
+conditional resources, existentials and warnings. Printed standard/arithmetic
+trigger programs match the pinned Scala output, and a direct context probe checks
+positioned warning/trigger ordering and reporter failure propagation. Standalone
+CFG trigger preprocessing retains the upstream TODO.
 
 Native failures now capture available solver models in all five source views,
 restore caller stores on method/function precondition failures and render failure

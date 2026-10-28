@@ -803,13 +803,15 @@ pub fn generate_trigger_set(
     Ok(None)
 }
 
-/// Forall's per-instance source autoTrigger lazy value. Failed generation is not cached.
+/// Forall and Exists per-instance source autoTrigger lazy value. Failed generation is not cached.
 pub fn auto_trigger(forall: &Exp) -> Result<Exp, TriggerGenerationError> {
     use crate::ast::{ast::Info, expression::SimplifiedExp};
     static DEFAULT: std::sync::OnceLock<std::sync::Mutex<TriggerGeneration>> =
         std::sync::OnceLock::new();
-    let ExpKind::Forall(_, triggers, body) = forall.kind() else {
-        return Err(TriggerGenerationError::InvalidArguments);
+    let (triggers, body, is_exists) = match forall.kind() {
+        ExpKind::Forall(_, triggers, body) => (triggers, body, false),
+        ExpKind::Exists(_, triggers, body) => (triggers, body, true),
+        _ => return Err(TriggerGenerationError::InvalidArguments),
     };
     let mut cached = forall
         .0
@@ -835,7 +837,11 @@ pub fn auto_trigger(forall: &Exp) -> Result<Exp, TriggerGenerationError> {
                 .map(|s| crate::ast::expression::Trigger::new(s.exps, Metadata::default()))
                 .collect();
             Exp::new(
-                ExpKind::Forall(vars, triggers, body.clone()),
+                if is_exists {
+                    ExpKind::Exists(vars, triggers, body.clone())
+                } else {
+                    ExpKind::Forall(vars, triggers, body.clone())
+                },
                 Metadata {
                     position: forall.metadata().position.clone(),
                     info: Info::pair(Info::AutoTriggered, forall.metadata().info.clone()),
@@ -878,6 +884,25 @@ mod auto_trigger_tests {
         let second = auto_trigger(&q).unwrap();
         assert!(first.same_node(&second));
         assert!(matches!(first.kind(), ExpKind::Forall(_, triggers, _) if triggers.len() == 1));
+        assert!(!q.same_node(&first));
+    }
+    #[test]
+    fn generated_exists_is_cached_and_preserves_quantifier_kind() {
+        let m = Metadata::default();
+        let decl = LocalVarDecl::new("x".into(), Type::Int, m.clone());
+        let arg = Exp::new(ExpKind::LocalVar(decl.local_var()), m.clone());
+        let app = Exp::with_extra(
+            ExpKind::FuncApp("f".into(), vec![arg]),
+            m.clone(),
+            ExpExtra {
+                typ: Some(Type::Bool),
+                ..ExpExtra::default()
+            },
+        );
+        let q = Exp::new(ExpKind::Exists(vec![decl], vec![], app), m);
+        let first = auto_trigger(&q).unwrap();
+        assert!(first.same_node(&auto_trigger(&q).unwrap()));
+        assert!(matches!(first.kind(), ExpKind::Exists(_, triggers, _) if triggers.len() == 1));
         assert!(!q.same_node(&first));
     }
 }

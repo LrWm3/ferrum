@@ -29,9 +29,9 @@
 //! Open decisions:
 //! Counter ownership, apparent union omission and native stack traces.
 //!
-//! Status: map/counter, AST construction/substitution, range rewriting and backend consistency
-//! helpers implemented. Parser type extraction, advanced trigger/fresh adapters and native
-//! sort embedding remain. Unexpected-node helpers accept a caller-captured native stack.
+//! Status: map/counter, AST construction/substitution, range rewriting, trigger preprocessing
+//! and backend consistency helpers are implemented. Parser type extraction and native sort
+//! embedding remain. Unexpected-node helpers accept a caller-captured native stack.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -146,6 +146,261 @@ pub mod ast {
         utility::nodes::{self, Node},
     };
     use ferrum_silver::verifier::verification_result::DiagnosticError;
+    /// One source-ordered quantifier trigger report, before and after preprocessing.
+    #[derive(Clone, Debug)]
+    pub struct QuantifierTriggerEvent {
+        pub original: Exp,
+        pub rewritten: Exp,
+        pub old_triggers: Vec<Trigger>,
+        pub triggers: Vec<Trigger>,
+    }
+    #[derive(Clone, Debug)]
+    pub struct AutoTriggeredProgram {
+        pub program: Program,
+        pub events: Vec<QuantifierTriggerEvent>,
+    }
+    #[derive(Debug)]
+    pub enum AutoTriggerProgramError {
+        Trigger(String),
+        Traversal(DiagnosticError),
+    }
+    #[derive(Debug)]
+    pub enum AutoTriggerWithCallbackError<E> {
+        Preprocessing(AutoTriggerProgramError),
+        Callback(E),
+    }
+
+    /// Compute triggers bottom-up, as Silicon does before parallel verification.
+    /// CFGs are deliberately not transformed, matching the source TODO.
+    pub fn auto_trigger_program(
+        program: &Program,
+    ) -> Result<AutoTriggeredProgram, AutoTriggerProgramError> {
+        let mut events = Vec::new();
+        let program = auto_trigger_program_with_callback(program, |event| {
+            events.push(event.clone());
+            Ok::<_, std::convert::Infallible>(())
+        })
+        .map_err(|error| match error {
+            AutoTriggerWithCallbackError::Preprocessing(error) => error,
+            AutoTriggerWithCallbackError::Callback(never) => match never {},
+        })?;
+        Ok(AutoTriggeredProgram { program, events })
+    }
+
+    /// Report each quantifier immediately in traversal order; a callback failure stops traversal.
+    pub fn auto_trigger_program_with_callback<E>(
+        program: &Program,
+        callback: impl FnMut(&QuantifierTriggerEvent) -> Result<(), E>,
+    ) -> Result<Program, AutoTriggerWithCallbackError<E>> {
+        use ferrum_silver::ast::utility::{
+            generic_axiom_rewriter,
+            triggers::{self, AxiomRewriter, SilverQuantifier, TriggerGeneration},
+        };
+        static ADVANCED: std::sync::OnceLock<std::sync::Mutex<TriggerGeneration>> =
+            std::sync::OnceLock::new();
+        let callback = std::cell::RefCell::new(callback);
+        let failure = std::cell::RefCell::new(None);
+        let callback_failure = std::cell::RefCell::new(None);
+        let transformed = nodes::map_node_tree_bottom_up(
+            &Node::Program(program.clone()),
+            &|node| {
+                let Node::Exp(expression) = node else {
+                    return Ok(node.clone());
+                };
+                let old = match expression.kind() {
+                    ExpKind::Forall(_, triggers, _) if expression.is_pure() => triggers.clone(),
+                    ExpKind::Exists(_, triggers, _) => triggers.clone(),
+                    _ => return Ok(node.clone()),
+                };
+                let compute = || -> Result<Exp, String> {
+                    let standard = triggers::auto_trigger(expression)
+                        .map_err(|e| format!("standard trigger generation: {e:?}"))?;
+                    let present = match standard.kind() {
+                        ExpKind::Forall(_, t, _) | ExpKind::Exists(_, t, _) => t,
+                        _ => unreachable!(),
+                    };
+                    if !present.is_empty() {
+                        return Ok(standard);
+                    }
+                    let quantifier = SilverQuantifier::new(expression.clone())
+                        .map_err(|_| "invalid quantifier".to_owned())?;
+                    let mut generator = ADVANCED
+                        .get_or_init(|| std::sync::Mutex::new(TriggerGeneration::new(true)))
+                        .lock()
+                        .expect("advanced trigger generator poisoned");
+                    let candidate = triggers::generate_trigger_set(&quantifier, &mut generator)
+                        .map_err(|e| format!("advanced trigger generation: {e:?}"))?;
+                    drop(generator);
+                    let Some((variables, sets)) = candidate else {
+                        return Ok(expression.clone());
+                    };
+                    let body = match expression.kind() {
+                        ExpKind::Forall(_, _, body) | ExpKind::Exists(_, _, body) => body.clone(),
+                        _ => unreachable!(),
+                    };
+                    let kind = match expression.kind() {
+                        ExpKind::Forall(..) => ExpKind::Forall(variables, vec![], body),
+                        ExpKind::Exists(..) => ExpKind::Exists(variables, vec![], body),
+                        _ => unreachable!(),
+                    };
+                    let intermediate = Exp::new(kind, inherited_metadata(expression));
+                    let intermediate = SilverQuantifier::new(intermediate)
+                        .map_err(|_| "invalid quantifier".to_owned())?;
+                    let mut adapter = AxiomRewriter {
+                        render: ferrum_silver::ast::pretty::pretty_printer::pretty_node,
+                    };
+                    Ok(
+                        generic_axiom_rewriter::rewrite(&mut adapter, &intermediate, &sets)
+                            .map_err(|e| format!("advanced trigger rewrite: {e:?}"))?
+                            .map(SilverQuantifier::into_expression)
+                            .unwrap_or_else(|| expression.clone()),
+                    )
+                };
+                let rewritten = compute().map_err(|error| {
+                    *failure.borrow_mut() = Some(error);
+                    DiagnosticError::Unsupported("quantifier trigger preprocessing")
+                })?;
+                let triggers = match rewritten.kind() {
+                    ExpKind::Forall(_, t, _) | ExpKind::Exists(_, t, _) => t.clone(),
+                    _ => unreachable!(),
+                };
+                let event = QuantifierTriggerEvent {
+                    original: expression.clone(),
+                    rewritten: rewritten.clone(),
+                    old_triggers: old,
+                    triggers,
+                };
+                callback.borrow_mut()(&event).map_err(|error| {
+                    *callback_failure.borrow_mut() = Some(error);
+                    DiagnosticError::Unsupported("quantifier trigger reporter")
+                })?;
+                Ok(Node::Exp(rewritten))
+            },
+            false,
+        );
+        if let Some(error) = callback_failure.into_inner() {
+            return Err(AutoTriggerWithCallbackError::Callback(error));
+        }
+        if let Some(error) = failure.into_inner() {
+            return Err(AutoTriggerWithCallbackError::Preprocessing(
+                AutoTriggerProgramError::Trigger(error),
+            ));
+        }
+        let Node::Program(program) = transformed.map_err(|error| {
+            AutoTriggerWithCallbackError::Preprocessing(AutoTriggerProgramError::Traversal(error))
+        })?
+        else {
+            return Err(AutoTriggerWithCallbackError::Preprocessing(
+                AutoTriggerProgramError::Traversal(DiagnosticError::InvalidNode(
+                    "triggered program",
+                )),
+            ));
+        };
+        Ok(program)
+    }
+
+    #[cfg(test)]
+    mod trigger_preprocessing_tests {
+        use super::*;
+        use ferrum_silver::parser::{
+            fast_parser::parse_program,
+            parse_ast::init_properties,
+            resolver::{NameAnalyser, check_program_core},
+            translator::translate_program_core,
+        };
+        #[test]
+        fn callback_failure_stops_at_first_quantifier() {
+            let parsed = parse_program("function f(x: Int): Int function p(): Bool { (forall i: Int :: f(i) == f(i)) && (exists j: Int :: f(j) == f(j)) }", "test.vpr").unwrap();
+            init_properties(parsed.node()).unwrap();
+            assert!(NameAnalyser::default().run(parsed.node()).unwrap());
+            check_program_core(&parsed, &mut |_, _| {}).unwrap();
+            let program = translate_program_core(&parsed).unwrap();
+            let mut calls = 0;
+            let error = auto_trigger_program_with_callback(&program, |event| {
+                calls += 1;
+                assert!(matches!(event.original.kind(), ExpKind::Forall(..)));
+                Err("report failed")
+            })
+            .unwrap_err();
+            assert!(matches!(
+                error,
+                AutoTriggerWithCallbackError::Callback("report failed")
+            ));
+            assert_eq!(calls, 1);
+        }
+
+        #[test]
+        fn impure_forall_is_not_triggered_at_this_stage() {
+            let parsed = parse_program(
+                "field f: Int method m() { inhale forall r: Ref :: acc(r.f) }",
+                "test.vpr",
+            )
+            .unwrap();
+            init_properties(parsed.node()).unwrap();
+            assert!(NameAnalyser::default().run(parsed.node()).unwrap());
+            check_program_core(&parsed, &mut |_, _| {}).unwrap();
+            let program = translate_program_core(&parsed).unwrap();
+            let result = auto_trigger_program(&program).unwrap();
+            assert!(result.events.is_empty());
+        }
+
+        #[test]
+        fn nested_quantifiers_are_processed_bottom_up() {
+            let parsed = parse_program("function f(x: Int, y: Int): Int function p(): Bool { forall x: Int :: exists y: Int :: f(x, y) == f(x, y) }", "test.vpr").unwrap();
+            init_properties(parsed.node()).unwrap();
+            assert!(NameAnalyser::default().run(parsed.node()).unwrap());
+            check_program_core(&parsed, &mut |_, _| {}).unwrap();
+            let program = translate_program_core(&parsed).unwrap();
+            let result = auto_trigger_program(&program).unwrap();
+            assert_eq!(result.events.len(), 2);
+            assert!(matches!(
+                result.events[0].rewritten.kind(),
+                ExpKind::Exists(..)
+            ));
+            assert!(matches!(
+                result.events[1].rewritten.kind(),
+                ExpKind::Forall(..)
+            ));
+        }
+
+        #[test]
+        fn arithmetic_fallback_rewrites_trigger_variable() {
+            let parsed = parse_program("function f(x: Int): Int function p(): Bool { forall i: Int :: f(i + 1) == f(i + 1) }", "test.vpr").unwrap();
+            init_properties(parsed.node()).unwrap();
+            assert!(NameAnalyser::default().run(parsed.node()).unwrap());
+            check_program_core(&parsed, &mut |_, _| {}).unwrap();
+            let program = translate_program_core(&parsed).unwrap();
+            let result = auto_trigger_program(&program).unwrap();
+            assert_eq!(result.events.len(), 1);
+            assert!(!result.events[0].triggers.is_empty());
+            assert!(
+                matches!(result.events[0].rewritten.kind(), ExpKind::Forall(vars, _, _) if vars.iter().any(|v| v.name.starts_with("__rw_")))
+            );
+        }
+
+        #[test]
+        fn handles_forall_exists_and_reports_missing_in_source_order() {
+            let parsed = parse_program("function f(x: Int): Int function p(): Bool { (forall i: Int :: f(i) == f(i)) && (exists j: Int :: f(j) == f(j)) && (forall k: Int :: k == k) }", "test.vpr").unwrap();
+            init_properties(parsed.node()).unwrap();
+            assert!(NameAnalyser::default().run(parsed.node()).unwrap());
+            check_program_core(&parsed, &mut |_, _| {}).unwrap();
+            let program = translate_program_core(&parsed).unwrap();
+            let result = auto_trigger_program(&program).unwrap();
+            assert_eq!(result.events.len(), 3);
+            assert!(matches!(
+                result.events[0].rewritten.kind(),
+                ExpKind::Forall(..)
+            ));
+            assert!(matches!(
+                result.events[1].rewritten.kind(),
+                ExpKind::Exists(..)
+            ));
+            assert!(!result.events[0].triggers.is_empty());
+            assert!(!result.events[1].triggers.is_empty());
+            assert!(result.events[2].triggers.is_empty());
+        }
+    }
+
     fn inherited_metadata(expression: &Exp) -> Metadata {
         Metadata {
             position: expression.metadata().position.clone(),

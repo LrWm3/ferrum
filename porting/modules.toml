@@ -1102,7 +1102,7 @@ repository = "silicon"
 upstream = "src/main/scala/Utils.scala"
 destination = "crates/ferrum-silicon/src/utils.rs"
 status = "skeleton"
-remaining = ["Map/counter, AST construction/substitution, range membership and backend consistency helpers exist; parser type extraction, advanced triggers, sort embedding and native stack capture remain."]
+remaining = ["Map/counter, AST construction/substitution, ranges, bottom-up trigger generation and fallible immediate event callbacks connect native preprocessing. Parser type extraction, native sort embedding and broader compatibility remain incomplete."]
 
 [[modules]]
 repository = "silicon"
