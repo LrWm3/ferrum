@@ -570,6 +570,59 @@ mod tests {
         );
     }
 }
+/// Parse the decimal and special-value subset of Java Double.parseDouble.
+/// Hexadecimal floating literals are deliberately unsupported until their exact
+/// binary rounding is ported; native solver statistics ordinarily use decimal.
+fn parse_java_decimal_double(input: &str) -> Option<f64> {
+    let input = input.trim_matches(|c: char| c <= '\u{20}');
+    let unsigned = input.strip_prefix(['+', '-']).unwrap_or(input);
+    if unsigned == "NaN" {
+        return Some(f64::NAN);
+    }
+    if unsigned == "Infinity" {
+        return Some(if input.starts_with('-') {
+            f64::NEG_INFINITY
+        } else {
+            f64::INFINITY
+        });
+    }
+    let decimal = input.strip_suffix(['f', 'F', 'd', 'D']).unwrap_or(input);
+    let bytes = decimal.as_bytes();
+    let mut i = usize::from(matches!(bytes.first(), Some(b'+' | b'-')));
+    let mut digits = 0;
+    while bytes.get(i).is_some_and(u8::is_ascii_digit) {
+        i += 1;
+        digits += 1;
+    }
+    if bytes.get(i) == Some(&b'.') {
+        i += 1;
+        while bytes.get(i).is_some_and(u8::is_ascii_digit) {
+            i += 1;
+            digits += 1;
+        }
+    }
+    if digits == 0 {
+        return None;
+    }
+    if matches!(bytes.get(i), Some(b'e' | b'E')) {
+        i += 1;
+        if matches!(bytes.get(i), Some(b'+' | b'-')) {
+            i += 1;
+        }
+        let exponent_start = i;
+        while bytes.get(i).is_some_and(u8::is_ascii_digit) {
+            i += 1;
+        }
+        if i == exponent_start {
+            return None;
+        }
+    }
+    if i != bytes.len() {
+        return None;
+    }
+    decimal.parse().ok()
+}
+
 impl MemberSymbExLog {
     pub fn new(mode: LogMode, config: LogConfig, ids: Arc<AtomicI32>) -> Self {
         Self {
@@ -834,8 +887,11 @@ impl MemberSymbExLog {
             if let Some(old) = state.last_statistics.get(key) {
                 let delta = match (value.parse::<i32>(), old.parse::<i32>()) {
                     (Ok(now), Ok(before)) => Some(now.wrapping_sub(before).to_string()),
-                    _ => match (value.parse::<f64>(), old.parse::<f64>()) {
-                        (Ok(now), Ok(before)) => Some(render_double(now - before)),
+                    _ => match (
+                        parse_java_decimal_double(value),
+                        parse_java_decimal_double(old),
+                    ) {
+                        (Some(now), Some(before)) => Some(render_double(now - before)),
                         _ => None,
                     },
                 };
@@ -848,5 +904,49 @@ impl MemberSymbExLog {
             state.last_statistics.extend(current);
         }
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod java_decimal_statistics_tests {
+    #[test]
+    fn statistics_apply_java_decimal_parsing() {
+        use super::{LogMode, MemberSymbExLog};
+        use crate::{logger::log_config::LogConfig, package::Map};
+        use std::sync::{Arc, atomic::AtomicI32};
+        let member = MemberSymbExLog::new(
+            LogMode::Recording,
+            LogConfig::default(),
+            Arc::new(AtomicI32::new(0)),
+        );
+        let values = |n: &str, invalid: &str| -> Map<String, String> {
+            [
+                ("time".into(), n.into()),
+                ("invalid".into(), invalid.into()),
+            ]
+            .into_iter()
+            .collect()
+        };
+        member
+            .delta_statistics(values(" 1.5f ", "inf"), |v| v.to_string())
+            .unwrap();
+        let delta = member
+            .delta_statistics(values(" 3.5d ", "inf"), |v| v.to_string())
+            .unwrap();
+        assert_eq!(delta.get("time-delta").map(String::as_str), Some("2"));
+        assert!(!delta.contains_key("invalid-delta"));
+    }
+
+    #[test]
+    fn decimal_statistics_follow_java_input_grammar() {
+        use super::parse_java_decimal_double as parse;
+        assert_eq!(parse("  1.5f  "), Some(1.5));
+        assert_eq!(parse(".5d"), Some(0.5));
+        assert_eq!(parse("1.e2F"), Some(100.0));
+        assert!(parse("-NaN").unwrap().is_nan());
+        assert_eq!(parse("-Infinity"), Some(f64::NEG_INFINITY));
+        for input in ["inf", "nan", "Infinityf", "1_0", "1e", ".", "0x1.0p0"] {
+            assert!(parse(input).is_none(), "{input}");
+        }
     }
 }

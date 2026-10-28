@@ -729,3 +729,9 @@ subsequent verification, and propagates reporter failures. Interrupted solver
 shutdown errors remain warnings once workers are quiescent and logger close
 succeeds. Tests cover one/two workers, timeout followed by success, rejected
 reports, and outstanding-pool cleanup; public trace configuration stays gated.
+
+Solver-statistics deltas now parse Java-style decimal inputs, including surrounding
+ASCII control/space characters, decimal suffixes and Java special-value spellings.
+Rust-only infinity/NaN spellings no longer produce misleading deltas. Hexadecimal
+float parsing and exact JVM double output remain explicit compatibility gaps;
+the output formatter is still supplied separately.
