@@ -459,7 +459,8 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/adt/AdtASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/adt/adt_ast_extension.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed ADT declarations, applications and name allocation exist; full encoding, printing and frontend integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -483,19 +484,22 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/adt/encoding/AdtNameManager.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/adt/encoding/adt_name_manager.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed ADT declarations, applications and name allocation exist; full encoding, printing and frontend integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/arp/ARPASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/arp/arpast_extension.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed abstract-read-permission nodes exist; full encoding, consistency and frontend registration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/arp/ARPPASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/arp/arppast_extension.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed abstract-read-permission nodes exist; full encoding, consistency and frontend registration remain."]
 
 [[modules]]
 repository = "silver"
@@ -575,19 +579,22 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/TerminationASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/termination_ast_extension.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed clauses, diagnostics and transformation helpers exist; complete proof generation, grammar/lifecycle wiring and general reconstruction remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/TerminationErrors.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/termination_errors.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed clauses, diagnostics and transformation helpers exist; complete proof generation, grammar/lifecycle wiring and general reconstruction remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/TerminationPASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/termination_past_extension.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed clauses, diagnostics and transformation helpers exist; complete proof generation, grammar/lifecycle wiring and general reconstruction remain."]
 
 [[modules]]
 repository = "silver"
@@ -599,19 +606,22 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/CallGraph.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/call_graph.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed clauses, diagnostics and transformation helpers exist; complete proof generation, grammar/lifecycle wiring and general reconstruction remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/DecreasesCheck.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/decreases_check.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed clauses, diagnostics and transformation helpers exist; complete proof generation, grammar/lifecycle wiring and general reconstruction remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/ErrorTrafoFactory.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/error_trafo_factory.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed clauses, diagnostics and transformation helpers exist; complete proof generation, grammar/lifecycle wiring and general reconstruction remain."]
 
 [[modules]]
 repository = "silver"
@@ -641,13 +651,15 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/ProgramManager.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/program_manager.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed clauses, diagnostics and transformation helpers exist; complete proof generation, grammar/lifecycle wiring and general reconstruction remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/Trafo.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/trafo.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed clauses, diagnostics and transformation helpers exist; complete proof generation, grammar/lifecycle wiring and general reconstruction remain."]
 
 [[modules]]
 repository = "silver"

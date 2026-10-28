@@ -21,4 +21,57 @@
 //! Open decisions:
 //! Agree on unsupported unlowered extension handling with verifier.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; typed read-permission extension and translation adapter implemented.
+//! Parser registration and ARP lowering remain pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2026 ETH Zurich.
+
+use crate::ast::ast::Metadata;
+use crate::ast::expression::{Exp, ExpKind, ExtensionExp, ExtensionExpHandle};
+use crate::ast::r#type::Type;
+use crate::ast::utility::nodes::{Node, TraversalError};
+use std::any::Any;
+use std::sync::Arc;
+
+#[derive(Clone, Debug)]
+pub struct RdPerm {
+    pub meta: Metadata,
+}
+impl RdPerm {
+    pub fn expression(self) -> Exp {
+        let meta = self.meta.clone();
+        Exp::new(ExpKind::Extension(ExtensionExpHandle(Arc::new(self))), meta)
+    }
+    pub fn pretty(&self) -> &'static str {
+        "rd"
+    }
+    pub fn verify_unlowered(&self) -> Result<(), &'static str> {
+        Err("abstract read permission must be lowered before verification")
+    }
+}
+impl ExtensionExp for RdPerm {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn equals(&self, other: &dyn ExtensionExp) -> bool {
+        other.as_any().is::<Self>()
+    }
+    fn typ(&self) -> Type {
+        Type::Perm
+    }
+    fn is_pure(&self) -> bool {
+        true
+    }
+    fn map_expressions(
+        &self,
+        _: &dyn Fn(&Exp) -> Result<Exp, crate::verifier::verification_result::DiagnosticError>,
+    ) -> Result<ExtensionExpHandle, crate::verifier::verification_result::DiagnosticError> {
+        Ok(ExtensionExpHandle(Arc::new(self.clone())))
+    }
+    fn subnodes(&self) -> Result<Vec<Node>, TraversalError> {
+        Ok(Vec::new())
+    }
+}

@@ -56,6 +56,9 @@ pub struct PRefute {
     pub pos: Span,
 }
 impl PExtender for PRefute {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
     fn subnodes(&self) -> Vec<PNodeHandle> {
         vec![self.keyword.node().clone(), self.expression.node().clone()]
     }

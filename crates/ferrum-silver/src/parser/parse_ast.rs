@@ -332,6 +332,7 @@ pub enum PNodeKind {
 /// Syntax extensions supply their real ordered child handles; typecheck/translation hooks are
 /// added when their parser and verifier interfaces are available.
 pub trait PExtender: std::fmt::Debug + Send + Sync {
+    fn as_any(&self) -> &dyn std::any::Any;
     fn subnodes(&self) -> Vec<PNodeHandle>;
     fn scope_id(&self) -> Option<PScopeId> {
         None
