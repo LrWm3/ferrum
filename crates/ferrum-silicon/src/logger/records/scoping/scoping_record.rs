@@ -19,4 +19,16 @@
 //! Open decisions:
 //! Agree on clock and scope-ID representation with logger.
 //!
-//! Status: description only; implementation has not started.
+//! Status: scope reference and timestamp contract implemented.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2019 ETH Zurich.
+
+use crate::logger::records::symbolic_record::SymbolicRecord;
+pub trait ScopingRecord: SymbolicRecord {
+    fn ref_id(&self) -> i32;
+    fn time_ms(&self) -> i64;
+    fn set_time_ms(&self, time: i64);
+}

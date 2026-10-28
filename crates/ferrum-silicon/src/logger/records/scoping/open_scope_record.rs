@@ -19,4 +19,68 @@
 //! Open decisions:
 //! Agree on scope nesting and matching with symb_ex_logger.
 //!
-//! Status: description only; implementation has not started.
+//! Status: scope reference, timestamp and report data implemented.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2019 ETH Zurich.
+
+use super::scoping_record::ScopingRecord;
+use crate::logger::{
+    log_config::LogConfig,
+    records::{
+        record_data::RecordData,
+        symbolic_record::{RecordError, RecordHeader, RecordRenderer, SymbolicRecord},
+    },
+};
+use std::sync::atomic::{AtomicI64, Ordering};
+pub struct OpenScopeRecord {
+    pub header: RecordHeader,
+    pub ref_id: i32,
+    time_ms: AtomicI64,
+}
+impl OpenScopeRecord {
+    pub fn new(record: &dyn crate::logger::records::data::data_record::DataRecord) -> Self {
+        Self::from_ref_id(record.id())
+    }
+    fn from_ref_id(ref_id: i32) -> Self {
+        Self {
+            header: RecordHeader::default(),
+            ref_id,
+            time_ms: AtomicI64::new(0),
+        }
+    }
+}
+impl SymbolicRecord for OpenScopeRecord {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn header(&self) -> &RecordHeader {
+        &self.header
+    }
+    fn type_string(&self) -> &'static str {
+        "open"
+    }
+    fn simple_string(&self, _: &dyn RecordRenderer) -> Result<String, RecordError> {
+        Ok(self.ref_id.to_string())
+    }
+    fn get_data(&self, _: &LogConfig, _: &dyn RecordRenderer) -> Result<RecordData, RecordError> {
+        Ok(RecordData {
+            ref_id: Some(self.ref_id),
+            time_ms: Some(self.time_ms()),
+            ..Default::default()
+        })
+    }
+}
+impl ScopingRecord for OpenScopeRecord {
+    fn ref_id(&self) -> i32 {
+        self.ref_id
+    }
+    fn time_ms(&self) -> i64 {
+        self.time_ms.load(Ordering::Relaxed)
+    }
+    fn set_time_ms(&self, time: i64) {
+        self.time_ms.store(time, Ordering::Relaxed);
+    }
+}

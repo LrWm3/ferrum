@@ -19,4 +19,16 @@
 //! Open decisions:
 //! Agree on member record mutation and query lifetime with logger.
 //!
-//! Status: description only; implementation has not started.
+//! Status: member failed-query contract and report enrichment implemented.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2019 ETH Zurich.
+
+use crate::logger::records::{data::data_record::DataRecord, symbolic_record::RecordError};
+use crate::state::terms::Term;
+pub trait MemberRecord: DataRecord {
+    fn last_failed_query(&self) -> Result<Option<Term>, RecordError>;
+    fn set_last_failed_query(&self, query: Option<Term>) -> Result<(), RecordError>;
+}

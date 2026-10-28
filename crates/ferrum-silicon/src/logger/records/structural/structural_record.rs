@@ -19,4 +19,11 @@
 //! Open decisions:
 //! Agree on record enum or trait representation with logger.
 //!
-//! Status: description only; implementation has not started.
+//! Status: structural record marker implemented.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2019 ETH Zurich.
+
+pub trait StructuralRecord: super::super::symbolic_record::SymbolicRecord {}
