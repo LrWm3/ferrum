@@ -49,6 +49,9 @@ distinguish semantic requirements, adopted interfaces and open design choices.
   process-wide strong pool, preserving reuse across verifier contexts. Each term
   keeps a stable equality mode; reject mixing modes in one graph. Recursive
   construction happens before locking the pool. Nonflyweight equality is structural.
+  Source case-object terms retain singleton identity within each equality mode.
+  Resource keys retain full AST equality; their provisional coarse hashes use
+  only equality-invariant tags/names, allowing collisions without merging keys.
 - Bundled resources are copied unchanged from pinned `src/main/resources` trees,
   embedded in each crate and covered by SHA-256 entries in `resources.toml`.
   Preamble reading accepts a resource provider; missing resources are errors.

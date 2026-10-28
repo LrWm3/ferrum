@@ -33,6 +33,107 @@
 //! continuations, snapshots and solver context; preserve source behavior.
 //!
 //! Open decisions:
-//! Chunk identity, expression pairing and wand structural indexing with heap and state.
+//! Chunk representation and expression pairing with heap and state remain open.
 //!
-//! Status: description only; implementation has not started.
+//! Status: chunk identifier representations and program-based wand indexing are
+//! implemented; chunk implementations remain pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2019 ETH Zurich.
+
+use ferrum_silver::ast::expression::{Exp, ExpKind};
+use ferrum_silver::ast::program::Program;
+use ferrum_silver::ast::utility::expressions::MagicWandError;
+use std::fmt;
+use std::hash::{Hash, Hasher};
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct BasicChunkIdentifier(pub String);
+impl fmt::Display for BasicChunkIdentifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Equality is deliberately only the program's wand-structure index, as upstream.
+/// The retained expression is used for source positions, not equality.
+#[derive(Clone, Debug)]
+pub struct MagicWandIdentifier {
+    pub ghost_free_wand: Exp,
+    pub structure_index: i32,
+}
+impl MagicWandIdentifier {
+    /// Compute the program-local structure index, retaining -1 if the structure is absent.
+    pub fn new(ghost_free_wand: Exp, program: &Program) -> Result<Self, MagicWandError> {
+        let structure = ghost_free_wand.magic_wand_structure(program, false)?;
+        let structures = program.magic_wand_structures()?;
+        let index = structures
+            .iter()
+            .position(|candidate| candidate == &structure)
+            .map_or(-1, |i| {
+                i32::try_from(i).expect("too many magic wand structures")
+            });
+        Ok(Self::from_structure_index(ghost_free_wand, index))
+    }
+    /// Use the structure index computed from the Silver program (including -1 when absent).
+    pub fn from_structure_index(ghost_free_wand: Exp, structure_index: i32) -> Self {
+        assert!(
+            matches!(ghost_free_wand.kind(), ExpKind::MagicWand(..)),
+            "expected a magic wand expression"
+        );
+        Self {
+            ghost_free_wand,
+            structure_index,
+        }
+    }
+}
+impl PartialEq for MagicWandIdentifier {
+    fn eq(&self, other: &Self) -> bool {
+        self.structure_index == other.structure_index
+    }
+}
+impl Eq for MagicWandIdentifier {}
+impl Hash for MagicWandIdentifier {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.structure_index.hash(state);
+    }
+}
+impl fmt::Display for MagicWandIdentifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "wand@{}", self.structure_index)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ferrum_silver::ast::ast::Metadata;
+
+    #[test]
+    fn wand_identity_is_the_program_structure_index() {
+        let truth = Exp::new(ExpKind::TrueLit, Metadata::default());
+        let wand = Exp::new(
+            ExpKind::MagicWand(truth.clone(), truth),
+            Metadata::default(),
+        );
+        let a = MagicWandIdentifier::from_structure_index(wand.clone(), -1);
+        let b = MagicWandIdentifier::from_structure_index(wand.clone(), -1);
+        let c = MagicWandIdentifier::from_structure_index(wand, 0);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert_eq!(a.to_string(), "wand@-1");
+        let program = Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Metadata::default(),
+        );
+        let absent = MagicWandIdentifier::new(a.ghost_free_wand.clone(), &program).unwrap();
+        assert_eq!(absent.structure_index, -1);
+    }
+}

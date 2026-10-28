@@ -42,8 +42,8 @@ Silicon's term equality consults the global flyweight configuration. Rust terms
 will retain the mode chosen at construction, with process-wide strong flyweight
 pooling and structural nonflyweight equality. Mixing modes in one graph is rejected
 to preserve a stable, symmetric `Eq`/`Hash` contract. Configuration remains explicit;
-this does not normalize formulas or change solver encodings. This boundary is
-being implemented and still needs term/cache integration checks.
+this does not normalize formulas or change solver encodings. Focused tests cover singleton identity, declaration equivalence and mixed-mode
+rejection. Full term/cache and solver integration checks remain.
 
 ## Native resource loading
 

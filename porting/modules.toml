@@ -1595,7 +1595,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/state/Chunks.scala"
 destination = "crates/ferrum-silicon/src/state/chunks.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Chunk and magic-wand identifiers exist, using actual AST canonicalization and cached program structures; chunk representations and operations remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1613,7 +1614,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/state/Identifiers.scala"
 destination = "crates/ferrum-silicon/src/state/identifiers.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Identifier variants and fresh names exist; sort templates support source-used %s and %% forms, not arbitrary Java Formatter directives."]
 
 [[modules]]
 repository = "silicon"
@@ -1643,7 +1645,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/state/Terms.scala"
 destination = "crates/ferrum-silicon/src/state/terms.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Sorts, term factories, declarations, collections, resource-keyed nodes and partial quantifier/traversal operations exist; chunk-backed wand terms, complete transform controls and display remain. Traversal helpers from state/utils.scala currently reside here and require reconciliation."]
 
 [[modules]]
 repository = "silicon"
