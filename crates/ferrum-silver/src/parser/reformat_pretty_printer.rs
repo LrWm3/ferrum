@@ -1,8 +1,8 @@
 //! Parse-tree reformatting and trivia preservation.
 //! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/parser/ReformatPrettyPrinter.scala
 //! Status: partial; trivia scanning, whitespace merging, grouping, nesting and
-//! typed parser adapter and concrete leaf/group/program dispatch are implemented.
-//! Other parse-node `reformatSuper` rules and exact upstream layout remain pending.
+//! typed parser adapter and standard parse-product dispatch are implemented. Plugin extensions,
+//! internal function-type formatting and broader source compatibility remain incomplete.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -428,6 +428,91 @@ pub fn show_program<A: ReformatAdapter>(
 mod tests {
     use super::*;
     #[test]
+    fn reformats_standard_members_statements_specs_and_comments() {
+        let source = "// header\nfield f: Int\nmethod test(x:Int) returns(y:Int)\n  requires x>0\n  ensures y == x + 1\n{\n  var a:Int:= (x+1); // assign\n  y:=a\n  assert (y>0)\n}\n";
+        let program = crate::parser::fast_parser::parse_program(source, "test.vpr").unwrap();
+        assert_eq!(
+            show_program(program.node(), &LeafReformatAdapter).unwrap(),
+            "// header\nfield f: Int\nmethod test(x: Int) returns (y: Int)\n    requires x > 0\n    ensures y == x + 1\n{\n    var a: Int := (x + 1);\n    // assign\n    y := a\n    assert (y > 0)\n}\n"
+        );
+    }
+    #[test]
+    fn reformats_quantifier_triggers_and_integer_leaf_brackets() {
+        let source = "domain D { function f(x:Int):Int\naxiom name { forall x:Int :: {f(x)} f(x)==x }\n}\nmethod m() { assert (1) == 1 }\n";
+        let program = crate::parser::fast_parser::parse_program(source, "test.vpr").unwrap();
+        assert_eq!(
+            show_program(program.node(), &LeafReformatAdapter).unwrap(),
+            "domain D {\n    function f(x: Int): Int\n    axiom name {\n        forall x: Int :: { f(x) } f(x) == x\n    }\n}\nmethod m() {\n    assert 1 == 1\n}\n"
+        );
+    }
+    #[test]
+    fn reformats_opted_in_plugin_products() {
+        use crate::parser::fast_parser::{ParserFeature, parse_program_with_features};
+        let source = "predicate P(x:Ref) {true}\nmethod m(r:Ref) {\n  refute (true); unreachable\n  var p:Perm := rd\n  assert #P(r) == #P(r)\n}\n";
+        let program = parse_program_with_features(
+            source,
+            "test.vpr",
+            &[
+                ParserFeature::Refute,
+                ParserFeature::Unreachable,
+                ParserFeature::Arp,
+                ParserFeature::PredicateInstance,
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            show_program(program.node(), &LeafReformatAdapter).unwrap(),
+            "predicate P(x: Ref) {\n    true\n}\nmethod m(r: Ref) {\n    refute (true);\n    unreachable\n    var p: Perm := rd\n    assert #P(r) == #P(r)\n}\n"
+        );
+    }
+    #[test]
+    fn unknown_extension_stays_explicitly_unsupported() {
+        #[derive(Debug)]
+        struct Unknown;
+        impl crate::parser::parse_ast::PExtender for Unknown {
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
+            fn subnodes(&self) -> Vec<PNodeHandle> {
+                vec![]
+            }
+        }
+        let stmt = crate::parser::parse_ast::PStmtHandle::new(
+            crate::parser::parse_ast::PStatement {
+                kind: crate::parser::parse_ast::PStatementKind::Extension(std::sync::Arc::new(
+                    Unknown,
+                )),
+            },
+            (Position::NoPosition, Position::NoPosition),
+        );
+        assert!(matches!(
+            show_node(stmt.node(), &LeafReformatAdapter),
+            Err(ReformatError::Adapter(LeafReformatError::Unsupported(_)))
+        ));
+    }
+    #[test]
+    fn sif_source_product_reformatter_omits_non_product_tokens() {
+        use crate::parser::fast_parser::{ParserFeature, parse_program_with_features};
+        let source = "method m(x:Int) { assert low(x); assert lowEvent; assert rel(x,0)==x; }\n";
+        let program =
+            parse_program_with_features(source, "test.vpr", &[ParserFeature::Sif]).unwrap();
+        assert_eq!(
+            show_program(program.node(), &LeafReformatAdapter).unwrap(),
+            "method m(x: Int) {\n    assert x;\n    assert ;\n    assert x0 == x;\n}\n"
+        );
+    }
+    #[test]
+    fn termination_product_uses_typed_keyword_padding() {
+        use crate::parser::fast_parser::{ParserFeature, parse_program_with_features};
+        let source = "method m(x:Int) decreases _ if x>0 {}\nmethod n(x:Int) decreases x,x+1 if x>0 {}\nmethod p() decreases * {}\n";
+        let program =
+            parse_program_with_features(source, "test.vpr", &[ParserFeature::Termination]).unwrap();
+        assert_eq!(
+            show_program(program.node(), &LeafReformatAdapter).unwrap(),
+            "method m(x: Int)\n    decreases _ if x > 0\n{}\nmethod n(x: Int)\n    decreases x, x + 1 if x > 0\n{}\nmethod p()\n    decreases *\n{}\n"
+        );
+    }
+    #[test]
     fn trivia_keeps_comments_and_restores_line_comment_break() {
         let mut context = ReformatterContext::new("  // note\n\nnext", None);
         let trivia = context.get_trivia_by_offset::<()>(11, 11).unwrap().unwrap();
@@ -495,9 +580,28 @@ mod tests {
     }
 }
 
-/// Concrete dispatch for source leaf nodes and the program member list. Other
-/// parse-node families return Unsupported until their custom reformat rules land.
+/// Concrete source product and syntax dispatch. Extension-specific rules remain fallible.
 pub struct LeafReformatAdapter;
+struct ExtensionProductAdapter<'a> {
+    base: &'a LeafReformatAdapter,
+    extension: &'a dyn super::parse_ast::PExtender,
+}
+impl ReformatAdapter for ExtensionProductAdapter<'_> {
+    type Error = LeafReformatError;
+    fn formatting(&self, node: &PNodeHandle) -> Result<Formatting, Self::Error> {
+        match self.extension.reformat_child_formatting(node) {
+            Some(formatting) => Ok(formatting),
+            None => self.base.formatting(node),
+        }
+    }
+    fn reformat(
+        &self,
+        node: &PNodeHandle,
+        context: &mut ReformatterContext<'_>,
+    ) -> Result<Vec<RNode>, Self::Error> {
+        self.base.reformat(node, context)
+    }
+}
 #[derive(Debug)]
 pub enum LeafReformatError {
     Unsupported(&'static str),
@@ -522,6 +626,7 @@ impl ReformatAdapter for LeafReformatAdapter {
         enum Kind {
             Token(PToken),
             Group(Option<PNodeHandle>),
+            LeftSpace,
             Other,
         }
         let kind = {
@@ -529,6 +634,12 @@ impl ReformatAdapter for LeafReformatAdapter {
             match &guard.kind {
                 PNodeKind::Reserved(token) => Kind::Token(token.clone()),
                 PNodeKind::Grouped { children } => Kind::Group(children.first().cloned()),
+                PNodeKind::BracedExp { .. }
+                | PNodeKind::PermTrigger { .. }
+                | PNodeKind::DefineInner { .. }
+                | PNodeKind::Statement(super::parse_ast::PStatement {
+                    kind: super::parse_ast::PStatementKind::Seqn { .. },
+                }) => Kind::LeftSpace,
                 _ => Kind::Other,
             }
         };
@@ -555,6 +666,10 @@ impl ReformatAdapter for LeafReformatAdapter {
                     ..Default::default()
                 }
             }
+            Kind::LeftSpace => Formatting {
+                left: Some(Pad::Space),
+                ..Default::default()
+            },
             _ => Formatting::default(),
         })
     }
@@ -570,6 +685,11 @@ impl ReformatAdapter for LeafReformatAdapter {
             Group(Vec<PNodeHandle>),
             Delimited(super::parse_ast::PDelimitedNewlineParts),
             Children(Vec<PNodeHandle>, bool),
+            Product(bool),
+            Expression(Option<String>, bool),
+            Specs(Vec<PNodeHandle>),
+            Trigger(Vec<PNodeHandle>),
+            DomainInterpretations(Vec<PNodeHandle>),
             Unsupported,
         }
         let work = {
@@ -602,6 +722,62 @@ impl ReformatAdapter for LeafReformatAdapter {
                     None => Work::Children(children.clone(), false),
                 },
                 PNodeKind::Annotation { children } => Work::Children(children.clone(), true),
+                PNodeKind::Specs { children } => Work::Specs(children.clone()),
+                PNodeKind::Trigger { children } => Work::Trigger(children.clone()),
+                PNodeKind::DomainInterpretations { children } => {
+                    Work::DomainInterpretations(children.clone())
+                }
+                PNodeKind::Type(super::parse_ast::PTypeKind::Unknown) => {
+                    Work::Leaf("<error>".into(), guard.pos.clone())
+                }
+                PNodeKind::Type(super::parse_ast::PTypeKind::BoolImpure) => {
+                    Work::Leaf("<impure>".into(), guard.pos.clone())
+                }
+                PNodeKind::Type(super::parse_ast::PTypeKind::BoolWand) => {
+                    Work::Leaf("<wand>".into(), guard.pos.clone())
+                }
+                PNodeKind::Type(super::parse_ast::PTypeKind::BoolPredicate) => {
+                    Work::Leaf("<predicate>".into(), guard.pos.clone())
+                }
+                PNodeKind::Type(super::parse_ast::PTypeKind::Function { .. }) => Work::Unsupported,
+                PNodeKind::Expression(expression) => match &expression.kind {
+                    super::parse_ast::PExpressionKind::Extension(extension)
+                        if extension.reformat_as_product() =>
+                    {
+                        Work::Expression(None, false)
+                    }
+                    super::parse_ast::PExpressionKind::Extension(_) => Work::Unsupported,
+                    super::parse_ast::PExpressionKind::IntLit(value) => {
+                        Work::Leaf(value.to_string(), guard.pos.clone())
+                    }
+                    super::parse_ast::PExpressionKind::VersionedIdnUse { idnref, .. } => {
+                        Work::Expression(Some(idnref.name.clone()), false)
+                    }
+                    super::parse_ast::PExpressionKind::BinExp { .. }
+                    | super::parse_ast::PExpressionKind::MagicWandExp { .. } => {
+                        Work::Expression(None, true)
+                    }
+                    _ => Work::Expression(None, false),
+                },
+                PNodeKind::Statement(super::parse_ast::PStatement {
+                    kind: super::parse_ast::PStatementKind::Extension(extension),
+                }) if extension.reformat_as_product() => Work::Product(false),
+                PNodeKind::Extension(extension) if extension.reformat_as_product() => {
+                    Work::Product(false)
+                }
+                PNodeKind::Statement(super::parse_ast::PStatement {
+                    kind: super::parse_ast::PStatementKind::Extension(_),
+                })
+                | PNodeKind::Member(super::parse_ast::PMember {
+                    kind: super::parse_ast::PMemberKind::Extension(_),
+                    ..
+                }) => Work::Unsupported,
+                PNodeKind::Type(_)
+                | PNodeKind::Statement(_)
+                | PNodeKind::Declaration(_)
+                | PNodeKind::DomainMember(_)
+                | PNodeKind::LetNestedScope { .. } => Work::Product(false),
+                PNodeKind::Member(_) => Work::Product(true),
                 PNodeKind::PairArgument { children }
                 | PNodeKind::MaybePairArgument { children }
                 | PNodeKind::StringLiteral { children }
@@ -650,6 +826,122 @@ impl ReformatAdapter for LeafReformatAdapter {
             }
             Work::Children(children, end_linebreak) => {
                 reformat_subnodes(&children, end_linebreak, context, self).map_err(leaf_error)
+            }
+            Work::Product(end_linebreak) => {
+                let children = super::parse_ast::subnodes(node)
+                    .map_err(|_| LeafReformatError::Unsupported("parse product traversal"))?;
+                reformat_subnodes(&children, end_linebreak, context, self).map_err(leaf_error)
+            }
+            Work::Expression(leaf, group) => {
+                let expression = super::parse_ast::PExpHandle::from_node(node.clone())
+                    .map_err(|_| LeafReformatError::Unsupported("expression node"))?;
+                let brackets = expression.brackets();
+                let mut out = Vec::new();
+                if let Some(brackets) = &brackets {
+                    out.extend(self.reformat(brackets.left.node(), context)?);
+                }
+                let mut body = Vec::new();
+                if let Some(leaf) = leaf {
+                    let pos = node
+                        .read()
+                        .map_err(|_| LeafReformatError::PoisonedNode)?
+                        .pos
+                        .clone();
+                    if let Some(trivia) = context
+                        .get_trivia::<Self::Error>(&pos.0, &pos.1)
+                        .map_err(leaf_error)?
+                    {
+                        body.push(RNode::Trivia(trivia));
+                    }
+                    body.push(RNode::Text(leaf));
+                } else {
+                    let children = super::parse_ast::subnodes(node).map_err(|_| {
+                        LeafReformatError::Unsupported("expression product traversal")
+                    })?;
+                    let extension = match &node
+                        .read()
+                        .map_err(|_| LeafReformatError::PoisonedNode)?
+                        .kind
+                    {
+                        PNodeKind::Expression(super::parse_ast::PExpression {
+                            kind: super::parse_ast::PExpressionKind::Extension(extension),
+                            ..
+                        }) => Some(extension.clone()),
+                        _ => None,
+                    };
+                    if let Some(extension) = extension {
+                        let adapter = ExtensionProductAdapter {
+                            base: self,
+                            extension: extension.as_ref(),
+                        };
+                        body.extend(
+                            reformat_subnodes(&children, false, context, &adapter)
+                                .map_err(leaf_error)?,
+                        );
+                    } else {
+                        body.extend(
+                            reformat_subnodes(&children, false, context, self)
+                                .map_err(leaf_error)?,
+                        );
+                    }
+                }
+                if group {
+                    out.push(RNode::Group(body));
+                } else {
+                    out.extend(body);
+                }
+                if let Some(brackets) = &brackets {
+                    out.extend(self.reformat(brackets.right.node(), context)?);
+                }
+                Ok(out)
+            }
+            Work::Specs(children) => {
+                let Some(delimited) = children.first() else {
+                    return Ok(vec![]);
+                };
+                let empty = matches!(&delimited.read().map_err(|_| LeafReformatError::PoisonedNode)?.kind, PNodeKind::Delimited { children, .. } if children.is_empty());
+                if empty {
+                    return Ok(vec![]);
+                }
+                let mut nested = vec![RNode::Whitespace(RWhitespace::Line)];
+                nested.extend(self.reformat(delimited, context)?);
+                Ok(vec![
+                    RNode::Nest(nested),
+                    RNode::Whitespace(RWhitespace::LineBreak),
+                ])
+            }
+            Work::Trigger(children) => {
+                let group = children
+                    .first()
+                    .ok_or(LeafReformatError::Unsupported("trigger group"))?;
+                let grouped = match &group
+                    .read()
+                    .map_err(|_| LeafReformatError::PoisonedNode)?
+                    .kind
+                {
+                    PNodeKind::Grouped { children } => children.clone(),
+                    _ => return Err(LeafReformatError::Unsupported("trigger group")),
+                };
+                if grouped.len() != 3 {
+                    return Err(LeafReformatError::Unsupported("trigger group shape"));
+                }
+                let mut out = self.reformat(&grouped[0], context)?;
+                out.push(RNode::Whitespace(RWhitespace::Space));
+                out.extend(self.reformat(&grouped[1], context)?);
+                out.push(RNode::Whitespace(RWhitespace::Space));
+                out.extend(self.reformat(&grouped[2], context)?);
+                out.push(RNode::Whitespace(RWhitespace::Space));
+                Ok(out)
+            }
+            Work::DomainInterpretations(children) => {
+                let mut nested = vec![RNode::Whitespace(RWhitespace::LineBreak)];
+                nested.extend(
+                    reformat_subnodes(&children, false, context, self).map_err(leaf_error)?,
+                );
+                Ok(vec![
+                    RNode::Nest(nested),
+                    RNode::Whitespace(RWhitespace::LineBreak),
+                ])
             }
             Work::Group(children) => {
                 use super::parse_ast_keyword::{PSym, PToken};

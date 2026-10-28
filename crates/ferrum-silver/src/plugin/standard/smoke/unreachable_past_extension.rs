@@ -52,6 +52,9 @@ pub struct PUnreachable {
     pub pos: Span,
 }
 impl PExtender for PUnreachable {
+    fn reformat_as_product(&self) -> bool {
+        true
+    }
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

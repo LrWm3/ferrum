@@ -61,6 +61,9 @@ impl PExtender for PTryBlock {
     fn as_any(&self) -> &dyn Any {
         self
     }
+    fn reformat_as_product(&self) -> bool {
+        true
+    }
     fn copy_macro_statement(
         &self,
         copy: &dyn Fn(

@@ -60,8 +60,22 @@ mod tests {
     use ferrum_silver::ast::statement::StmtKind;
     use ferrum_silver::frontend::frontend::FrontendPhases;
     use ferrum_silver::frontend::sil_frontend::SilFrontendPhases;
+    use ferrum_silver::parser::reformat_pretty_printer::{LeafReformatAdapter, show_program};
     use ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager;
     use std::path::PathBuf;
+
+    #[test]
+    fn reformats_nested_try_blocks_like_source() {
+        let plugins = SilverPluginManager::new(vec![Box::new(TryBlockParserPlugin)]);
+        let mut phases = SilFrontendPhases::new(PathBuf::from("test.vpr"), plugins);
+        let parsed = phases
+            .parse("method m(){try{assert true;} try {try { assert false; }}}")
+            .unwrap();
+        assert_eq!(
+            show_program(parsed.node(), &LeafReformatAdapter).unwrap(),
+            "method m() {\n    try {\n        assert true;\n    }\n    try {\n        try {\n            assert false;\n        }\n    }\n}"
+        );
+    }
 
     #[test]
     fn try_block_is_duplicated_inside_macro_expansion() {

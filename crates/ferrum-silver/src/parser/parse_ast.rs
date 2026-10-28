@@ -367,6 +367,17 @@ pub enum PNodeKind {
 pub trait PExtender: std::fmt::Debug + Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
     fn subnodes(&self) -> Vec<PNodeHandle>;
+    /// Opt in only when the source extension uses PNode's default product reformatter.
+    fn reformat_as_product(&self) -> bool {
+        false
+    }
+    /// Preserve padding for immediate expression-extension children whose token type was erased.
+    fn reformat_child_formatting(
+        &self,
+        _child: &PNodeHandle,
+    ) -> Option<super::parse_ast_keyword::Formatting> {
+        None
+    }
     /// Rebuild an extension expression with hygienic typed child and name copying.
     fn copy_macro_expression(
         &self,

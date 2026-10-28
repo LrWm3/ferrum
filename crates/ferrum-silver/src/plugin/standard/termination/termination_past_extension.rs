@@ -122,6 +122,27 @@ pub struct PDecreasesClause {
     pub pos: Span,
 }
 impl PExtender for PDecreasesClause {
+    fn reformat_as_product(&self) -> bool {
+        true
+    }
+    fn reformat_child_formatting(&self, child: &PNodeHandle) -> Option<Formatting> {
+        let condition = match &self.kind {
+            PDecreasesKind::Tuple { condition, .. } => condition.as_ref(),
+            PDecreasesKind::Wildcard {
+                wildcard,
+                condition,
+            } => {
+                if Arc::ptr_eq(wildcard.node(), child) {
+                    return Some(wildcard.value().formatting());
+                }
+                condition.as_ref()
+            }
+            PDecreasesKind::Star { .. } => None,
+        };
+        condition.and_then(|(keyword, _)| {
+            Arc::ptr_eq(keyword.node(), child).then(|| keyword.value().formatting())
+        })
+    }
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

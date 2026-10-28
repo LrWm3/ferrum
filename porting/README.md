@@ -343,3 +343,12 @@ failures return errors. Cloned CFG handles share their output filename identity.
 A selected conditional-method dump matched the pinned JVM output byte for byte.
 Focused checks cover method filtering, output errors and standalone CFG dumps
 with one/two workers.
+
+The parse reformatter now handles ordinary members, statements, types, expressions,
+specifications, triggers and comments, plus opted-in refute, smoke, ARP, predicate
+instance, SIF, termination and TryBlock products. Twenty-two bounded formatting
+comparisons match the pinned JVM (18 ordinary cases and four plugin groups).
+Unknown extensions, internal function-type formatting and ADT syntax provenance
+remain incomplete. Source quirks are retained: SIF low/lowEvent/rel parse products
+lose their keyword/punctuation in the source formatter and can produce malformed
+text; this change does not silently repair that source behavior.

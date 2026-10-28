@@ -56,6 +56,9 @@ pub struct PRdPerm {
     pub pos: Span,
 }
 impl PExtender for PRdPerm {
+    fn reformat_as_product(&self) -> bool {
+        true
+    }
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
