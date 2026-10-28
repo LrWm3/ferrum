@@ -765,17 +765,17 @@ impl LinkedZ3 {
         }
         Ok(result)
     }
-    pub fn reason_unknown(&self) -> Result<String, NativeZ3Error> {
+    pub fn reason_unknown(&self) -> Result<Option<String>, NativeZ3Error> {
         let text = unsafe { Z3_solver_get_reason_unknown(self.context.0, self.solver) };
         self.checked()?;
         if text.is_null() {
-            return Err(NativeZ3Error::Solver(
-                "Z3 returned no unknown reason".into(),
-            ));
+            return Ok(None);
         }
-        Ok(unsafe { CStr::from_ptr(text) }
-            .to_string_lossy()
-            .into_owned())
+        Ok(Some(
+            unsafe { CStr::from_ptr(text) }
+                .to_string_lossy()
+                .into_owned(),
+        ))
     }
     /// Z3's one-shot check-under-assumptions, used by source soft assertions.
     pub fn check_assumptions(&self, assumptions: &[Handle]) -> Result<SatResult, NativeZ3Error> {
@@ -1485,7 +1485,6 @@ pub enum LinkedProverError {
     AlreadyStarted,
     Unsupported(&'static str),
     NoModel,
-    NoReasonUnknown,
     OperationAndCleanup {
         operation: Box<LinkedProverError>,
         cleanup: Box<LinkedProverError>,
@@ -1656,7 +1655,7 @@ impl LinkedZ3Prover {
                 None
             };
             let reason = if !proved && want_reason {
-                Some(session.converter.context.reason_unknown()?)
+                session.converter.context.reason_unknown()?
             } else {
                 None
             };
@@ -1890,10 +1889,8 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
             .model_from_retained(model)
             .map_err(Into::into)
     }
-    fn get_reason_unknown(&mut self) -> Result<String, Self::Error> {
-        self.last_reason_unknown
-            .clone()
-            .ok_or(LinkedProverError::NoReasonUnknown)
+    fn get_reason_unknown(&mut self) -> Result<Option<String>, Self::Error> {
+        Ok(self.last_reason_unknown.clone())
     }
     fn clear_last_assert(&mut self) {
         self.last_model = None;
@@ -1946,6 +1943,49 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn linked_soft_assertion_reason_remains_absent() {
+        use crate::{
+            interfaces::decider::prover::Prover,
+            state::terms::{TermFactory, TermOptions},
+        };
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        for soft in [false, true] {
+            let options = LinkedProverOptions {
+                timeout: super::super::z3_prover_api::ApiTimeoutSettings {
+                    default_timeout_ms: 0,
+                    use_time_bounds: true,
+                    resources_per_millisecond: 1,
+                },
+                counterexamples: false,
+                report_reason_unknown: true,
+                debug: false,
+                soft_assertions: soft,
+                custom_options: vec![],
+                disable_nonlinear: false,
+            };
+            let mut prover = LinkedZ3Prover::new("reason", factory.clone(), options);
+            prover.start(None).unwrap();
+            assert_eq!(prover.get_reason_unknown().unwrap(), None);
+            assert!(!prover.assert_goal(&factory.boolean(false), None).unwrap());
+            assert_eq!(prover.get_reason_unknown().unwrap().is_some(), !soft);
+            if soft {
+                prover.last_reason_unknown = Some("prior".into());
+                assert!(!prover.assert_goal(&factory.boolean(false), None).unwrap());
+                assert_eq!(
+                    prover.get_reason_unknown().unwrap().as_deref(),
+                    Some("prior")
+                );
+            }
+            prover.clear_last_assert();
+            assert_eq!(prover.get_reason_unknown().unwrap(), None);
+            prover.stop().unwrap();
+        }
+    }
     #[test]
     fn interrupt_unblocks_solver_and_context_lifetime_is_synchronized() {
         use std::time::Duration;

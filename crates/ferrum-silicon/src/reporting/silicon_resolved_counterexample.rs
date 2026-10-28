@@ -1399,6 +1399,16 @@ mod tests {
         let mapped =
             build_counterexample(&model, &state, CounterexampleKind::Mapped, &converter).unwrap();
         assert!(mapped.render().unwrap().contains("x <- 7"));
+        let absent =
+            SiliconFailureContext::from_transformed_with_reason(vec![], None, None, Some(None))
+                .unwrap();
+        assert!(absent.reason_was_requested());
+        assert_eq!(absent.reason_unknown(), None);
+        assert_eq!(absent.render(), "\nPotential prover incompleteness: null");
+        let disabled =
+            SiliconFailureContext::from_transformed_with_reason(vec![], None, None, None).unwrap();
+        assert!(!disabled.reason_was_requested());
+        assert_eq!(disabled.render(), "");
     }
     #[test]
     fn extracts_domain_and_heap_function_model_entries() {
@@ -1883,7 +1893,7 @@ pub struct SiliconFailureContext {
     counterexample:
         Option<std::sync::Arc<dyn ferrum_silver::verifier::verification_error::Counterexample>>,
     counterexample_display: Option<String>,
-    reason_unknown: Option<String>,
+    reason_unknown: Option<Option<String>>,
     rendered: String,
 }
 impl SiliconFailureContext {
@@ -1898,6 +1908,24 @@ impl SiliconFailureContext {
         >,
         reason_unknown: Option<String>,
     ) -> Result<Self, String> {
+        Self::from_transformed_with_reason(
+            branch_conditions,
+            counterexample,
+            transformer,
+            reason_unknown.map(Some),
+        )
+    }
+    /// Outer None means reporting disabled; Some(None) preserves source Some(null).
+    pub fn from_transformed_with_reason(
+        branch_conditions: Vec<Exp>,
+        counterexample: Option<
+            std::sync::Arc<dyn ferrum_silver::verifier::verification_error::Counterexample>,
+        >,
+        transformer: Option<
+            &ferrum_silver::verifier::verification_error::CounterexampleTransformer,
+        >,
+        reason_unknown: Option<Option<String>>,
+    ) -> Result<Self, String> {
         let counterexample = match (counterexample, transformer) {
             (Some(value), Some(transform)) => Some(transform(value)?),
             (value, _) => value,
@@ -1906,7 +1934,7 @@ impl SiliconFailureContext {
             .as_ref()
             .map(|value| value.render())
             .transpose()?;
-        Self::new(branch_conditions, counterexample, display, reason_unknown)
+        Self::new_with_reason(branch_conditions, counterexample, display, reason_unknown)
     }
     pub fn branch_conditions(&self) -> &[Exp] {
         &self.branch_conditions
@@ -1915,7 +1943,15 @@ impl SiliconFailureContext {
         self.counterexample_display.as_deref()
     }
     pub fn reason_unknown(&self) -> Option<&str> {
-        self.reason_unknown.as_deref()
+        self.reason_unknown
+            .as_ref()
+            .and_then(|reason| reason.as_deref())
+    }
+    pub fn reason_was_requested(&self) -> bool {
+        self.reason_unknown.is_some()
+    }
+    pub fn reason_unknown_status(&self) -> Option<Option<&str>> {
+        self.reason_unknown.as_ref().map(|reason| reason.as_deref())
     }
     pub fn new(
         branch_conditions: Vec<Exp>,
@@ -1924,6 +1960,21 @@ impl SiliconFailureContext {
         >,
         counterexample_display: Option<String>,
         reason_unknown: Option<String>,
+    ) -> Result<Self, String> {
+        Self::new_with_reason(
+            branch_conditions,
+            counterexample,
+            counterexample_display,
+            reason_unknown.map(Some),
+        )
+    }
+    pub fn new_with_reason(
+        branch_conditions: Vec<Exp>,
+        counterexample: Option<
+            std::sync::Arc<dyn ferrum_silver::verifier::verification_error::Counterexample>,
+        >,
+        counterexample_display: Option<String>,
+        reason_unknown: Option<Option<String>>,
     ) -> Result<Self, String> {
         if counterexample.is_some() != counterexample_display.is_some() {
             return Err("counterexample and display must both be present or absent".into());
@@ -1950,7 +2001,10 @@ impl SiliconFailureContext {
             rendered.push_str(&format!("\n\t\tcounterexample:\n{display}"));
         }
         if let Some(reason) = &reason_unknown {
-            rendered.push_str(&format!("\nPotential prover incompleteness: {reason}"));
+            rendered.push_str(&format!(
+                "\nPotential prover incompleteness: {}",
+                reason.as_deref().unwrap_or("null")
+            ));
         }
         Ok(Self {
             branch_conditions,

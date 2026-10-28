@@ -57,9 +57,17 @@ collected in source order. Warnings are drained before returning, including when
 a worker fails; each repeated Session run recreates its main solver and pool.
 Two-worker checks cover 68 function/domain/quantified-resource cases, real failing
 methods, warning delivery and repeated-run axiom isolation. Nested branch
-parallelism, active-query cancellation and advanced profiles remain incomplete;
+parallelism and advanced profiles remain incomplete;
 standalone CFG-only contributor analysis has upstream TODOs. No parallel speedup
 has been measured against upstream.
+Global `--timeout` now covers backend verification and result assembly, after
+frontend processing and solver startup. Expiry cancels pending tasks, repeatedly
+interrupts active solver calls and waits for owner-thread cleanup before returning
+`timeout.error`. Cleanup and interrupt errors remain visible as warnings. Native
+Rust operations observe cooperative checkpoints, so this is not a hard wall-clock
+bound for every preprocessing or cleanup operation. Timeout followed by reuse of
+the same Session passes with one/two workers on both transports. Pool cancellation
+checks cover blocked stdio reads, active linked queries and cleanup failures.
 
 Source consolidation modes, quantified chunk ordering and the distinct
 `disableCaches` / `disableValueMapCaching` policies now reach the native context.

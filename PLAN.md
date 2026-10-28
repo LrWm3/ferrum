@@ -56,8 +56,11 @@ compatibility still require completion and comparison.
 Explicit multiworker configuration now runs source function/predicate phases once
 and dispatches methods or supported standalone CFGs to thread-owned solvers with
 ordered preamble broadcast, result collection and warning delivery. The default
-native profile remains single-worker; nested branch parallelism, cancellation
-and advanced reporting/configuration profiles still require integration.
+native profile remains single-worker; nested branch parallelism and advanced
+reporting/configuration profiles still require integration. Global verification
+deadlines now cancel queued work, interrupt active solvers and join their owner
+threads before returning a timeout; repeated sessions recreate their solvers.
+Native Rust work observes cooperative cancellation checkpoints.
 Source consolidation, chunk-order and cache options now reach the same context,
 as do method filters with an explicitly restricted regular-expression grammar.
 Ordinary failure contexts now capture and render source counterexample views,

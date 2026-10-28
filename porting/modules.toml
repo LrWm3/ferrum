@@ -2037,7 +2037,7 @@ repository = "silicon"
 upstream = "src/main/scala/verifier/VerificationPoolManager.scala"
 destination = "crates/ferrum-silicon/src/verifier/verification_pool_manager.rs"
 status = "skeleton"
-remaining = ["Thread-owned solvers, ordered preamble broadcast, function/predicate analysis, method/CFG scheduling, source-order results, scoped reporting, warning delivery and task draining are connected. Active query cancellation, timeout orchestration and nested branch parallelism remain incomplete."]
+remaining = ["Thread-owned solvers, ordered preambles, source-order results, scoped reporting, cancellation and cleanup are connected. Active solver interruptions are latched and retried by the facade; pure Rust work remains cooperative. Nested branch parallelism and broader lifecycle compatibility remain incomplete."]
 
 [[modules]]
 repository = "silicon"
@@ -2248,7 +2248,7 @@ status = "described"
 [[scaffolding]]
 destination = "src/lib.rs"
 status = "skeleton"
-remaining = ["Native source and AST sessions run source-shaped ordinary method/heap rules with explicit lifecycle cleanup; full language, timeout/reporting and embedding compatibility remain."]
+remaining = ["Native source and AST sessions connect lifecycle cleanup, source-shaped verification and backend deadlines with active solver cancellation. Full language/reporting and embedding compatibility remain incomplete; Rust cancellation is cooperative."]
 
 [[scaffolding]]
 destination = "src/main.rs"
@@ -2568,7 +2568,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Native context connects source heap, quantified-resource and wand transfers, complete-exhale/CFG execution, counterexample/caller-store capture, branch diagnostics and function-order policies. Nested branch parallelism, CFG-only contributor analysis, cancellation/deadlines and debug profiles remain incomplete."]
+remaining = ["Native context connects source heap, quantified-resource and wand transfers, complete-exhale/CFG execution, failure capture, branch diagnostics and cooperative cancellation checkpoints. Nested branch parallelism, CFG-only contributor analysis and debug profiles remain incomplete."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"

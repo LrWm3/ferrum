@@ -112,8 +112,7 @@ impl NativeOptions {
                 "requested verifier configuration is not connected",
             ));
         }
-        if config.timeout != 0
-            || config.report_state_after.is_some()
+        if config.report_state_after.is_some()
             || config.log_config.is_some()
             || config.log_level.is_some()
             || !config.logger.is_empty()
@@ -216,6 +215,7 @@ pub enum NativeError<E> {
     Chunk(String),
     Consolidation(String),
     ContinuationAbort,
+    Cancelled,
     State(crate::state::state::StateMergeError),
     BranchTraversal(String),
     Resource(std::io::Error),
@@ -250,6 +250,7 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub factory: TermFactory,
     pub options: NativeOptions,
     pub warnings: Vec<String>,
+    cancellation: Option<crate::verifier::verification_pool_manager::CancellationController>,
     havoc_counter: u64,
     config_options: Vec<String>,
     predicate_snapshots: crate::supporters::qps::predicate_snap_generator::PredicateSnapGenerator,
@@ -270,6 +271,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             factory,
             options,
             warnings: Vec::new(),
+            cancellation: None,
             havoc_counter: 0,
             config_options: Vec::new(),
             predicate_snapshots: Default::default(),
@@ -284,6 +286,22 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             _state_types: PhantomData,
         }
     }
+    /// Install the same latched cancellation controller used by the session and workers.
+    pub fn set_cancellation(
+        &mut self,
+        cancellation: crate::verifier::verification_pool_manager::CancellationController,
+    ) {
+        self.cancellation = Some(cancellation);
+    }
+    /// Check without clearing the shared cancellation latch.
+    pub fn checkpoint(&self) -> Result<(), NativeError<S::Error>> {
+        if let Some(controller) = &self.cancellation {
+            controller
+                .checkpoint()
+                .map_err(|_| NativeError::Cancelled)?;
+        }
+        Ok(())
+    }
     /// Start the owned solver and install the source static settings and base preamble.
     /// Contributor-specific declarations and axioms must be installed separately after analysis.
     pub fn start(
@@ -291,13 +309,25 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         user_args: Option<&str>,
         config_options: &[String],
     ) -> Result<(), NativeError<S::Error>> {
+        self.checkpoint()?;
         self.base.start(user_args).map_err(NativeError::Decider)?;
+        if let Err(cancelled) = self.checkpoint() {
+            return match self.base.stop() {
+                Ok(()) => Err(cancelled),
+                Err(cleanup) => Err(NativeError::StartCleanup {
+                    primary: Box::new(cancelled),
+                    cleanup,
+                }),
+            };
+        }
         self.config_options = config_options.to_vec();
         self.install_preamble()
     }
     /// Reinitialize the solver and reinstall all static options before another verification run.
     pub fn reset(&mut self) -> Result<(), NativeError<S::Error>> {
+        self.checkpoint()?;
         self.base.reset().map_err(NativeError::Decider)?;
+        self.checkpoint()?;
         self.predicate_snapshots = Default::default();
         self.active_program = None;
         self.havoc_counter = 0;
@@ -308,6 +338,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         let reader = crate::decider::smt_lib2_preamble_reader::SmtLib2PreambleReader::default();
         let resource = self.base.decider.prover.static_preamble().to_string();
         let result = (|| {
+            self.checkpoint()?;
             let settings = reader
                 .read_preamble(&resource)
                 .map_err(NativeError::Resource)?;
@@ -316,6 +347,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
                 .prover
                 .emit_settings(&settings)
                 .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+            self.checkpoint()?;
             if !self.config_options.is_empty() {
                 self.base
                     .decider
@@ -323,9 +355,11 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
                     .emit_settings(&self.config_options)
                     .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
             }
+            self.checkpoint()?;
             let commands = reader
                 .read_preamble("/preamble.smt2")
                 .map_err(NativeError::Resource)?;
+            self.checkpoint()?;
             self.base
                 .decider
                 .prover
@@ -430,6 +464,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         }
     }
     fn assume_term(&mut self, term: &Term) -> Result<(), NativeError<S::Error>> {
+        self.checkpoint()?;
         self.base
             .decider
             .assume([(term.clone(), None)], false, false)
@@ -457,6 +492,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         state: &State<PD, FD, JoinMode>,
         generate_new_model: bool,
     ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
+        self.checkpoint()?;
         if state.retry_level == 0
             && !error
                 .is_expected()
@@ -525,7 +561,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         } else {
             Vec::new()
         };
-        let context = crate::reporting::silicon_resolved_counterexample::SiliconFailureContext::from_transformed(
+        let context = crate::reporting::silicon_resolved_counterexample::SiliconFailureContext::from_transformed_with_reason(
             branches, counterexample, example_transformer.as_ref(), reason,
         ).map_err(NativeError::Diagnostic)?;
         error.failure_contexts = vec![Arc::new(context)];
@@ -583,7 +619,7 @@ where
         state: &State<PD, FD, JoinMode>,
         expression: &Exp,
     ) -> Result<(), Self::Error> {
-        Ok(())
+        self.checkpoint()
     }
     fn close_evaluation(&mut self) -> Result<(), Self::Error> {
         Ok(())
@@ -1946,7 +1982,7 @@ where
         state: &State<PD, FD, JoinMode>,
         assertion: &Exp,
     ) -> Result<(), Self::Error> {
-        Ok(())
+        self.checkpoint()
     }
     fn close_produce(&mut self) -> Result<(), Self::Error> {
         Ok(())
@@ -2498,6 +2534,9 @@ where
 {
     type Error = NativeError<S::Error>;
     type PartialError = PartialVerificationError;
+    fn cancellation_checkpoint(&self) -> Result<(), Self::Error> {
+        self.checkpoint()
+    }
     fn unit_snapshot(&self) -> Term {
         self.factory.unit()
     }
@@ -4886,7 +4925,7 @@ where
         state: &State<PD, FD, JoinMode>,
         statement: &Stmt,
     ) -> Result<(), Self::Error> {
-        Ok(())
+        self.checkpoint()
     }
     fn close_statement(&mut self) -> Result<(), Self::Error> {
         Ok(())
@@ -6051,6 +6090,7 @@ where
         block: &SilverBlock,
         path_id: i32,
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
+        self.checkpoint()?;
         Ok(state)
     }
     fn block_finished(
@@ -7046,6 +7086,7 @@ where
         analysis: &NativeWorkerAnalysis,
         method: &Method,
     ) -> Result<Vec<VerificationResult<VerificationError>>, NativeError<S::Error>> {
+        self.checkpoint()?;
         self.active_program = Some(analysis.program.clone());
         self.function_handles = analysis.function_handles.clone();
         self.function_heights = analysis.function_heights.clone();
@@ -7080,6 +7121,7 @@ where
         analysis: &NativeWorkerAnalysis,
         cfg: &SilverCfg,
     ) -> Result<Vec<VerificationResult<VerificationError>>, NativeError<S::Error>> {
+        self.checkpoint()?;
         self.active_program = Some(analysis.program.clone());
         self.function_handles = analysis.function_handles.clone();
         self.function_heights = analysis.function_heights.clone();
@@ -7110,6 +7152,7 @@ where
         analysis: &NativeAnalysis,
         function: &ferrum_silver::ast::program::Function,
     ) -> Result<Vec<VerificationResult<VerificationError>>, NativeError<S::Error>> {
+        self.checkpoint()?;
         let state = self.initial_state(
             program,
             analysis,
@@ -7130,6 +7173,7 @@ where
         analysis: &NativeAnalysis,
         predicate: &Predicate,
     ) -> Result<Vec<VerificationResult<VerificationError>>, NativeError<S::Error>> {
+        self.checkpoint()?;
         let data = analysis
             .predicates
             .get(&predicate.name)
@@ -7156,6 +7200,7 @@ where
         program: &ferrum_silver::ast::program::Program,
         cfgs: &[SilverCfg],
     ) -> Result<Vec<VerificationResult<VerificationError>>, NativeError<S::Error>> {
+        self.checkpoint()?;
         crate::verifier::default_main_verifier::verify(self, program, cfgs, None)
     }
     fn initial_cfg_state(
@@ -7300,6 +7345,7 @@ where
         &mut self,
         program: &ferrum_silver::ast::program::Program,
     ) -> Result<ferrum_silver::ast::program::Program, Self::Error> {
+        self.checkpoint()?;
         use ferrum_silver::ast::{
             expression::ExpKind,
             r#type::Type,
@@ -7376,6 +7422,7 @@ where
         &mut self,
         program: &ferrum_silver::ast::program::Program,
     ) -> Result<(), Self::Error> {
+        self.checkpoint()?;
         let mut generator =
             crate::supporters::qps::predicate_snap_generator::PredicateSnapGenerator::default();
         let symbols = self.base.symbol_converter.clone();
@@ -7393,15 +7440,18 @@ where
         Ok(())
     }
     fn begin_preamble(&mut self, _: Option<&str>) -> Result<(), Self::Error> {
+        self.checkpoint()?;
         Ok(())
     }
     fn emit_static_preamble(&mut self) -> Result<(), Self::Error> {
+        self.checkpoint()?;
         Ok(())
     }
     fn analyze_and_emit_contributions(
         &mut self,
         program: &ferrum_silver::ast::program::Program,
     ) -> Result<NativeAnalysis, Self::Error> {
+        self.checkpoint()?;
         let general = use_general_preamble(program, &self.base.symbol_converter, &self.factory)
             .map_err(NativeError::Preamble)?;
         let mut contributed_sorts = Vec::new();
@@ -7618,6 +7668,7 @@ where
         })
     }
     fn end_preamble_and_saturate(&mut self) -> Result<(), Self::Error> {
+        self.checkpoint()?;
         let timeout = self.options.after_prelude_timeout.map(|timeout_ms| {
             crate::interfaces::decider::prover::ProverStateSaturationTimeout {
                 timeout_ms,
@@ -7671,28 +7722,28 @@ where
         Ok(())
     }
     fn begin_worker_preamble(&mut self) -> Result<(), Self::Error> {
-        Ok(())
+        self.checkpoint()
     }
     fn declare_predicate_sorts(&mut self) -> Result<(), Self::Error> {
-        Ok(())
+        self.checkpoint()
     }
     fn declare_function_sorts(&mut self) -> Result<(), Self::Error> {
-        Ok(())
+        self.checkpoint()
     }
     fn declare_predicate_symbols(&mut self) -> Result<(), Self::Error> {
-        Ok(())
+        self.checkpoint()
     }
     fn declare_function_symbols(&mut self) -> Result<(), Self::Error> {
-        Ok(())
+        self.checkpoint()
     }
     fn emit_predicate_axioms(&mut self) -> Result<(), Self::Error> {
-        Ok(())
+        self.checkpoint()
     }
     fn emit_function_axioms(&mut self) -> Result<(), Self::Error> {
-        Ok(())
+        self.checkpoint()
     }
     fn end_worker_preamble(&mut self) -> Result<(), Self::Error> {
-        Ok(())
+        self.checkpoint()
     }
     fn excluded_method(&mut self, method: &ferrum_silver::ast::program::Method) -> bool {
         !self.options.include_methods.is_match(&method.name)
@@ -7704,6 +7755,7 @@ where
         program: &ferrum_silver::ast::program::Program,
         analysis: &NativeAnalysis,
     ) -> Result<Self::Task, Self::Error> {
+        self.checkpoint()?;
         let state = self.initial_state(
             program,
             analysis,
@@ -7723,6 +7775,7 @@ where
         program: &ferrum_silver::ast::program::Program,
         analysis: &NativeAnalysis,
     ) -> Result<Self::Task, Self::Error> {
+        self.checkpoint()?;
         let state = self.initial_cfg_state(program, analysis);
         crate::supporters::cfg_supporter::verify_cfg(self, state, Arc::new(cfg.clone()))
             .map_err(|e| NativeError::Execution(format!("CFG verification: {e:?}")))

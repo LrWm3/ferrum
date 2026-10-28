@@ -86,7 +86,7 @@ pub trait FailureServices<P, D, J> {
         transform: Self::CounterexampleTransform,
         counterexample: Self::Counterexample,
     ) -> Result<Self::Counterexample, Self::Error>;
-    fn reason_unknown(&mut self) -> Result<String, Self::Error>;
+    fn reason_unknown(&mut self) -> Result<Option<String>, Self::Error>;
     fn report_branch_conditions(&self) -> bool;
     fn debugging(&self) -> bool;
     fn branch_condition_exps(&self) -> Vec<Exp>;
@@ -98,7 +98,7 @@ pub trait FailureServices<P, D, J> {
         state: &State<P, D, J>,
         branches: Vec<Exp>,
         counterexample: Option<Self::Counterexample>,
-        reason: Option<String>,
+        reason: Option<Option<String>>,
         failed_assert: &Term,
         debug_assert: Option<&DebugExp>,
     ) -> Result<Self::VerificationError, Self::Error>;

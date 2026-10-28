@@ -306,6 +306,25 @@ pub enum ThreadPoolError<E> {
     WorkerPanicked,
     WorkerDisconnected,
     ThreadSpawn(std::io::Error),
+    /// Original failure together with errors observed while stopping workers.
+    Cleanup {
+        primary: Box<ThreadPoolError<E>>,
+        errors: Vec<ThreadPoolError<E>>,
+    },
+}
+
+fn with_cleanup<E>(
+    primary: ThreadPoolError<E>,
+    errors: Vec<ThreadPoolError<E>>,
+) -> ThreadPoolError<E> {
+    if errors.is_empty() {
+        primary
+    } else {
+        ThreadPoolError::Cleanup {
+            primary: Box::new(primary),
+            errors,
+        }
+    }
 }
 
 enum ThreadCommand<W: ThreadBoundWorker> {
@@ -329,8 +348,154 @@ struct ThreadQueue<W: ThreadBoundWorker> {
     items: std::collections::VecDeque<ThreadWork<W>>,
     pending: usize,
     stopped: bool,
+    cleanup_errors: Vec<ThreadPoolError<W::Error>>,
 }
 type SharedThreadQueue<W> = std::sync::Arc<(std::sync::Mutex<ThreadQueue<W>>, std::sync::Condvar)>;
+
+/// Latched cross-thread cancellation for one verification run. Interrupt callbacks
+/// may only access independently synchronized solver cancellation handles, never
+/// the thread-bound verifier itself. Pure Rust work must call `checkpoint`.
+#[derive(Clone, Default)]
+pub struct CancellationController(std::sync::Arc<std::sync::Mutex<CancellationState>>);
+#[derive(Default)]
+struct CancellationState {
+    cancelled: bool,
+    interrupts: Vec<std::sync::Arc<dyn Fn() -> Result<(), String> + Send + Sync>>,
+    errors: Vec<String>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VerificationCancelled;
+impl CancellationController {
+    pub fn is_cancelled(&self) -> bool {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).cancelled
+    }
+    pub fn checkpoint(&self) -> Result<(), VerificationCancelled> {
+        if self.is_cancelled() {
+            Err(VerificationCancelled)
+        } else {
+            Ok(())
+        }
+    }
+    /// Register before startup. If cancellation already happened, interrupt at once;
+    /// the owner must still check after installing/starting a new solver session.
+    pub fn register(&self, interrupt: impl Fn() -> Result<(), String> + Send + Sync + 'static) {
+        let interrupt: std::sync::Arc<dyn Fn() -> Result<(), String> + Send + Sync> =
+            std::sync::Arc::new(interrupt);
+        let cancelled = {
+            let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            state.interrupts.push(interrupt.clone());
+            state.cancelled
+        };
+        if cancelled {
+            self.invoke(&interrupt);
+        }
+    }
+    fn invoke(&self, interrupt: &std::sync::Arc<dyn Fn() -> Result<(), String> + Send + Sync>) {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| interrupt()));
+        let error = match result {
+            Ok(Ok(())) => None,
+            Ok(Err(error)) => Some(error),
+            Err(_) => Some("cancellation callback panicked".into()),
+        };
+        if let Some(error) = error {
+            let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            if !state.errors.contains(&error) {
+                state.errors.push(error);
+            }
+        }
+    }
+    /// Latch before interrupting, so concurrent registrations and checkpoints see it.
+    pub fn cancel(&self) {
+        let interrupts = {
+            let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            if state.cancelled {
+                return;
+            }
+            state.cancelled = true;
+            state.interrupts.clone()
+        };
+        for interrupt in interrupts {
+            self.invoke(&interrupt);
+        }
+    }
+    /// Retry interrupts after a startup/reset race. A deadline monitor may call
+    /// this until owner threads finish; checkpoints still stop pure Rust work.
+    pub fn interrupt_again(&self) {
+        let interrupts = {
+            let state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            if !state.cancelled {
+                return;
+            }
+            state.interrupts.clone()
+        };
+        for interrupt in interrupts {
+            self.invoke(&interrupt);
+        }
+    }
+    /// Inspect after joining owners so errors from late registrations are included.
+    pub fn take_errors(&self) -> Vec<String> {
+        std::mem::take(&mut self.0.lock().unwrap_or_else(|e| e.into_inner()).errors)
+    }
+    pub fn register_stdio(&self, handle: crate::decider::prover_std_io::StdioCancellationHandle) {
+        self.register(move || {
+            handle
+                .cancel()
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        });
+    }
+    pub fn register_pool<W: ThreadBoundWorker>(&self, handle: PoolCancellationHandle<W>) {
+        self.register(move || {
+            handle.cancel();
+            Ok(())
+        });
+    }
+    #[cfg(feature = "native-z3")]
+    pub fn register_linked(&self, handle: crate::decider::native_z3::LinkedZ3CancellationHandle) {
+        self.register(move || {
+            handle.interrupt();
+            Ok(())
+        });
+    }
+}
+
+/// Thread-safe queue-only cancellation; the pool and each worker remain on their
+/// original threads. Rejects future submissions and cancels queued control work too.
+pub struct PoolCancellationHandle<W: ThreadBoundWorker>(SharedThreadQueue<W>);
+impl<W: ThreadBoundWorker> Clone for PoolCancellationHandle<W> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+impl<W: ThreadBoundWorker> PoolCancellationHandle<W> {
+    pub fn cancel(&self) {
+        let (lock, ready) = &*self.0;
+        let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
+        state.stopped = true;
+        let abandoned: Vec<_> = state.items.drain(..).collect();
+        state.pending -= abandoned
+            .iter()
+            .filter(|work| matches!(work.command, ThreadCommand::Verify(..)))
+            .count();
+        ready.notify_all();
+        drop(state);
+        for work in abandoned {
+            match work.command {
+                ThreadCommand::Verify(_, sender) => {
+                    let _ = sender.send(Err(ThreadPoolError::Cancelled));
+                }
+                ThreadCommand::Broadcast(_, sender) => {
+                    let _ = sender.send(Err(ThreadPoolError::Cancelled));
+                }
+                ThreadCommand::Start(sender)
+                | ThreadCommand::Reset(sender)
+                | ThreadCommand::Stop(sender) => {
+                    let _ = sender.send(Err(ThreadPoolError::Cancelled));
+                }
+            }
+        }
+    }
+}
 
 /// A result handle retains submission order independently of task completion order.
 pub struct VerificationTask<O, E>(std::sync::mpsc::Receiver<Result<O, ThreadPoolError<E>>>);
@@ -369,6 +534,9 @@ pub struct ThreadVerificationPool<W: ThreadBoundWorker> {
     threads: Vec<std::thread::JoinHandle<()>>,
 }
 impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
+    pub fn cancellation_handle(&self) -> PoolCancellationHandle<W> {
+        PoolCancellationHandle(self.queue.clone())
+    }
     /// Match the pinned Silicon launcher `run / javaOptions += "-Xss128m"`:
     /// https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/build.sbt#L39
     /// This finite native stack remains a mitigation until recursive execution is reduced.
@@ -384,6 +552,24 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
         stack_size: usize,
         create: impl Fn(usize) -> Result<W, W::Error> + Send + Sync + 'static,
     ) -> Result<Self, ThreadPoolError<W::Error>> {
+        Self::start_inner(count, stack_size, None, create)
+    }
+    /// Register the queue before starting worker threads so a deadline can reject
+    /// startup or cancel a queued startup/broadcast operation.
+    pub fn start_with_cancellation(
+        count: usize,
+        stack_size: usize,
+        cancellation: CancellationController,
+        create: impl Fn(usize) -> Result<W, W::Error> + Send + Sync + 'static,
+    ) -> Result<Self, ThreadPoolError<W::Error>> {
+        Self::start_inner(count, stack_size, Some(cancellation), create)
+    }
+    fn start_inner(
+        count: usize,
+        stack_size: usize,
+        cancellation: Option<CancellationController>,
+        create: impl Fn(usize) -> Result<W, W::Error> + Send + Sync + 'static,
+    ) -> Result<Self, ThreadPoolError<W::Error>> {
         use std::sync::{Arc, Condvar, Mutex, mpsc};
         if count == 0 {
             return Err(ThreadPoolError::NoWorkers);
@@ -396,12 +582,27 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
                 items: Default::default(),
                 pending: 0,
                 stopped: false,
+                cleanup_errors: Vec::new(),
             }),
             Condvar::new(),
         ));
+        if let Some(cancellation) = &cancellation {
+            cancellation.register_pool(PoolCancellationHandle(queue.clone()));
+            if cancellation.is_cancelled() {
+                return Err(ThreadPoolError::Cancelled);
+            }
+        }
         let create = Arc::new(create);
         let mut threads = Vec::with_capacity(count);
         for index in 0..count {
+            if cancellation
+                .as_ref()
+                .is_some_and(CancellationController::is_cancelled)
+            {
+                let mut pool = Self { queue, threads };
+                let cleanup = pool.abort_and_join();
+                return Err(with_cleanup(ThreadPoolError::Cancelled, cleanup));
+            }
             let worker_queue = Arc::clone(&queue);
             let create = Arc::clone(&create);
             let (tx, rx) = mpsc::channel();
@@ -446,7 +647,23 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
                             }
                         };
                         let Some(work) = work else {
-                            let _ = worker.stop();
+                            let stopped =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    worker.stop()
+                                }));
+                            let error = match stopped {
+                                Ok(Ok(())) => None,
+                                Ok(Err(error)) => Some(ThreadPoolError::Worker(error)),
+                                Err(_) => Some(ThreadPoolError::WorkerPanicked),
+                            };
+                            if let Some(error) = error {
+                                queue
+                                    .0
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner())
+                                    .cleanup_errors
+                                    .push(error);
+                            }
                             break;
                         };
                         match work.command {
@@ -492,9 +709,22 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
                                 drop(abandoned);
                                 let _ = tx.send(result);
                                 if panicked {
-                                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                                        || worker.stop(),
-                                    ));
+                                    let stopped = std::panic::catch_unwind(
+                                        std::panic::AssertUnwindSafe(|| worker.stop()),
+                                    );
+                                    let error = match stopped {
+                                        Ok(Ok(())) => None,
+                                        Ok(Err(error)) => Some(ThreadPoolError::Worker(error)),
+                                        Err(_) => Some(ThreadPoolError::WorkerPanicked),
+                                    };
+                                    if let Some(error) = error {
+                                        queue
+                                            .0
+                                            .lock()
+                                            .unwrap_or_else(|e| e.into_inner())
+                                            .cleanup_errors
+                                            .push(error);
+                                    }
                                     break;
                                 }
                             }
@@ -536,8 +766,8 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
                 Ok(thread) => threads.push(thread),
                 Err(error) => {
                     let mut pool = Self { queue, threads };
-                    pool.abort_and_join();
-                    return Err(ThreadPoolError::ThreadSpawn(error));
+                    let cleanup = pool.abort_and_join();
+                    return Err(with_cleanup(ThreadPoolError::ThreadSpawn(error), cleanup));
                 }
             }
             if let Err(error) = rx
@@ -545,23 +775,23 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
                 .unwrap_or(Err(ThreadPoolError::WorkerDisconnected))
             {
                 let mut pool = Self { queue, threads };
-                pool.abort_and_join();
-                return Err(error);
+                let cleanup = pool.abort_and_join();
+                return Err(with_cleanup(error, cleanup));
             }
         }
         let mut pool = Self { queue, threads };
         for index in (0..count).rev() {
             let (tx, rx) = mpsc::channel();
             if let Err(error) = pool.enqueue_control(index, ThreadCommand::Start(tx)) {
-                pool.abort_and_join();
-                return Err(error);
+                let cleanup = pool.abort_and_join();
+                return Err(with_cleanup(error, cleanup));
             }
             if let Err(error) = rx
                 .recv()
                 .unwrap_or(Err(ThreadPoolError::WorkerDisconnected))
             {
-                pool.abort_and_join();
-                return Err(error);
+                let cleanup = pool.abort_and_join();
+                return Err(with_cleanup(error, cleanup));
             }
         }
         Ok(pool)
@@ -641,7 +871,12 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
         let mut results = Vec::with_capacity(self.threads.len());
         for index in (0..self.threads.len()).rev() {
             let (tx, rx) = std::sync::mpsc::channel();
-            self.enqueue_control(index, ThreadCommand::Broadcast(command.clone(), tx))?;
+            if let Err(error) =
+                self.enqueue_control(index, ThreadCommand::Broadcast(command.clone(), tx))
+            {
+                let cleanup = self.abort_and_join();
+                return Err(with_cleanup(error, cleanup));
+            }
             let result = rx
                 .recv()
                 .map_err(|_| ThreadPoolError::WorkerDisconnected)
@@ -649,8 +884,8 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
             match result {
                 Ok(value) => results.push(value),
                 Err(error) => {
-                    self.abort_and_join();
-                    return Err(error);
+                    let cleanup = self.abort_and_join();
+                    return Err(with_cleanup(error, cleanup));
                 }
             }
         }
@@ -659,14 +894,17 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
     pub fn reset(&mut self) -> Result<(), ThreadPoolError<W::Error>> {
         for index in (0..self.threads.len()).rev() {
             let (tx, rx) = std::sync::mpsc::channel();
-            self.enqueue_control(index, ThreadCommand::Reset(tx))?;
+            if let Err(error) = self.enqueue_control(index, ThreadCommand::Reset(tx)) {
+                let cleanup = self.abort_and_join();
+                return Err(with_cleanup(error, cleanup));
+            }
             let result = rx
                 .recv()
                 .map_err(|_| ThreadPoolError::WorkerDisconnected)
                 .and_then(|value| value);
             if let Err(error) = result {
-                self.abort_and_join();
-                return Err(error);
+                let cleanup = self.abort_and_join();
+                return Err(with_cleanup(error, cleanup));
             }
         }
         Ok(())
@@ -680,6 +918,7 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
             }
         }
         let mut first = None;
+        let mut rest = Vec::new();
         for index in (0..self.threads.len()).rev() {
             let (tx, rx) = std::sync::mpsc::channel();
             let result = self
@@ -689,17 +928,38 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
                         .map_err(|_| ThreadPoolError::WorkerDisconnected)
                         .and_then(|v| v)
                 });
-            if first.is_none() {
-                first = result.err();
+            if let Err(error) = result {
+                if first.is_none() {
+                    first = Some(error);
+                } else {
+                    rest.push(error);
+                }
             }
         }
-        self.abort_and_join();
+        let mut cleanup = self.abort_and_join();
+        rest.append(&mut cleanup);
         match first {
-            Some(error) => Err(error),
+            Some(error) => Err(with_cleanup(error, rest)),
+            None if !rest.is_empty() => Err(with_cleanup(ThreadPoolError::Stopped, rest)),
             None => Ok(()),
         }
     }
-    fn abort_and_join(&mut self) {
+    /// Cancel the queue and join all owner threads, returning every observed
+    /// worker-stop or thread-panic failure. Active work must first be interrupted
+    /// through the registered solver handles; pure computation remains cooperative.
+    pub fn cancel_and_join(mut self) -> Vec<ThreadPoolError<W::Error>> {
+        self.cancellation_handle().cancel();
+        let mut errors = Vec::new();
+        for thread in self.threads.drain(..) {
+            if thread.join().is_err() {
+                errors.push(ThreadPoolError::WorkerPanicked);
+            }
+        }
+        let mut queue = self.queue.0.lock().unwrap_or_else(|e| e.into_inner());
+        errors.append(&mut queue.cleanup_errors);
+        errors
+    }
+    fn abort_and_join(&mut self) -> Vec<ThreadPoolError<W::Error>> {
         let (lock, ready) = &*self.queue;
         let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
         guard.stopped = true;
@@ -715,14 +975,26 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
                 let _ = sender.send(Err(ThreadPoolError::Cancelled));
             }
         }
+        let mut errors = Vec::new();
         for handle in self.threads.drain(..) {
-            let _ = handle.join();
+            if handle.join().is_err() {
+                errors.push(ThreadPoolError::WorkerPanicked);
+            }
         }
+        errors.append(
+            &mut self
+                .queue
+                .0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .cleanup_errors,
+        );
+        errors
     }
 }
 impl<W: ThreadBoundWorker> Drop for ThreadVerificationPool<W> {
     fn drop(&mut self) {
-        self.abort_and_join();
+        let _ = self.abort_and_join();
     }
 }
 
@@ -801,10 +1073,13 @@ impl<W: ThreadBoundWorker<Broadcast = WorkerPreambleCommand, BroadcastResult = O
                 reply_rx.recv().expect("comment response sender")
             });
             let (done_tx, done_rx) = mpsc::channel();
-            self.pool.enqueue_control(
+            if let Err(error) = self.pool.enqueue_control(
                 index,
                 ThreadCommand::Broadcast(WorkerPreambleCommand::Comment(lazy), done_tx),
-            )?;
+            ) {
+                let cleanup = self.pool.abort_and_join();
+                return Err(with_cleanup(error, cleanup));
+            }
             let result = loop {
                 while let Ok(reply) = request_rx.try_recv() {
                     let value = cached.get_or_insert_with(&mut *content).clone();
@@ -819,8 +1094,8 @@ impl<W: ThreadBoundWorker<Broadcast = WorkerPreambleCommand, BroadcastResult = O
                 }
             };
             if let Err(error) = result {
-                self.pool.abort_and_join();
-                return Err(error);
+                let cleanup = self.pool.abort_and_join();
+                return Err(with_cleanup(error, cleanup));
             }
         }
         Ok(())
@@ -1174,7 +1449,7 @@ impl<
     ) -> Result<ferrum_silver::verifier::verification_error::Model, Self::Error> {
         self.main.get_model().map_err(BroadcastingProverError::Main)
     }
-    fn get_reason_unknown(&mut self) -> Result<String, Self::Error> {
+    fn get_reason_unknown(&mut self) -> Result<Option<String>, Self::Error> {
         self.main
             .get_reason_unknown()
             .map_err(BroadcastingProverError::Main)
@@ -1315,6 +1590,11 @@ pub struct NativeMethodWorker<S: crate::interfaces::decider::prover::Prover> {
     >,
     pub user_args: Option<String>,
     pub config_options: Vec<String>,
+}
+impl<S: crate::interfaces::decider::prover::Prover> NativeMethodWorker<S> {
+    pub fn set_cancellation(&mut self, cancellation: CancellationController) {
+        self.context.set_cancellation(cancellation);
+    }
 }
 /// Construct a native worker on its eventual owner thread. The caller supplies
 /// the same identifier factory used by its prover, preventing fresh-name collisions.
@@ -1686,6 +1966,306 @@ mod thread_pool_tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
+    #[cfg(feature = "native-z3")]
+    #[test]
+    fn controller_interrupts_linked_worker_and_joins() {
+        use crate::{
+            decider::{
+                native_z3::{LinkedProverError, LinkedProverOptions, LinkedZ3Prover},
+                z3_prover_api::ApiTimeoutSettings,
+            },
+            interfaces::decider::prover::Prover,
+            state::terms::{TermFactory, TermOptions},
+        };
+        struct LinkedWorker(LinkedZ3Prover, std::sync::mpsc::Sender<()>);
+        impl ThreadBoundWorker for LinkedWorker {
+            type Error = LinkedProverError;
+            type Broadcast = ();
+            type BroadcastResult = ();
+            type Task = ();
+            type Output = ();
+            fn start(&mut self) -> Result<(), Self::Error> {
+                self.0.start(None)
+            }
+            fn broadcast(&mut self, _: ()) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn verify(&mut self, _: ()) -> Result<(), Self::Error> {
+                for i in 0..15 {
+                    for j in 0..14 {
+                        self.0.emit(&format!("(declare-const p{i}_{j} Bool)"))?;
+                    }
+                    self.0.emit(&format!(
+                        "(assert (or {}))",
+                        (0..14)
+                            .map(|j| format!("p{i}_{j}"))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    ))?;
+                }
+                for j in 0..14 {
+                    for i in 0..15 {
+                        for k in i + 1..15 {
+                            self.0
+                                .emit(&format!("(assert (or (not p{i}_{j}) (not p{k}_{j})))"))?;
+                        }
+                    }
+                }
+                self.0.push(1, None)?;
+                self.0.pop(1)?;
+                self.1.send(()).unwrap();
+                self.0.check(None).map(|_| ())
+            }
+            fn reset(&mut self) -> Result<(), Self::Error> {
+                self.0.reset()
+            }
+            fn stop(&mut self) -> Result<(), Self::Error> {
+                self.0.stop()
+            }
+        }
+        let controller = CancellationController::default();
+        let worker_controller = controller.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let mut pool = ThreadVerificationPool::start_with_cancellation(
+            1,
+            8 * 1024 * 1024,
+            controller.clone(),
+            move |_| {
+                let factory = TermFactory::new(TermOptions {
+                    use_flyweight: false,
+                    use_old_axiomatization: false,
+                    mask_heap_mode: false,
+                });
+                let prover = LinkedZ3Prover::new(
+                    "blocked",
+                    factory,
+                    LinkedProverOptions {
+                        timeout: ApiTimeoutSettings {
+                            default_timeout_ms: 0,
+                            use_time_bounds: true,
+                            resources_per_millisecond: 1,
+                        },
+                        counterexamples: false,
+                        report_reason_unknown: false,
+                        debug: false,
+                        soft_assertions: false,
+                        custom_options: vec![],
+                        disable_nonlinear: false,
+                    },
+                );
+                worker_controller.register_linked(prover.cancellation_handle());
+                Ok(LinkedWorker(prover, started_tx.clone()))
+            },
+        )
+        .unwrap();
+        let running = pool.submit(()).unwrap();
+        started_rx.recv().unwrap();
+        let queued = pool.submit(()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(
+            matches!(
+                running.0.try_recv(),
+                Err(std::sync::mpsc::TryRecvError::Empty)
+            ),
+            "solver query ended before cancellation"
+        );
+        let cancel = controller.clone();
+        std::thread::spawn(move || cancel.cancel()).join().unwrap();
+        assert!(matches!(queued.wait(), Err(ThreadPoolError::Cancelled)));
+        // Z3 reports interruption as unknown or an error; the run-level latch is
+        // authoritative, so neither result may turn a timeout into success.
+        let _ = running.wait();
+        assert!(controller.is_cancelled());
+        assert!(pool.cancel_and_join().is_empty());
+        assert!(controller.take_errors().is_empty());
+    }
+
+    #[test]
+    fn cancelled_pool_reports_worker_cleanup_failures() {
+        struct CleanupFailure;
+        impl ThreadBoundWorker for CleanupFailure {
+            type Error = &'static str;
+            type Broadcast = ();
+            type BroadcastResult = ();
+            type Task = ();
+            type Output = ();
+            fn start(&mut self) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn broadcast(&mut self, _: ()) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn verify(&mut self, _: ()) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn reset(&mut self) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn stop(&mut self) -> Result<(), Self::Error> {
+                Err("cleanup failed")
+            }
+        }
+        let controller = CancellationController::default();
+        let pool = ThreadVerificationPool::start_with_cancellation(
+            1,
+            1024 * 1024,
+            controller.clone(),
+            |_| Ok(CleanupFailure),
+        )
+        .unwrap();
+        controller.cancel();
+        assert!(matches!(
+            pool.cancel_and_join().as_slice(),
+            [ThreadPoolError::Worker("cleanup failed")]
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn controller_interrupts_blocked_stdio_worker_and_joins() {
+        use crate::{
+            decider::{
+                prover_std_io::{ProverError, ProverSettings, ProverStdIo},
+                z3_prover_std_io,
+            },
+            interfaces::decider::prover::Prover,
+            state::terms::{TermFactory, TermOptions},
+        };
+        use std::os::unix::fs::PermissionsExt;
+        struct StdioWorker(ProverStdIo, std::sync::mpsc::Sender<()>);
+        impl ThreadBoundWorker for StdioWorker {
+            type Error = ProverError;
+            type Broadcast = ();
+            type BroadcastResult = ();
+            type Task = ();
+            type Output = ();
+            fn start(&mut self) -> Result<(), Self::Error> {
+                self.0.start(None)
+            }
+            fn broadcast(&mut self, _: ()) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn verify(&mut self, _: ()) -> Result<(), Self::Error> {
+                self.1.send(()).unwrap();
+                self.0.check(None).map(|_| ())
+            }
+            fn reset(&mut self) -> Result<(), Self::Error> {
+                self.0.reset()
+            }
+            fn stop(&mut self) -> Result<(), Self::Error> {
+                self.0.stop()
+            }
+        }
+        let script =
+            std::env::temp_dir().join(format!("ferrum-pool-blocked-solver-{}", std::process::id()));
+        std::fs::write(&script, "#!/bin/sh\nexec /bin/sleep 60\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let controller = CancellationController::default();
+        let worker_controller = controller.clone();
+        let worker_path = script.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let mut pool = ThreadVerificationPool::start_with_cancellation(
+            1,
+            1024 * 1024,
+            controller.clone(),
+            move |_| {
+                let factory = TermFactory::new(TermOptions {
+                    use_flyweight: false,
+                    use_old_axiomatization: false,
+                    mask_heap_mode: false,
+                });
+                let prover = z3_prover_std_io::new(
+                    "blocked".into(),
+                    ProverSettings::new(worker_path.clone(), 10000),
+                    factory,
+                    |_| {},
+                );
+                worker_controller.register_stdio(prover.cancellation_handle());
+                Ok(StdioWorker(prover, started_tx.clone()))
+            },
+        )
+        .unwrap();
+        let running = pool.submit(()).unwrap();
+        started_rx.recv().unwrap();
+        let queued = pool.submit(()).unwrap();
+        let cancel = controller.clone();
+        std::thread::spawn(move || cancel.cancel()).join().unwrap();
+        assert!(matches!(queued.wait(), Err(ThreadPoolError::Cancelled)));
+        assert!(matches!(running.wait(), Err(ThreadPoolError::Worker(_))));
+        let cleanup = pool.cancel_and_join();
+        assert!(cleanup.is_empty(), "{cleanup:?}");
+        assert!(controller.take_errors().is_empty());
+        std::fs::remove_file(script).unwrap();
+    }
+
+    #[test]
+    fn latched_cancellation_interrupts_running_and_rejects_queued_work() {
+        struct Blocking {
+            started: std::sync::mpsc::Sender<()>,
+            release: std::sync::mpsc::Receiver<()>,
+        }
+        impl ThreadBoundWorker for Blocking {
+            type Error = ();
+            type Broadcast = ();
+            type BroadcastResult = ();
+            type Task = ();
+            type Output = ();
+            fn start(&mut self) -> Result<(), ()> {
+                Ok(())
+            }
+            fn broadcast(&mut self, _: ()) -> Result<(), ()> {
+                Ok(())
+            }
+            fn verify(&mut self, _: ()) -> Result<(), ()> {
+                self.started.send(()).unwrap();
+                self.release.recv().unwrap();
+                Ok(())
+            }
+            fn reset(&mut self) -> Result<(), ()> {
+                Ok(())
+            }
+            fn stop(&mut self) -> Result<(), ()> {
+                Ok(())
+            }
+        }
+        let controller = CancellationController::default();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let receiver = Arc::new(Mutex::new(Some(release_rx)));
+        let worker_receiver = receiver.clone();
+        let mut pool = ThreadVerificationPool::start_with_cancellation(
+            1,
+            1024 * 1024,
+            controller.clone(),
+            move |_| {
+                Ok(Blocking {
+                    started: started_tx.clone(),
+                    release: worker_receiver.lock().unwrap().take().unwrap(),
+                })
+            },
+        )
+        .unwrap();
+        controller.register(move || release_tx.send(()).map_err(|e| e.to_string()));
+        let running = pool.submit(()).unwrap();
+        started_rx.recv().unwrap();
+        let queued = pool.submit(()).unwrap();
+        let signal = controller.clone();
+        std::thread::spawn(move || signal.cancel()).join().unwrap();
+        assert!(controller.checkpoint().is_err());
+        assert!(matches!(queued.wait(), Err(ThreadPoolError::Cancelled)));
+        assert!(running.wait().is_ok());
+        assert!(matches!(pool.submit(()), Err(ThreadPoolError::Stopped)));
+        let late = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let observed = late.clone();
+        controller.register(move || {
+            observed.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        });
+        assert!(late.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(pool.cancel_and_join().is_empty());
+        assert!(controller.take_errors().is_empty());
+    }
+
     #[test]
     fn failed_batch_waits_for_every_submitted_task() {
         let (first_tx, first_rx) = std::sync::mpsc::channel();
@@ -1996,6 +2576,43 @@ mod thread_pool_tests {
         ));
         assert!(matches!(pool.submit(2), Err(ThreadPoolError::Stopped)));
         assert!(matches!(pool.shutdown(), Err(ThreadPoolError::Stopped)));
+    }
+    #[test]
+    fn broadcast_failure_retains_worker_cleanup_errors() {
+        struct FailingWorker(usize);
+        impl ThreadBoundWorker for FailingWorker {
+            type Error = &'static str;
+            type Broadcast = ();
+            type BroadcastResult = ();
+            type Task = ();
+            type Output = ();
+            fn start(&mut self) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn broadcast(&mut self, _: ()) -> Result<(), Self::Error> {
+                Err("broadcast")
+            }
+            fn verify(&mut self, _: ()) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn reset(&mut self) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn stop(&mut self) -> Result<(), Self::Error> {
+                if self.0 == 0 { Err("stop") } else { Ok(()) }
+            }
+        }
+        let mut pool = ThreadVerificationPool::start(2, |id| Ok(FailingWorker(id))).unwrap();
+        match pool.broadcast(()) {
+            Err(ThreadPoolError::Cleanup { primary, errors }) => {
+                assert!(matches!(*primary, ThreadPoolError::Worker("broadcast")));
+                assert!(matches!(
+                    errors.as_slice(),
+                    [ThreadPoolError::Worker("stop")]
+                ));
+            }
+            other => panic!("expected aggregated failure, got {other:?}"),
+        }
     }
     #[test]
     fn shutdown_attempts_every_worker_after_a_stop_error() {

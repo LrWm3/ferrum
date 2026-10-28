@@ -38,8 +38,8 @@ pub use ferrum_silicon as silicon;
 pub use ferrum_silver as silver;
 
 use silicon::verifier::verification_pool_manager::{
-    BroadcastingProver, NativeMethodWorker, ThreadVerificationPool, native_method_worker,
-    verify_native_parallel_with_reporting,
+    BroadcastingProver, CancellationController, NativeMethodWorker, ThreadVerificationPool,
+    native_method_worker, verify_native_parallel_with_reporting,
 };
 use silicon::{
     config::Config,
@@ -161,6 +161,7 @@ type ProverFactory<P> =
         &Config,
         TermFactory,
         SharedWarnings,
+        Option<CancellationController>,
     ) -> Result<(P, silicon::state::identifiers::DefaultIdentifierFactory), FerrumError>;
 
 struct ParallelContext<P>
@@ -172,6 +173,7 @@ where
     pool: Option<Rc<RefCell<WorkerPool<P>>>>,
     warning_sink: SharedWarnings,
     warnings: Vec<String>,
+    cancellation: Option<CancellationController>,
 }
 impl<P> ParallelContext<P>
 where
@@ -187,12 +189,14 @@ where
         warning_sink: SharedWarnings,
         count: usize,
         make_prover: ProverFactory<P>,
+        cancellation: Option<CancellationController>,
     ) -> Result<Self, FerrumError> {
         let worker_config = config.clone();
         let worker_factory = factory.clone();
         let worker_options = options.clone();
         let worker_warnings = warning_sink.clone();
-        let pool = ThreadVerificationPool::start(count, move |index| {
+        let worker_cancellation = cancellation.clone();
+        let create = move |index| {
             // Counterexample lookup uses raw term identifiers, as in upstream.
             // Keep generated worker names unchanged by SMT symbol sanitization.
             let id = format!("worker_{index}");
@@ -201,19 +205,33 @@ where
                 &worker_config,
                 worker_factory.clone(),
                 worker_warnings.clone(),
+                worker_cancellation.clone(),
             )
             .map_err(|error| {
                 silicon::verifier::native_context::NativeError::Execution(error.to_string())
             })?;
-            Ok(native_method_worker(
+            let mut worker = native_method_worker(
                 id,
                 prover,
                 identifiers,
                 worker_factory.clone(),
                 worker_options.clone(),
                 &worker_config,
-            ))
-        })
+            );
+            if let Some(c) = &worker_cancellation {
+                worker.set_cancellation(c.clone());
+            }
+            Ok(worker)
+        };
+        let pool = match &cancellation {
+            Some(c) => ThreadVerificationPool::start_with_cancellation(
+                count,
+                VERIFICATION_STACK_SIZE,
+                c.clone(),
+                create,
+            ),
+            None => ThreadVerificationPool::start(count, create),
+        }
         .map_err(execution)?;
         let pool = Rc::new(RefCell::new(pool));
         let context = start_context(
@@ -222,6 +240,7 @@ where
             config,
             factory,
             options,
+            cancellation.clone(),
         );
         match context {
             Ok(context) => Ok(Self {
@@ -229,6 +248,7 @@ where
                 pool: Some(pool),
                 warning_sink,
                 warnings: Vec::new(),
+                cancellation,
             }),
             Err(primary) => {
                 let cleanup = Rc::try_unwrap(pool)
@@ -284,13 +304,25 @@ where
         };
         drop(context);
         let workers = match self.pool.take() {
-            Some(pool) => Rc::try_unwrap(pool)
-                .map_err(|_| {
-                    FerrumError::Execution("Worker pool is still borrowed during shutdown".into())
-                })?
-                .into_inner()
-                .shutdown()
-                .map_err(execution),
+            Some(pool) => {
+                let pool = Rc::try_unwrap(pool)
+                    .map_err(|_| {
+                        FerrumError::Execution(
+                            "Worker pool is still borrowed during shutdown".into(),
+                        )
+                    })?
+                    .into_inner();
+                if self.cancellation.as_ref().is_some_and(|c| c.is_cancelled()) {
+                    let errors = pool.cancel_and_join();
+                    if errors.is_empty() {
+                        Ok(())
+                    } else {
+                        Err(execution(errors))
+                    }
+                } else {
+                    pool.shutdown().map_err(execution)
+                }
+            }
             None => Ok(()),
         };
         match (main, workers) {
@@ -365,6 +397,7 @@ fn start_context<P: silicon::interfaces::decider::prover::Prover>(
     config: &Config,
     factory: TermFactory,
     options: NativeOptions,
+    cancellation: Option<CancellationController>,
 ) -> Result<ExecutingContext<P>, FerrumError>
 where
     P::Error: std::fmt::Debug,
@@ -385,6 +418,9 @@ where
         identifiers,
     );
     let mut context = ExecutingContext::new(base, factory, options);
+    if let Some(c) = cancellation {
+        context.set_cancellation(c);
+    }
     // The API adapter receives typed startup options in its constructor. Stdio
     // transports receive the same configuration as SMT-LIB settings instead.
     let settings: Vec<_> = if config.prover == "Z3-API" {
@@ -407,6 +443,7 @@ fn make_stdio_prover(
     config: &Config,
     factory: TermFactory,
     warning_sink: SharedWarnings,
+    cancellation: Option<CancellationController>,
 ) -> Result<
     (
         ProverStdIo,
@@ -435,6 +472,9 @@ fn make_stdio_prover(
                 .push(warning);
         }
     });
+    if let Some(c) = cancellation {
+        c.register_stdio(prover.cancellation_handle());
+    }
     let identifiers = prover.identifier_factory();
     Ok((prover, identifiers))
 }
@@ -445,6 +485,7 @@ fn make_api_prover(
     config: &Config,
     factory: TermFactory,
     warning_sink: SharedWarnings,
+    cancellation: Option<CancellationController>,
 ) -> Result<
     (
         silicon::decider::native_z3::LinkedZ3Prover,
@@ -499,14 +540,122 @@ fn make_api_prover(
             .expect("poisoned warning buffer")
             .push(warning.to_owned());
     });
+    if let Some(c) = cancellation {
+        c.register_linked(prover.cancellation_handle());
+    }
     let identifiers = prover.identifier_factory();
     Ok((prover, identifiers))
+}
+
+// Deadline covers runVerifier and its result assembly. Solver interrupts do not
+// preempt pure Rust computation: the verification paths use cooperative checkpoints.
+struct Deadline {
+    shared: Arc<(Mutex<(bool, bool)>, std::sync::Condvar)>, // (done, expired)
+    thread: Option<std::thread::JoinHandle<()>>,
+    instant: std::time::Instant,
+    cancellation: CancellationController,
+}
+impl Deadline {
+    fn start(seconds: u64, cancellation: CancellationController) -> Result<Self, FerrumError> {
+        let shared = Arc::new((Mutex::new((false, false)), std::sync::Condvar::new()));
+        let worker_shared = shared.clone();
+        let worker_cancellation = cancellation.clone();
+        let instant = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+        let thread = std::thread::Builder::new()
+            .name("ferrum-deadline".into())
+            .spawn(move || {
+                let (lock, ready) = &*worker_shared;
+                let deadline = instant;
+                let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
+                while !state.0 && !state.1 {
+                    let now = std::time::Instant::now();
+                    if now >= deadline {
+                        state.1 = true;
+                        break;
+                    }
+                    state = ready
+                        .wait_timeout(state, deadline - now)
+                        .unwrap_or_else(|e| e.into_inner())
+                        .0;
+                }
+                if !state.1 {
+                    return;
+                }
+                drop(state);
+                worker_cancellation.cancel();
+                let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
+                while !state.0 {
+                    let (next, _) = ready
+                        .wait_timeout(state, std::time::Duration::from_millis(50))
+                        .unwrap_or_else(|e| e.into_inner());
+                    state = next;
+                    if !state.0 {
+                        drop(state);
+                        worker_cancellation.interrupt_again();
+                        state = lock.lock().unwrap_or_else(|e| e.into_inner());
+                    }
+                }
+            })
+            .map_err(|error| {
+                FerrumError::Execution(format!("Cannot start deadline monitor: {error}"))
+            })?;
+        Ok(Self {
+            shared,
+            thread: Some(thread),
+            instant,
+            cancellation,
+        })
+    }
+    // Atomically settles completion against expiration. An expired run must
+    // clean up first while the monitor keeps retrying interrupts.
+    fn completed_before_deadline(&self) -> bool {
+        let (lock, ready) = &*self.shared;
+        let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
+        if !state.1 && std::time::Instant::now() >= self.instant {
+            state.1 = true;
+            ready.notify_all();
+        }
+        if state.1 {
+            false
+        } else {
+            state.0 = true;
+            ready.notify_all();
+            true
+        }
+    }
+    fn cancel_for_unwind(&self) {
+        let (lock, ready) = &*self.shared;
+        lock.lock().unwrap_or_else(|e| e.into_inner()).1 = true;
+        ready.notify_all();
+        self.cancellation.cancel();
+    }
+    fn finish(&mut self) -> Result<(), FerrumError> {
+        let (lock, ready) = &*self.shared;
+        lock.lock().unwrap_or_else(|e| e.into_inner()).0 = true;
+        ready.notify_all();
+        if let Some(thread) = self.thread.take() {
+            thread
+                .join()
+                .map_err(|_| FerrumError::Execution("Deadline monitor panicked".into()))?;
+        }
+        Ok(())
+    }
+}
+impl Drop for Deadline {
+    fn drop(&mut self) {
+        // Unwinding must interrupt owner-thread work before Session/pool teardown.
+        if self.thread.is_some() {
+            self.cancellation.cancel();
+            let _ = self.finish();
+        }
+    }
 }
 
 struct NativeBackend {
     config: Config,
     context: Option<OwnedContext>,
     recorded_source: Option<String>,
+    cancellation: Option<CancellationController>,
     warnings: Arc<Mutex<Vec<String>>>,
 }
 impl NativeBackend {
@@ -515,6 +664,7 @@ impl NativeBackend {
             config,
             context: None,
             recorded_source: None,
+            cancellation: None,
             warnings: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -533,6 +683,7 @@ impl SiliconBackend for NativeBackend {
     }
     fn start(&mut self) -> Result<(), FerrumError> {
         let config = &self.config;
+        self.cancellation = (config.timeout > 0).then(CancellationController::default);
         let options = NativeOptions::from_config(config).map_err(execution)?;
         let factory = TermFactory::new(TermOptions {
             use_flyweight: config.use_flyweight(),
@@ -554,8 +705,13 @@ impl SiliconBackend for NativeBackend {
             ));
             #[cfg(feature = "native-z3")]
             {
-                let (prover, identifiers) =
-                    make_api_prover("main", config, factory.clone(), self.warnings.clone())?;
+                let (prover, identifiers) = make_api_prover(
+                    "main",
+                    config,
+                    factory.clone(),
+                    self.warnings.clone(),
+                    self.cancellation.clone(),
+                )?;
                 self.context = Some(if count > 1 {
                     OwnedContext::ParallelApi(Box::new(ParallelContext::start(
                         prover,
@@ -566,6 +722,7 @@ impl SiliconBackend for NativeBackend {
                         self.warnings.clone(),
                         count,
                         make_api_prover,
+                        self.cancellation.clone(),
                     )?))
                 } else {
                     OwnedContext::Api(Box::new(start_context(
@@ -574,13 +731,19 @@ impl SiliconBackend for NativeBackend {
                         config,
                         factory,
                         options,
+                        self.cancellation.clone(),
                     )?))
                 });
                 return Ok(());
             }
         }
-        let (prover, identifiers) =
-            make_stdio_prover("main", config, factory.clone(), self.warnings.clone())?;
+        let (prover, identifiers) = make_stdio_prover(
+            "main",
+            config,
+            factory.clone(),
+            self.warnings.clone(),
+            self.cancellation.clone(),
+        )?;
         self.context = Some(if count > 1 {
             OwnedContext::ParallelStdio(Box::new(ParallelContext::start(
                 prover,
@@ -591,6 +754,7 @@ impl SiliconBackend for NativeBackend {
                 self.warnings.clone(),
                 count,
                 make_stdio_prover,
+                self.cancellation.clone(),
             )?))
         } else {
             OwnedContext::Stdio(Box::new(start_context(
@@ -599,6 +763,7 @@ impl SiliconBackend for NativeBackend {
                 config,
                 factory,
                 options,
+                self.cancellation.clone(),
             )?))
         });
         Ok(())
@@ -639,37 +804,137 @@ impl SiliconBackend for NativeBackend {
         cfgs: &[SilverCfg],
         file: Option<&str>,
     ) -> Result<VerificationResult, FerrumError> {
-        let context = self
-            .context
-            .as_mut()
-            .ok_or_else(|| FerrumError::Execution("Native solver has not been started".into()))?;
-        let results = context.verify_program(program, cfgs, file);
-        self.warnings
-            .lock()
-            .expect("poisoned warning buffer")
-            .append(context.warnings());
-        let results: Vec<SiliconResult<VerificationError>> = results?;
-        // Main verification already flattens each member's predecessor results.
-        // Silicon.runVerifier selects only failures and sorts on transformed position.
-        let mut errors = Vec::new();
-        for result in results {
-            if let Some(error) = result.with_kind(|kind| match kind {
-                ResultKind::Failure(e) => Some(e.clone()),
-                _ => None,
-            }) {
-                let error = diagnostic(error)?;
-                let transformed = error.transformed_error().map_err(execution)?;
-                let position = transformed.position();
-                let key = position
-                    .line_column()
-                    .map_or((-1, -1), |p| (p.line(), p.column()));
-                errors.push((key, error));
+        let mut deadline = self
+            .cancellation
+            .clone()
+            .map(|controller| Deadline::start(self.config.timeout as u64, controller))
+            .transpose()?;
+        let work = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            || -> Result<VerificationResult, FerrumError> {
+                let context = self.context.as_mut().ok_or_else(|| {
+                    FerrumError::Execution("Native solver has not been started".into())
+                })?;
+                let results = context.verify_program(program, cfgs, file);
+                self.warnings
+                    .lock()
+                    .expect("poisoned warning buffer")
+                    .append(context.warnings());
+                let results: Vec<SiliconResult<VerificationError>> = results?;
+                // Main verification already flattens each member's predecessor results.
+                // Silicon.runVerifier selects only failures and sorts on transformed position.
+                let mut errors = Vec::new();
+                for result in results {
+                    if let Some(error) = result.with_kind(|kind| match kind {
+                        ResultKind::Failure(e) => Some(e.clone()),
+                        _ => None,
+                    }) {
+                        let error = diagnostic(error)?;
+                        let transformed = error.transformed_error().map_err(execution)?;
+                        let position = transformed.position();
+                        let key = position
+                            .line_column()
+                            .map_or((-1, -1), |p| (p.line(), p.column()));
+                        errors.push((key, error));
+                    }
+                }
+                errors.sort_by_key(|(key, _)| *key);
+                Ok(final_result(
+                    errors.into_iter().map(|(_, error)| error).collect(),
+                ))
+            },
+        ));
+        let result =
+            match work {
+                Ok(result) => result,
+                Err(panic) => {
+                    if let Some(deadline) = &mut deadline {
+                        deadline.cancel_for_unwind();
+                        let cleanup =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.stop()));
+                        let warning = match cleanup {
+                            Ok(Ok(())) => None,
+                            Ok(Err(error)) => {
+                                Some(format!("verification panic cleanup failed: {error}"))
+                            }
+                            Err(_) => Some("verification panic cleanup also panicked".into()),
+                        };
+                        if let Some(warning) = warning {
+                            self.warnings
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .push(warning);
+                        }
+                        if let Err(error) = deadline.finish() {
+                            self.warnings
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .push(format!("verification panic monitor failed: {error}"));
+                        }
+                        if let Some(controller) = &self.cancellation {
+                            self.warnings
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .extend(controller.take_errors().into_iter().map(|e| {
+                                    format!("verification panic interruption failed: {e}")
+                                }));
+                        }
+                    }
+                    std::panic::resume_unwind(panic);
+                }
+            };
+        if let Some(deadline) = &mut deadline {
+            if !deadline.completed_before_deadline() {
+                // Completion may observe the deadline before the monitor gets
+                // scheduled; latch cancellation before selecting pool teardown.
+                if let Some(controller) = &self.cancellation {
+                    controller.cancel();
+                }
+                if let Err(error) = &result {
+                    // Pool startup/broadcast may already have joined workers and
+                    // attached cleanup failures to the original operation error.
+                    self.warnings
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(format!("timeout verification terminated: {error}"));
+                }
+                // Keep the retry monitor alive until all owner threads and solver
+                // contexts have stopped, including failures on the proof path.
+                if let Err(error) = self.stop() {
+                    self.warnings
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(format!("timeout cleanup failed: {error}"));
+                }
+                if let Err(error) = deadline.finish() {
+                    self.warnings
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(format!("timeout monitor failed: {error}"));
+                }
+                if let Some(controller) = &self.cancellation {
+                    self.warnings
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .extend(
+                            controller
+                                .take_errors()
+                                .into_iter()
+                                .map(|e| format!("timeout interruption failed: {e}")),
+                        );
+                }
+                return Ok(final_result(vec![AbstractError::Frontend(
+                    silver::verifier::verification_result::FrontendError::new(
+                        silver::verifier::verification_result::FrontendErrorKind::TimeoutOccurred {
+                            duration: self.config.timeout as i64,
+                            units: "second(s)".into(),
+                        },
+                        silver::ast::position::Position::NoPosition,
+                    ),
+                )]));
             }
+            deadline.finish()?;
         }
-        errors.sort_by_key(|(key, _)| *key);
-        Ok(final_result(
-            errors.into_iter().map(|(_, error)| error).collect(),
-        ))
+        result
     }
 }
 
@@ -839,5 +1104,38 @@ pub fn verify_file(path: &Path) -> Result<VerificationResult, FerrumError> {
         RunOutcome::Parsed => Err(FerrumError::Execution(
             "Verification was not executed".into(),
         )),
+    }
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+    #[test]
+    fn deadline_handshake_distinguishes_completed_and_expired() {
+        let c = CancellationController::default();
+        let mut deadline = Deadline::start(60, c.clone()).unwrap();
+        assert!(deadline.completed_before_deadline());
+        deadline.finish().unwrap();
+        assert!(!c.is_cancelled());
+        let c = CancellationController::default();
+        let mut deadline = Deadline::start(0, c.clone()).unwrap();
+        assert!(!deadline.completed_before_deadline());
+        // The monitor must latch and invoke callbacks before it may be joined.
+        while !c.is_cancelled() {
+            std::thread::yield_now();
+        }
+        deadline.finish().unwrap();
+        assert!(c.is_cancelled());
+    }
+
+    #[test]
+    fn unwinding_deadline_cancels_owner_work() {
+        let c = CancellationController::default();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _deadline = Deadline::start(60, c.clone()).unwrap();
+            panic!("verification task panicked");
+        }));
+        assert!(result.is_err());
+        assert!(c.is_cancelled());
     }
 }

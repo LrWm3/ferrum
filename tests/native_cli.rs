@@ -450,3 +450,77 @@ fn symbolic_expression_branches_keep_source_order() {
         1,
     );
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn timed_out_session_can_be_reused() {
+    std::thread::Builder::new().stack_size(ferrum::VERIFICATION_STACK_SIZE).spawn(|| {
+    use ferrum::{
+        Session,
+        silicon::config::Config,
+        silver::{
+            frontend::{
+                frontend::FrontendPhases,
+                sil_frontend::{SilFrontendPhases, standard_plugin_manager},
+            },
+            verifier::verification_result::{AbstractError, FrontendErrorKind, VerificationResult},
+        },
+    };
+    // Integer pigeonhole keeps frontend construction compact while making the
+    // verification phase exceed the deadline on both pinned solver transports.
+    let n = 25;
+    let vars = (0..n).map(|i| format!("x{i}: Int")).collect::<Vec<_>>();
+    let mut clauses = (0..n)
+        .map(|i| format!("(0 <= x{i} && x{i} < {})", n - 1))
+        .collect::<Vec<_>>();
+    for i in 0..n {
+        for j in i + 1..n {
+            clauses.push(format!("x{i} != x{j}"));
+        }
+    }
+    let hard = format!(
+        "method m({}) {{ assert !({}); }}",
+        vars.join(", "),
+        clauses.join(" && ")
+    );
+    for count in [1, 2] {
+        let mut config = Config::parse(&[
+            "--numberOfParallelVerifiers".into(),
+            count.to_string(),
+            "--timeout".into(),
+            "1".into(),
+            "--assertTimeout".into(),
+            "0".into(),
+            "--checkTimeout".into(),
+            "0".into(),
+            "--ignoreFile".into(),
+            "session.vpr".into(),
+        ])
+        .unwrap();
+        config.prover = std::env::var("FERRUM_TEST_PROVER").unwrap_or_else(|_| "Z3".into());
+        if config.prover == "Z3" { config.z3_exe = Some(std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3")); }
+        let prepare = |source: &str| {
+            let plugins = standard_plugin_manager(&config.frontend).unwrap();
+            let mut frontend = SilFrontendPhases::new("session.vpr".into(), plugins);
+            frontend.configure_consistency(&config.frontend);
+            let parsed = frontend.parse(source).unwrap();
+            let analyzed = frontend.analyze(parsed).unwrap();
+            let translated = frontend.translate(analyzed).unwrap();
+            let program = frontend.check_consistency(translated).unwrap();
+            frontend.prepare_verification(program).unwrap()
+        };
+        let hard = prepare(&hard);
+        let simple = prepare("method m() { assert true; }");
+        let mut session = Session::new(config.clone()).unwrap();
+        let result = session.verify(&hard, &[]).unwrap();
+        assert!(
+            matches!(result, VerificationResult::Failure(ref errors) if matches!(&errors[0], AbstractError::Frontend(e) if matches!(e.kind, FrontendErrorKind::TimeoutOccurred { .. })))
+        );
+        assert!(matches!(
+            session.verify(&simple, &[]).unwrap(),
+            VerificationResult::Success
+        ));
+        session.stop().unwrap();
+    }
+    }).unwrap().join().unwrap();
+}

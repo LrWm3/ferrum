@@ -171,7 +171,14 @@ impl StdioCancellationHandle {
                 if child.try_wait()?.is_some() {
                     return Ok(false);
                 }
-                child.kill()?;
+                if let Err(error) = child.kill() {
+                    // The process can exit between try_wait and kill. Preserve a
+                    // real kill failure unless a second wait confirms its exit.
+                    if !matches!(child.try_wait(), Ok(Some(_))) {
+                        return Err(error);
+                    }
+                    return Ok(false);
+                }
                 Ok(true)
             }
             None => Ok(false),
@@ -689,10 +696,8 @@ impl Prover for ProverStdIo {
             .ok_or_else(|| self.protocol("no last model"))?;
         Model::parse(text).map_err(|e| ProverError::Model(format!("{e:?}")))
     }
-    fn get_reason_unknown(&mut self) -> Result<String, Self::Error> {
-        self.last_reason_unknown
-            .clone()
-            .ok_or_else(|| self.protocol("no last reason-unknown"))
+    fn get_reason_unknown(&mut self) -> Result<Option<String>, Self::Error> {
+        Ok(self.last_reason_unknown.clone())
     }
     fn clear_last_assert(&mut self) {
         self.last_model = None;
@@ -773,6 +778,50 @@ mod cancellation_tests {
     use super::*;
     use crate::state::terms::TermOptions;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn stdio_soft_assertion_reason_remains_absent() {
+        use crate::interfaces::decider::prover::Prover;
+        let Ok(path) = std::env::var("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        for mode in [AssertionMode::PushPop, AssertionMode::SoftConstraints] {
+            let mut settings = ProverSettings::new(path.clone().into(), 10000);
+            settings.assertion_mode = mode;
+            settings.report_reason_unknown = true;
+            let mut prover = crate::decider::z3_prover_std_io::new(
+                "reason".into(),
+                settings,
+                factory.clone(),
+                |_| {},
+            );
+            prover.start(None).unwrap();
+            prover
+                .write_line("(set-option :print-success true)")
+                .unwrap();
+            prover.read_success().unwrap();
+            assert_eq!(prover.get_reason_unknown().unwrap(), None);
+            assert!(!prover.assert_goal(&factory.boolean(false), None).unwrap());
+            let reason = prover.get_reason_unknown().unwrap();
+            assert_eq!(reason.is_some(), mode == AssertionMode::PushPop);
+            if mode == AssertionMode::SoftConstraints {
+                prover.last_reason_unknown = Some("prior".into());
+                assert!(!prover.assert_goal(&factory.boolean(false), None).unwrap());
+                assert_eq!(
+                    prover.get_reason_unknown().unwrap().as_deref(),
+                    Some("prior")
+                );
+            }
+            prover.clear_last_assert();
+            assert_eq!(prover.get_reason_unknown().unwrap(), None);
+            prover.stop().unwrap();
+        }
+    }
 
     #[test]
     fn cancellation_unblocks_a_solver_read_and_cleanup_reaps_child() {

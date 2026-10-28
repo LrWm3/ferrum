@@ -88,7 +88,8 @@ pub trait Prover: ProverLike {
     fn get_model(
         &mut self,
     ) -> Result<ferrum_silver::verifier::verification_error::Model, Self::Error>;
-    fn get_reason_unknown(&mut self) -> Result<String, Self::Error>;
+    /// The source stores a nullable last reason; soft assertions need not set it.
+    fn get_reason_unknown(&mut self) -> Result<Option<String>, Self::Error>;
     fn clear_last_assert(&mut self);
     fn name(&self) -> &str;
     fn min_version(&self) -> Self::Version;

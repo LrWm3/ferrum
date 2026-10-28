@@ -63,6 +63,10 @@ pub enum ConsumptionError<E> {
 pub trait ConsumptionContext<P, D, J, V>: Sized {
     type Error;
     type PartialError: Clone;
+    /// Native contexts use this safe point for cancellation; other hosts may omit it.
+    fn cancellation_checkpoint(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
     fn unit_snapshot(&self) -> Term;
     fn combine_snapshots(
         &mut self,
@@ -481,6 +485,9 @@ pub fn consume_one<C, P, D, J: Clone, V>(
 where
     C: ConsumptionContext<P, D, J, V>,
 {
+    context
+        .cancellation_checkpoint()
+        .map_err(ConsumptionError::Context)?;
     let special = matches!(
         assertion.kind(),
         ExpKind::FieldAccessPredicate(..)
