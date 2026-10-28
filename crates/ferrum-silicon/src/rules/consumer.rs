@@ -102,6 +102,18 @@ pub trait ConsumptionContext<P, D, J, V>: Sized {
             ConsumptionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<V>, ConsumptionError<Self::Error>>;
+    /// Scope hooks for the retry-local ConsumeRecord. Active logger contexts must
+    /// override both hooks; None is the disabled-logging default.
+    fn open_consumption_scope(
+        &mut self,
+        _state: &State<P, D, J>,
+        _assertion: &Exp,
+    ) -> Result<Option<i32>, Self::Error> {
+        Ok(None)
+    }
+    fn close_consumption_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
+        Ok(())
+    }
     fn factory(&self) -> &crate::state::terms::TermFactory;
     fn debugging(&self) -> bool;
     fn unsafe_wildcard_optimization(&self) -> bool;
@@ -467,6 +479,45 @@ where
         },
     )
 }
+/// Source `wrappedConsumeTlc` logging boundary. Call once inside each retry
+/// attempt, after restoring the caller's main heap; a failed path deliberately
+/// retains its scope, while every successful continuation closes the captured ID.
+pub fn consume_one_logged<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    heap: Arc<ListBackedHeap>,
+    assertion: &Exp,
+    return_snapshot: bool,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Arc<ListBackedHeap>,
+        Option<Term>,
+    ) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>,
+) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
+where
+    C: ConsumptionContext<P, D, J, V>,
+{
+    let scope = context
+        .open_consumption_scope(&state, assertion)
+        .map_err(ConsumptionError::Context)?;
+    consume_one(
+        context,
+        state,
+        heap,
+        assertion,
+        return_snapshot,
+        error,
+        &mut |context, state, heap, snapshot| {
+            context
+                .close_consumption_scope(scope)
+                .map_err(ConsumptionError::Context)?;
+            continuation(context, state, heap, snapshot)
+        },
+    )
+}
+
 /// Dispatch a retry-wrapped conjunct without assuming unimplemented cases succeed.
 pub fn consume_one<C, P, D, J: Clone, V>(
     context: &mut C,

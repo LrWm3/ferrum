@@ -1331,7 +1331,7 @@ repository = "silicon"
 upstream = "src/main/scala/logger/records/data/DataRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/data_record.rs"
 status = "skeleton"
-remaining = ["Native record/config data and source rendering contracts exist; concrete renderers, logger integration and JSON configuration remain."]
+remaining = ["Source node/path data rendering and concrete full-state evaluation/production/consumption factories exist. Complete runtime lifecycle and reporting compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1647,7 +1647,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Evaluator.scala"
 destination = "crates/ferrum-silicon/src/rules/evaluator.rs"
 status = "skeleton"
-remaining = ["Native evaluation and owned expression join actions retain synchronous execution. Logging/debugger hooks and broad source compatibility remain; source expression joins disable parallelism."]
+remaining = ["Native evaluation, synchronous owned expression joins and token-preserving log scopes exist. Complete reporting lifecycle, debugger hooks and broad source compatibility remain; source expression joins disable parallelism."]
 
 [[modules]]
 repository = "silicon"
@@ -2583,3 +2583,8 @@ remaining = ["Source ground closure, bundled/custom collection sources, relative
 destination = "crates/ferrum-silicon/src/decider/native_z3.rs"
 status = "skeleton"
 remaining = ["Linked C API and Prover adapter connect both assertion modes, typed startup solver options, documented context keys, source coercions, seed randomization and invalid-trigger retry. Source warnings reach an optional reporter callback. Broad parity and richer runtime reporting remain incomplete; dynamic setOption is unsupported upstream."]
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/tests/context_log_hooks.rs"
+status = "wired"
+role = "assembly"

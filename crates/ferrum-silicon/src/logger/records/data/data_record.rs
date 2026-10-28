@@ -63,3 +63,159 @@ pub fn data_for(
         ..RecordData::default()
     })
 }
+
+/// Owner-local adapter for constructing source records without imposing Send or
+/// Sync bounds on every verifier context. Implementations decide which concrete
+/// state types can be retained by cross-thread symbolic records.
+pub trait NativeRecordFactory<P, D, J> {
+    fn evaluate(
+        &self,
+        expression: &ferrum_silver::ast::expression::Exp,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord>;
+    fn produce(
+        &self,
+        assertion: &ferrum_silver::ast::expression::Exp,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord>;
+    fn consume(
+        &self,
+        assertion: &ferrum_silver::ast::expression::Exp,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord>;
+}
+
+/// Retain the complete persistent state and a snapshot of current assumptions,
+/// exactly as the source data-record constructors do.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FullStateRecordFactory;
+impl<P, D, J: Clone> NativeRecordFactory<P, D, J> for FullStateRecordFactory
+where
+    crate::state::state::State<P, D, J>: Send + Sync + 'static,
+{
+    fn evaluate(
+        &self,
+        expression: &ferrum_silver::ast::expression::Exp,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord> {
+        std::sync::Arc::new(super::evaluate_record::EvaluateRecord::new(
+            Some(expression.clone()),
+            Some(state.clone()),
+            Some(paths),
+        ))
+    }
+    fn produce(
+        &self,
+        assertion: &ferrum_silver::ast::expression::Exp,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord> {
+        std::sync::Arc::new(super::produce_record::ProduceRecord::new(
+            Some(assertion.clone()),
+            Some(state.clone()),
+            Some(paths),
+        ))
+    }
+    fn consume(
+        &self,
+        assertion: &ferrum_silver::ast::expression::Exp,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord> {
+        std::sync::Arc::new(super::consume_record::ConsumeRecord::new(
+            Some(assertion.clone()),
+            Some(state.clone()),
+            Some(paths),
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        config::JoinMode,
+        decider::path_conditions::LayeredPathConditionStack,
+        state::{
+            identifiers::Identifier,
+            terms::{Sort, TermFactory, TermOptions},
+        },
+        verifier::verification_pool_manager::NativeBranchState,
+    };
+    use ferrum_silver::ast::{
+        expression::{Exp, ExpKind},
+        program::Program,
+    };
+
+    #[test]
+    fn native_factory_retains_state_and_snapshots_assumptions() {
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let program = Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Default::default(),
+        );
+        let mut state = NativeBranchState::new(
+            program,
+            Default::default(),
+            Default::default(),
+            JoinMode::All,
+            &factory,
+            false,
+            false,
+        );
+        state.under_join = true;
+        let expression = Exp::new(ExpKind::TrueLit, Default::default());
+        let assumption = factory.var(Identifier::new("p"), Sort::Bool, false);
+        let mut paths = LayeredPathConditionStack::new(false);
+        paths.add(&assumption).unwrap();
+        let producer = FullStateRecordFactory;
+        let records = [
+            producer.evaluate(&expression, &state, &paths),
+            producer.produce(&expression, &state, &paths),
+            producer.consume(&expression, &state, &paths),
+        ];
+        state.under_join = false;
+        paths
+            .add(&factory.var(Identifier::new("q"), Sort::Bool, false))
+            .unwrap();
+        for record in &records {
+            assert_eq!(record.pcs().unwrap().len(), 1);
+            assert!(record.pcs().unwrap().contains(&assumption));
+        }
+        let captured = records[0]
+            .as_any()
+            .downcast_ref::<super::super::evaluate_record::EvaluateRecord<NativeBranchState>>()
+            .unwrap();
+        assert!(captured.state.as_ref().unwrap().under_join);
+        assert!(captured.value.as_ref().unwrap().same_node(&expression));
+        assert!(
+            records[1]
+                .as_any()
+                .downcast_ref::<super::super::produce_record::ProduceRecord<NativeBranchState>>()
+                .unwrap()
+                .state
+                .is_some()
+        );
+        assert!(
+            records[2]
+                .as_any()
+                .downcast_ref::<super::super::consume_record::ConsumeRecord<NativeBranchState>>()
+                .unwrap()
+                .state
+                .is_some()
+        );
+    }
+}

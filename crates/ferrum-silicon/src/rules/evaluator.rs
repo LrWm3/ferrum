@@ -156,6 +156,19 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
         expression: &Exp,
     ) -> Result<(), Self::Error>;
     fn close_evaluation(&mut self) -> Result<(), Self::Error>;
+    /// Return the source scope ID; legacy/no-op contexts delegate to their existing hook.
+    fn open_evaluation_scope(
+        &mut self,
+        state: &State<P, D, J>,
+        expression: &Exp,
+    ) -> Result<Option<i32>, Self::Error> {
+        self.open_evaluation(state, expression)?;
+        Ok(None)
+    }
+    fn close_evaluation_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_evaluation()
+    }
+
     fn eval_heap(&mut self, state: &State<P, D, J>) -> Result<Arc<ListBackedHeap>, Self::Error>;
     fn record_possible_trigger(
         &mut self,
@@ -593,8 +606,8 @@ pub fn evaluate<C, P, D, J: Clone, V>(
 where
     C: EvaluationContext<P, D, J, V>,
 {
-    context
-        .open_evaluation(&state, expression)
+    let scope = context
+        .open_evaluation_scope(&state, expression)
         .map_err(EvaluationError::Context)?;
     let old_heap = state.h.clone();
     let old_reserve = state.reserve_heaps.clone();
@@ -620,7 +633,7 @@ where
             state.reserve_heaps = old_reserve.clone();
             state.exhale_ext = old_exhale;
             context
-                .close_evaluation()
+                .close_evaluation_scope(scope)
                 .map_err(EvaluationError::Context)?;
             continuation(context, state, term, debug)
         },

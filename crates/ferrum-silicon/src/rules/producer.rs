@@ -99,6 +99,19 @@ pub trait ProductionContext<P, D, J, V>: Sized {
     fn assert_false(&mut self) -> Result<bool, Self::Error>;
     fn open_produce(&mut self, state: &State<P, D, J>, assertion: &Exp) -> Result<(), Self::Error>;
     fn close_produce(&mut self) -> Result<(), Self::Error>;
+    /// Return the source scope ID, retaining legacy disabled-log behavior by default.
+    fn open_produce_scope(
+        &mut self,
+        state: &State<P, D, J>,
+        assertion: &Exp,
+    ) -> Result<Option<i32>, Self::Error> {
+        self.open_produce(state, assertion)?;
+        Ok(None)
+    }
+    fn close_produce_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_produce()
+    }
+
     fn assume_empty_snapshot(
         &mut self,
         state: &State<P, D, J>,
@@ -368,8 +381,8 @@ fn produce_one<C, P, D, J: Clone, V>(
 where
     C: ProductionContext<P, D, J, V>,
 {
-    context
-        .open_produce(&state, assertion)
+    let scope = context
+        .open_produce_scope(&state, assertion)
         .map_err(ProductionError::Context)?;
     let mut finish = |context: &mut C, mut state: State<P, D, J>| {
         if state.exhale_ext {
@@ -379,7 +392,9 @@ where
                 state.reserve_heaps[0] = state.h.clone();
             }
         }
-        context.close_produce().map_err(ProductionError::Context)?;
+        context
+            .close_produce_scope(scope)
+            .map_err(ProductionError::Context)?;
         continuation(context, state)
     };
     let special = matches!(

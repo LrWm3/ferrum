@@ -456,3 +456,12 @@ source's starting state (and consequently skipped consistency phase) and retaine
 errors across repeated calls. Native invalid/exit configuration rejection remains
 an explicit deviation from the source initializer. Focused tests use a stub
 backend; a concrete Silicon verifier adapter is still required.
+
+Native evaluation, production and retry-local consumption now preserve symbolic
+scope IDs through successful continuations, leaving failed paths open as in the
+source. An owner-local factory retains complete persistent states and snapshots of
+path assumptions without requiring every generic context to be thread-safe. Active
+logging without a factory returns an error; disabled logging preserves existing
+behavior. Local hook checks inspect record types, retained state and disabled/error
+paths. Run/member installation, worker migration and remaining progress events
+are still incomplete, so public reporting profiles remain gated.

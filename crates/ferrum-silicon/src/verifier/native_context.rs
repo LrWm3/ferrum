@@ -282,11 +282,25 @@ pub type NativeContext = NativeVerifierContext<
     crate::supporters::predicate_verification_unit::PredicateData,
     NativeFunctionData,
 >;
+#[derive(Clone, Copy)]
+enum LoggedScopeKind {
+    Evaluate,
+    Produce,
+    Consume,
+}
 pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub base: BaseVerifier<S>,
     pub factory: TermFactory,
     pub options: NativeOptions,
     pub warnings: Vec<String>,
+    /// Owner-local symbolic logger and record constructor. Both are inactive until
+    /// the verification lifecycle explicitly installs a member log.
+    pub(crate) member_log: Option<Arc<crate::logger::symb_ex_logger::MemberSymbExLog>>,
+    pub(crate) record_factory: Option<
+        std::rc::Rc<
+            dyn crate::logger::records::data::data_record::NativeRecordFactory<PD, FD, JoinMode>,
+        >,
+    >,
     /// Source-order quantifier trigger choices from preprocessing, for reporter delivery.
     pub quantifier_trigger_events: Vec<crate::utils::ast::QuantifierTriggerEvent>,
     preprocessing_reporter: Option<Arc<dyn ferrum_silver::reporter::reporter::Reporter>>,
@@ -324,6 +338,8 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             factory,
             options,
             warnings: Vec::new(),
+            member_log: None,
+            record_factory: None,
             quantifier_trigger_events: Vec::new(),
             preprocessing_reporter: None,
             cancellation: None,
@@ -346,6 +362,64 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             quantified_counter: 0,
             heap_supporter_counter: 0,
             _state_types: PhantomData,
+        }
+    }
+    /// Install a member log and its full-state record constructor for this owner.
+    /// Run/member lifecycle management is intentionally a separate integration step.
+    pub fn set_member_logging(
+        &mut self,
+        member: Option<Arc<crate::logger::symb_ex_logger::MemberSymbExLog>>,
+        factory: Option<
+            std::rc::Rc<
+                dyn crate::logger::records::data::data_record::NativeRecordFactory<PD, FD, JoinMode>,
+            >,
+        >,
+    ) {
+        self.member_log = member;
+        self.record_factory = factory;
+    }
+    fn open_logged_scope(
+        &self,
+        state: &State<PD, FD, JoinMode>,
+        expression: &Exp,
+        kind: LoggedScopeKind,
+    ) -> Result<Option<i32>, NativeError<S::Error>> {
+        let Some(log) = &self.member_log else {
+            return Ok(None);
+        };
+        if log.when_enabled(|| ()).is_none() {
+            return Ok(None);
+        }
+        let factory = self
+            .record_factory
+            .as_ref()
+            .ok_or(NativeError::Unsupported(
+                "active symbolic logger requires record factory",
+            ))?;
+        let record = match kind {
+            LoggedScopeKind::Evaluate => {
+                factory.evaluate(expression, state, &self.base.decider.pcs)
+            }
+            LoggedScopeKind::Produce => factory.produce(expression, state, &self.base.decider.pcs),
+            LoggedScopeKind::Consume => factory.consume(expression, state, &self.base.decider.pcs),
+        };
+        let renderer = crate::logger::state_reporting::NativeStateRecordRenderer {
+            factory: &self.factory,
+        };
+        log.open_scope(record, &renderer)
+            .map(Some)
+            .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
+    }
+    fn close_logged_scope(&self, id: Option<i32>) -> Result<(), NativeError<S::Error>> {
+        match (&self.member_log, id) {
+            (None, None) => Ok(()),
+            (Some(log), None) if log.when_enabled(|| ()).is_none() => Ok(()),
+            (Some(log), Some(id)) => log
+                .close_scope(id)
+                .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}"))),
+            _ => Err(NativeError::Unsupported(
+                "symbolic logger changed during scope",
+            )),
         }
     }
     /// Source heap-support strategy creates per-resource zero-mask heaps in mask mode.
@@ -1043,6 +1117,17 @@ where
     }
     fn close_evaluation(&mut self) -> Result<(), Self::Error> {
         Ok(())
+    }
+    fn open_evaluation_scope(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        expression: &Exp,
+    ) -> Result<Option<i32>, Self::Error> {
+        self.checkpoint()?;
+        self.open_logged_scope(state, expression, LoggedScopeKind::Evaluate)
+    }
+    fn close_evaluation_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_logged_scope(id)
     }
     fn eval_heap(
         &mut self,
@@ -2451,6 +2536,17 @@ where
     fn close_produce(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
+    fn open_produce_scope(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        assertion: &Exp,
+    ) -> Result<Option<i32>, Self::Error> {
+        self.checkpoint()?;
+        self.open_logged_scope(state, assertion, LoggedScopeKind::Produce)
+    }
+    fn close_produce_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_logged_scope(id)
+    }
     fn assume_empty_snapshot(
         &mut self,
         state: &State<PD, FD, JoinMode>,
@@ -3224,7 +3320,7 @@ where
             &mut |ctx, mut state, done| {
                 let heap = state.h.clone();
                 state.h = original_heap.clone();
-                crate::rules::consumer::consume_one(
+                crate::rules::consumer::consume_one_logged(
                     ctx,
                     state,
                     heap,
@@ -3236,6 +3332,16 @@ where
             },
             &mut |ctx, state, (heap, snapshot)| continuation(ctx, state, heap, snapshot),
         )
+    }
+    fn open_consumption_scope(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        assertion: &Exp,
+    ) -> Result<Option<i32>, Self::Error> {
+        self.open_logged_scope(state, assertion, LoggedScopeKind::Consume)
+    }
+    fn close_consumption_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_logged_scope(id)
     }
     fn factory(&self) -> &crate::state::terms::TermFactory {
         &self.factory
