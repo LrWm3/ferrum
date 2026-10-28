@@ -415,7 +415,7 @@ fn visit_names(
                 messages,
             )?,
             PStatementKind::Seqn { .. } => scope = Some(DeclarationMap::new(false, false)),
-            PStatementKind::Extension(extension) if !extension.as_any().is::<crate::plugin::standard::refute::refute_past_extension::PRefute>() && !extension.as_any().is::<crate::plugin::standard::smoke::unreachable_past_extension::PUnreachable>() => {
+            PStatementKind::Extension(extension) if !extension.statement_name_analysis_passthrough() && !extension.as_any().is::<crate::plugin::standard::refute::refute_past_extension::PRefute>() && !extension.as_any().is::<crate::plugin::standard::smoke::unreachable_past_extension::PUnreachable>() => {
                 return Err(NameAnalysisError::Unsupported("statement extension scope"));
             }
             PStatementKind::MacroSeqn { .. }
@@ -1702,9 +1702,8 @@ pub fn check_statement_core(
                 .as_any()
                 .is::<crate::plugin::standard::smoke::unreachable_past_extension::PUnreachable>(
             ) {
-                return Err(TypeCheckError::Unsupported(
-                    "statement extension typechecking",
-                ));
+                extension
+                    .typecheck_statement(&mut |body| check_statement_core(body, &mut *warn))?;
             }
         }
         S::Assert { exp, .. }

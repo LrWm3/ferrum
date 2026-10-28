@@ -128,14 +128,45 @@ pub fn parse_type(source: &str, file: impl AsRef<Path>) -> Result<ParsedType, Sy
 }
 
 /// Built-in parser extensions currently supported by the native grammar.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub enum ParserFeature {
     Refute,
     Unreachable,
     PredicateInstance,
     Sif,
     Arp,
+    StatementBlock {
+        keyword: &'static str,
+        factory: fn(
+            super::parse_ast_keyword::Span,
+            super::parse_ast::PStmtHandle,
+            super::parse_ast_keyword::Span,
+        ) -> super::parse_ast::PStmtHandle,
+    },
 }
+impl PartialEq for ParserFeature {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Refute, Self::Refute)
+            | (Self::Unreachable, Self::Unreachable)
+            | (Self::PredicateInstance, Self::PredicateInstance)
+            | (Self::Sif, Self::Sif)
+            | (Self::Arp, Self::Arp) => true,
+            (
+                Self::StatementBlock {
+                    keyword: a,
+                    factory: af,
+                },
+                Self::StatementBlock {
+                    keyword: b,
+                    factory: bf,
+                },
+            ) => a == b && std::ptr::fn_addr_eq(*af, *bf),
+            _ => false,
+        }
+    }
+}
+impl Eq for ParserFeature {}
 
 /// Parse a complete program containing the currently supported declarations.
 /// Imports require the loader-enabled entry point. Domain grammar is partial and
@@ -403,6 +434,9 @@ struct ExpressionParser<'a> {
 impl ExpressionParser<'_> {
     fn is_keyword(&self, name: &str) -> bool {
         is_keyword(name)
+            || self.features.iter().any(
+                |f| matches!(f, ParserFeature::StatementBlock { keyword, .. } if *keyword == name),
+            )
             || (name == "rd" && self.features.contains(&ParserFeature::Arp))
             || (matches!(name, "low" | "lowEvent" | "rel")
                 && self.features.contains(&ParserFeature::Sif))
@@ -890,6 +924,20 @@ impl ExpressionParser<'_> {
         }
         let end = self.identifier_end(start);
         let name = &self.source[start..end];
+        let block_factory = self.features.iter().find_map(|feature| match feature {
+            ParserFeature::StatementBlock { keyword, factory } if *keyword == name => {
+                Some(*factory)
+            }
+            _ => None,
+        });
+        if let Some(factory) = block_factory {
+            self.cursor = end;
+            let keyword_pos = self.span(start, end);
+            let body = self
+                .statement_block()?
+                .ok_or_else(|| self.error("expected extension statement block"))?;
+            return Ok(factory(keyword_pos, body, self.span(start, self.cursor)));
+        }
         if name == "refute" && self.features.contains(&ParserFeature::Refute) {
             self.cursor = end;
             let keyword = crate::plugin::standard::refute::refute_past_extension::refute_keyword(

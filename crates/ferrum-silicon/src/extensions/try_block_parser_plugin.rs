@@ -20,4 +20,64 @@
 //! Open decisions:
 //! Agree on parser hook and plugin lifetime with Silver frontend.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; typed statement-block parser registration is implemented. Silicon execution
+//! of the resulting extension remains pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2020 ETH Zurich.
+
+use super::try_block_stmt::{PTryBlock, try_keyword};
+use ferrum_silver::parser::fast_parser::ParserFeature;
+use ferrum_silver::parser::parse_ast::PStmtHandle;
+use ferrum_silver::parser::parse_ast_keyword::Span;
+use ferrum_silver::plugin::silver_plugin::SilverPlugin;
+
+fn make_try_block(keyword: Span, body: PStmtHandle, pos: Span) -> PStmtHandle {
+    PTryBlock {
+        keyword: try_keyword(keyword),
+        body,
+        pos,
+    }
+    .statement()
+}
+#[derive(Default)]
+pub struct TryBlockParserPlugin;
+impl SilverPlugin for TryBlockParserPlugin {
+    fn parser_features(&self) -> Vec<ParserFeature> {
+        vec![ParserFeature::StatementBlock {
+            keyword: "try",
+            factory: make_try_block,
+        }]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::extensions::try_block_stmt::TryBlock;
+    use ferrum_silver::ast::statement::StmtKind;
+    use ferrum_silver::frontend::frontend::FrontendPhases;
+    use ferrum_silver::frontend::sil_frontend::SilFrontendPhases;
+    use ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager;
+    use std::path::PathBuf;
+
+    #[test]
+    fn parses_checks_and_translates_try_block() {
+        let plugins = SilverPluginManager::new(vec![Box::new(TryBlockParserPlugin)]);
+        let mut phases = SilFrontendPhases::new(PathBuf::from("test.vpr"), plugins);
+        let parsed = phases.parse("method m() { try { assert true; } }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let StmtKind::Seqn { statements, .. } = program.methods[0].body.as_ref().unwrap().kind()
+        else {
+            panic!("method block")
+        };
+        let StmtKind::Extension(extension) = statements[0].kind() else {
+            panic!("try statement")
+        };
+        assert!(extension.0.as_any().is::<TryBlock>());
+        phases.check_consistency(program).unwrap();
+    }
+}

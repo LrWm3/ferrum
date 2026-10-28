@@ -342,6 +342,32 @@ pub enum PNodeKind {
 pub trait PExtender: std::fmt::Debug + Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
     fn subnodes(&self) -> Vec<PNodeHandle>;
+    /// True only when ordinary recursive name analysis handles this statement's scope.
+    fn statement_name_analysis_passthrough(&self) -> bool {
+        false
+    }
+    fn typecheck_statement(
+        &self,
+        _check: &mut dyn FnMut(&PStmtHandle) -> Result<(), super::resolver::TypeCheckError>,
+    ) -> Result<(), super::resolver::TypeCheckError> {
+        Err(super::resolver::TypeCheckError::Unsupported(
+            "statement extension typechecking",
+        ))
+    }
+    fn translate_statement(
+        &self,
+        _translate: &mut dyn FnMut(
+            &PStmtHandle,
+        ) -> Result<
+            crate::ast::statement::Stmt,
+            super::translator::TranslationError,
+        >,
+        _meta: crate::ast::ast::Metadata,
+    ) -> Result<crate::ast::statement::Stmt, super::translator::TranslationError> {
+        Err(super::translator::TranslationError::Unsupported(
+            "statement extension translation",
+        ))
+    }
     fn scope_id(&self) -> Option<PScopeId> {
         None
     }

@@ -752,9 +752,10 @@ fn translate_statement_with_fields(
                         .statement(),
                 );
             }
-            return Err(TranslationError::Unsupported(
-                "statement extension translation",
-            ));
+            return extension.translate_statement(
+                &mut |body| translate_statement_with_fields(body, fields),
+                meta,
+            );
         }
         PStatementKind::Assert { exp, .. } => {
             StmtKind::Assert(translate_expression_with_fields(&exp, fields)?)

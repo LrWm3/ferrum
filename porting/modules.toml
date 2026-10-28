@@ -357,7 +357,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/FastParser.scala"
 destination = "crates/ferrum-silver/src/parser/fast_parser.rs"
 status = "skeleton"
-remaining = ["Core program grammar, recursive imports and non-generic domain calls exist; macros, generic/interpreted domains, full extension grammar, recovery and complete semantic checks remain."]
+remaining = ["Typed statement-block registration and checked try-block translation exist; full parser coverage, extension reconstruction and backend integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -371,7 +371,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ParseAst.scala"
 destination = "crates/ferrum-silver/src/parser/parse_ast.rs"
 status = "skeleton"
-remaining = ["Core program grammar, recursive imports and non-generic domain calls exist; macros, generic/interpreted domains, full extension grammar, recovery and complete semantic checks remain."]
+remaining = ["Typed statement-block registration and checked try-block translation exist; full parser coverage, extension reconstruction and backend integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -391,14 +391,14 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/Resolver.scala"
 destination = "crates/ferrum-silver/src/parser/resolver.rs"
 status = "skeleton"
-remaining = ["Core program grammar, recursive imports and non-generic domain calls exist; macros, generic/interpreted domains, full extension grammar, recovery and complete semantic checks remain."]
+remaining = ["Typed statement-block registration and checked try-block translation exist; full parser coverage, extension reconstruction and backend integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/Translator.scala"
 destination = "crates/ferrum-silver/src/parser/translator.rs"
 status = "skeleton"
-remaining = ["Core program grammar, recursive imports and non-generic domain calls exist; macros, generic/interpreted domains, full extension grammar, recovery and complete semantic checks remain."]
+remaining = ["Typed statement-block registration and checked try-block translation exist; full parser coverage, extension reconstruction and backend integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -1193,19 +1193,22 @@ status = "ported"
 repository = "silicon"
 upstream = "src/main/scala/extensions/ConditionalPermissionRewriter.scala"
 destination = "crates/ferrum-silicon/src/extensions/conditional_permission_rewriter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source ternary/context permission rewriting and proof-obligation safeguards exist; preprocessing wiring and complete extension traversal remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/extensions/TryBlockParserPlugin.scala"
 destination = "crates/ferrum-silicon/src/extensions/try_block_parser_plugin.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed statement-block registration and checked try-block translation exist; full parser coverage, extension reconstruction and backend integration remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/extensions/TryBlockStmt.scala"
 destination = "crates/ferrum-silicon/src/extensions/try_block_stmt.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed statement-block registration and checked try-block translation exist; full parser coverage, extension reconstruction and backend integration remain."]
 
 [[modules]]
 repository = "silicon"
