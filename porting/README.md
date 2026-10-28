@@ -754,3 +754,9 @@ are absent from the Rust model. These diagnostic paths use canonical native
 `Seq(...)`/`Set(...)` notation. Strict counterexample and debug-heap rendering
 remain unchanged. Custom value-based log filters use the displayed native form;
 the output difference is recorded in differences.md.
+
+The concrete parse-AST provider now executes preparation, configured reset,
+parsing and semantic analysis before its existing finish/reporting hooks. It
+reports phase warnings and overall results and preserves captured plugin setup
+exceptions. Focused checks cover success, semantic failure and missing plugins;
+this provider does not invoke the backend.
