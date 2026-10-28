@@ -790,3 +790,12 @@ Cancellation checks retain the typed error, drain the submitted else, and restor
 parent solver depth/options. Joined CFG/predicate scheduling falls back to the
 synchronous path for active logging, packaging and extended exhale. Nonjoined
 producer/consumer caller frames remain the next continuation boundary.
+
+Direct CFG inhale statements now carry owned caller tails through conditional and
+implication production. Jobs retain split snapshots, projected assertion suffixes
+and errors, then complete inhale saturation, statement cleanup and the remaining
+CFG through method postconditions. CFG and producer jobs share scheduling,
+restoration and error draining. Real Z3 checks confirm producer jobs run with one
+and two workers and match pinned JVM outcomes for permission tails, nested
+conjunction/Let fallback and failing postconditions. Consumer and additional
+caller frames remain gated work.

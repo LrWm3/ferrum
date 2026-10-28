@@ -1793,6 +1793,12 @@ pub enum NativeJoinAction {
     Cfg(crate::rules::executor::CfgJoinBranch),
     Predicate(crate::rules::predicate_supporter::PredicateContentsAction),
     Continuation(crate::rules::executor::CfgContinuationAction),
+    Production(
+        crate::rules::producer::OwnedProductionAction<
+            super::native_context::NativeSnapshot,
+            ferrum_silver::verifier::verification_error::PartialVerificationError,
+        >,
+    ),
 }
 pub struct NativeJoinJob<
     PD = crate::supporters::predicate_verification_unit::PredicateData,
@@ -1830,6 +1836,12 @@ pub(crate) static CONTINUATION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize 
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static CONTINUATION_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static RULE_PRODUCTION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static RULE_PRODUCTION_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static CONTINUATION_TEST_FOREIGN_EXECUTIONS: std::sync::atomic::AtomicUsize =
@@ -1955,6 +1967,9 @@ where
             }
             NativeJoinAction::Continuation(_) => {
                 CONTINUATION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            NativeJoinAction::Production(_) => {
+                RULE_PRODUCTION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
         }
         let task = self.queue.submit(NativeWorkerTask {
@@ -4132,6 +4147,106 @@ method bad(x: Ref, b: Bool) returns (r: Int)
                 assert!(
                     CONTINUATION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > before,
                     "loop continuation never executed"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_producer_permission_tails() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let cases = [
+            r#"field f: Int
+method producer(b: Bool, x: Ref, y: Ref)
+  requires x != y
+  ensures b ? acc(x.f) : acc(y.f)
+{
+  inhale b ? acc(x.f) : acc(y.f);
+  assert b ? acc(x.f) : acc(y.f);
+}
+method consumer(b: Bool, x: Ref, y: Ref)
+  requires acc(x.f) && acc(y.f)
+  ensures b ? acc(y.f) : acc(x.f)
+{
+  exhale b ? acc(x.f) : acc(y.f);
+  assert b ? acc(y.f) : acc(x.f);
+}
+method bad(b: Bool, x: Ref, y: Ref)
+  requires acc(x.f) && acc(y.f)
+{
+  exhale b ? acc(x.f) : acc(y.f);
+  assert false;
+}
+"#,
+            r#"field f: Int
+method good(b: Bool, x: Ref, y: Ref, z: Ref)
+  requires x != y && x != z && y != z
+  ensures b ? acc(x.f) && acc(z.f) : acc(y.f) && acc(z.f)
+{
+  inhale (b ? (let a == (x) in acc(a.f) && acc(z.f)) : (let a == (y) in acc(a.f) && acc(z.f)));
+  assert b ? acc(x.f) && acc(z.f) : acc(y.f) && acc(z.f);
+}
+method nested(b: Bool, x: Ref, y: Ref)
+  requires x != y
+  ensures b ? acc(x.f) : acc(y.f)
+{
+  inhale let a == (x) in (b ? acc(a.f) : acc(y.f));
+}
+method bad() { assert false; }
+"#,
+            r#"field f: Int
+method good(b: Bool, x: Ref, y: Ref)
+  requires x != y
+  ensures b ? acc(x.f) : acc(y.f)
+{
+  inhale b ? acc(x.f) : acc(y.f);
+}
+method bad(b: Bool, x: Ref, y: Ref)
+  requires x != y
+  ensures acc(x.f)
+{
+  inhale b ? acc(x.f) : acc(y.f);
+}
+"#,
+        ];
+        for source in cases {
+            for workers in [1, 2] {
+                let submitted =
+                    RULE_PRODUCTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let executed =
+                    RULE_PRODUCTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert!(fatal.iter().any(|fatal| *fatal));
+                assert!(
+                    RULE_PRODUCTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > submitted,
+                    "no production job submitted"
+                );
+                assert!(
+                    RULE_PRODUCTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > executed,
+                    "no production job executed"
                 );
             }
         }

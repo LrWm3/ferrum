@@ -2922,6 +2922,62 @@ where
     type Error = NativeError<S::Error>;
     type PartialError = PartialVerificationError;
     type Snapshot = NativeSnapshot;
+    fn supports_owned_production(&self, state: &State<PD, FD, JoinMode>) -> bool {
+        self.joined_branch_scheduler_enabled
+            && self.joined_branch_scheduler.is_some()
+            && self.member_log.is_none()
+            && state.parallelize_branches
+            && !state.under_join
+            && !state.is_in_package
+            && !state.exhale_ext
+    }
+    fn try_branch_owned_production(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        condition: &Term,
+        original: &Exp,
+        rewritten: Option<&Exp>,
+        yes: crate::rules::producer::OwnedProductionAction<
+            NativeSnapshot,
+            PartialVerificationError,
+        >,
+        no: crate::rules::producer::OwnedProductionAction<NativeSnapshot, PartialVerificationError>,
+    ) -> Option<Result<VerificationResult<VerificationError>, ProductionError<Self::Error>>> {
+        Some(
+            self.branch_owned_production(
+                state.clone(),
+                condition.clone(),
+                original,
+                rewritten,
+                yes,
+                no,
+            )
+            .map_err(ProductionError::Context),
+        )
+    }
+    fn finish_owned_inhale(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        tail: &crate::rules::executor::CfgStatementTail,
+    ) -> Result<VerificationResult<VerificationError>, ProductionError<Self::Error>> {
+        use crate::rules::executor::ExecutionContext;
+        self.saturate_after_inhale()
+            .map_err(ProductionError::Context)?;
+        let state = self
+            .finish_key_heap(state)
+            .map_err(ProductionError::Context)?;
+        let state = self
+            .move_to_reserve_heap(state)
+            .map_err(ProductionError::Context)?;
+        self.close_statement_scope(None)
+            .map_err(ProductionError::Context)?;
+        crate::rules::executor::execute_cfg_statement_tail(self, state, tail).map_err(|e| match e {
+            ExecutionError::Context(error) => ProductionError::Context(error),
+            other => ProductionError::Context(NativeError::Execution(format!(
+                "owned inhale tail: {other:?}"
+            ))),
+        })
+    }
     fn adapt_snapshot(
         &mut self,
         state: &State<PD, FD, JoinMode>,
@@ -7206,6 +7262,54 @@ where
             result.map_err(|e| ExecutionError::Context(NativeError::Production(format!("{e:?}"))))
         }
     }
+    fn statement_scope_transferable(&self, scope: Option<i32>) -> bool {
+        scope.is_none() && self.member_log.is_none()
+    }
+    fn produce_with_owned_tail(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        statement: &Stmt,
+        assertion: &Exp,
+        tail: Option<&crate::rules::executor::CfgStatementTail>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ExecutionError<Self::Error>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
+        use crate::rules::producer::ProductionContext;
+        let Some(tail) = tail.filter(|_| self.supports_owned_production(&state)) else {
+            return self.produce(state, statement, assertion, continuation);
+        };
+        let partial = PartialVerificationError::for_kind(VerificationErrorKind::InhaleFailed(
+            statement.clone(),
+        ));
+        let mut callback_error = None;
+        let result = crate::rules::producer::produce_all_owned(
+            self,
+            state,
+            NativeSnapshot::Fresh,
+            assertion,
+            partial,
+            tail,
+            &mut |ctx, state| match continuation(ctx, state) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ProductionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| match e {
+            ProductionError::Context(error) => ExecutionError::Context(error),
+            other => ExecutionError::Context(NativeError::Production(format!("{other:?}"))),
+        })
+    }
     fn consume(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -8288,6 +8392,28 @@ impl<S: Prover, PD, FD: Clone>
 where
     S::Error: std::fmt::Debug,
 {
+    fn resume_owned_cfg_terminal(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        terminal: &crate::rules::executor::CfgContinuationTerminal,
+    ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
+        match terminal {
+            crate::rules::executor::CfgContinuationTerminal::Standalone => {
+                Ok(VerificationResult::success())
+            }
+            crate::rules::executor::CfgContinuationTerminal::Method(method) => {
+                crate::supporters::method_supporter::complete_method_cfg(self, state, method)
+                    .map_err(|error| match error {
+                        MethodVerificationError::Service(NativeError::Cancelled) => {
+                            ExecutionError::Context(NativeError::Cancelled)
+                        }
+                        other => ExecutionError::Context(NativeError::OwnedMethodContinuation(
+                            Box::new(other),
+                        )),
+                    })
+            }
+        }
+    }
     fn owned_cfg_conditional_close_is_noop(&self, id: Option<i32>) -> bool {
         id.is_none() && self.member_log.is_none()
     }
@@ -9818,6 +9944,14 @@ where
         #[cfg(test)]
         if matches!(
             &branch.action,
+            super::verification_pool_manager::NativeJoinAction::Production(_)
+        ) {
+            super::verification_pool_manager::RULE_PRODUCTION_TEST_EXECUTIONS
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        #[cfg(test)]
+        if matches!(
+            &branch.action,
             super::verification_pool_manager::NativeJoinAction::Continuation(_)
         ) {
             super::verification_pool_manager::CONTINUATION_TEST_EXECUTIONS
@@ -9950,6 +10084,7 @@ where
                     if matches!(
                         &branch.action,
                         super::verification_pool_manager::NativeJoinAction::Continuation(_)
+                            | super::verification_pool_manager::NativeJoinAction::Production(_)
                     ) =>
                 {
                     Err(error)
@@ -12795,6 +12930,22 @@ impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
 where
     S::Error: std::fmt::Debug,
 {
+    pub(crate) fn execute_worker_owned_production(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        action: &crate::rules::producer::OwnedProductionAction<
+            NativeSnapshot,
+            PartialVerificationError,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
+        crate::rules::producer::execute_owned_production_action(self, state, action).map_err(
+            |error| match error {
+                ProductionError::Context(error) => error,
+                other => NativeError::Production(format!("owned production: {other:?}")),
+            },
+        )
+    }
+
     /// Execute a transferred CFG suffix and its owned terminal on this verifier.
     pub(crate) fn execute_worker_cfg_continuation(
         &mut self,
@@ -12857,6 +13008,9 @@ where
             super::verification_pool_manager::NativeJoinAction::Continuation(action) => self
                 .execute_worker_cfg_continuation(state, action)
                 .map_err(ExecutionError::Context),
+            super::verification_pool_manager::NativeJoinAction::Production(action) => self
+                .execute_worker_owned_production(state, action)
+                .map_err(ExecutionError::Context),
             super::verification_pool_manager::NativeJoinAction::Predicate(action) => {
                 let result = crate::rules::predicate_supporter::execute_predicate_contents_action(
                     self,
@@ -12881,6 +13035,33 @@ where
         }
     }
 
+    pub(crate) fn branch_owned_production(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        condition: Term,
+        original: &Exp,
+        rewritten: Option<&Exp>,
+        yes: crate::rules::producer::OwnedProductionAction<
+            NativeSnapshot,
+            PartialVerificationError,
+        >,
+        no: crate::rules::producer::OwnedProductionAction<NativeSnapshot, PartialVerificationError>,
+    ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
+        use super::verification_pool_manager::NativeJoinAction;
+        self.branch_owned_actions(
+            state,
+            condition,
+            original,
+            rewritten,
+            NativeJoinAction::Production(yes),
+            NativeJoinAction::Production(no),
+        )
+        .map_err(|e| match e {
+            ExecutionError::Context(error) => error,
+            other => NativeError::Execution(format!("owned production branch: {other:?}")),
+        })
+    }
+
     /// Schedule an owned CFG continuation only after the caller proves it reaches its terminal.
     pub(crate) fn branch_owned_cfg_continuations(
         &mut self,
@@ -12891,7 +13072,27 @@ where
         yes: crate::rules::executor::CfgContinuationAction,
         no: crate::rules::executor::CfgContinuationAction,
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<NativeError<S::Error>>> {
-        use super::verification_pool_manager::{NativeJoinAction, NativeJoinJob, ThreadPoolError};
+        use super::verification_pool_manager::NativeJoinAction;
+        self.branch_owned_actions(
+            state,
+            condition,
+            original,
+            rewritten,
+            NativeJoinAction::Continuation(yes),
+            NativeJoinAction::Continuation(no),
+        )
+    }
+
+    fn branch_owned_actions(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        condition: Term,
+        original: &Exp,
+        rewritten: Option<&Exp>,
+        yes: super::verification_pool_manager::NativeJoinAction,
+        no: super::verification_pool_manager::NativeJoinAction,
+    ) -> Result<VerificationResult<VerificationError>, ExecutionError<NativeError<S::Error>>> {
+        use super::verification_pool_manager::{NativeJoinJob, ThreadPoolError};
         use crate::rules::brancher::{self, BranchTransferSnapshot};
         if state.under_join {
             return Err(ExecutionError::Context(NativeError::Unsupported(
@@ -12948,7 +13149,7 @@ where
                         },
                     )
                 }),
-                action: NativeJoinAction::Continuation(no.clone()),
+                action: no.clone(),
                 #[cfg(test)]
                 after_start: None,
                 #[cfg(test)]
@@ -12975,7 +13176,7 @@ where
         let run = |this: &mut Self,
                    active: bool,
                    positive: bool,
-                   action: &crate::rules::executor::CfgContinuationAction| {
+                   action: &super::verification_pool_manager::NativeJoinAction| {
             if !active {
                 return Ok(VerificationResult::unreachable());
             }
@@ -13020,8 +13221,11 @@ where
                 let branch_state = this
                     .consolidate_optional(state.clone())
                     .map_err(ExecutionError::Context)?;
-                this.execute_worker_cfg_continuation(branch_state, action)
-                    .map_err(ExecutionError::Context)
+                this.execute_join_action(branch_state, action, &mut |_, _| {
+                    Err(ExecutionError::Context(NativeError::Unsupported(
+                        "terminal action invoked join collector",
+                    )))
+                })
             })();
             let cleanup = this.base.decider.pop_scope().map_err(NativeError::Decider);
             match (result, cleanup) {

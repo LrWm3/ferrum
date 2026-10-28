@@ -54,6 +54,7 @@ pub enum ProductionError<E> {
     MissingPredicate(String),
     Wand(ferrum_silver::ast::utility::expressions::MagicWandError),
     MissingDebugExpression,
+    OwnedSchedulerUnavailable,
 }
 #[derive(Clone, Debug)]
 pub struct QuantifiedProductionData {
@@ -77,11 +78,50 @@ pub struct QuantifiedProductionData {
         >,
     )>,
 }
+/// A projected assertion suffix and its snapshot, retained across branch jobs.
+#[derive(Clone)]
+pub struct OwnedProductionRemainder<S, E> {
+    pub snapshot: S,
+    pub assertions: Vec<Exp>,
+    pub errors: Vec<E>,
+}
+
+/// Complete non-joined producer branch and the explicitly owned statement tail.
+#[derive(Clone)]
+pub struct OwnedProductionAction<S, E> {
+    pub snapshot: S,
+    pub body: Option<Exp>,
+    pub error: E,
+    pub remaining: Vec<OwnedProductionRemainder<S, E>>,
+    pub tail: crate::rules::executor::CfgStatementTail,
+}
+
 /// Verifier-owned evaluator, brancher, heap supporter, snapshot functions and logging.
 pub trait ProductionContext<P, D, J, V>: Sized {
     type Error;
     type PartialError: Clone;
     type Snapshot: Clone;
+    fn supports_owned_production(&self, _state: &State<P, D, J>) -> bool {
+        false
+    }
+    fn try_branch_owned_production(
+        &mut self,
+        _state: &State<P, D, J>,
+        _condition: &Term,
+        _original: &Exp,
+        _rewritten: Option<&Exp>,
+        _yes: OwnedProductionAction<Self::Snapshot, Self::PartialError>,
+        _no: OwnedProductionAction<Self::Snapshot, Self::PartialError>,
+    ) -> Option<Result<VerificationResult<V>, ProductionError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_inhale(
+        &mut self,
+        _state: State<P, D, J>,
+        _tail: &crate::rules::executor::CfgStatementTail,
+    ) -> Result<VerificationResult<V>, ProductionError<Self::Error>> {
+        Err(ProductionError::OwnedSchedulerUnavailable)
+    }
     fn adapt_snapshot(
         &mut self,
         state: &State<P, D, J>,
@@ -311,6 +351,209 @@ where
         .map_err(ProductionError::Context)?;
     produce_conjuncts(context, state, snapshot, &conjuncts, &errors, continuation)
 }
+/// Production from a direct CFG inhale with an explicitly transferable caller.
+pub(crate) fn produce_all_owned<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    snapshot: C::Snapshot,
+    assertion: &Exp,
+    error: C::PartialError,
+    tail: &crate::rules::executor::CfgStatementTail,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ProductionError<C::Error>>,
+) -> Result<VerificationResult<V>, ProductionError<C::Error>>
+where
+    C: ProductionContext<P, D, J, V>,
+{
+    let projected = when_inhaling(assertion).map_err(ProductionError::Projection)?;
+    let assertions = projected.top_level_conjuncts();
+    let errors = vec![error; assertions.len()];
+    let snapshot = context
+        .adapt_snapshot(&state, snapshot, &assertions)
+        .map_err(ProductionError::Context)?;
+    produce_owned_conjuncts(
+        context,
+        state,
+        snapshot,
+        &assertions,
+        &errors,
+        &[],
+        tail,
+        continuation,
+    )
+}
+
+fn produce_owned_conjuncts<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    snapshot: C::Snapshot,
+    assertions: &[Exp],
+    errors: &[C::PartialError],
+    remaining: &[OwnedProductionRemainder<C::Snapshot, C::PartialError>],
+    tail: &crate::rules::executor::CfgStatementTail,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ProductionError<C::Error>>,
+) -> Result<VerificationResult<V>, ProductionError<C::Error>>
+where
+    C: ProductionContext<P, D, J, V>,
+{
+    let Some((first, rest)) = assertions.split_first() else {
+        if let Some((next, later)) = remaining.split_first() {
+            return produce_owned_conjuncts(
+                context,
+                state,
+                next.snapshot.clone(),
+                &next.assertions,
+                &next.errors,
+                later,
+                tail,
+                continuation,
+            );
+        }
+        return continuation(context, state);
+    };
+    let first = when_inhaling(first).map_err(ProductionError::Projection)?;
+    let (left, pending) = if rest.is_empty() {
+        (snapshot, remaining.to_vec())
+    } else {
+        let Some((left, right)) = context
+            .split_snapshot(&state, &snapshot, &first, rest)
+            .map_err(ProductionError::Context)?
+        else {
+            return if context.assert_false().map_err(ProductionError::Context)? {
+                Ok(VerificationResult::unreachable())
+            } else {
+                Err(ProductionError::InvalidSnapshotSplit)
+            };
+        };
+        let mut pending = vec![OwnedProductionRemainder {
+            snapshot: right,
+            assertions: rest.to_vec(),
+            errors: errors[1..].to_vec(),
+        }];
+        pending.extend_from_slice(remaining);
+        (left, pending)
+    };
+    let conditional = if !first.is_pure() {
+        match first.kind() {
+            ExpKind::Implies(condition, yes) => Some((condition, yes, None)),
+            ExpKind::CondExp(condition, yes, no) => Some((condition, yes, Some(no))),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some((condition, yes, no)) = conditional {
+        if context.supports_owned_production(&state) && !context.join_impure(&state) {
+            let scope = context
+                .open_produce_scope(&state, &first)
+                .map_err(ProductionError::Context)?;
+            let conditional_scope = context
+                .open_production_conditional_scope(&state, &first)
+                .map_err(ProductionError::Context)?;
+            if scope.is_some() || conditional_scope.is_some() {
+                return Err(ProductionError::OwnedSchedulerUnavailable);
+            }
+            return context.evaluate(
+                state,
+                condition,
+                &errors[0],
+                &mut |context, state, term, rewritten| {
+                    let mk = |body| OwnedProductionAction {
+                        snapshot: left.clone(),
+                        body,
+                        error: errors[0].clone(),
+                        remaining: pending.clone(),
+                        tail: tail.clone(),
+                    };
+                    context
+                        .try_branch_owned_production(
+                            &state,
+                            &term,
+                            condition,
+                            rewritten.as_ref(),
+                            mk(Some(yes.clone())),
+                            mk(no.cloned()),
+                        )
+                        .ok_or(ProductionError::OwnedSchedulerUnavailable)?
+                },
+            );
+        }
+    }
+    produce_one(
+        context,
+        state,
+        &left,
+        &first,
+        &errors[0],
+        &mut |context, state| {
+            if let Some((next, later)) = pending.split_first() {
+                produce_owned_conjuncts(
+                    context,
+                    state,
+                    next.snapshot.clone(),
+                    &next.assertions,
+                    &next.errors,
+                    later,
+                    tail,
+                    continuation,
+                )
+            } else {
+                continuation(context, state)
+            }
+        },
+    )
+}
+
+/// Execute a transferred producer branch, including all owned assertion and statement tails.
+pub(crate) fn execute_owned_production_action<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    action: &OwnedProductionAction<C::Snapshot, C::PartialError>,
+) -> Result<VerificationResult<V>, ProductionError<C::Error>>
+where
+    C: ProductionContext<P, D, J, V>,
+{
+    // The dispatch contract requires both producer scopes to be no-ops. Their
+    // success-only closes therefore need no worker-side state or identifier.
+    if let Some(body) = &action.body {
+        let assertions = body.top_level_conjuncts();
+        let errors = vec![action.error.clone(); assertions.len()];
+        produce_owned_conjuncts(
+            context,
+            state,
+            action.snapshot.clone(),
+            &assertions,
+            &errors,
+            &action.remaining,
+            &action.tail,
+            &mut |context, state| context.finish_owned_inhale(state, &action.tail),
+        )
+    } else {
+        context
+            .assume_empty_snapshot(&state, &action.snapshot)
+            .map_err(ProductionError::Context)?;
+        if let Some((next, later)) = action.remaining.split_first() {
+            produce_owned_conjuncts(
+                context,
+                state,
+                next.snapshot.clone(),
+                &next.assertions,
+                &next.errors,
+                later,
+                &action.tail,
+                &mut |context, state| context.finish_owned_inhale(state, &action.tail),
+            )
+        } else {
+            context.finish_owned_inhale(state, &action.tail)
+        }
+    }
+}
+
 /// Recursive entries project and split again, preserving conditional-body conjuncts.
 pub fn produce_recursive<C, P, D, J: Clone, V>(
     context: &mut C,

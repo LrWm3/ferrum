@@ -29,6 +29,14 @@ CFG actions instead return verification results and warnings, never join entries
 or parent solver effects. They do not allocate a join mark. Method terminal
 errors and cancellation retain their typed representation across the queue.
 
+Direct CFG inhale statements now supply an owned caller frame containing the
+remaining statement sequence, block successor and terminal. Producer actions
+carry projected assertion suffixes, split snapshots and errors. A transferred
+conditional or implication completes its branch and pending assertions before
+inhale saturation, statement completion and the caller tail. Implication false
+branches retain the empty-snapshot assumption. The same terminal-job scheduler
+handles CFG and producer actions, preserving typed native errors.
+
 ## Solver ownership and restoration
 
 Each solver remains on its owning thread. Jobs carry symbolic state and immutable
@@ -58,13 +66,20 @@ and two workers. The same-worker isolation fix is shared by terminal, joined and
 evaluation jobs; a regression prevents an outer branch from falsely proving an
 assertion using the suspended inner branch's assumptions.
 
-Nonjoined permission production/consumption, predicate contents, active logger
-scope migration and general borrowed callback entry points still need owned
-caller frames. They retain synchronous execution. Joined CFG/predicate dispatch
+Nonjoined consumption, additional producer callers, predicate contents, active
+logger scope migration and general borrowed callback entry points still need
+owned caller frames. Direct inhale conditional/implication jobs are executable;
+production nested inside a generic let remains local, as do nested statement
+sequences, TryBlock and loop-head statement callbacks. They retain synchronous execution. Joined CFG/predicate dispatch
 also falls back synchronously when member logging, packaging or extended exhale
 is active. Broad parallel compatibility remains incomplete. Conditional scope
 closures may be bypassed only when the native context proves them to be no-ops;
 active member logging disables this owned terminal dispatch.
+
+Packaging proof scripts and joined consumer branches explicitly disable branch
+parallelism upstream (MagicWandSupporter.scala and Consumer.scala). Their local
+execution is source behavior; the outer statement continuation must still resume
+correctly afterward.
 
 Moving captured fields into a struct alone is insufficient. New dispatch points
 must identify the exact executable continuation, preserve source result order,

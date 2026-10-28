@@ -1661,7 +1661,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Executor.scala"
 destination = "crates/ferrum-silicon/src/rules/executor.rs"
 status = "skeleton"
-remaining = ["Owned CFG terminals execute through loop bodies/exits and method completion; invariant collectors and opaque callbacks remain local. Owned permission-rule caller frames, public scheduling and broader compatibility remain."]
+remaining = ["Owned CFG/loop terminals and direct statement tails connect conditional inhale jobs to method completion. Consumer, nested statement and further caller frames, public scheduling and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1737,7 +1737,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Producer.scala"
 destination = "crates/ferrum-silicon/src/rules/producer.rs"
 status = "skeleton"
-remaining = ["Conjunct snapshot splitting, branch/let handling, pure and quantified production dispatch exist; concrete evaluation/heap/verifier services remain."]
+remaining = ["Owned conditional/implication production from direct CFG inhale statements carries snapshot/assertion and caller tails across worker jobs. Additional callers, impure Let ownership, active logging and broad source compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2036,7 +2036,7 @@ repository = "silicon"
 upstream = "src/main/scala/verifier/VerificationPoolManager.scala"
 destination = "crates/ferrum-silicon/src/verifier/verification_pool_manager.rs"
 status = "skeleton"
-remaining = ["Owner-thread execution, cooperative waits, joined actions and owned CFG terminals are connected behind an internal gate. Same-worker/foreign restoration, loop jobs, cancellation and mandatory draining are checked. Permission-rule ownership, public activation, active logger migration and broader compatibility remain."]
+remaining = ["Owner-thread cooperative execution carries joined, CFG terminal and producer actions with shared restoration and error draining. Consumer/additional caller frames, public activation, active logger migration and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2567,7 +2567,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Owned CFG terminals and joined jobs share same-worker and foreign solver isolation, including cancellation. Permission-rule caller frames, public scheduling, debug/reporting profiles, CFG-only contributor analysis and broader compatibility remain."]
+remaining = ["Owned CFG/producer terminals and joined jobs share same-worker/foreign solver isolation and error draining. Consumer/additional caller frames, public scheduling, debug/reporting profiles and CFG-only contributor analysis remain."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"

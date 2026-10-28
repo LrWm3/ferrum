@@ -202,6 +202,24 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
         )
             -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
     ) -> Result<VerificationResult<V>, ExecutionError<Self::Error>>;
+    /// Resume production with a transferable caller only when the caller explicitly owns it.
+    fn produce_with_owned_tail(
+        &mut self,
+        state: State<P, D, J>,
+        statement: &Stmt,
+        assertion: &Exp,
+        _tail: Option<&CfgStatementTail>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<P, D, J>,
+        )
+            -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
+    ) -> Result<VerificationResult<V>, ExecutionError<Self::Error>> {
+        self.produce(state, statement, assertion, continuation)
+    }
+    fn statement_scope_transferable(&self, _scope: Option<i32>) -> bool {
+        false
+    }
     fn consume(
         &mut self,
         state: State<P, D, J>,
@@ -345,8 +363,24 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
 }
 pub fn execute<C, P, D, J: Clone, V>(
     context: &mut C,
+    state: State<P, D, J>,
+    statement: &Stmt,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: ExecutionContext<P, D, J, V>,
+{
+    execute_with_owned_tail(context, state, statement, None, continuation)
+}
+
+fn execute_with_owned_tail<C, P, D, J: Clone, V>(
+    context: &mut C,
     mut state: State<P, D, J>,
     statement: &Stmt,
+    owned_tail: Option<&CfgStatementTail>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -629,15 +663,22 @@ where
             let state = context
                 .start_key_heap(state, statement, debug_snapshot.as_ref())
                 .map_err(ExecutionError::Context)?;
-            context.produce(state, statement, assertion, &mut |context, state| {
-                context
-                    .saturate_after_inhale()
-                    .map_err(ExecutionError::Context)?;
-                let state = context
-                    .finish_key_heap(state)
-                    .map_err(ExecutionError::Context)?;
-                finish(context, state)
-            })
+            let tail = owned_tail.filter(|_| context.statement_scope_transferable(scope));
+            context.produce_with_owned_tail(
+                state,
+                statement,
+                assertion,
+                tail,
+                &mut |context, state| {
+                    context
+                        .saturate_after_inhale()
+                        .map_err(ExecutionError::Context)?;
+                    let state = context
+                        .finish_key_heap(state)
+                        .map_err(ExecutionError::Context)?;
+                    finish(context, state)
+                },
+            )
         }
         StmtKind::Exhale(assertion) => {
             let state = context
@@ -863,6 +904,13 @@ pub enum LoopDebugHeapStart {
 /// CFG-specific verifier services. Loop checking and branch/join use the same
 /// source continuations as the statement executor and must propagate failures.
 pub trait CfgContext<P, D, J, V>: ExecutionContext<P, D, J, V> {
+    fn resume_owned_cfg_terminal(
+        &mut self,
+        _state: State<P, D, J>,
+        _terminal: &CfgContinuationTerminal,
+    ) -> Result<VerificationResult<V>, ExecutionError<Self::Error>> {
+        Err(ExecutionError::OwnedCfgSchedulerUnavailable)
+    }
     fn block_reached(
         &mut self,
         state: State<P, D, J>,
@@ -1113,6 +1161,14 @@ pub struct CfgSuccessorFrame {
     path_id: i32,
 }
 
+/// Complete caller tail for a statement directly inside an owned CFG block.
+#[derive(Clone)]
+pub struct CfgStatementTail {
+    remaining: StatementSequenceFrame,
+    successor: CfgSuccessorFrame,
+    terminal: CfgContinuationTerminal,
+}
+
 fn execute_cfg_successor_frame<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
@@ -1137,6 +1193,65 @@ where
         frame.path_id,
         owned,
         continuation,
+    )
+}
+
+fn execute_cfg_statements<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    sequence: StatementSequenceFrame,
+    successor: &CfgSuccessorFrame,
+    owned: Option<&CfgContinuationTerminal>,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    if let Some(statement) = sequence.statements.get(sequence.next) {
+        let next = StatementSequenceFrame {
+            statements: sequence.statements.clone(),
+            next: sequence.next + 1,
+        };
+        let tail = owned
+            .filter(|_| successor.join_point.is_none())
+            .map(|terminal| CfgStatementTail {
+                remaining: next.clone(),
+                successor: successor.clone(),
+                terminal: terminal.clone(),
+            });
+        execute_with_owned_tail(
+            context,
+            state,
+            statement,
+            tail.as_ref(),
+            &mut |context, state| {
+                execute_cfg_statements(context, state, next.clone(), successor, owned, continuation)
+            },
+        )
+    } else {
+        execute_cfg_successor_frame(context, state, successor, owned, continuation)
+    }
+}
+
+/// Resume a transferred direct-CFG statement tail with verifier-local callbacks.
+pub(crate) fn execute_cfg_statement_tail<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    tail: &CfgStatementTail,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    execute_cfg_statements(
+        context,
+        state,
+        tail.remaining.clone(),
+        &tail.successor,
+        Some(&tail.terminal),
+        &mut |context, state| context.resume_owned_cfg_terminal(state, &tail.terminal),
     )
 }
 
@@ -1194,9 +1309,14 @@ where
                 join_point: join_point.cloned(),
                 path_id,
             };
-            execute_all(context, state, statements, &mut |context, state| {
-                execute_cfg_successor_frame(context, state, &frame, owned, continuation)
-            })?
+            execute_cfg_statements(
+                context,
+                state,
+                StatementSequenceFrame::new(statements),
+                &frame,
+                owned,
+                continuation,
+            )?
         }
         BlockKind::LoopHead {
             invariants,
