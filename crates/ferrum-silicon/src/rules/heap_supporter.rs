@@ -666,3 +666,22 @@ fn havoc_quantified<P, D, J, V, C: HeapExecutionContext<P, D, J, V>>(
     updated.extend(others);
     Ok(ListBackedHeap::from_chunks(updated))
 }
+
+/// Apply a concrete or quantified wand snapshot to its consumed left snapshot.
+pub fn applied_wand_snapshot(
+    factory: &crate::state::terms::TermFactory,
+    wand: &Term,
+    lhs: Term,
+) -> Term {
+    use crate::state::terms::TermKind;
+    match wand.kind() {
+        TermKind::MagicWandSnapshot(_) => factory.apply_wand_snapshot(wand, lhs),
+        TermKind::SortWrapper(inner, _)
+            if matches!(inner.kind(), TermKind::MagicWandSnapshot(_)) =>
+        {
+            factory.apply_wand_snapshot(inner, lhs)
+        }
+        _ if wand.sort() == &Sort::MagicWandSnapFunction => factory.mwsf_lookup(wand.clone(), lhs),
+        _ => wand.clone(),
+    }
+}

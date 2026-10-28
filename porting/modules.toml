@@ -1650,7 +1650,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/HeapSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/heap_supporter.rs"
 status = "skeleton"
-remaining = ["Ordinary resource production/consumption, current permission, field access/assignment and havoc exist; quantified adapters and concrete verifier services remain."]
+remaining = ["Ordinary heap operations and wand snapshot dispatch exist; quantified adapters and concrete verifier services remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1670,7 +1670,8 @@ remaining = ["Ordered binding evaluation exists; caller store restoration and co
 repository = "silicon"
 upstream = "src/main/scala/rules/MagicWandSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/magic_wand_supporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Reserve transfer, wand application and package algorithms exist; concrete solver/heap/CFG execution services remain."]
 
 [[modules]]
 repository = "silicon"
