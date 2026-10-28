@@ -722,7 +722,7 @@ impl<T: super::parse_ast_keyword::PGraphElement, U: super::parse_ast_keyword::PG
 }
 
 impl PTypeHandle {
-    fn kind(&self) -> PTypeKind {
+    pub fn kind(&self) -> PTypeKind {
         match &self.0.read().expect("poisoned parse node").kind {
             PNodeKind::Type(kind) => kind.clone(),
             _ => panic!("parse type handle points to a different node kind"),

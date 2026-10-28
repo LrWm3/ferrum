@@ -85,6 +85,20 @@ impl SilverPluginManager {
     pub fn before_translate(&mut self, input: PProgramHandle) -> Option<PProgramHandle> {
         self.fold_with_error(input, |p, input| p.before_translate(input))
     }
+    pub fn additional_standard_imports(
+        &self,
+        input: &PProgramHandle,
+    ) -> Result<Vec<String>, super::silver_plugin::PluginHookError> {
+        let mut imports = Vec::new();
+        for plugin in &self.plugins {
+            for import in plugin.additional_standard_imports(input)? {
+                if !imports.contains(&import) {
+                    imports.push(import);
+                }
+            }
+        }
+        Ok(imports)
+    }
     pub fn before_method_filter(&mut self, input: Program) -> Option<Program> {
         self.fold_with_error(input, |p, input| p.before_method_filter(input))
     }

@@ -1028,9 +1028,7 @@ pub fn check_expression(
                     PNodeKind::Declaration(d) => d.typ.clone(),
                     _ => return Err(TypeCheckError::Unsupported("quantifier variable")),
                 };
-                if !typ.is_valid_or_undeclared() {
-                    return Err(TypeCheckError::Unsupported("quantifier variable type"));
-                }
+                check_supported_type(&typ)?;
             }
             let expected_body =
                 if matches!(q.keyword.value(), super::parse_ast_keyword::PKw::Forall) {
@@ -2030,24 +2028,12 @@ pub fn check_statement_core(
                 };
                 check_supported_type(&typ)?;
             }
-            if let Some((_, rhs)) = init {
-                if vars.len() != 1 {
-                    return Err(TypeCheckError::Unsupported("multi-variable initialization"));
-                }
-                let typ = match &vars.head().node().read().expect("poisoned parse node").kind {
-                    PNodeKind::Declaration(d) => d.typ.clone(),
-                    _ => return Err(TypeCheckError::Unsupported("local declaration")),
-                };
-                if check_new_fields(&rhs)? {
-                    let reference = type_from_signature(&SignatureType::Ref);
-                    if !is_subtype(&typ, &reference) {
-                        return Err(TypeCheckError::Unsupported(
-                            "allocation target must have Ref type",
-                        ));
-                    }
-                } else {
-                    check_program_expression(&rhs, Some(&typ), &mut *warn)?;
-                }
+            if init.is_some() {
+                let generated = statement
+                    .vars_assign()
+                    .map_err(TypeCheckError::Unsupported)?
+                    .ok_or(TypeCheckError::Unsupported("missing generated initializer"))?;
+                check_statement_core(&generated, &mut *warn)?;
             }
         }
         S::Assign {

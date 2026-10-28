@@ -23,8 +23,8 @@
 //! Open decisions:
 //! Reconcile extension dispatch and position ownership with parser and AST.
 //!
-//! Status: partial; clause syntax nodes, ordered checking and translation adapters are implemented.
-//! Parser registration and generic extension dispatch remain pending.
+//! Status: partial; clause syntax, parser registration, predicate-access rewriting, ordered
+//! checking and translation dispatch are implemented. General plugin dispatch remains pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this

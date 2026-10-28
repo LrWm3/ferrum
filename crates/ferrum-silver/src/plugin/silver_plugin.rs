@@ -60,6 +60,13 @@ pub trait SilverPlugin: Send {
     fn before_translate(&mut self, input: PProgramHandle) -> PProgramHandle {
         input
     }
+    /// Standard resources to analyze and merge before translating this checked tree.
+    fn additional_standard_imports(
+        &self,
+        _input: &PProgramHandle,
+    ) -> Result<Vec<String>, PluginHookError> {
+        Ok(Vec::new())
+    }
     fn before_method_filter(&mut self, input: Program) -> Program {
         input
     }

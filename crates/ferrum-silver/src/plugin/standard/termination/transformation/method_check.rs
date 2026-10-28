@@ -289,6 +289,7 @@ impl MethodCheck {
                     )
                 }
             }
+            StmtKind::Extension(extension) if extension.0.as_any().is::<crate::plugin::standard::refute::refute_ast_extension::Refute>() || extension.0.as_any().is::<crate::plugin::standard::smoke::unreachable_ast_extension::Unreachable>() => original.clone(),
             StmtKind::Extension(_) => {
                 return Err(MethodCheckError(
                     "unsupported method statement extension".into(),

@@ -1,8 +1,7 @@
 //! Dependency graph components and merge penalties for program chopping.
 //! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/ast/utility/chopper/Chopper.scala
-//! Status: partial; vertex families, penalties, ordered SCC/condensation and smallest cuts
-//! are implemented. Viper dependency construction, bounded merging and program reconstruction
-//! are not yet implemented and cannot be used to chop a program.
+//! Status: single-program plugin-aware selection, graph primitives and program reconstruction
+//! are implemented. The general bounded multi-program chopping entry point remains pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -527,6 +526,577 @@ mod cut_tests {
         assert_eq!(
             smallest_cut_without_cycles(2, &[1, 0], &edges).unwrap(),
             vec![vec![0, 1]]
+        );
+    }
+}
+
+/// Error boundaries for the source plugin-aware single-part chopper.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SelectionError {
+    Traversal(crate::ast::utility::nodes::TraversalError),
+    ExtensionMember,
+    ExtensionType,
+    InvalidUnfolding,
+    MissingVertex,
+}
+impl From<crate::ast::utility::nodes::TraversalError> for SelectionError {
+    fn from(value: crate::ast::utility::nodes::TraversalError) -> Self {
+        Self::Traversal(value)
+    }
+}
+
+fn definition(
+    member: &crate::ast::program::Member,
+    use_site: bool,
+) -> Result<Vertex, SelectionError> {
+    use crate::ast::program::Member;
+    Ok(match member {
+        Member::Method(m) => {
+            if use_site {
+                Vertex::MethodSpec(m.name.clone())
+            } else {
+                Vertex::Method(m.name.clone())
+            }
+        }
+        Member::Function(f) => {
+            if use_site {
+                Vertex::FunctionSpec(f.name.clone())
+            } else {
+                Vertex::Function(f.name.clone())
+            }
+        }
+        Member::Predicate(p) => {
+            if use_site {
+                Vertex::PredicateSig(p.name.clone())
+            } else {
+                Vertex::PredicateBody(p.name.clone())
+            }
+        }
+        Member::Field(f) => Vertex::Field(f.name.clone()),
+        Member::Domain(d) => Vertex::DomainType(DomainType::new(
+            &d.name,
+            d.type_vars
+                .iter()
+                .map(|v| (v.clone(), crate::ast::r#type::Type::Var(v.clone())))
+                .collect(),
+            d.type_vars.clone(),
+        )),
+        Member::Extension(_) => return Err(SelectionError::ExtensionMember),
+    })
+}
+fn type_uses(typ: &crate::ast::r#type::Type, out: &mut Vec<Vertex>) -> Result<(), SelectionError> {
+    use crate::ast::r#type::Type;
+    match typ {
+        Type::Domain(d) => {
+            out.push(Vertex::DomainType(d.clone()));
+            for t in d.type_arguments() {
+                type_uses(&t, out)?;
+            }
+        }
+        Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => type_uses(t, out)?,
+        Type::Map(pair) => {
+            type_uses(&pair.0, out)?;
+            type_uses(&pair.1, out)?;
+        }
+        Type::Extension(_) => return Err(SelectionError::ExtensionType),
+        _ => {}
+    }
+    Ok(())
+}
+fn direct_uses(node: &crate::ast::utility::nodes::Node) -> Result<Vec<Vertex>, SelectionError> {
+    use crate::ast::{ast::Info, expression::ExpKind, statement::StmtKind, utility::nodes::Node};
+    let mut result = Vec::new();
+    match node {
+        Node::Stmt(s) => match s.kind() {
+            StmtKind::MethodCall { method_name, .. } => {
+                result.push(Vertex::MethodSpec(method_name.clone()))
+            }
+            StmtKind::Fold(p) | StmtKind::Unfold(p) => {
+                result.push(Vertex::PredicateBody(p.location.predicate_name.clone()))
+            }
+            _ => {}
+        },
+        Node::Exp(e) => match e.kind() {
+            ExpKind::FuncApp(name, _) => {
+                let reveal = e
+                    .metadata()
+                    .info
+                    .find(&|i| matches!(i, Info::Annotation(_)))
+                    .is_some_and(|i| matches!(i, Info::Annotation(a) if a.contains_key("reveal")));
+                result.push(if reveal {
+                    Vertex::Function(name.clone())
+                } else {
+                    Vertex::FunctionSpec(name.clone())
+                });
+            }
+            ExpKind::DomainFuncApp(name, ..) | ExpKind::BackendFuncApp(name, ..) => {
+                result.push(Vertex::DomainFunction(name.clone()))
+            }
+            ExpKind::FieldAccess(f) => result.push(Vertex::Field(f.field.name.clone())),
+            ExpKind::PredicateAccess(p) => {
+                result.push(Vertex::PredicateSig(p.predicate_name.clone()))
+            }
+            ExpKind::Unfolding(acc, _) => {
+                let ExpKind::PredicateAccessPredicate(p) = acc.kind() else {
+                    return Err(SelectionError::InvalidUnfolding);
+                };
+                result.push(Vertex::PredicateBody(p.location.predicate_name.clone()));
+            }
+            _ => {}
+        },
+        Node::FieldAccess(f) => result.push(Vertex::Field(f.field.name.clone())),
+        Node::PredicateAccess(p) => result.push(Vertex::PredicateSig(p.predicate_name.clone())),
+        Node::Type(t) => type_uses(t, &mut result)?,
+        _ => {}
+    }
+    Ok(result)
+}
+fn usages(
+    node: &crate::ast::utility::nodes::Node,
+    stop_at_quantifiers: bool,
+) -> Result<Vec<Vertex>, SelectionError> {
+    use crate::ast::{
+        expression::ExpKind,
+        utility::nodes::{Node, subnodes},
+    };
+    let mut out = direct_uses(node)?;
+    if stop_at_quantifiers
+        && matches!(node, Node::Exp(e) if matches!(e.kind(), ExpKind::Forall(..) | ExpKind::Exists(..) | ExpKind::ForPerm(..)))
+    {
+        return Ok(out);
+    }
+    for child in subnodes(node)? {
+        out.extend(usages(&child, stop_at_quantifiers)?);
+    }
+    Ok(out)
+}
+fn quantifier_uses(
+    node: &crate::ast::utility::nodes::Node,
+    out: &mut Vec<Vertex>,
+) -> Result<(), SelectionError> {
+    use crate::ast::{
+        expression::ExpKind,
+        utility::nodes::{Node, subnodes},
+    };
+    if let Node::Exp(e) = node {
+        if let ExpKind::Forall(_, triggers, _) | ExpKind::Exists(_, triggers, _) = e.kind() {
+            let groups = triggers
+                .iter()
+                .map(|t| usages(&Node::Trigger(t.clone()), false))
+                .collect::<Result<Vec<_>, _>>()?;
+            if groups.iter().any(Vec::is_empty) {
+                out.extend(usages(node, false)?);
+            } else {
+                out.extend(groups.into_iter().flatten());
+            }
+        }
+    }
+    for child in subnodes(node)? {
+        quantifier_uses(&child, out)?;
+    }
+    Ok(())
+}
+fn dependencies(
+    member: &crate::ast::program::Member,
+) -> Result<Vec<(Vertex, Vertex)>, SelectionError> {
+    use crate::ast::{ast::Info, program::Member, utility::nodes::Node};
+    let def = definition(member, false)?;
+    let use_v = definition(member, true)?;
+    let mut edges = Vec::new();
+    let mut add = |origin: &Vertex, node: Node| -> Result<(), SelectionError> {
+        edges.extend(
+            usages(&node, false)?
+                .into_iter()
+                .map(|target| (origin.clone(), target)),
+        );
+        Ok(())
+    };
+    match member {
+        Member::Method(m) => {
+            add(&def, Node::Member(member.clone()))?;
+            for n in m.pres.iter().chain(&m.posts).cloned().map(Node::Exp).chain(
+                m.formal_args
+                    .iter()
+                    .chain(&m.formal_returns)
+                    .cloned()
+                    .map(Node::LocalDecl),
+            ) {
+                add(&use_v, n)?;
+            }
+        }
+        Member::Predicate(p) => {
+            add(&def, Node::Member(member.clone()))?;
+            for v in &p.formal_args {
+                add(&use_v, Node::LocalDecl(v.clone()))?;
+            }
+        }
+        Member::Function(f) => {
+            add(&def, Node::Member(member.clone()))?;
+            for n in f
+                .pres
+                .iter()
+                .chain(&f.posts)
+                .cloned()
+                .map(Node::Exp)
+                .chain(f.formal_args.iter().cloned().map(Node::LocalDecl))
+                .chain(std::iter::once(Node::Exp(f.result())))
+            {
+                add(&use_v, n)?;
+            }
+            let opaque = f
+                .meta
+                .info
+                .find(&|i| matches!(i, Info::Annotation(_)))
+                .is_some_and(|i| matches!(i, Info::Annotation(a) if a.contains_key("opaque")));
+            if !opaque {
+                edges.push((use_v.clone(), def.clone()));
+            }
+        }
+        Member::Field(_) => add(&def, Node::Member(member.clone()))?,
+        Member::Domain(d) => {
+            let special = d.name.ends_with("WellFoundedOrder");
+            if special {
+                edges.push((Vertex::Always, def.clone()));
+            }
+            for ax in &d.axioms {
+                let ax_v = Vertex::DomainAxiom(ax.clone(), d.clone());
+                let exp = Node::Exp(ax.exp().clone());
+                edges.extend(usages(&exp, false)?.into_iter().map(|v| (ax_v.clone(), v)));
+                if special {
+                    edges.push((def.clone(), ax_v.clone()));
+                } else {
+                    let mut to_ax = usages(&exp, true)?;
+                    quantifier_uses(&exp, &mut to_ax)?;
+                    edges.extend(
+                        to_ax
+                            .into_iter()
+                            .filter(
+                                |v| !matches!(v, Vertex::DomainType(t) if t.domain_name == d.name),
+                            )
+                            .map(|v| (v, ax_v.clone())),
+                    );
+                }
+            }
+            for f in &d.functions {
+                let f_v = Vertex::DomainFunction(f.name.clone());
+                edges.extend(
+                    usages(&Node::DomainFunc(f.clone()), false)?
+                        .into_iter()
+                        .map(|v| (f_v.clone(), v)),
+                );
+                if special {
+                    edges.push((def.clone(), f_v));
+                }
+            }
+        }
+        Member::Extension(_) => return Err(SelectionError::ExtensionMember),
+    }
+    edges.push((def, Vertex::Always));
+    edges.push((use_v, Vertex::Always));
+    Ok(edges)
+}
+
+/// Source `PluginAwareChopper.chop(program, selection)` for the frontend's bound
+/// of one program. The union of reachability closures is the single merged cut;
+/// `None` means no member was selected. Unavailable extension traversal is an error.
+pub fn chop_selected(
+    program: &crate::ast::program::Program,
+    selection: &std::collections::HashSet<String>,
+) -> Result<Option<crate::ast::program::Program>, SelectionError> {
+    use crate::ast::program::Member;
+    let members = program.members();
+    let edges = members
+        .iter()
+        .map(dependencies)
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    let mut pending = members
+        .iter()
+        .filter(|member| selection.contains(member.name()))
+        .map(|member| definition(member, false))
+        .collect::<Result<Vec<_>, _>>()?;
+    if pending.is_empty() {
+        return Ok(None);
+    }
+    let mut included = Vec::new();
+    while let Some(current) = pending.pop() {
+        if included.contains(&current) {
+            continue;
+        }
+        for (origin, target) in &edges {
+            if *origin == current {
+                pending.push(target.clone());
+            }
+        }
+        included.push(current);
+    }
+    let mut methods = Vec::new();
+    let mut functions = Vec::new();
+    let mut predicates = Vec::new();
+    let mut fields = Vec::new();
+    let mut domains = Vec::new();
+    for vertex in &included {
+        match vertex {
+            Vertex::Method(name) | Vertex::MethodSpec(name)
+                if program.find_method_optionally(name).is_none() =>
+            {
+                return Err(SelectionError::MissingVertex);
+            }
+            Vertex::Function(name) | Vertex::FunctionSpec(name)
+                if program.find_function_optionally(name).is_none() =>
+            {
+                return Err(SelectionError::MissingVertex);
+            }
+            Vertex::PredicateSig(name) | Vertex::PredicateBody(name)
+                if program.find_predicate_optionally(name).is_none() =>
+            {
+                return Err(SelectionError::MissingVertex);
+            }
+            Vertex::Field(name) if program.find_field_optionally(name).is_none() => {
+                return Err(SelectionError::MissingVertex);
+            }
+            Vertex::DomainFunction(name)
+                if program.find_domain_function_optionally(name).is_none() =>
+            {
+                return Err(SelectionError::MissingVertex);
+            }
+            Vertex::DomainType(t) if program.find_domain_optionally(&t.domain_name).is_none() => {
+                return Err(SelectionError::MissingVertex);
+            }
+            _ => {}
+        }
+    }
+    for member in &members {
+        match member {
+            Member::Method(m) => {
+                if included.contains(&Vertex::Method(m.name.clone())) {
+                    methods.push(m.clone());
+                } else if included.contains(&Vertex::MethodSpec(m.name.clone())) {
+                    methods.push(m.copy_with(|x| x.body = None));
+                }
+            }
+            Member::Function(f) => {
+                if included.contains(&Vertex::Function(f.name.clone())) {
+                    functions.push(f.clone());
+                } else if included.contains(&Vertex::FunctionSpec(f.name.clone())) {
+                    functions.push(f.copy_with(|x| x.body = None));
+                }
+            }
+            Member::Predicate(p) => {
+                if included.contains(&Vertex::PredicateBody(p.name.clone())) {
+                    predicates.push(p.clone());
+                } else if included.contains(&Vertex::PredicateSig(p.name.clone())) {
+                    predicates.push(p.copy_with(|x| x.body = None));
+                }
+            }
+            Member::Field(f) if included.contains(&Vertex::Field(f.name.clone())) => {
+                fields.push(f.clone())
+            }
+            Member::Domain(d) => {
+                let fs = d
+                    .functions
+                    .iter()
+                    .filter(|f| included.contains(&Vertex::DomainFunction(f.name.clone())))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let axioms = d
+                    .axioms
+                    .iter()
+                    .filter(|a| included.contains(&Vertex::DomainAxiom((*a).clone(), d.clone())))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let used = included
+                    .iter()
+                    .any(|v| matches!(v, Vertex::DomainType(t) if t.domain_name == d.name));
+                if used || !fs.is_empty() || !axioms.is_empty() {
+                    domains.push(d.copy_with(|v| {
+                        v.functions = fs;
+                        v.axioms = axioms;
+                    }));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(Some(program.copy_with(|p| {
+        p.methods = methods;
+        p.functions = functions;
+        p.predicates = predicates;
+        p.fields = fields;
+        p.domains = domains;
+    })))
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+    use crate::ast::{
+        ast::Metadata,
+        program::{Method, MethodData, Program},
+        statement::{Stmt, StmtKind},
+    };
+    #[test]
+    fn used_domain_function_reaches_its_axiom() {
+        use crate::ast::{
+            expression::{Exp, ExpExtra, ExpKind},
+            program::{
+                Domain, DomainAxiom, DomainAxiomKind, DomainData, DomainFunc, DomainFuncData,
+            },
+            r#type::Type,
+        };
+        let meta = Metadata::default();
+        let app = Exp::with_extra(
+            ExpKind::DomainFuncApp("f".into(), vec![], Default::default()),
+            meta.clone(),
+            ExpExtra {
+                typ: Some(Type::Bool),
+                domain_name: Some("D".into()),
+                ..Default::default()
+            },
+        );
+        let function = DomainFunc::new(DomainFuncData {
+            name: "f".into(),
+            formal_args: vec![],
+            typ: Type::Bool,
+            unique: false,
+            interpretation: None,
+            domain_name: "D".into(),
+            meta: meta.clone(),
+        });
+        let axiom = DomainAxiom::new(DomainAxiomKind::Anonymous {
+            exp: app.clone(),
+            domain_name: "D".into(),
+            meta: meta.clone(),
+        });
+        let domain = Domain::new(DomainData {
+            name: "D".into(),
+            functions: vec![function],
+            axioms: vec![axiom],
+            type_vars: vec![],
+            interpretations: None,
+            meta: meta.clone(),
+        });
+        let body = Stmt::new(StmtKind::Assert(app), meta.clone());
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: Some(body),
+            meta: meta.clone(),
+        });
+        let p = Program::new(
+            vec![domain],
+            vec![],
+            vec![],
+            vec![],
+            vec![method],
+            vec![],
+            meta,
+        );
+        let result = chop_selected(&p, &std::collections::HashSet::from(["m".into()]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.domains[0].functions.len(), 1);
+        assert_eq!(result.domains[0].axioms.len(), 1);
+    }
+    #[test]
+    fn plugin_well_founded_domain_is_always_retained() {
+        use crate::ast::program::{Domain, DomainData};
+        let meta = Metadata::default();
+        let domain = Domain::new(DomainData {
+            name: "IntWellFoundedOrder".into(),
+            functions: vec![],
+            axioms: vec![],
+            type_vars: vec![],
+            interpretations: None,
+            meta: meta.clone(),
+        });
+        let body = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![],
+                declarations: vec![],
+            },
+            meta.clone(),
+        );
+        let method = Method::new(MethodData {
+            name: "selected".into(),
+            formal_args: vec![],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: Some(body),
+            meta: meta.clone(),
+        });
+        let p = Program::new(
+            vec![domain],
+            vec![],
+            vec![],
+            vec![],
+            vec![method],
+            vec![],
+            meta,
+        );
+        let selected = chop_selected(&p, &std::collections::HashSet::from(["selected".into()]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(selected.domains[0].name, "IntWellFoundedOrder");
+    }
+    #[test]
+    fn selected_method_keeps_called_specification_without_body() {
+        let m = Metadata::default();
+        let method = |name: &str, body: Stmt| {
+            Method::new(MethodData {
+                name: name.into(),
+                formal_args: vec![],
+                formal_returns: vec![],
+                pres: vec![],
+                posts: vec![],
+                body: Some(body),
+                meta: m.clone(),
+            })
+        };
+        let empty = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![],
+                declarations: vec![],
+            },
+            m.clone(),
+        );
+        let call = Stmt::new(
+            StmtKind::MethodCall {
+                method_name: "callee".into(),
+                args: vec![],
+                targets: vec![],
+            },
+            m.clone(),
+        );
+        let p = Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![
+                method("caller", call),
+                method("callee", empty.clone()),
+                method("unused", empty),
+            ],
+            vec![],
+            m,
+        );
+        let result = chop_selected(&p, &std::collections::HashSet::from(["caller".into()]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.methods.len(), 2);
+        assert!(result.find_method("caller").unwrap().body.is_some());
+        assert!(result.find_method("callee").unwrap().body.is_none());
+        assert!(
+            chop_selected(&p, &std::collections::HashSet::from(["missing".into()]))
+                .unwrap()
+                .is_none()
         );
     }
 }

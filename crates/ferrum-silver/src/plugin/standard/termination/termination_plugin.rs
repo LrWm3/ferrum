@@ -32,9 +32,10 @@
 //! Agree on import ordering and provider lifecycle, parser extension registration and persistent
 //! decreasesClauses state with frontend and parser.
 //!
-//! Status: partial; decreases extraction, recursive-postcondition validation, concrete proof
-//! generation and verification-result mapping are implemented. Parser registration and automatic
-//! order imports remain pending; unsupported proof shapes return explicit errors.
+//! Status: partial; decreases syntax, extraction, native order imports, recursive-postcondition
+//! validation, concrete proof generation and verification-result mapping are implemented.
+//! Predicate-access rewriting in tuple clauses is implemented; import-domain warnings and some
+//! proof shapes remain pending and unsupported proof shapes return explicit errors.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -52,6 +53,141 @@ use crate::verifier::verification_result::{
 };
 
 pub const WELL_FOUNDED_ORDER_DOMAIN_NAME: &str = "WellFoundedOrder";
+
+fn rewrite_predicate_instances(
+    input: &crate::parser::parse_ast::PProgramHandle,
+) -> Result<(), PluginHookError> {
+    use super::termination_past_extension::{PDecreasesClause, PDecreasesKind};
+    use crate::parser::parse_ast::{
+        PDeclarationClass, PExpressionKind, PMemberKind, PNodeHandle, PNodeKind, subnodes,
+    };
+    use crate::plugin::standard::predicateinstance::predicate_instance_past_extension::{
+        PPredicateInstance, marker_symbol,
+    };
+    let mut predicates = std::collections::HashSet::new();
+    for member in input.all_members() {
+        if let PNodeKind::Member(member) = &member.node().read().expect("poisoned parse node").kind
+        {
+            if let PMemberKind::Predicate { idndef, .. } = &member.kind {
+                if let PNodeKind::IdnDef(id) = &idndef.read().expect("poisoned parse node").kind {
+                    predicates.insert(id.name.clone());
+                }
+            }
+        }
+    }
+    fn walk(
+        node: &PNodeHandle,
+        predicates: &std::collections::HashSet<String>,
+        in_tuple: bool,
+    ) -> Result<(), PluginHookError> {
+        let (kind, pos) = {
+            let node = node.read().expect("poisoned parse node");
+            (node.kind.clone(), node.pos.clone())
+        };
+        if let PNodeKind::Expression(expression) = kind {
+            if !in_tuple {
+                if let PExpressionKind::Extension(extension) = &expression.kind {
+                    if let Some(PDecreasesClause {
+                        kind: PDecreasesKind::Tuple { .. },
+                        ..
+                    }) = extension.as_any().downcast_ref::<PDecreasesClause>()
+                    {
+                        for child in subnodes(node).map_err(|e| {
+                            PluginHookError(format!("termination tuple traversal: {e:?}"))
+                        })? {
+                            walk(&child, predicates, true)?;
+                        }
+                        return Ok(());
+                    }
+                }
+            } else {
+                let call = match &expression.kind {
+                    PExpressionKind::Call {
+                        idnref,
+                        call_args,
+                        type_annotated: None,
+                        ..
+                    } => Some((idnref.clone(), call_args.clone(), pos.clone())),
+                    PExpressionKind::AccPred { amount, .. } => {
+                        let call = amount
+                            .inner()
+                            .first()
+                            .node()
+                            .read()
+                            .expect("poisoned parse node");
+                        if let PNodeKind::Expression(e) = &call.kind {
+                            if let PExpressionKind::Call {
+                                idnref,
+                                call_args,
+                                type_annotated: None,
+                                ..
+                            } = &e.kind
+                            {
+                                Some((idnref.clone(), call_args.clone(), call.pos.clone()))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some((idnref, args, call_pos)) = call {
+                    let matched = matches!(&idnref.read().expect("poisoned parse node").kind, PNodeKind::IdnRef(id) if predicates.contains(&id.name));
+                    if matched {
+                        if let PNodeKind::IdnRef(id) =
+                            &mut idnref.write().expect("poisoned parse node").kind
+                        {
+                            id.declaration_class = PDeclarationClass::Predicate;
+                        }
+                        let replacement = PPredicateInstance {
+                            marker: marker_symbol((
+                                crate::ast::position::Position::NoPosition,
+                                crate::ast::position::Position::NoPosition,
+                            )),
+                            idnuse: idnref,
+                            args,
+                            pos: call_pos.clone(),
+                        }
+                        .expression();
+                        let replacement_kind = replacement
+                            .node()
+                            .read()
+                            .expect("poisoned parse node")
+                            .kind
+                            .clone();
+                        let mut current = node.write().expect("poisoned parse node");
+                        current.kind = replacement_kind;
+                        current.pos = call_pos;
+                        drop(current);
+                        for child in subnodes(node).map_err(|e| {
+                            PluginHookError(format!("termination predicate traversal: {e:?}"))
+                        })? {
+                            walk(&child, predicates, true)?;
+                        }
+                        return Ok(());
+                    }
+                }
+                match expression.kind {
+                    PExpressionKind::Unfolding { exp, .. }
+                    | PExpressionKind::Applying { exp, .. } => {
+                        return walk(exp.node(), predicates, true);
+                    }
+                    PExpressionKind::CurrentPerm { .. } => return Ok(()),
+                    _ => {}
+                }
+            }
+        }
+        for child in subnodes(node)
+            .map_err(|e| PluginHookError(format!("termination clause traversal: {e:?}")))?
+        {
+            walk(&child, predicates, in_tuple)?;
+        }
+        Ok(())
+    }
+    walk(input.node(), &predicates, false)
+}
 /// Must validate recursive postconditions and resource availability before
 /// applying actual function and method termination transformations.
 pub trait TerminationTransformer: Send {
@@ -227,6 +363,7 @@ impl TerminationPlugin {
                 },
                 statement.metadata().clone(),
             ),
+            StmtKind::Extension(extension) if extension.0.as_any().is::<crate::plugin::standard::refute::refute_ast_extension::Refute>() || extension.0.as_any().is::<crate::plugin::standard::smoke::unreachable_ast_extension::Unreachable>() => statement.clone(),
             StmtKind::Extension(_) => {
                 return Err(PluginHookError(
                     "termination extraction for statement extension is unsupported".into(),
@@ -306,6 +443,135 @@ impl TerminationPlugin {
 impl SilverPlugin for TerminationPlugin {
     fn parser_features(&self) -> Vec<crate::parser::fast_parser::ParserFeature> {
         vec![crate::parser::fast_parser::ParserFeature::Termination]
+    }
+    fn before_resolve(
+        &mut self,
+        input: crate::parser::parse_ast::PProgramHandle,
+    ) -> crate::parser::parse_ast::PProgramHandle {
+        if let Err(error) = rewrite_predicate_instances(&input) {
+            let position = input
+                .node()
+                .read()
+                .expect("poisoned parse node")
+                .pos
+                .0
+                .clone();
+            let _ = self
+                .errors
+                .report(AbstractError::Frontend(FrontendError::new(
+                    FrontendErrorKind::TypecheckerError(error.0),
+                    position,
+                )));
+        }
+        input
+    }
+    fn additional_standard_imports(
+        &self,
+        input: &crate::parser::parse_ast::PProgramHandle,
+    ) -> Result<Vec<String>, PluginHookError> {
+        use super::termination_past_extension::{PDecreasesClause, PDecreasesKind};
+        use crate::parser::parse_ast::{
+            PExpressionKind, PMemberKind, PNodeHandle, PNodeKind, PTypeKind, subnodes,
+        };
+        if self.disabled {
+            return Ok(Vec::new());
+        }
+        let mut present = std::collections::HashSet::new();
+        for member in input.all_members() {
+            if let PNodeKind::Member(member) =
+                &member.node().read().expect("poisoned parse node").kind
+            {
+                if let PMemberKind::Domain { idndef, .. } = &member.kind {
+                    if let PNodeKind::IdnDef(id) = &idndef.read().expect("poisoned parse node").kind
+                    {
+                        present.insert(id.name.clone());
+                    }
+                }
+            }
+        }
+        fn walk(
+            node: &PNodeHandle,
+            present: &std::collections::HashSet<String>,
+            imports: &mut Vec<String>,
+        ) -> Result<(), PluginHookError> {
+            let kind = node.read().expect("poisoned parse node").kind.clone();
+            if let PNodeKind::Expression(expression) = kind {
+                if let PExpressionKind::Extension(extension) = expression.kind {
+                    if let Some(PDecreasesClause {
+                        kind: PDecreasesKind::Tuple { tuple, .. },
+                        ..
+                    }) = extension.as_any().downcast_ref::<PDecreasesClause>()
+                    {
+                        for exp in tuple.to_seq() {
+                            let expression =
+                                match &exp.node().read().expect("poisoned parse node").kind {
+                                    PNodeKind::Expression(e) => e.clone(),
+                                    _ => {
+                                        return Err(PluginHookError(
+                                            "termination tuple is not an expression".into(),
+                                        ));
+                                    }
+                                };
+                            if matches!(&expression.kind, PExpressionKind::Extension(e) if e.as_any().is::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>())
+                            {
+                                if !present.contains("PredicateInstancesWellFoundedOrder")
+                                    && !imports
+                                        .iter()
+                                        .any(|v| v == "decreases/predicate_instance.vpr")
+                                {
+                                    imports.push("decreases/predicate_instance.vpr".into());
+                                }
+                                continue;
+                            }
+                            let (domain, resource) = match expression.typ.kind() {
+                                PTypeKind::Primitive { name } => match name.value() {
+                                    crate::parser::parse_ast_keyword::PKw::Int => {
+                                        ("IntWellFoundedOrder", "decreases/int.vpr")
+                                    }
+                                    crate::parser::parse_ast_keyword::PKw::Ref => {
+                                        ("RefWellFoundedOrder", "decreases/ref.vpr")
+                                    }
+                                    crate::parser::parse_ast_keyword::PKw::Bool => {
+                                        ("BoolWellFoundedOrder", "decreases/bool.vpr")
+                                    }
+                                    crate::parser::parse_ast_keyword::PKw::Perm
+                                    | crate::parser::parse_ast_keyword::PKw::Rational
+                                        if !present.contains("RationalWellFoundedOrder") =>
+                                    {
+                                        ("PermWellFoundedOrder", "decreases/perm.vpr")
+                                    }
+                                    crate::parser::parse_ast_keyword::PKw::Perm
+                                    | crate::parser::parse_ast_keyword::PKw::Rational => continue,
+                                    _ => ("WellFoundedOrder", "decreases/declaration.vpr"),
+                                },
+                                PTypeKind::Seq { .. } => {
+                                    ("SeqWellFoundedOrder", "decreases/seq.vpr")
+                                }
+                                PTypeKind::Set { .. } => {
+                                    ("SetWellFoundedOrder", "decreases/set.vpr")
+                                }
+                                PTypeKind::Multiset { .. } => {
+                                    ("MultiSetWellFoundedOrder", "decreases/multiset.vpr")
+                                }
+                                _ => ("WellFoundedOrder", "decreases/declaration.vpr"),
+                            };
+                            if !present.contains(domain) && !imports.iter().any(|v| v == resource) {
+                                imports.push(resource.into());
+                            }
+                        }
+                    }
+                }
+            }
+            for child in subnodes(node)
+                .map_err(|e| PluginHookError(format!("termination import traversal: {e:?}")))?
+            {
+                walk(&child, present, imports)?;
+            }
+            Ok(())
+        }
+        let mut imports = Vec::new();
+        walk(input.node(), &present, &mut imports)?;
+        Ok(imports)
     }
     fn errors(&self) -> &[AbstractError] {
         self.errors.errors()

@@ -276,6 +276,12 @@ impl FrontendPhases for SilFrontendPhases {
             .plugins
             .before_resolve(input)
             .ok_or_else(|| self.plugins.errors().to_vec())?;
+        init_properties(input.node()).map_err(|e| {
+            Self::failure(
+                format!("resolved parse tree initialization: {e:?}"),
+                Self::program_position(&input),
+            )
+        })?;
         let mut analyser = resolver::NameAnalyser::default();
         let ok = analyser.run(input.node()).map_err(|e| {
             Self::failure(
@@ -317,10 +323,93 @@ impl FrontendPhases for SilFrontendPhases {
         Ok(input)
     }
     fn translate(&mut self, input: Self::Analyzed) -> Result<Program, Vec<AbstractError>> {
-        let input = self
+        let mut input = self
             .plugins
             .before_translate(input)
             .ok_or_else(|| self.plugins.errors().to_vec())?;
+        let imports = self
+            .plugins
+            .additional_standard_imports(&input)
+            .map_err(|e| {
+                Self::failure(
+                    format!("plugin standard imports: {}", e.0),
+                    Self::program_position(&input),
+                )
+            })?;
+        if !imports.is_empty() {
+            let text = imports
+                .iter()
+                .map(|name| format!("import <{name}>"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let standard_loader = self.standard_loader.clone();
+            let local_loader = self.local_loader.clone();
+            let imported = fast_parser::parse_program_with_imports(
+                &text,
+                &self.file,
+                &self.plugins.parser_features(),
+                &mut |path, standard| {
+                    let loader = if standard {
+                        standard_loader.as_ref().ok_or_else(|| {
+                            "standard import resource loader is not configured".to_owned()
+                        })?
+                    } else {
+                        &local_loader
+                    };
+                    loader.load_content(path).map_err(|e| e.to_string())
+                },
+                &mut |text| Ok(text),
+            )
+            .map_err(|e| {
+                vec![AbstractError::Parse(ParseReport::Error(ParseError::new(
+                    e.message, e.position,
+                )))]
+            })?;
+            init_properties(imported.node()).map_err(|e| {
+                Self::failure(
+                    format!("import tree initialization: {e:?}"),
+                    Self::program_position(&imported),
+                )
+            })?;
+            let mut names = resolver::NameAnalyser::default();
+            let ok = names.run(imported.node()).map_err(|e| {
+                Self::failure(
+                    format!("import name analysis: {e:?}"),
+                    Self::program_position(&imported),
+                )
+            })?;
+            if !ok {
+                return Err(Self::failure(
+                    format!("import name analysis: {:?}", names.messages),
+                    Self::program_position(&imported),
+                ));
+            }
+            resolver::check_program_core(&imported, &mut |_, _| {}).map_err(|e| {
+                Self::failure(
+                    format!("import type checking: {e:?}"),
+                    Self::program_position(&imported),
+                )
+            })?;
+            let imported = imported.filter_members(&|m| {
+                matches!(
+                    m.category(),
+                    crate::parser::parse_ast::PMemberCategory::Domain
+                )
+            });
+            input = input.filter_members(&|m| {
+                let node = m.node().read().expect("poisoned parse node");
+                if let crate::parser::parse_ast::PNodeKind::Member(crate::parser::parse_ast::PMember { kind: crate::parser::parse_ast::PMemberKind::Domain { idndef, .. }, .. }) = &node.kind {
+                    return !matches!(&idndef.read().expect("poisoned parse node").kind, crate::parser::parse_ast::PNodeKind::IdnDef(id) if id.name == "WellFoundedOrder");
+                }
+                true
+            }).new_imported(vec![imported]);
+            init_properties(input.node()).map_err(|e| {
+                Self::failure(
+                    format!("merged import tree initialization: {e:?}"),
+                    Self::program_position(&input),
+                )
+            })?;
+        }
         translator::translate_program_core(&input).map_err(|e| {
             Self::failure(
                 format!("translation: {e:?}"),
@@ -375,15 +464,42 @@ impl FrontendPhases for SilFrontendPhases {
         }
     }
     fn prepare_verification(&mut self, input: Program) -> Result<Program, Vec<AbstractError>> {
-        let program = self
+        let mut program = self
             .plugins
             .before_method_filter(input)
             .ok_or_else(|| self.plugins.errors().to_vec())?;
-        if self.select.is_some() {
-            return Err(Self::failure(
-                "member selection requires the Silver dependency chopper".into(),
-                program.meta.position.clone(),
-            ));
+        if let Some(selection) = &self.select {
+            let mut names: Vec<_> = selection.split(',').collect();
+            if !selection.is_empty() {
+                while names.last() == Some(&"") {
+                    names.pop();
+                }
+            }
+            let names = names.into_iter().map(str::to_owned).collect();
+            program = match crate::ast::utility::chopper::chopper::chop_selected(&program, &names)
+                .map_err(|error| {
+                Self::failure(
+                    format!("member selection: {error:?}"),
+                    program.meta.position.clone(),
+                )
+            })? {
+                Some(program) => program,
+                None => {
+                    self.typechecking_warnings.push(FrontendError::new(
+                        FrontendErrorKind::TypecheckerWarning("No members were selected.".into()),
+                        program.meta.position.clone(),
+                    ));
+                    Program::new(
+                        vec![],
+                        vec![],
+                        vec![],
+                        vec![],
+                        vec![],
+                        vec![],
+                        program.meta.clone(),
+                    )
+                }
+            };
         }
         self.plugins
             .before_verify(program)
@@ -422,7 +538,25 @@ impl FrontendPhases for SilFrontendPhases {
 mod tests {
     use super::*;
     #[test]
-    fn configured_selection_cannot_silently_verify_all_members() {
+    fn default_plugins_prepare_refute_and_method_initializer() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        for source in [
+            "method test() { refute false; }",
+            "method inc(x: Int) returns (r: Int) requires x >= 0 ensures r == x + 1 method test() { var y: Int := inc(1); assert y == 2; }",
+        ] {
+            let mut phases = SilFrontendPhases::new(
+                PathBuf::from("test.vpr"),
+                standard_plugin_manager(&config).unwrap(),
+            );
+            let parsed = phases.parse(source).unwrap();
+            let analyzed = phases.analyze(parsed).unwrap();
+            let program = phases.translate(analyzed).unwrap();
+            let program = phases.check_consistency(program).unwrap();
+            phases.prepare_verification(program).unwrap();
+        }
+    }
+    #[test]
+    fn configured_selection_chops_members() {
         let mut config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
         config.select = Some("m".into());
         let mut phases =
@@ -432,7 +566,24 @@ mod tests {
         let analyzed = phases.analyze(parsed).unwrap();
         let program = phases.translate(analyzed).unwrap();
         let program = phases.check_consistency(program).unwrap();
-        assert!(phases.prepare_verification(program).is_err());
+        let selected = phases.prepare_verification(program).unwrap();
+        assert_eq!(selected.methods.len(), 1);
+        assert_eq!(selected.methods[0].name, "m");
+    }
+    #[test]
+    fn missing_selection_produces_empty_program_and_warning() {
+        let mut config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        config.select = Some("absent".into());
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        phases.configure_consistency(&config);
+        let parsed = phases.parse("method m() {}").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let selected = phases.prepare_verification(program).unwrap();
+        assert!(selected.methods.is_empty());
+        assert!(phases.typechecking_warnings.iter().any(|w| matches!(&w.kind, FrontendErrorKind::TypecheckerWarning(message) if message == "No members were selected.")));
     }
     #[test]
     fn generic_domain_signature_preserves_bound_type_variable() {
@@ -592,7 +743,7 @@ mod tests {
         phases.prepare_verification(program).unwrap();
     }
     #[test]
-    fn native_termination_missing_order_fails_closed() {
+    fn native_termination_imports_integer_order_and_prepares_recursive_method() {
         let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
         let mut phases = SilFrontendPhases::new(
             PathBuf::from("test.vpr"),
@@ -603,8 +754,72 @@ mod tests {
             .unwrap();
         let analyzed = phases.analyze(parsed).unwrap();
         let program = phases.translate(analyzed).unwrap();
+        assert!(
+            program
+                .domains
+                .iter()
+                .any(|d| d.name == "IntWellFoundedOrder")
+        );
+        assert!(program.domains.iter().any(|d| d.name == "WellFoundedOrder"));
         let program = phases.check_consistency(program).unwrap();
-        assert!(phases.prepare_verification(program).is_err());
+        phases.prepare_verification(program).unwrap();
+    }
+    #[test]
+    fn native_termination_imports_boolean_order() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases
+            .parse("method m(x: Bool) decreases x { m(false); }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        assert!(
+            program
+                .domains
+                .iter()
+                .any(|d| d.name == "BoolWellFoundedOrder")
+        );
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+    }
+    #[test]
+    fn termination_rewrites_predicate_access_in_decreases() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases
+            .parse("predicate p(x: Ref) { true } method m(x: Ref) decreases p(x) {}")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        assert!(
+            program
+                .domains
+                .iter()
+                .any(|d| d.name == "PredicateInstancesWellFoundedOrder")
+        );
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+    }
+    #[test]
+    fn termination_rewrites_access_predicate_in_decreases() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases
+            .parse("predicate p(x: Ref) { true } method m(x: Ref) decreases acc(p(x)) {}")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
     }
     #[test]
     fn refute_plugin_parses_checks_translates_and_lowers() {
