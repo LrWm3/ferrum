@@ -336,3 +336,17 @@ axiom lists and retained member logs. Native cleanup waits for worker quiescence
 before root close/reporting. The same root survives timeout and subsequent reset.
 As in StateReporting.scala, closing a scheduled state reporter is permanent:
 reused roots can record members, but do not restart scheduled callbacks.
+
+## Diagnostic collection notation
+
+Native trace and state reporting uses `Seq(...)` for erased Scala sequence
+implementations in predicate lookups/permissions/triggers and macro hints, and
+`Set(...)` in native iteration order for distinct-symbol sets. Term/product names
+and operands are retained, but JVM List/Vector spelling and hash-set iteration
+order are not reproduced. Custom value-based log filters compare these displayed
+native strings and must use this notation for the affected values.
+
+The adaptation is restricted to diagnostic rendering. Counterexample model lookup,
+strict chunk rendering used to compare debug heaps, term identity and SMT emission
+keep their existing paths. This avoids changing verification or model lookup to
+recover incidental collection display provenance.

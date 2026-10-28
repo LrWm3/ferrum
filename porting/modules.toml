@@ -2602,7 +2602,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/logger/trace_report.rs"
 status = "skeleton"
-remaining = ["Lazy native member and axiom trace assembly is connected to Silver reporting. Top-level runtime collection/activation and full source renderer coverage remain incomplete."]
+remaining = ["Lazy member and actual contributor traces are connected with documented native collection diagnostics. Public profile construction and broad source compatibility remain incomplete."]
 
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/logger/run_owner.rs"

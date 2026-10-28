@@ -747,3 +747,10 @@ Direct native AST clients can now supply a reporter through
 warning sink and delivers member/termination events through the same runtime
 as the injected frontend. One/two-worker checks cover successful delivery,
 reporter failure and continued rejection of unconnected advanced profiles.
+
+Trace and state diagnostics now render predicate lookups, permission lookups,
+triggers, macro hints and distinct sets whose concrete Scala collection classes
+are absent from the Rust model. These diagnostic paths use canonical native
+`Seq(...)`/`Set(...)` notation. Strict counterexample and debug-heap rendering
+remain unchanged. Custom value-based log filters use the displayed native form;
+the output difference is recorded in differences.md.

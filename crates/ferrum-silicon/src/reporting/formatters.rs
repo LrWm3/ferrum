@@ -26,8 +26,7 @@ pub trait StateRenderer {
     fn typ(&self, typ: &Type) -> Result<String, Self::Error>;
     fn chunk(&self, chunk: &Chunk) -> Result<String, Self::Error>;
 }
-/// Source Silicon term `toString`, for the term families listed below.
-/// Other families fail explicitly until their source renderers are ported.
+/// The source spelling is unavailable for this term without collection provenance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UnsupportedTermRendering;
 fn render_resource(
@@ -46,16 +45,29 @@ fn render_resource(
 }
 fn render_applicable(
     target: &crate::state::terms::ApplicationTarget,
+    canonical: bool,
 ) -> Result<String, UnsupportedTermRendering> {
     use crate::state::terms::{ApplicableKind, ApplicationTarget};
     match target {
-        ApplicationTarget::Variable(v) => render_term(v),
+        ApplicationTarget::Variable(v) => render_term_inner(v, canonical),
         ApplicationTarget::Function(f) => {
             let data = f.data();
             if data.kind == ApplicableKind::Macro {
-                // Macro's flyweight product includes a Scala sequence whose concrete
-                // collection representation is not retained by this model.
-                return Err(UnsupportedTermRendering);
+                if !canonical {
+                    return Err(UnsupportedTermRendering);
+                }
+                // Native Vec loses the source Scala Seq implementation; use a
+                // canonical diagnostic representation without changing term identity.
+                let args = data
+                    .arg_sorts
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Ok(format!(
+                    "Macro({}, Seq({args}), {})",
+                    data.id, data.result_sort
+                ));
             }
             if data.arg_sorts.is_empty() {
                 Ok(format!("{}: {}", data.id, data.result_sort))
@@ -75,7 +87,17 @@ fn render_applicable(
     }
 }
 pub fn render_term(term: &Term) -> Result<String, UnsupportedTermRendering> {
+    render_term_inner(term, false)
+}
+/// Diagnostic-only rendering with canonical native representations for erased Scala collections.
+/// Predicate arguments and macro sorts use `Seq(...)`; Distinct uses `Set(...)`
+/// in native iteration order, so this text can differ from JVM output.
+pub fn render_diagnostic_term(term: &Term) -> Result<String, UnsupportedTermRendering> {
+    render_term_inner(term, true)
+}
+fn render_term_inner(term: &Term, canonical: bool) -> Result<String, UnsupportedTermRendering> {
     use TermKind::*;
+    let render_term = |term: &Term| render_term_inner(term, canonical);
     let binary = |a: &Term, op: &str, b: &Term| -> Result<String, UnsupportedTermRendering> {
         Ok(format!("{} {} {}", render_term(a)?, op, render_term(b)?))
     };
@@ -91,7 +113,42 @@ pub fn render_term(term: &Term) -> Result<String, UnsupportedTermRendering> {
         True => "True".into(),
         False => "False".into(),
         Var(v) => v.id.to_string(),
-        AppHint(applicable) => format!("AppHint({})", render_applicable(applicable)?),
+        AppHint(applicable) => format!("AppHint({})", render_applicable(applicable, canonical)?),
+        Distinct(functions) => {
+            if !canonical {
+                return Err(UnsupportedTermRendering);
+            }
+            // The source Set's iteration and concrete class are not retained.
+            let values = functions
+                .iter()
+                .map(|value| {
+                    render_applicable(
+                        &crate::state::terms::ApplicationTarget::Function(value.clone()),
+                        canonical,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            format!("Distinct(Set({}))", values.join(", "))
+        }
+        PredicateLookup(name, map, args)
+        | PredicatePermLookup(name, map, args)
+        | PredicateTrigger(name, map, args) => {
+            if !canonical {
+                return Err(UnsupportedTermRendering);
+            }
+            let kind = match term.kind() {
+                PredicateLookup(..) => "PredicateLookup",
+                PredicatePermLookup(..) => "PredicatePermLookup",
+                _ => "PredicateTrigger",
+            };
+            // Source embeds a Scala Seq; native Vec has no List/Vector provenance.
+            let args = args
+                .iter()
+                .map(render_term)
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            format!("{kind}({name}, {}, Seq({args}))", render_term(map)?)
+        }
         Let(bindings, body) => {
             let entries = bindings
                 .iter()
@@ -345,7 +402,9 @@ pub fn render_term(term: &Term) -> Result<String, UnsupportedTermRendering> {
         // ConditionalFlyweight prints the product elements of a single Product
         // equality member, rather than that member's own `toString`.
         GoodMask(mask) => match mask.kind() {
-            AppHint(applicable) => format!("GoodMask({})", render_applicable(applicable)?),
+            AppHint(applicable) => {
+                format!("GoodMask({})", render_applicable(applicable, canonical)?)
+            }
             Unit | Null | ZeroMask | PredZeroMask | True | False | NoPerm | FullPerm => {
                 "GoodMask()".into()
             }
@@ -419,12 +478,15 @@ pub fn render_term(term: &Term) -> Result<String, UnsupportedTermRendering> {
         MagicWandSnapshot(a) => unary("wandSnap", a)?,
         MwsfLookup(a, b) => format!("{}[{}]", render_term(a)?, render_term(b)?),
         MagicWandToken(a, b) => format!("MW_token({}, {})", render_term(a)?, render_term(b)?),
-        _ => return Err(UnsupportedTermRendering),
     })
 }
 
 /// Source non-quantified and mask-heap chunk rendering; quantified chunks use separate handling.
 pub fn render_chunk(chunk: &Chunk) -> Result<String, UnsupportedTermRendering> {
+    render_chunk_inner(chunk, false)
+}
+fn render_chunk_inner(chunk: &Chunk, canonical: bool) -> Result<String, UnsupportedTermRendering> {
+    let render_term = |term: &Term| render_term_inner(term, canonical);
     match chunk {
         Chunk::Basic(chunk) => {
             let snapshot = render_term(&chunk.snap)?;
@@ -494,6 +556,21 @@ pub fn render_chunk_with_factory(
     chunk: &Chunk,
     factory: &crate::state::terms::TermFactory,
 ) -> Result<String, UnsupportedTermRendering> {
+    render_chunk_with_factory_inner(chunk, factory, false)
+}
+/// Diagnostic-only chunk rendering; never use for model lookup or heap identity.
+pub fn render_diagnostic_chunk_with_factory(
+    chunk: &Chunk,
+    factory: &crate::state::terms::TermFactory,
+) -> Result<String, UnsupportedTermRendering> {
+    render_chunk_with_factory_inner(chunk, factory, true)
+}
+fn render_chunk_with_factory_inner(
+    chunk: &Chunk,
+    factory: &crate::state::terms::TermFactory,
+    canonical: bool,
+) -> Result<String, UnsupportedTermRendering> {
+    let render_term = |term: &Term| render_term_inner(term, canonical);
     use crate::interfaces::state::chunks::{GeneralChunk, QuantifiedChunk};
     let tag = |v: Option<i32>| v.map_or_else(|| "None".into(), |n| format!("Some({n})"));
     let vars = |v: &[Term]| {
@@ -536,7 +613,7 @@ pub fn render_chunk_with_factory(
                 render_term(&c.org_condition)?
             )
         }
-        _ => return render_chunk(chunk),
+        _ => return render_chunk_inner(chunk, canonical),
     })
 }
 
@@ -778,6 +855,69 @@ mod tests {
         assert_eq!(
             render_term(&f.dummy_heap(Sort::Heap(Box::new(Sort::Int)))).unwrap(),
             "DummyHeap(Int)"
+        );
+    }
+    #[test]
+    fn canonical_erased_collections_keep_source_products_and_operands() {
+        use crate::state::terms::{ApplicableData, ApplicableKind};
+        let f = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let psf = f.var(
+            Identifier::new("pmap"),
+            Sort::PredicateSnapFunction {
+                codomain: Box::new(Sort::Snap),
+                predicate_name: "p".into(),
+            },
+            false,
+        );
+        let pm = f.var(Identifier::new("perm"), Sort::PredicatePermFunction, false);
+        let x = f.var(Identifier::new("x"), Sort::Int, false);
+        let args = vec![x.clone(), f.int_literal(2)];
+        let lookup = f.predicate_lookup("p".into(), psf.clone(), args.clone());
+        assert!(render_term(&lookup).is_err());
+        let wrapped = f.builtin_equals(lookup, f.var(Identifier::new("s"), Sort::Snap, false));
+        assert!(render_term(&wrapped).is_err());
+        assert_eq!(
+            render_diagnostic_term(&wrapped).unwrap(),
+            "PredicateLookup(p, pmap, Seq(x, 2)) == s"
+        );
+        assert_eq!(
+            render_diagnostic_term(&f.predicate_lookup("p".into(), psf.clone(), args.clone()))
+                .unwrap(),
+            "PredicateLookup(p, pmap, Seq(x, 2))"
+        );
+        assert_eq!(
+            render_diagnostic_term(&f.predicate_perm_lookup("p".into(), pm, args.clone())).unwrap(),
+            "PredicatePermLookup(p, perm, Seq(x, 2))"
+        );
+        assert_eq!(
+            render_diagnostic_term(&f.predicate_trigger("p".into(), psf, vec![])).unwrap(),
+            "PredicateTrigger(p, pmap, Seq())"
+        );
+        let macro_fn = f.applicable(ApplicableData {
+            kind: ApplicableKind::Macro,
+            id: Identifier::new("m"),
+            arg_sorts: vec![Sort::Int, Sort::Bool],
+            result_sort: Sort::Ref,
+        });
+        assert_eq!(
+            render_diagnostic_term(&f.app_hint(macro_fn)).unwrap(),
+            "AppHint(Macro(m, Seq(Int, Bool), Ref))"
+        );
+        let domain = |name: &str| {
+            f.applicable(ApplicableData {
+                kind: ApplicableKind::DomainFun,
+                id: Identifier::new(name),
+                arg_sorts: vec![],
+                result_sort: Sort::Int,
+            })
+        };
+        assert_eq!(
+            render_diagnostic_term(&f.distinct([domain("a"), domain("b")])).unwrap(),
+            "Distinct(Set(a: Int, b: Int))"
         );
     }
     #[test]

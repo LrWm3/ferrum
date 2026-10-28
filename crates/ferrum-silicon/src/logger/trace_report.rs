@@ -1,8 +1,8 @@
 //! Ferrum assembly for the source ExecutionTraceReport, following PLAN.md.
 //! Upstream: https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/verifier/DefaultMainVerifier.scala
 //! The caller supplies the actual domain and postcondition axioms in source order.
-//! Status: partial; lazy report assembly is connected. Top-level collection and
-//! public profile activation require additional runtime integration.
+//! Status: partial; lazy reports and actual contributor collection are connected.
+//! Public profile activation requires additional runtime integration.
 
 use crate::{
     logger::{
@@ -44,7 +44,8 @@ impl fmt::Display for MemberTrace {
 struct TermTrace(Term);
 impl fmt::Display for TermTrace {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let value = crate::reporting::formatters::render_term(&self.0).map_err(|_| fmt::Error)?;
+        let value = crate::reporting::formatters::render_diagnostic_term(&self.0)
+            .map_err(|_| fmt::Error)?;
         f.write_str(&value)
     }
 }
@@ -123,7 +124,21 @@ mod tests {
         let message = execution_trace_report(
             &logger,
             &factory,
-            vec![factory.int_literal(7)],
+            vec![
+                factory.int_literal(7),
+                factory.predicate_lookup(
+                    "p".into(),
+                    factory.var(
+                        crate::state::identifiers::Identifier::new("pmap"),
+                        crate::state::terms::Sort::PredicateSnapFunction {
+                            codomain: Box::new(crate::state::terms::Sort::Snap),
+                            predicate_name: "p".into(),
+                        },
+                        false,
+                    ),
+                    vec![factory.int_literal(2)],
+                ),
+            ],
             vec![factory.boolean(true)],
         )
         .unwrap();
@@ -141,7 +156,7 @@ mod tests {
         let late_pos = report.find("comment late").unwrap();
         let second_pos = report.find("predicate second").unwrap();
         assert!(first_pos < late_pos && late_pos < second_pos);
-        assert!(report.contains("axioms=List(7)"));
+        assert!(report.contains("axioms=List(7, PredicateLookup(p, pmap, Seq(2)))"));
         assert!(report.contains("functionPostAxioms=List(True)"));
     }
 }

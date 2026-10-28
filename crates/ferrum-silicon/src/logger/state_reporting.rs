@@ -116,11 +116,11 @@ impl RecordRenderer for NativeStateRecordRenderer<'_> {
         .map_err(|_| RecordError::Unsupported("report node rendering"))
     }
     fn term(&self, term: &Term) -> Result<String, RecordError> {
-        crate::reporting::formatters::render_term(term)
+        crate::reporting::formatters::render_diagnostic_term(term)
             .map_err(|_| RecordError::Unsupported("term rendering"))
     }
     fn chunk(&self, chunk: &crate::state::chunks::Chunk) -> Result<String, RecordError> {
-        crate::reporting::formatters::render_chunk_with_factory(chunk, self.factory)
+        crate::reporting::formatters::render_diagnostic_chunk_with_factory(chunk, self.factory)
             .map_err(|_| RecordError::Unsupported("chunk rendering"))
     }
     fn source_line_column(&self, node: &Node) -> Result<String, RecordError> {
