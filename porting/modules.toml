@@ -693,21 +693,21 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/reporter/Message.scala"
 destination = "crates/ferrum-silver/src/reporter/message.rs"
 status = "skeleton"
-remaining = ["Structured reports and core sink cases exist; full verifier/progress reporting and output integration remain."]
+remaining = ["Source event rendering, verifier-state printing, captured exception payloads and CSV/StdIO adapters exist; origin capture wiring, runtime collection/parse-program fallback provenance and full runtime progress delivery remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/reporter/Reporter.scala"
 destination = "crates/ferrum-silver/src/reporter/reporter.rs"
 status = "skeleton"
-remaining = ["Structured reports and core sink cases exist; full verifier/progress reporting and output integration remain."]
+remaining = ["Source event rendering, verifier-state printing, captured exception payloads and CSV/StdIO adapters exist; origin capture wiring, runtime collection/parse-program fallback provenance and full runtime progress delivery remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/reporter/format/package.scala"
 destination = "crates/ferrum-silver/src/reporter/format/package.rs"
 status = "skeleton"
-remaining = ["Native local-time epoch formatting exists; exact Java floating formatter edge rounding remains to reconcile."]
+remaining = ["Local-time epoch formatting and source f32/half-away rounding are implemented and compared with JVM samples; locale behavior differs explicitly and extreme local timestamps may be unsupported."]
 
 [[modules]]
 repository = "silver"

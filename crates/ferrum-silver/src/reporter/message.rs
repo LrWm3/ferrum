@@ -31,8 +31,9 @@
 //! Reconcile message ownership, extension/state payloads and serialized/rendered compatibility
 //! with plugin manager and Silicon.
 //!
-//! Status: partial; core result, source, dependency, warning and verifier-state events implemented;
-//! source-compatible message string rendering and some exception details remain pending.
+//! Status: partial; structured result, source, dependency, warning and verifier-state events are
+//! implemented. Source message forms and captured exception details have fallible renderers;
+//! origin wiring and runtime collection/product provenance remain incomplete.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -54,6 +55,10 @@ pub trait ReportDependency: Debug + Send + Sync {
     fn name(&self) -> &str;
     fn version(&self) -> &str;
     fn location(&self) -> &str;
+    /// Source object's own toString; custom dependency implementations may supply it.
+    fn render_source(&self) -> Option<String> {
+        None
+    }
 }
 impl ReportDependency for crate::verifier::verifier::DefaultDependency {
     fn name(&self) -> &str {
@@ -65,9 +70,24 @@ impl ReportDependency for crate::verifier::verifier::DefaultDependency {
     fn location(&self) -> &str {
         &self.location
     }
+    fn render_source(&self) -> Option<String> {
+        Some(format!(
+            "DefaultDependency({},{},{})",
+            self.name, self.version, self.location
+        ))
+    }
 }
 pub trait TraceValue: std::fmt::Display + Debug + Send + Sync {}
 impl<T: std::fmt::Display + Debug + Send + Sync> TraceValue for T {}
+
+/// Exception text and stack captured at the origin, before reporting changes the call stack.
+#[derive(Clone, Debug)]
+pub struct CapturedExceptionDetails {
+    pub display: String,
+    /// Complete, pre-rendered native stack output, including its first line.
+    pub stack_trace: String,
+    pub cause: Option<String>,
+}
 
 /// Typed events sent to a reporter. Event families depending on backend dependency and
 /// diagnostic representations will be added as those interfaces are connected.
@@ -132,6 +152,7 @@ pub enum Message {
     },
     Exception {
         error: Arc<dyn std::error::Error + Send + Sync>,
+        details: Option<CapturedExceptionDetails>,
     },
     ExternalDependencies {
         dependencies: Vec<Arc<dyn ReportDependency>>,
@@ -198,6 +219,22 @@ pub enum Message {
     },
 }
 impl Message {
+    /// An error without captured origin details; source exception rendering fails explicitly.
+    pub fn exception(error: Arc<dyn std::error::Error + Send + Sync>) -> Self {
+        Self::Exception {
+            error,
+            details: None,
+        }
+    }
+    pub fn captured_exception(
+        error: Arc<dyn std::error::Error + Send + Sync>,
+        details: CapturedExceptionDetails,
+    ) -> Self {
+        Self::Exception {
+            error,
+            details: Some(details),
+        }
+    }
     pub fn overall_result(
         verifier: impl Into<String>,
         time: Time,
@@ -393,6 +430,33 @@ pub struct VerifierState {
     pub frames: Vec<VerifierStateFrame>,
 }
 impl VerifierState {
+    pub fn try_render<E>(
+        &self,
+        print_exp: &impl Fn(&Exp) -> Result<String, E>,
+    ) -> Result<String, E> {
+        let mut lines = Vec::new();
+        for (depth, frame) in self.frames.iter().enumerate() {
+            if let Some(branch) = &frame.branch_condition {
+                let text = match branch {
+                    BranchCondition::Condition(exp) => {
+                        with_position(print_exp(exp)?, Some(exp.0.meta.position.clone()))
+                    }
+                    BranchCondition::OpaqueCondition(text) => text.clone(),
+                    BranchCondition::Alternative { index, count } => {
+                        format!("alternative {} of {count}", index.wrapping_add(1))
+                    }
+                };
+                lines.push(format!(
+                    "{}branch {text}:",
+                    "  ".repeat(depth.saturating_sub(1))
+                ));
+            }
+            for step in &frame.steps {
+                lines.push(format!("{}{}", "  ".repeat(depth), step.render()));
+            }
+        }
+        Ok(lines.join("\n"))
+    }
     pub fn render(&self, print_exp: &impl Fn(&Exp) -> String) -> String {
         let mut lines = Vec::new();
         for (depth, frame) in self.frames.iter().enumerate() {

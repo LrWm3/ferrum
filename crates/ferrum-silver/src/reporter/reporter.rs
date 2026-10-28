@@ -27,8 +27,10 @@
 //! Reconcile sink lifetimes, synchronized queue and plugin callback ordering with frontend and
 //! Silicon reporting.
 //!
-//! Status: partial; noop, plugin mapping, polling and core CSV cases implemented.
-//! StdIO lifecycle output is implemented; remaining CSV and StdIO event renderers are pending.
+//! Status: partial; lifecycle, warnings, entity results, trigger and verifier-state rendering,
+//! polling and source fallback for statistics, outlines, definitions and CSV traces are implemented.
+//! Captured exception details render through an explicit origin payload; parse-program and
+//! runtime-collection fallback strings still require retained provenance.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -48,6 +50,7 @@ pub enum ReportError {
     Diagnostic(DiagnosticError),
     EmptyQueue,
     Plugin(String),
+    Print(crate::ast::pretty::pretty_printer::PrintError),
     Unsupported(&'static str),
 }
 impl From<io::Error> for ReportError {
@@ -58,6 +61,11 @@ impl From<io::Error> for ReportError {
 impl From<DiagnosticError> for ReportError {
     fn from(value: DiagnosticError) -> Self {
         Self::Diagnostic(value)
+    }
+}
+impl From<crate::ast::pretty::pretty_printer::PrintError> for ReportError {
+    fn from(value: crate::ast::pretty::pretty_printer::PrintError) -> Self {
+        Self::Print(value)
     }
 }
 
@@ -169,20 +177,312 @@ impl Reporter for PollingReporter {
     }
 }
 fn render_state(state: &super::message::VerifierState) -> Result<String, ReportError> {
-    if state.frames.iter().any(|frame| {
-        matches!(
-            frame.branch_condition,
-            Some(super::message::BranchCondition::Condition(_))
-        )
-    }) {
-        return Err(ReportError::Unsupported(
-            "expression source printer required for verifier state",
-        ));
-    }
-    Ok(state.render(&|_| unreachable!("expression conditions checked above")))
+    Ok(state.try_render(&crate::ast::pretty::pretty_printer::expression_to_string)?)
 }
-/// Writes the core lifecycle and entity records in source CSV order and flushes each report.
-/// Other message families fail explicitly until their source renderers are available.
+fn render_entity(entity: &Entity) -> Result<String, ReportError> {
+    let node = crate::ast::utility::nodes::Node::Member((**entity).clone());
+    Ok(super::package::print_rendered_entity(
+        &crate::ast::pretty::pretty_printer::pretty_node(&node)?,
+    ))
+}
+fn render_entity_message(message: &Message) -> Result<String, ReportError> {
+    Ok(match message {
+        Message::EntitySuccess {
+            verifier,
+            concerning,
+            time,
+            cached,
+        } => format!(
+            "entity_success_message(verifier={verifier}, concerning={}, time={time}, cached={cached})",
+            render_entity(concerning)?
+        ),
+        Message::EntityFailure {
+            verifier,
+            concerning,
+            time,
+            errors,
+            cached,
+        } => format!(
+            "entity_failure_message(verifier={verifier}, concerning={}, time={time}, result={}, cached={cached})",
+            render_entity(concerning)?,
+            VerificationResult::Failure(errors.clone()).render()?
+        ),
+        Message::BranchFailure {
+            verifier,
+            concerning,
+            errors,
+            cached,
+        } => format!(
+            "branch_failure_message(verifier={verifier}, concerning={}, result={}, cached={cached})",
+            render_entity(concerning)?,
+            VerificationResult::Failure(errors.clone()).render()?
+        ),
+        _ => return Err(ReportError::Unsupported("expected entity result")),
+    })
+}
+fn render_chosen_triggers(
+    quantifier: &crate::ast::expression::Exp,
+    triggers: &[crate::ast::expression::Trigger],
+    old: &[crate::ast::expression::Trigger],
+) -> Result<String, ReportError> {
+    use crate::ast::expression::ExpKind;
+    let kind = match quantifier.kind() {
+        ExpKind::Forall(..) => "Forall",
+        ExpKind::Exists(..) => "Exists",
+        _ => {
+            return Err(ReportError::Unsupported(
+                "chosen triggers for non-quantifier",
+            ));
+        }
+    };
+    let render = |list: &[crate::ast::expression::Trigger]| -> Result<String, ReportError> {
+        let groups = list
+            .iter()
+            .map(|trigger| {
+                let expressions = trigger
+                    .exps
+                    .iter()
+                    .map(crate::ast::pretty::pretty_printer::expression_to_string)
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok::<_, ReportError>(format!("{{{}}}", expressions.join(", ")))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(format!("[{}]", groups.join(", ")))
+    };
+    Ok(format!(
+        "quantifier_chosen_triggers_message(type={kind}, quantifier={}, triggers={}), oldTriggers={})",
+        crate::ast::pretty::pretty_printer::expression_to_string(quantifier)?,
+        render(triggers)?,
+        render(old)?
+    ))
+}
+fn render_fallback(message: &Message) -> Result<String, ReportError> {
+    match message {
+        Message::Statistics {
+            methods,
+            functions,
+            predicates,
+            domains,
+            fields,
+        } => Ok(format!(
+            "statistics_report(nom={methods}, nofu={functions}, nop={predicates}, nod={domains}, nofi={fields})"
+        )),
+        Message::ProgramOutline { members } => {
+            let members = members
+                .iter()
+                .map(render_entity)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(format!(
+                "program_outline_report(members=List({}))",
+                members.join(", ")
+            ))
+        }
+        Message::ProgramDefinitions { definitions } => {
+            use super::package::SymbolKind;
+            let mut rendered = Vec::with_capacity(definitions.len());
+            for definition in definitions {
+                let kind = match &definition.typ {
+                    SymbolKind::Domain => "ViperDomain".into(),
+                    SymbolKind::Axiom => "ViperAxiom".into(),
+                    SymbolKind::Function => "ViperFunction".into(),
+                    SymbolKind::Predicate => "ViperPredicate".into(),
+                    SymbolKind::Method => "ViperMethod".into(),
+                    SymbolKind::UntypedLocalDefinition => "ViperUntypedLocalDefinition".into(),
+                    kind => {
+                        let (name, typ) = match kind {
+                            SymbolKind::Field(t) => ("ViperField", t),
+                            SymbolKind::Argument(t) => ("ViperArgument", t),
+                            SymbolKind::ReturnParameter(t) => ("ViperReturnParameter", t),
+                            SymbolKind::TypedLocalDefinition(t) => ("ViperTypedLocalDefinition", t),
+                            _ => unreachable!(),
+                        };
+                        format!(
+                            "{name}({})",
+                            crate::ast::pretty::pretty_printer::show_type(typ)?
+                        )
+                    }
+                };
+                let scope = match &definition.scope {
+                    Some(scope) => format!("Some({scope})"),
+                    None => "None".into(),
+                };
+                rendered.push(format!(
+                    "Definition({},{kind},{},{scope})",
+                    definition.name, definition.location
+                ));
+            }
+            // Source intentionally omits the final closing parenthesis.
+            Ok(format!(
+                "program_definitions_report(definitions=List({})",
+                rendered.join(", ")
+            ))
+        }
+        Message::ExecutionTrace {
+            member_traces,
+            axioms,
+            function_post_axioms,
+        } => {
+            let render_list = |values: &[Arc<dyn super::message::TraceValue>]| {
+                values
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            let members = member_traces
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            Ok(format!(
+                "symbolic_execution_logger_report(\n  members=[{members}],\n  axioms=List({})\n  functionPostAxioms=List({})\n)",
+                render_list(axioms),
+                render_list(function_post_axioms)
+            ))
+        }
+        _ => Err(ReportError::Unsupported("source message string rendering")),
+    }
+}
+
+impl Message {
+    /// Render the pinned source message form where the retained payload has enough provenance.
+    pub fn render_source(&self) -> Result<String, ReportError> {
+        let failure = |errors: &[crate::verifier::verification_result::AbstractError]| {
+            VerificationResult::Failure(errors.to_vec())
+                .render()
+                .map_err(ReportError::from)
+        };
+        Ok(match self {
+            Self::AstConstructionSuccess { time } => {
+                format!("ast_construction_success(time={time})")
+            }
+            Self::AstConstructionFailure { time, errors } => format!(
+                "ast_construction_failure(time={time}, result={})",
+                failure(errors)?
+            ),
+            Self::OverallSuccess { verifier, time } => {
+                format!("overall_success_message(verifier={verifier}, time={time})")
+            }
+            Self::OverallFailure {
+                verifier,
+                time,
+                errors,
+            } => format!(
+                "overall_failure_message(verifier={verifier}, time={time}, result={})",
+                failure(errors)?
+            ),
+            Self::EntitySuccess { .. }
+            | Self::EntityFailure { .. }
+            | Self::BranchFailure { .. } => render_entity_message(self)?,
+            Self::Statistics { .. }
+            | Self::ProgramOutline { .. }
+            | Self::ProgramDefinitions { .. }
+            | Self::ExecutionTrace { .. } => render_fallback(self)?,
+            Self::Exception {
+                details: Some(details),
+                ..
+            } => format!("exception_report(e={})", details.display),
+            Self::Exception { details: None, .. } => {
+                return Err(ReportError::Unsupported(
+                    "exception source display not captured",
+                ));
+            }
+            Self::InvalidArguments {
+                tool_signature,
+                errors,
+            } => {
+                let errors = errors
+                    .iter()
+                    .map(|error| error.render())
+                    .collect::<Result<Vec<_>, _>>()?;
+                format!(
+                    "invalid_args_report(tool_signature={tool_signature}, errors=[{}])",
+                    errors.join(",")
+                )
+            }
+            Self::BackendSubProcess {
+                tool_signature,
+                process_exe,
+                phase,
+                pid,
+            } => format!(
+                "backend_sub_process_report(tool_signature={tool_signature}, process_exe={process_exe}, phase={}, pid={})",
+                phase.name(),
+                pid.map(|p| p.to_string())
+                    .unwrap_or_else(|| "<not provided>".into())
+            ),
+            Self::Simple { kind, text } => format!("{}(text={text})", kind.name()),
+            Self::QuantifierInstantiations {
+                quantifier,
+                instantiations,
+                max_gen,
+                max_cost,
+            } => format!(
+                "quantifier_instantiations_message(quantifier={quantifier}, instantiations={instantiations}, max_gen={max_gen}, max_cost={max_cost})"
+            ),
+            Self::QuantifierChosenTriggers {
+                quantifier,
+                triggers,
+                old_triggers,
+            } => render_chosen_triggers(quantifier, triggers, old_triggers)?,
+            Self::VerificationTermination => "verification_termination_message".into(),
+            Self::Benchmarking { category, payload } => {
+                format!("Benchmarking message of type {category} with payload {payload}")
+            }
+            Self::BlockReached {
+                method_name,
+                label,
+                path_id,
+            } => format!(
+                "block_reached_message(methodName={method_name}, label={label}, pathId={path_id})"
+            ),
+            Self::BlockFailure {
+                method_name,
+                label,
+                path_id,
+            } => format!(
+                "block_failure_message(methodName={method_name}, label={label}, pathId={path_id})"
+            ),
+            Self::PathProcessed {
+                method_name,
+                path_id,
+                result,
+            } => format!(
+                "path_processed_message(methodName={method_name}, pathId={path_id}, result={result})"
+            ),
+            Self::VerifierState {
+                verifier,
+                concerning,
+                millis_since_progress,
+                state,
+            } => format!(
+                "verifier_state_message(verifier={verifier}, concerning={}, millisSinceProgress={millis_since_progress}, state={})",
+                concerning.name(),
+                render_state(state)?
+            ),
+            Self::ExternalDependencies { dependencies } => {
+                let deps = dependencies
+                    .iter()
+                    .map(|dependency| {
+                        dependency
+                            .render_source()
+                            .ok_or(ReportError::Unsupported("dependency source rendering"))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                format!("external_dependencies_report(deps=[{}])", deps.join(","))
+            }
+            Self::PProgram { .. }
+            | Self::WarningsDuringParsing { .. }
+            | Self::WarningsDuringTypechecking { .. }
+            | Self::WarningsDuringVerification { .. } => {
+                return Err(ReportError::Unsupported(
+                    "source collection or product rendering lacks runtime provenance",
+                ));
+            }
+        })
+    }
+}
+/// Writes source CSV records in order and flushes each report.
 pub struct CsvReporter<W: Write + Send> {
     pub name: String,
     writer: Mutex<W>,
@@ -256,7 +556,15 @@ impl<W: Write + Send> Reporter for CsvReporter<W> {
                 concerning.name(),
                 cached
             )?,
-            Message::Exception { error } => writeln!(writer, "ExceptionReport,{error}")?,
+            Message::Exception {
+                details: Some(details),
+                ..
+            } => writeln!(writer, "ExceptionReport,{}", details.display)?,
+            Message::Exception { details: None, .. } => {
+                return Err(ReportError::Unsupported(
+                    "exception source display not captured",
+                ));
+            }
             Message::ExternalDependencies { dependencies } => {
                 for dep in dependencies {
                     writeln!(
@@ -294,12 +602,11 @@ impl<W: Write + Send> Reporter for CsvReporter<W> {
                 millis_since_progress,
                 state,
             } => {
-                let rendered = render_state(&state)?.replace('\n', "\\n");
-                writeln!(
-                    writer,
-                    "verifier_state_message(verifier={verifier}, concerning={}, millisSinceProgress={millis_since_progress}, state={rendered})",
-                    concerning.name()
-                )?;
+                let rendered = format!(
+                    "verifier_state_message(verifier={verifier}, concerning={}, millisSinceProgress={millis_since_progress}, state={})",
+                    concerning.name(), render_state(&state)?
+                ).replace('\n', "\\n");
+                writeln!(writer, "{rendered}")?;
             }
             Message::QuantifierInstantiations {
                 quantifier,
@@ -310,6 +617,17 @@ impl<W: Write + Send> Reporter for CsvReporter<W> {
                 writer,
                 "quantifier_instantiations_message(quantifier={quantifier}, instantiations={instantiations}, max_gen={max_gen}, max_cost={max_cost})"
             )?,
+            Message::QuantifierChosenTriggers {
+                quantifier,
+                triggers,
+                old_triggers,
+            } => {
+                writeln!(
+                    writer,
+                    "{}",
+                    render_chosen_triggers(&quantifier, &triggers, &old_triggers)?
+                )?;
+            }
             Message::VerificationTermination => {
                 writeln!(writer, "verification_termination_message")?
             }
@@ -354,6 +672,16 @@ impl<W: Write + Send> Reporter for CsvReporter<W> {
             Message::Simple { .. }
             | Message::BackendSubProcess { .. }
             | Message::Benchmarking { .. } => {}
+            message @ (Message::Statistics { .. }
+            | Message::ProgramOutline { .. }
+            | Message::ProgramDefinitions { .. }
+            | Message::ExecutionTrace { .. }) => {
+                writeln!(
+                    io::stdout().lock(),
+                    "Cannot properly print message of unsupported type: {}",
+                    render_fallback(&message)?
+                )?;
+            }
             _ => {
                 return Err(ReportError::Unsupported(
                     "CSV formatting for this message is not yet implemented",
@@ -365,7 +693,7 @@ impl<W: Write + Send> Reporter for CsvReporter<W> {
     }
 }
 
-/// Console lifecycle and diagnostics reporting; source entity rendering is pending.
+/// Console lifecycle, diagnostics and optional partial entity reporting.
 pub struct StdIoReporter<W: Write + Send> {
     pub name: String,
     pub time_info: bool,
@@ -484,6 +812,31 @@ impl<W: Write + Send> Reporter for StdIoReporter<W> {
                     writeln!(writer, "  {line}")?;
                 }
             }
+            Message::Exception {
+                details: Some(details),
+                ..
+            } => {
+                if details.stack_trace.is_empty() {
+                    return Err(ReportError::Unsupported("exception source stack is empty"));
+                }
+                writeln!(
+                    writer,
+                    "Verification aborted exceptionally: {}",
+                    details.display
+                )?;
+                write!(writer, "{}", details.stack_trace)?;
+                if !details.stack_trace.ends_with('\n') {
+                    writeln!(writer)?;
+                }
+                if let Some(cause) = details.cause {
+                    writeln!(writer, "  Cause: {cause}")?;
+                }
+            }
+            Message::Exception { details: None, .. } => {
+                return Err(ReportError::Unsupported(
+                    "exception source stack not captured",
+                ));
+            }
             Message::ExternalDependencies { dependencies } => {
                 writeln!(writer, "The following dependencies are used:")?;
                 for dep in dependencies {
@@ -549,14 +902,12 @@ impl<W: Write + Send> Reporter for StdIoReporter<W> {
                 kind: SimpleMessageKind::MissingDependency,
                 text,
             } => writeln!(writer, "encountered missing dependency: {text}")?,
-            Message::EntitySuccess { .. }
+            message @ (Message::EntitySuccess { .. }
             | Message::EntityFailure { .. }
-            | Message::BranchFailure { .. }
+            | Message::BranchFailure { .. })
                 if self.report_partial_results =>
             {
-                return Err(ReportError::Unsupported(
-                    "entity message source rendering is not yet implemented",
-                ));
+                writeln!(writer, "{}", render_entity_message(&message)?)?;
             }
             Message::EntitySuccess { .. }
             | Message::EntityFailure { .. }
@@ -570,12 +921,22 @@ impl<W: Write + Send> Reporter for StdIoReporter<W> {
             | Message::PathProcessed { .. }
             | Message::VerificationTermination
             | Message::Benchmarking { .. } => {}
+            message @ (Message::Statistics { .. }
+            | Message::ProgramOutline { .. }
+            | Message::ProgramDefinitions { .. }) => {
+                writeln!(
+                    writer,
+                    "Cannot properly print message of unsupported type: {}",
+                    render_fallback(&message)?
+                )?;
+            }
             _ => {
                 return Err(ReportError::Unsupported(
                     "stdout formatting for this message is not yet implemented",
                 ));
             }
         }
+        writer.flush()?;
         self.counter
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Ok(())
@@ -586,6 +947,224 @@ impl<W: Write + Send> Reporter for StdIoReporter<W> {
 mod tests {
     use super::super::message::SimpleMessageKind;
     use super::*;
+    fn method() -> Entity {
+        use crate::ast::{
+            ast::Metadata,
+            program::{Member, Method, MethodData},
+        };
+        Arc::new(Member::Method(Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: Metadata::default(),
+        })))
+    }
+    #[test]
+    fn captured_exception_reports_original_stack_and_optional_cause() {
+        use super::super::message::CapturedExceptionDetails;
+        let error = Arc::new(io::Error::other("native failure"));
+        let details = |cause| CapturedExceptionDetails {
+            display: "native failure".into(),
+            stack_trace: "native failure\n  origin frame".into(),
+            cause,
+        };
+        let reporter = StdIoReporter::new(Vec::new(), false);
+        reporter
+            .report(Message::captured_exception(
+                error.clone(),
+                details(Some("underlying".into())),
+            ))
+            .unwrap();
+        reporter
+            .report(Message::captured_exception(error.clone(), details(None)))
+            .unwrap();
+        assert!(matches!(
+            reporter.report(Message::exception(error.clone())),
+            Err(ReportError::Unsupported(_))
+        ));
+        let out = String::from_utf8(reporter.writer.lock().unwrap().clone()).unwrap();
+        assert_eq!(
+            out,
+            "Verification aborted exceptionally: native failure\nnative failure\n  origin frame\n  Cause: underlying\nVerification aborted exceptionally: native failure\nnative failure\n  origin frame\n"
+        );
+        assert_eq!(reporter.counter(), 2);
+        let csv = CsvReporter::new(Vec::new());
+        csv.report(Message::captured_exception(error.clone(), details(None)))
+            .unwrap();
+        assert_eq!(
+            String::from_utf8(csv.writer.lock().unwrap().clone()).unwrap(),
+            "ExceptionReport,native failure\n"
+        );
+        assert!(matches!(
+            csv.report(Message::exception(error)),
+            Err(ReportError::Unsupported(_))
+        ));
+    }
+    #[test]
+    fn source_fallback_renders_statistics_and_outline() {
+        let reporter = StdIoReporter::new(Vec::new(), false);
+        reporter
+            .report(Message::Statistics {
+                methods: 1,
+                functions: 2,
+                predicates: 3,
+                domains: 4,
+                fields: 5,
+            })
+            .unwrap();
+        reporter
+            .report(Message::ProgramOutline {
+                members: vec![method()],
+            })
+            .unwrap();
+        reporter
+            .report(Message::ProgramDefinitions {
+                definitions: vec![super::super::package::Definition {
+                    name: "x".into(),
+                    typ: super::super::package::SymbolKind::Field(crate::ast::r#type::Type::Int),
+                    location: crate::ast::position::Position::NoPosition,
+                    scope: None,
+                }],
+            })
+            .unwrap();
+        let out = String::from_utf8(reporter.writer.lock().unwrap().clone()).unwrap();
+        assert!(out.starts_with("Cannot properly print message of unsupported type: statistics_report(nom=1, nofu=2, nop=3, nod=4, nofi=5)\n"));
+        assert!(out.contains("program_outline_report(members=List(method m()"));
+        assert!(out.contains("program_definitions_report(definitions=List(Definition(x,ViperField(Int),<no position>,None))\n"));
+    }
+    #[test]
+    fn source_message_rendering_retains_protocol_names_and_missing_pid() {
+        assert_eq!(
+            Message::OverallSuccess {
+                verifier: "Silicon".into(),
+                time: 17
+            }
+            .render_source()
+            .unwrap(),
+            "overall_success_message(verifier=Silicon, time=17)"
+        );
+        assert_eq!(
+            Message::BackendSubProcess {
+                tool_signature: "sig".into(),
+                process_exe: "z3".into(),
+                phase: super::super::message::BackendSubProcessStage::OnExit,
+                pid: None
+            }
+            .render_source()
+            .unwrap(),
+            "backend_sub_process_report(tool_signature=sig, process_exe=z3, phase=on_exit, pid=<not provided>)"
+        );
+        assert_eq!(
+            Message::VerificationTermination.render_source().unwrap(),
+            "verification_termination_message"
+        );
+        let dependency = crate::verifier::verifier::DefaultDependency {
+            name: "z3".into(),
+            version: "4.16".into(),
+            location: "/bin/z3".into(),
+        };
+        assert_eq!(
+            Message::ExternalDependencies {
+                dependencies: vec![Arc::new(dependency)]
+            }
+            .render_source()
+            .unwrap(),
+            "external_dependencies_report(deps=[DefaultDependency(z3,4.16,/bin/z3)])"
+        );
+    }
+    #[test]
+    fn stdout_flush_failure_is_reported_before_counter_increment() {
+        struct FailFlush;
+        impl Write for FailFlush {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Err(io::Error::other("flush failed"))
+            }
+        }
+        let reporter = StdIoReporter::new(FailFlush, false);
+        assert!(matches!(
+            reporter.report(Message::AstConstructionSuccess { time: 0 }),
+            Err(ReportError::Io(_))
+        ));
+        assert_eq!(reporter.counter(), 0);
+    }
+    #[test]
+    fn partial_entity_and_branch_results_use_source_message_forms() {
+        use crate::verifier::verification_result::{
+            AbstractError, FrontendError, FrontendErrorKind,
+        };
+        let mut reporter = StdIoReporter::new(Vec::new(), false);
+        reporter.report_partial_results = true;
+        reporter
+            .report(Message::EntitySuccess {
+                verifier: "Silicon".into(),
+                concerning: method(),
+                time: 12,
+                cached: true,
+            })
+            .unwrap();
+        let error = AbstractError::Frontend(FrontendError::new(
+            FrontendErrorKind::TypecheckerError("oops".into()),
+            crate::ast::position::Position::NoPosition,
+        ));
+        reporter
+            .report(Message::BranchFailure {
+                verifier: "Silicon".into(),
+                concerning: method(),
+                errors: vec![error],
+                cached: false,
+            })
+            .unwrap();
+        let out = String::from_utf8(reporter.writer.lock().unwrap().clone()).unwrap();
+        assert!(out.starts_with("entity_success_message(verifier=Silicon, concerning=method m()"));
+        assert!(out.contains("time=12, cached=true)\n"));
+        assert!(out.contains("branch_failure_message(verifier=Silicon, concerning=method m()"));
+        assert!(out.contains("Verification failed with 1 errors:"));
+        assert_eq!(reporter.counter(), 2);
+    }
+    #[test]
+    fn chosen_triggers_and_expression_branch_render_through_source_printer() {
+        use crate::ast::{
+            ast::Metadata,
+            expression::{Exp, ExpKind, Trigger},
+        };
+        let meta = Metadata::default();
+        let truth = Exp::new(ExpKind::TrueLit, meta.clone());
+        let quantifier = Exp::new(ExpKind::Forall(vec![], vec![], truth.clone()), meta);
+        let trigger = Trigger::new(vec![truth.clone()], Default::default());
+        let csv = CsvReporter::new(Vec::new());
+        csv.report(Message::QuantifierChosenTriggers {
+            quantifier,
+            triggers: vec![trigger],
+            old_triggers: vec![],
+        })
+        .unwrap();
+        let out = String::from_utf8(csv.writer.lock().unwrap().clone()).unwrap();
+        assert!(out.starts_with("quantifier_chosen_triggers_message(type=Forall, quantifier="));
+        assert!(out.ends_with("triggers=[{true}]), oldTriggers=[])\n"));
+        let state = super::super::message::VerifierState {
+            frames: vec![super::super::message::VerifierStateFrame {
+                branch_condition: Some(super::super::message::BranchCondition::Condition(truth)),
+                steps: vec![],
+            }],
+        };
+        assert_eq!(render_state(&state).unwrap(), "branch true:");
+        csv.report(Message::VerifierState {
+            verifier: "backend\nworker".into(),
+            concerning: method(),
+            millis_since_progress: 3,
+            state,
+        })
+        .unwrap();
+        let out = String::from_utf8(csv.writer.lock().unwrap().clone()).unwrap();
+        assert!(out.contains("verifier=backend\\nworker"));
+        assert_eq!(out.lines().count(), 2);
+    }
     #[test]
     fn polling_preserves_order_and_reports_empty_queue() {
         let reporter = PollingReporter::new(Arc::new(NoopReporter));

@@ -248,3 +248,13 @@ unsubstituted `$FRD$` domain placeholder. These produce undeclared SMT sorts or
 symbols when `disableISCTriggers` is enabled. Ferrum corrects those three
 references during template instantiation, for fields, predicates and wands.
 Bundled upstream resource bytes and the triggered path remain unchanged.
+
+## Native report output
+
+Reporter writes and flushes propagate native I/O errors, extending the explicit
+writer behavior above to StdIO reporters; Java PrintStream suppresses these errors.
+Exception messages carry the display text, stack and optional cause captured at
+the origin. Rust cannot recreate a JVM stack or erased collection implementation
+from an error or Vec: missing source-rendering provenance remains unsupported.
+Time formatting retains the source f32 division and Java half-away-from-zero
+rounding, but uses a stable decimal dot rather than the JVM default locale.

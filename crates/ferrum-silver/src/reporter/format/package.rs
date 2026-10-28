@@ -24,8 +24,8 @@
 //! Open decisions:
 //! Check Rust formatting and rounding against JVM edge cases before selecting time representation.
 //!
-//! Status: partial; local-time formatting implemented. Floating-point rounding and chrono
-//! timestamp limits may differ from the JVM on exceptional inputs.
+//! Status: local-time formatting and Java Formatter's half-up floating-point rounding implemented;
+//! chrono reports unsupported timestamps rather than fabricating local-time fields.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -44,7 +44,18 @@ pub fn format_millis_readably(millis: i64) -> Result<String, TimestampOutOfRange
     const MINUTE: i64 = 60_000;
     const HOUR: i64 = 3_600_000;
     if millis < MINUTE {
-        return Ok(format!("{:.2}s", millis as f32 / 1000.0));
+        let seconds = millis as f32 / 1000.0;
+        // Formatter rounds the binary float half away from zero. Below 2^23 the f32
+        // value times 100 is exactly representable in f64, so the integer rounding
+        // avoids Rust's ties-to-even formatter without changing the f32 division.
+        if seconds.abs() < 8_388_608.0 {
+            let cents = ((seconds as f64) * 100.0).round() as i64;
+            let sign = if seconds.is_sign_negative() { "-" } else { "" };
+            let magnitude = cents.unsigned_abs();
+            return Ok(format!("{sign}{}.{:02}s", magnitude / 100, magnitude % 100));
+        }
+        // At this magnitude an f32 has no fractional bits, so no tie is possible.
+        return Ok(format!("{seconds:.2}s"));
     }
     let timestamp = if millis < HOUR { millis } else { millis % HOUR };
     let date = Local
@@ -56,5 +67,34 @@ pub fn format_millis_readably(millis: i64) -> Result<String, TimestampOutOfRange
         Ok(fields)
     } else {
         Ok(format!("{}h:{fields}", millis / HOUR))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_millis_readably;
+    #[test]
+    fn java_formatter_rounds_f32_ties_away_from_zero() {
+        for (millis, expected) in [
+            (125, "0.13s"),
+            (375, "0.38s"),
+            (1015, "1.01s"),
+            (1025, "1.02s"),
+            (1125, "1.13s"),
+            (-1, "-0.00s"),
+            (-125, "-0.13s"),
+            (-375, "-0.38s"),
+            (-1015, "-1.01s"),
+            (-1025, "-1.02s"),
+            (-1125, "-1.13s"),
+            (-8_388_608_000, "-8388608.00s"),
+            (i64::MIN, "-9223372474941440.00s"),
+        ] {
+            assert_eq!(
+                format_millis_readably(millis).unwrap(),
+                expected,
+                "{millis}"
+            );
+        }
     }
 }

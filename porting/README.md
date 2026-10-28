@@ -288,3 +288,10 @@ When implementing a file, retain its pinned source reference, update the brief
 and inventory, and replace the description-stage checks with the implementation
 checks in the plan. Resolve cross-file representation choices before treating
 proposed signatures or ownership as settled.
+
+Reporter adapters now render source entity/branch results, chosen triggers, verifier
+states, statistics, outlines, definitions and CSV traces. Exception rendering accepts
+origin-captured details and rejects absent provenance. Runtime Scala collection and
+parse-program fallback strings and advanced runtime delivery remain incomplete.
+Eight focused reporter checks and workspace all-target checks pass; an independent
+80,000-value JVM comparison covers the source f32 time conversion and rounding.
