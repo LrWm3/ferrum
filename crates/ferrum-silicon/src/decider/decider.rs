@@ -31,8 +31,9 @@
 //! Open decisions:
 //! Per-worker solver, mutable term alias, path stack and continuation ownership.
 //!
-//! Status: partial; per-worker options, scoped assumptions and proof checks are implemented.
-//! Solver selection/version reporting, AST fresh-variable helpers and logging remain.
+//! Status: partial; per-worker options, scoped assumptions, proof checks and optional
+//! symbolic logging are implemented. Runtime logger attachment and source-exact
+//! floating-point statistics formatting remain to be connected.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -54,11 +55,37 @@ pub enum DeciderError<E> {
     InvalidDeclaration,
     InvalidFreshVariable,
     MissingDebugVariableType,
+    Logging(crate::logger::records::symbolic_record::RecordError),
+}
+
+/// Owner-local attachment for source symbolic events. The caller supplies the
+/// Java-compatible double formatter used by logger statistics; there is no
+/// implicit Rust-format substitution for source output.
+#[derive(Clone)]
+pub struct DeciderLogging {
+    pub member: std::sync::Arc<crate::logger::symb_ex_logger::MemberSymbExLog>,
+    pub factory: TermFactory,
+    pub render_double: fn(f64) -> String,
+}
+impl DeciderLogging {
+    fn enabled(&self) -> bool {
+        self.member.when_enabled(|| ()).is_some()
+    }
+    fn open(
+        &self,
+        record: std::sync::Arc<dyn crate::logger::records::data::data_record::DataRecord>,
+    ) -> Result<i32, crate::logger::records::symbolic_record::RecordError> {
+        let renderer = crate::logger::state_reporting::NativeStateRecordRenderer {
+            factory: &self.factory,
+        };
+        self.member.open_scope(record, &renderer)
+    }
 }
 
 /// Per-worker decider. Options and solver ownership are explicit until verifier integration.
 pub struct DefaultDecider<P: Prover> {
     pub prover: P,
+    logging: Option<DeciderLogging>,
     pub pcs: LayeredPathConditionStack,
     pcs_identity: std::sync::Arc<()>,
     pub debug_mode: bool,
@@ -87,6 +114,7 @@ impl<P: Prover> DefaultDecider<P> {
     ) -> Self {
         Self {
             prover,
+            logging: None,
             pcs: LayeredPathConditionStack::new(debug_mode),
             pcs_identity: std::sync::Arc::new(()),
             debug_mode,
@@ -100,6 +128,52 @@ impl<P: Prover> DefaultDecider<P> {
             fresh_macros: Vec::new(),
             debug_variable_types: Default::default(),
         }
+    }
+    /// Attach the current owner-thread member log, or disable symbolic logging.
+    pub fn set_logging(&mut self, logging: Option<DeciderLogging>) {
+        self.logging = logging;
+    }
+    fn assume_without_smoke_checks(
+        &mut self,
+        terms: &crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<
+            Term,
+        >,
+        definition: bool,
+        log_empty: bool,
+    ) -> Result<(), DeciderError<P::Error>> {
+        let logging = self
+            .logging
+            .clone()
+            .filter(|log| log.enabled() && (log_empty || !terms.is_empty()));
+        let scope = if let Some(log) = &logging {
+            Some(
+                log.open(std::sync::Arc::new(
+                    crate::logger::records::data::decider_assume_record::DeciderAssumeRecord::new(
+                        Some(terms.iter().cloned().collect()),
+                    ),
+                ))
+                .map_err(DeciderError::Logging)?,
+            )
+        } else {
+            None
+        };
+        for term in terms {
+            if definition {
+                self.pcs.add_definition(term)
+            } else {
+                self.pcs.add(term)
+            }
+            .map_err(DeciderError::Path)?;
+        }
+        for term in terms {
+            self.prover.assume(term).map_err(DeciderError::Prover)?;
+        }
+        if let (Some(log), Some(scope)) = (logging, scope) {
+            log.member
+                .close_scope(scope)
+                .map_err(DeciderError::Logging)?;
+        }
+        Ok(())
     }
     pub fn start(&mut self, user_args: Option<&str>) -> Result<(), DeciderError<P::Error>> {
         self.pcs = LayeredPathConditionStack::new(self.debug_mode);
@@ -218,18 +292,7 @@ impl<P: Prover> DefaultDecider<P> {
             }
         }
         let terms: crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<Term> = filtered.into_iter().map(|(term, _)| term).collect();
-        for term in &terms {
-            if definition {
-                self.pcs.add_definition(term)
-            } else {
-                self.pcs.add(term)
-            }
-            .map_err(DeciderError::Path)?;
-        }
-        for term in &terms {
-            self.prover.assume(term).map_err(DeciderError::Prover)?;
-        }
-        Ok(())
+        self.assume_without_smoke_checks(&terms, definition, false)
     }
     /// The bulk overload attaches one conjunction to its debug expression after filtering.
     pub fn assume_terms(
@@ -251,18 +314,7 @@ impl<P: Prover> DefaultDecider<P> {
                 .map_err(DeciderError::Path)?;
         }
         let terms: crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<Term> = filtered.into_iter().collect();
-        for term in &terms {
-            if definition {
-                self.pcs.add_definition(term)
-            } else {
-                self.pcs.add(term)
-            }
-            .map_err(DeciderError::Path)?;
-        }
-        for term in &terms {
-            self.prover.assume(term).map_err(DeciderError::Prover)?;
-        }
-        Ok(())
+        self.assume_without_smoke_checks(&terms, definition, false)
     }
     /// The caller supplies the constructed debug expression when the final expression exists.
     pub fn set_branch_condition(
@@ -286,12 +338,7 @@ impl<P: Prover> DefaultDecider<P> {
         debug_expressions: Option<&[DebugExp]>,
     ) -> Result<(), DeciderError<P::Error>> {
         let terms: crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<Term> = terms.into_iter().collect();
-        for term in &terms {
-            self.pcs.add(term).map_err(DeciderError::Path)?;
-        }
-        for term in &terms {
-            self.prover.assume(term).map_err(DeciderError::Prover)?;
-        }
+        self.assume_without_smoke_checks(&terms, false, true)?;
         if self.debug_mode {
             for expression in debug_expressions.ok_or(DeciderError::MissingDebugExpression)? {
                 self.pcs
@@ -507,13 +554,73 @@ impl<P: Prover> DefaultDecider<P> {
         term: &Term,
         timeout: Option<i32>,
     ) -> Result<bool, DeciderError<P::Error>> {
-        if self.known_true(term) {
-            Ok(true)
+        let logging = self.logging.clone().filter(|log| log.enabled());
+        let scope = if let Some(log) = &logging {
+            Some(
+                log.open(std::sync::Arc::new(
+                    crate::logger::records::data::decider_assert_record::DeciderAssertRecord::new(
+                        Some(term.clone()),
+                        timeout,
+                    ),
+                ))
+                .map_err(DeciderError::Logging)?,
+            )
         } else {
-            self.prover
-                .assert_goal(term, timeout)
-                .map_err(DeciderError::Prover)
+            None
+        };
+        let result = if self.known_true(term) {
+            true
+        } else {
+            self.prover_assert(term, timeout)?
+        };
+        if let (Some(log), Some(scope)) = (logging, scope) {
+            log.member
+                .close_scope(scope)
+                .map_err(DeciderError::Logging)?;
         }
+        Ok(result)
+    }
+    /// Source proverAssert scope, shared by deciderAssert and generateModel.
+    fn prover_assert(
+        &mut self,
+        term: &Term,
+        timeout: Option<i32>,
+    ) -> Result<bool, DeciderError<P::Error>> {
+        let logging = self.logging.clone().filter(|log| log.enabled());
+        let Some(log) = logging else {
+            return self
+                .prover
+                .assert_goal(term, timeout)
+                .map_err(DeciderError::Prover);
+        };
+        let record = std::sync::Arc::new(
+            crate::logger::records::data::prover_assert_record::ProverAssertRecord::new(
+                Some(term.clone()),
+                timeout,
+            ),
+        );
+        let scope = log.open(record.clone()).map_err(DeciderError::Logging)?;
+        let result = self
+            .prover
+            .assert_goal(term, timeout)
+            .map_err(DeciderError::Prover)?;
+        let statistics = self
+            .prover
+            .statistics()
+            .map_err(DeciderError::Prover)?
+            .into_iter()
+            .collect();
+        let statistics = log
+            .member
+            .delta_statistics(statistics, log.render_double)
+            .map_err(DeciderError::Logging)?;
+        *record.statistics.lock().map_err(|_| {
+            DeciderError::Logging(crate::logger::records::symbolic_record::RecordError::Poisoned)
+        })? = Some(statistics);
+        log.member
+            .close_scope(scope)
+            .map_err(DeciderError::Logging)?;
+        Ok(result)
     }
     pub fn assert_with<R>(
         &mut self,
@@ -523,6 +630,12 @@ impl<P: Prover> DefaultDecider<P> {
     ) -> Result<R, DeciderError<P::Error>> {
         let success = self.check(term, timeout)?;
         self.failed_query = (!success).then(|| term.clone());
+        if let Some(logging) = &self.logging {
+            logging
+                .member
+                .set_smt_query(self.failed_query.clone())
+                .map_err(DeciderError::Logging)?;
+        }
         Ok(continuation(success))
     }
     pub fn has_model(&self) -> bool {
@@ -543,9 +656,7 @@ impl<P: Prover> DefaultDecider<P> {
         self.prover.statistics().map_err(DeciderError::Prover)
     }
     pub fn generate_model(&mut self, factory: &TermFactory) -> Result<(), DeciderError<P::Error>> {
-        self.prover
-            .assert_goal(&factory.boolean(false), self.assert_timeout)
+        self.prover_assert(&factory.boolean(false), self.assert_timeout)
             .map(|_| ())
-            .map_err(DeciderError::Prover)
     }
 }

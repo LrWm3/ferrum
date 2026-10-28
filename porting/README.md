@@ -522,3 +522,14 @@ result output follows the latest configuration while retaining its standalone
 public setting when no configuration is installed. Configuration failures
 propagate. Injected API initialization retains its distinct source path and does
 not perform this reset hook; live plugin-manager reporter rebinding remains open.
+
+Decider assumptions and checks now support optional source symbolic scopes,
+including nested prover assertions, enabled-only statistics and failed-query
+tracking. Model generation uses only the prover assertion scope and leaves the
+member's failed query unchanged. Failed solver calls leave their scopes open as
+in the source. A real-Z3 integration check covers filtering, empty sequence
+assumptions, continuation order, model generation and error scopes. Full-state
+record factories also construct joins, implications (including the nullable
+ForPerm expression) and conditional expressions. Session attachment and exact
+JVM double formatting for statistic deltas remain explicit dependencies; these
+hooks do not enable public logging profiles.

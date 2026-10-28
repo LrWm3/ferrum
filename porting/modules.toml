@@ -1143,7 +1143,7 @@ repository = "silicon"
 upstream = "src/main/scala/decider/Decider.scala"
 destination = "crates/ferrum-silicon/src/decider/decider.rs"
 status = "skeleton"
-remaining = ["Scoped assumptions, proof queries, fresh declarations and model operations exist; solver selection, reporting and concrete verifier lifecycle remain."]
+remaining = ["Scoped assumptions, proof/model queries, fresh declarations and optional symbolic logging are connected. Runtime logger attachment, source-exact numeric statistics formatting and remaining diagnostic compatibility require completion."]
 
 [[modules]]
 repository = "silicon"
@@ -2591,5 +2591,10 @@ role = "assembly"
 
 [[scaffolding]]
 destination = "tests/native_frontend_api.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/tests/decider_logging.rs"
 status = "wired"
 role = "assembly"

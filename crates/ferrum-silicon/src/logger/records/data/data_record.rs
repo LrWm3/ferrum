@@ -86,6 +86,25 @@ pub trait NativeRecordFactory<P, D, J> {
         state: &crate::state::state::State<P, D, J>,
         paths: &crate::decider::path_conditions::LayeredPathConditionStack,
     ) -> std::sync::Arc<dyn DataRecord>;
+    fn joining(
+        &self,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord>;
+    fn implies(
+        &self,
+        expression: Option<&ferrum_silver::ast::expression::Exp>,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+        env: &str,
+    ) -> std::sync::Arc<dyn DataRecord>;
+    fn conditional_expression(
+        &self,
+        expression: &ferrum_silver::ast::expression::Exp,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+        env: &str,
+    ) -> std::sync::Arc<dyn DataRecord>;
 }
 
 /// Retain the complete persistent state and a snapshot of current assumptions,
@@ -130,6 +149,46 @@ where
             Some(assertion.clone()),
             Some(state.clone()),
             Some(paths),
+        ))
+    }
+    fn joining(
+        &self,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord> {
+        std::sync::Arc::new(
+            crate::logger::records::structural::joining_record::JoiningRecord::new(
+                Some(state.clone()),
+                Some(paths),
+            ),
+        )
+    }
+    fn implies(
+        &self,
+        expression: Option<&ferrum_silver::ast::expression::Exp>,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+        env: &str,
+    ) -> std::sync::Arc<dyn DataRecord> {
+        std::sync::Arc::new(super::implies_record::ImpliesRecord::new(
+            expression.cloned(),
+            Some(state.clone()),
+            Some(paths),
+            env.to_owned(),
+        ))
+    }
+    fn conditional_expression(
+        &self,
+        expression: &ferrum_silver::ast::expression::Exp,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+        env: &str,
+    ) -> std::sync::Arc<dyn DataRecord> {
+        std::sync::Arc::new(super::cond_exp_record::CondExpRecord::new(
+            Some(expression.clone()),
+            Some(state.clone()),
+            Some(paths),
+            env.to_owned(),
         ))
     }
 }
@@ -186,6 +245,9 @@ mod tests {
             producer.evaluate(&expression, &state, &paths),
             producer.produce(&expression, &state, &paths),
             producer.consume(&expression, &state, &paths),
+            producer.joining(&state, &paths),
+            producer.implies(None, &state, &paths, "ForPerm"),
+            producer.conditional_expression(&expression, &state, &paths, "CondExp"),
         ];
         state.under_join = false;
         paths
@@ -217,5 +279,19 @@ mod tests {
                 .state
                 .is_some()
         );
+        let joining = records[3].as_any().downcast_ref::<crate::logger::records::structural::joining_record::JoiningRecord<NativeBranchState>>().unwrap();
+        assert!(joining.state.as_ref().unwrap().under_join);
+        let implies = records[4]
+            .as_any()
+            .downcast_ref::<super::super::implies_record::ImpliesRecord<NativeBranchState>>()
+            .unwrap();
+        assert!(implies.value.is_none());
+        assert_eq!(implies.env, "ForPerm");
+        let conditional = records[5]
+            .as_any()
+            .downcast_ref::<super::super::cond_exp_record::CondExpRecord<NativeBranchState>>()
+            .unwrap();
+        assert!(conditional.value.as_ref().unwrap().same_node(&expression));
+        assert_eq!(conditional.env, "CondExp");
     }
 }
