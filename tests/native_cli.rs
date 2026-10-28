@@ -97,10 +97,13 @@ fn repeated_session_runs_discard_previous_axioms() {
     let mut session = Session::new(config.clone()).unwrap();
     for (source, success) in [
         (
-            "domain D { axiom contradiction { false } } method test() { assert false; }",
+            "domain D { function value(): Int axiom fixed { value() == 1 } } method test() { assert value() == 1; }",
             true,
         ),
-        ("method test() { assert false; }", false),
+        (
+            "domain D { function value(): Int } method test() { assert value() == 1; }",
+            false,
+        ),
         ("method test() { assert true; }", true),
     ] {
         let plugins = standard_plugin_manager(&config.frontend).unwrap();
@@ -115,7 +118,7 @@ fn repeated_session_runs_discard_previous_axioms() {
         assert_eq!(
             matches!(result, VerificationResult::Success),
             success,
-            "{source}: {result:?}"
+            "{source}"
         );
     }
     session.stop().unwrap();
