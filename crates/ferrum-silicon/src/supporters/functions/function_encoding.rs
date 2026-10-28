@@ -24,4 +24,58 @@
 //! Agree on trait ownership and state-argument/axiom interfaces with mask heap and function
 //! verification.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; default snapshot arguments, definitional triggers and function applications
+//! implemented. Predicate snapshot resolution and alternative encoding remain pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2026 ETH Zurich.
+use crate::state::terms::{
+    Applicable, Quantifier, Term, TermFactory, Trigger, UnsupportedTriggerTransform,
+};
+
+/// The default source encoding has exactly one snapshot state argument.
+pub struct DefaultFunctionEncoding;
+impl DefaultFunctionEncoding {
+    pub fn state_args(factory: &TermFactory) -> Vec<Term> {
+        vec![factory.predef_snapshot_var()]
+    }
+    /// The function application is always a trigger; each predicate trigger
+    /// additionally forms a joint trigger with the stateless trigger function.
+    pub fn definitional_axiom(
+        factory: &TermFactory,
+        arguments: Vec<Term>,
+        body: Term,
+        function_application: Term,
+        trigger_application: Term,
+        predicate_triggers: &[Term],
+    ) -> Result<Term, UnsupportedTriggerTransform> {
+        let mut triggers = vec![Trigger {
+            terms: vec![function_application],
+        }];
+        triggers.extend(predicate_triggers.iter().map(|predicate| Trigger {
+            terms: vec![trigger_application.clone(), predicate.clone()],
+        }));
+        factory.quantification(
+            Quantifier::Forall,
+            arguments,
+            body,
+            triggers,
+            TermFactory::forall_default_name(),
+            false,
+            None,
+        )
+    }
+    pub fn translate_function_application(
+        factory: &TermFactory,
+        function: Applicable,
+        snapshot: Term,
+        args: &[Term],
+    ) -> Term {
+        let args = std::iter::once(snapshot)
+            .chain(args.iter().cloned())
+            .collect();
+        factory.app(function, args)
+    }
+}

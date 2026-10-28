@@ -48,6 +48,10 @@ pub enum ExpressionTranslationError<E> {
     UnsupportedExpression,
     InvalidCollection,
     MissingInterpretation,
+    MissingFunction(String),
+    Traversal(crate::state::terms::UnsupportedSubterms),
+    Projection(ferrum_silver::ast::utility::expressions::UnsupportedExtensionProjection),
+    Service(E),
     Type(ExpressionTypeError),
     Sort(SymbolConversionError),
     Render(E),
@@ -61,6 +65,30 @@ pub struct ExpressionTranslator<'a, R> {
     pub render_sort: R,
     pub builtin: bool,
     pub pure_function_snapshots: Vec<Term>,
+}
+/// Override source-specific expression cases while retaining recursive pure translation.
+pub trait ExpressionOverrides<R, E>
+where
+    R: Fn(&Sort) -> Result<String, E>,
+{
+    fn translate_special(
+        &mut self,
+        translator: &ExpressionTranslator<'_, R>,
+        expression: &Exp,
+    ) -> Option<Result<Term, ExpressionTranslationError<E>>>;
+}
+pub struct NoExpressionOverrides;
+impl<R, E> ExpressionOverrides<R, E> for NoExpressionOverrides
+where
+    R: Fn(&Sort) -> Result<String, E>,
+{
+    fn translate_special(
+        &mut self,
+        _: &ExpressionTranslator<'_, R>,
+        _: &Exp,
+    ) -> Option<Result<Term, ExpressionTranslationError<E>>> {
+        None
+    }
 }
 impl<'a, R, E> ExpressionTranslator<'a, R>
 where
@@ -80,9 +108,27 @@ where
         }
     }
     pub fn translate(&self, expression: &Exp) -> Result<Term, ExpressionTranslationError<E>> {
+        self.translate_with(expression, &mut NoExpressionOverrides)
+    }
+    pub fn translate_with<H: ExpressionOverrides<R, E>>(
+        &self,
+        expression: &Exp,
+        overrides: &mut H,
+    ) -> Result<Term, ExpressionTranslationError<E>> {
+        if let Some(result) = overrides.translate_special(self, expression) {
+            return result;
+        }
+        self.translate_without_override(expression, overrides)
+    }
+    /// Translate this node's pure form while still applying overrides to its children.
+    pub fn translate_without_override<H: ExpressionOverrides<R, E>>(
+        &self,
+        expression: &Exp,
+        overrides: &mut H,
+    ) -> Result<Term, ExpressionTranslationError<E>> {
         use ExpKind::*;
         let f = self.factory;
-        let t = |exp: &Exp| self.translate(exp);
+        let mut t = |exp: &Exp| self.translate_with(exp, overrides);
         let sort = |typ: &Type| {
             self.converter
                 .to_sort(typ)
@@ -338,5 +384,54 @@ where
             _ => return Err(ExpressionTranslationError::UnsupportedExpression),
         };
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::terms::TermOptions;
+    use ferrum_silver::ast::ast::Metadata;
+    use ferrum_silver::ast::expression::LocalVar;
+    struct ReplaceLocal;
+    impl<R> ExpressionOverrides<R, ()> for ReplaceLocal
+    where
+        R: Fn(&Sort) -> Result<String, ()>,
+    {
+        fn translate_special(
+            &mut self,
+            translator: &ExpressionTranslator<'_, R>,
+            expression: &Exp,
+        ) -> Option<Result<Term, ExpressionTranslationError<()>>> {
+            match expression.kind() {
+                ExpKind::LocalVar(v) if v.name == "x" => {
+                    Some(Ok(translator.factory.int_literal(7)))
+                }
+                _ => None,
+            }
+        }
+    }
+    #[test]
+    fn recursive_overrides_reach_nested_pure_operators() {
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        let translator =
+            ExpressionTranslator::new(&factory, &converter, |_: &Sort| Ok::<_, ()>(String::new()));
+        let x = Exp::new(
+            ExpKind::LocalVar(LocalVar::new("x".into(), Type::Int, Metadata::default())),
+            Metadata::default(),
+        );
+        let expression = Exp::new(
+            ExpKind::Add(x, Exp::new(ExpKind::IntLit(3.into()), Metadata::default())),
+            Metadata::default(),
+        );
+        let result = translator
+            .translate_with(&expression, &mut ReplaceLocal)
+            .unwrap();
+        assert_eq!(result, factory.int_literal(10));
     }
 }

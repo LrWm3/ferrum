@@ -1876,7 +1876,7 @@ repository = "silicon"
 upstream = "src/main/scala/supporters/ExpressionTranslator.scala"
 destination = "crates/ferrum-silicon/src/supporters/expression_translator.rs"
 status = "skeleton"
-remaining = ["Pure expression translation exists with explicit callbacks; recorded heap-access replacement and full backend wiring remain."]
+remaining = ["Source function encoding, analysis and verification algorithms exist; concrete resource, recursive translation, prover and verifier services remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1924,13 +1924,14 @@ repository = "silicon"
 upstream = "src/main/scala/supporters/functions/FunctionData.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/function_data.rs"
 status = "skeleton"
-remaining = ["Predicate/function recorder aggregation and macro-last replay exist; full function verification and concrete services remain."]
+remaining = ["Source function encoding, analysis and verification algorithms exist; concrete resource, recursive translation, prover and verifier services remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/functions/FunctionEncoding.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/function_encoding.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source function encoding, analysis and verification algorithms exist; concrete resource, recursive translation, prover and verifier services remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1943,19 +1944,22 @@ remaining = ["Actual/noop recorders, depth/context guards and branch merges exis
 repository = "silicon"
 upstream = "src/main/scala/supporters/functions/FunctionVerificationUnit.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/function_verification_unit.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source function encoding, analysis and verification algorithms exist; concrete resource, recursive translation, prover and verifier services remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/functions/HeapAccessReplacingExpressionTranslator.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/heap_access_replacing_expression_translator.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source function encoding, analysis and verification algorithms exist; concrete resource, recursive translation, prover and verifier services remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/functions/MaskHeapFunctionEncoding.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/mask_heap_function_encoding.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source function encoding, analysis and verification algorithms exist; concrete resource, recursive translation, prover and verifier services remain."]
 
 [[modules]]
 repository = "silicon"
