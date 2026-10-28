@@ -24,8 +24,8 @@
 //! Open decisions:
 //! Agree on native registration and instance/service lifetimes with frontend and bundled plugins.
 //!
-//! Status: partial; hook dispatch is implemented. Plugin registry and concrete error
-//! equality, parser, frontend and IO integration remain pending.
+//! Status: partial; hook dispatch is implemented. Native plugin registry is implemented; concrete error equality, parser,
+//! frontend and IO integration remain pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -51,6 +51,12 @@ impl SilverPluginManager {
             plugins,
             errors: Vec::new(),
         }
+    }
+    pub fn parser_features(&self) -> Vec<crate::parser::fast_parser::ParserFeature> {
+        self.plugins
+            .iter()
+            .flat_map(|plugin| plugin.parser_features())
+            .collect()
     }
     pub fn errors(&self) -> &[AbstractError] {
         &self.errors
@@ -82,28 +88,38 @@ impl SilverPluginManager {
     pub fn before_method_filter(&mut self, input: Program) -> Option<Program> {
         self.fold_with_error(input, |p, input| p.before_method_filter(input))
     }
-    pub fn before_verify(&mut self, input: Program) -> Option<Program> {
-        self.fold_with_error(input, |p, input| p.before_verify(input))
+    pub fn before_verify(
+        &mut self,
+        mut input: Program,
+    ) -> Result<Option<Program>, super::silver_plugin::PluginHookError> {
+        for plugin in &mut self.plugins {
+            input = plugin.before_verify(input)?;
+            if !plugin.errors().is_empty() {
+                self.errors.extend_from_slice(plugin.errors());
+                return Ok(None);
+            }
+        }
+        Ok(Some(input))
     }
     pub fn map_entity_verification_result(
         &mut self,
         entity: &Entity,
         mut input: VerificationResult,
-    ) -> VerificationResult {
+    ) -> Result<VerificationResult, super::silver_plugin::PluginHookError> {
         for plugin in &mut self.plugins {
-            input = plugin.map_entity_verification_result(entity, input);
+            input = plugin.map_entity_verification_result(entity, input)?;
         }
-        input
+        Ok(input)
     }
     pub fn map_verification_result(
         &mut self,
         program: &Program,
         mut input: VerificationResult,
-    ) -> VerificationResult {
+    ) -> Result<VerificationResult, super::silver_plugin::PluginHookError> {
         for plugin in &mut self.plugins {
-            input = plugin.map_verification_result(program, input);
+            input = plugin.map_verification_result(program, input)?;
         }
-        input
+        Ok(input)
     }
     pub fn before_finish(&mut self, mut input: VerificationResult) -> VerificationResult {
         for plugin in &mut self.plugins {
@@ -118,10 +134,10 @@ impl EntityResultMapper for Mutex<SilverPluginManager> {
         entity: &Entity,
         result: VerificationResult,
     ) -> Result<VerificationResult, ReportError> {
-        Ok(self
-            .lock()
+        self.lock()
             .expect("poisoned plugin manager")
-            .map_entity_verification_result(entity, result))
+            .map_entity_verification_result(entity, result)
+            .map_err(|e| ReportError::Plugin(e.0))
     }
 }
 
@@ -160,5 +176,107 @@ mod tests {
         ]);
         assert!(manager.before_parse("input".into(), false).is_none());
         assert_eq!(manager.errors().len(), 1);
+    }
+}
+
+/// Native registry replaces JVM class loading while retaining requested-name order and
+/// distinct resolution failures. Factories can capture reporter/config/parser context.
+#[derive(Default)]
+pub struct PluginRegistry {
+    factories: std::collections::HashMap<
+        String,
+        Box<dyn Fn() -> Result<Box<dyn SilverPlugin>, PluginResolutionError> + Send + Sync>,
+    >,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PluginResolutionError {
+    NotFound(String),
+    WrongType(String),
+    WrongArguments(String),
+    Construction(String),
+}
+impl std::fmt::Display for PluginResolutionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound(name) => write!(f, "Plugin {name} not found."),
+            Self::WrongType(name) => write!(f, "Plugin {name} has wrong type."),
+            Self::WrongArguments(name) => write!(
+                f,
+                "Plugin {name} does not implement a constructor with the required signature."
+            ),
+            Self::Construction(message) => f.write_str(message),
+        }
+    }
+}
+impl std::error::Error for PluginResolutionError {}
+impl PluginRegistry {
+    pub fn register(
+        &mut self,
+        name: impl Into<String>,
+        factory: impl Fn() -> Result<Box<dyn SilverPlugin>, PluginResolutionError>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.factories.insert(name.into(), Box::new(factory));
+    }
+    pub fn resolve(&self, name: &str) -> Result<Box<dyn SilverPlugin>, PluginResolutionError> {
+        self.factories
+            .get(name)
+            .ok_or_else(|| PluginResolutionError::NotFound(name.into()))?()
+    }
+    pub fn manager(
+        &self,
+        names: Option<&str>,
+    ) -> Result<SilverPluginManager, PluginResolutionError> {
+        let Some(names) = names else {
+            return Ok(SilverPluginManager::default());
+        };
+        // Java/Scala split removes trailing empty fields but preserves a single empty input.
+        let parts: Vec<&str> = if names.is_empty() {
+            vec![""]
+        } else {
+            names
+                .split(':')
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .skip_while(|part| part.is_empty())
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect()
+        };
+        let mut plugins = Vec::with_capacity(parts.len());
+        for name in parts {
+            plugins.push(self.resolve(name)?);
+        }
+        Ok(SilverPluginManager::new(plugins))
+    }
+}
+
+#[cfg(test)]
+mod registry_tests {
+    use super::*;
+    struct Append(&'static str);
+    impl SilverPlugin for Append {
+        fn before_parse(&mut self, input: String, _: bool) -> String {
+            format!("{input}{}", self.0)
+        }
+    }
+    #[test]
+    fn factories_preserve_requested_order_and_reject_unknown_names() {
+        let mut registry = PluginRegistry::default();
+        registry.register("a", || Ok(Box::new(Append("a"))));
+        registry.register("b", || Ok(Box::new(Append("b"))));
+        let mut manager = registry.manager(Some("b:a")).unwrap();
+        assert_eq!(
+            manager.before_parse(String::new(), false),
+            Some("ba".into())
+        );
+        assert!(matches!(
+            registry.manager(Some("missing")),
+            Err(PluginResolutionError::NotFound(_))
+        ));
     }
 }

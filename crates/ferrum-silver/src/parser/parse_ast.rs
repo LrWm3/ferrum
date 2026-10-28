@@ -77,6 +77,7 @@ pub enum PDeclarationClass {
     AssignableVar,
     Field,
     Callable,
+    Predicate,
     Label,
     TypeDeclaration,
 }
@@ -136,6 +137,13 @@ impl PDeclarationClass {
                         | PMemberKind::Method { .. },
                     ..
                 }) | PNodeKind::DomainMember(PDomainMember::Function { .. })
+            ),
+            Self::Predicate => matches!(
+                kind,
+                PNodeKind::Member(PMember {
+                    kind: PMemberKind::Predicate { .. },
+                    ..
+                })
             ),
             Self::Label => matches!(
                 kind,
@@ -3481,7 +3489,10 @@ impl PExpHandle {
         use PExpressionKind::*;
         let expression = self.snapshot();
         match expression.kind.clone() {
-            Extension(_) => Err(ForceSubstitutionError::ExtensionNotImplemented),
+            Extension(extension) => {
+                if let Some(instance) = extension.as_any().downcast_ref::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() { instance.force_substitution(substitution) }
+                else { Err(ForceSubstitutionError::ExtensionNotImplemented) }
+            },
             IntLit(_)
             | ResultLit(_)
             | BoolLit(_)

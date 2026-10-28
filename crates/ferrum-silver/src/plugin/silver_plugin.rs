@@ -39,8 +39,15 @@ use crate::parser::parse_ast::PProgramHandle;
 use crate::reporter::package::Entity;
 use crate::verifier::verification_result::{AbstractError, VerificationResult};
 
+/// A native plugin hook could not execute its requested transformation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PluginHookError(pub String);
+
 /// Plugin hooks default to identity, as in SilverPlugin. Concrete plugins own their error lists.
 pub trait SilverPlugin: Send {
+    fn parser_features(&self) -> Vec<crate::parser::fast_parser::ParserFeature> {
+        Vec::new()
+    }
     fn errors(&self) -> &[AbstractError] {
         &[]
     }
@@ -56,22 +63,22 @@ pub trait SilverPlugin: Send {
     fn before_method_filter(&mut self, input: Program) -> Program {
         input
     }
-    fn before_verify(&mut self, input: Program) -> Program {
-        input
+    fn before_verify(&mut self, input: Program) -> Result<Program, PluginHookError> {
+        Ok(input)
     }
     fn map_entity_verification_result(
         &mut self,
         _entity: &Entity,
         input: VerificationResult,
-    ) -> VerificationResult {
-        input
+    ) -> Result<VerificationResult, PluginHookError> {
+        Ok(input)
     }
     fn map_verification_result(
         &mut self,
         _program: &Program,
         input: VerificationResult,
-    ) -> VerificationResult {
-        input
+    ) -> Result<VerificationResult, PluginHookError> {
+        Ok(input)
     }
     fn before_finish(&mut self, input: VerificationResult) -> VerificationResult {
         input

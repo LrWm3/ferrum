@@ -37,7 +37,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // Copyright (c) 2011-2019 ETH Zurich.
 
-use super::parse_ast::{PNodeHandle, PNodeKind};
+use super::parse_ast::{PMember, PNodeHandle, PNodeKind};
 use std::collections::HashMap;
 
 /// Visibility and uniqueness markers are supplied by the concrete parse-node adapter.
@@ -329,6 +329,9 @@ fn declaration_identifier(node: &PNodeHandle) -> Option<PNodeHandle> {
             | PMemberKind::Define { idndef, .. } => Some(idndef.clone()),
             _ => None,
         },
+        PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function { idndef, .. }) => {
+            Some(idndef.clone())
+        }
         PNodeKind::Statement(statement) => match &statement.kind {
             PStatementKind::Label { idndef, .. } => Some(idndef.clone()),
             _ => None,
@@ -386,6 +389,11 @@ fn visit_names(
                     messages,
                 )?,
                 PMemberKind::Fields { .. } | PMemberKind::Import { .. } => {}
+                PMemberKind::Domain { idndef, type_vars, interpretations, members, .. }
+                    if type_vars.as_ref().is_none_or(|vars| vars.inner().is_empty()) && interpretations.is_none() && members.inner().to_seq().iter().all(|m| matches!(&m.node().read().expect("poisoned parse node").kind, PNodeKind::DomainMember(super::parse_ast::PDomainMember::Axiom { .. } | super::parse_ast::PDomainMember::Function { interpretation: None, .. }))) =>
+                {
+                    add_named_declaration(current, node, idndef, DeclarationVisibility::Global, DeclarationUniqueness::Global, true, messages)?;
+                }
                 PMemberKind::Domain { .. }
                 | PMemberKind::Define { .. }
                 | PMemberKind::Extension(_) => {
@@ -407,8 +415,10 @@ fn visit_names(
                 messages,
             )?,
             PStatementKind::Seqn { .. } => scope = Some(DeclarationMap::new(false, false)),
-            PStatementKind::Extension(_)
-            | PStatementKind::MacroSeqn { .. }
+            PStatementKind::Extension(extension) if !extension.as_any().is::<crate::plugin::standard::refute::refute_past_extension::PRefute>() && !extension.as_any().is::<crate::plugin::standard::smoke::unreachable_past_extension::PUnreachable>() => {
+                return Err(NameAnalysisError::Unsupported("statement extension scope"));
+            }
+            PStatementKind::MacroSeqn { .. }
             | PStatementKind::Quasihavocall { .. } => {
                 return Err(NameAnalysisError::Unsupported(
                     "statement extension or macro scope",
@@ -420,14 +430,18 @@ fn visit_names(
             PExpressionKind::Forall(_)
             | PExpressionKind::Exists(_)
             | PExpressionKind::ForPerm { .. } => scope = Some(DeclarationMap::new(false, false)),
-            PExpressionKind::Let { .. } | PExpressionKind::Extension(_) => {
-                return Err(NameAnalysisError::Unsupported(
-                    "let or extension name analysis",
-                ));
+            PExpressionKind::Extension(extension) if !extension.as_any().is::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() => {
+                return Err(NameAnalysisError::Unsupported("expression extension name analysis"));
             }
+            PExpressionKind::Let { .. } => return Err(NameAnalysisError::Unsupported("let name analysis")),
             _ => {}
         },
         PNodeKind::IdnRef(_) => current.new_ref(node.clone()),
+        PNodeKind::DomainMember(super::parse_ast::PDomainMember::Axiom { .. }) => scope = Some(DeclarationMap::new(true, false)),
+        PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function { idndef, interpretation: None, .. }) => {
+            add_named_declaration(current, node, idndef, DeclarationVisibility::Global, DeclarationUniqueness::Global, true, messages)?;
+            scope = Some(DeclarationMap::new(true, false));
+        },
         PNodeKind::DomainMember(_)
         | PNodeKind::TypeVarDecl { .. }
         | PNodeKind::DefineParam { .. }
@@ -714,9 +728,16 @@ pub fn check_expression(
             if candidates.is_empty() {
                 return Err(TypeCheckError::Undeclared(name));
             }
-            let predicate = std::sync::Arc::new(
-                |node: &PNodeHandle| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Member(member) if matches!(member.kind, PMemberKind::Function { .. } | PMemberKind::Predicate { .. })),
-            );
+            let predicate = std::sync::Arc::new(|node: &PNodeHandle| {
+                matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Member(member) if matches!(member.kind, PMemberKind::Function { .. } | PMemberKind::Predicate { .. }))
+                    || matches!(
+                        &node.read().expect("poisoned parse node").kind,
+                        PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function {
+                            interpretation: None,
+                            ..
+                        })
+                    )
+            });
             super::parse_ast::PIdnRef::filter_decls(&idnref, predicate, |_| true);
             let candidates = super::parse_ast::PIdnRef::decls(&idnref, |_| true);
             if candidates.is_empty() {
@@ -727,19 +748,79 @@ pub fn check_expression(
             if candidates.len() != 1 {
                 return Err(TypeCheckError::AmbiguousIdentifier(name));
             }
-            let member = match &candidates[0].read().expect("poisoned parse node").kind {
-                PNodeKind::Member(member) => member.clone(),
-                _ => return Err(TypeCheckError::Unsupported("domain function calls")),
-            };
-            let (formals, result_type, predicate_call) = match member.kind {
-                PMemberKind::Function {
-                    args, result_type, ..
-                } => (args, result_type, false),
-                PMemberKind::Predicate { args, .. } => (
+            let declaration = candidates[0]
+                .read()
+                .expect("poisoned parse node")
+                .kind
+                .clone();
+            let (formal_types, result_type, predicate_call) = match declaration {
+                PNodeKind::Member(member) => match member.kind {
+                    PMemberKind::Function {
+                        args, result_type, ..
+                    } => {
+                        let mut types = Vec::new();
+                        for arg in args.inner().to_seq() {
+                            match &arg.node().read().expect("poisoned parse node").kind {
+                                PNodeKind::Declaration(d) => types.push(d.typ.clone()),
+                                _ => return Err(TypeCheckError::Unsupported("formal parameter")),
+                            }
+                        }
+                        (types, result_type, false)
+                    }
+                    PMemberKind::Predicate { args, .. } => {
+                        let mut types = Vec::new();
+                        for arg in args.inner().to_seq() {
+                            match &arg.node().read().expect("poisoned parse node").kind {
+                                PNodeKind::Declaration(d) => types.push(d.typ.clone()),
+                                _ => return Err(TypeCheckError::Unsupported("formal parameter")),
+                            }
+                        }
+                        (
+                            types,
+                            type_from_signature(
+                                &super::parse_ast_keyword::SignatureType::Predicate,
+                            ),
+                            true,
+                        )
+                    }
+                    _ => return Err(TypeCheckError::Unsupported("call declaration")),
+                },
+                PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function {
                     args,
-                    type_from_signature(&super::parse_ast_keyword::SignatureType::Predicate),
-                    true,
-                ),
+                    result_type,
+                    interpretation: None,
+                    ..
+                }) => {
+                    let domain = super::parse_ast::get_ancestor(&candidates[0], |node| {
+                        matches!(
+                            &node.read().expect("poisoned parse node").kind,
+                            PNodeKind::Member(PMember {
+                                kind: PMemberKind::Domain { .. },
+                                ..
+                            })
+                        )
+                    })
+                    .ok_or(TypeCheckError::Unsupported("domain function owner"))?;
+                    let is_generic = match &domain.read().expect("poisoned parse node").kind {
+                        PNodeKind::Member(PMember {
+                            kind: PMemberKind::Domain { type_vars, .. },
+                            ..
+                        }) => type_vars.as_ref().is_some_and(|v| !v.inner().is_empty()),
+                        _ => true,
+                    };
+                    if is_generic {
+                        return Err(TypeCheckError::Unsupported("generic domain function"));
+                    }
+                    (
+                        args.inner()
+                            .to_seq()
+                            .into_iter()
+                            .map(|a| a.typ().clone())
+                            .collect(),
+                        result_type,
+                        false,
+                    )
+                }
                 _ => return Err(TypeCheckError::Unsupported("call declaration")),
             };
             if predicate_call && type_annotated.is_some() {
@@ -753,17 +834,13 @@ pub fn check_expression(
                 .into_iter()
                 .cloned()
                 .collect::<Vec<_>>();
-            if formals.inner().len() != args.len() {
+            if formal_types.len() != args.len() {
                 return Err(TypeCheckError::Unsupported(
                     "wrong number of call arguments",
                 ));
             }
             let mut bindings = HashMap::new();
-            for (index, declaration) in formals.inner().to_seq().into_iter().enumerate() {
-                let typ = match &declaration.node().read().expect("poisoned parse node").kind {
-                    PNodeKind::Declaration(declaration) => declaration.typ.clone(),
-                    _ => return Err(TypeCheckError::Unsupported("formal parameter")),
-                };
+            for (index, typ) in formal_types.into_iter().enumerate() {
                 if !typ.is_valid_or_undeclared() {
                     return Err(TypeCheckError::Unsupported("formal parameter type"));
                 }
@@ -834,6 +911,25 @@ pub fn check_expression(
         } => check_operator(input, None, vec![base, key, value], expected, false)?,
         PExpressionKind::Size { seq, .. } => {
             check_operator(input, None, vec![seq], expected, false)?
+        }
+        PExpressionKind::Extension(extension) => {
+            let Some(instance) = extension.as_any().downcast_ref::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() else { return Err(TypeCheckError::Unsupported("expression extension typechecking")); };
+            if let Some(message) = instance.check_as_predicate_call(input)? {
+                return Err(TypeCheckError::AmbiguousIdentifier(message));
+            }
+            let state = input.node().read().expect("poisoned parse node");
+            let PNodeKind::Expression(expression) = &state.kind else {
+                unreachable!()
+            };
+            (
+                expression.typ.clone(),
+                expression
+                    .type_substitutions
+                    .clone()
+                    .ok_or(TypeCheckError::Unsupported(
+                        "predicate instance substitutions",
+                    ))?,
+            )
         }
         PExpressionKind::Forall(q) | PExpressionKind::Exists(q) => {
             use super::parse_ast_keyword::SignatureType;
@@ -1206,6 +1302,47 @@ pub fn check_program_core(
             _ => return Err(TypeCheckError::Unsupported("program member")),
         };
         match member.kind {
+            PMemberKind::Import { .. } => {}
+            PMemberKind::Domain {
+                type_vars,
+                interpretations,
+                members,
+                ..
+            } if type_vars.as_ref().is_none_or(|v| v.inner().is_empty())
+                && interpretations.is_none()
+                && members.inner().to_seq().iter().all(|m| {
+                    matches!(
+                        &m.node().read().expect("poisoned parse node").kind,
+                        PNodeKind::DomainMember(
+                            super::parse_ast::PDomainMember::Axiom { .. }
+                                | super::parse_ast::PDomainMember::Function {
+                                    interpretation: None,
+                                    ..
+                                }
+                        )
+                    )
+                }) =>
+            {
+                for member in members.inner().to_seq() {
+                    let kind = member
+                        .node()
+                        .read()
+                        .expect("poisoned parse node")
+                        .kind
+                        .clone();
+                    if let PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function {
+                        args,
+                        result_type,
+                        ..
+                    }) = kind
+                    {
+                        for arg in args.inner().to_seq() {
+                            check_supported_type(arg.typ())?;
+                        }
+                        check_supported_type(&result_type)?;
+                    }
+                }
+            }
             PMemberKind::Fields { fields, .. } => {
                 for field in fields.to_seq() {
                     field.set_field_owner(handle);
@@ -1240,7 +1377,86 @@ pub fn check_program_core(
             _ => return Err(TypeCheckError::Unsupported("program member")),
         };
         match member.kind {
-            PMemberKind::Fields { .. } => {}
+            PMemberKind::Fields { .. } | PMemberKind::Import { .. } => {}
+            PMemberKind::Domain {
+                type_vars,
+                interpretations,
+                members,
+                ..
+            } if type_vars.as_ref().is_none_or(|v| v.inner().is_empty())
+                && interpretations.is_none()
+                && members.inner().to_seq().iter().all(|m| {
+                    matches!(
+                        &m.node().read().expect("poisoned parse node").kind,
+                        PNodeKind::DomainMember(
+                            super::parse_ast::PDomainMember::Axiom { .. }
+                                | super::parse_ast::PDomainMember::Function {
+                                    interpretation: None,
+                                    ..
+                                }
+                        )
+                    )
+                }) =>
+            {
+                for member in members.inner().to_seq() {
+                    let axiom = match &member.node().read().expect("poisoned parse node").kind {
+                        PNodeKind::DomainMember(super::parse_ast::PDomainMember::Axiom {
+                            exp,
+                            ..
+                        }) => exp.clone(),
+                        PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function {
+                            ..
+                        }) => continue,
+                        _ => unreachable!(),
+                    };
+                    fn no_calls(node: &PNodeHandle) -> Result<(), TypeCheckError> {
+                        let kind = node.read().expect("poisoned parse node").kind.clone();
+                        if let PNodeKind::Expression(super::parse_ast::PExpression {
+                            kind: PExpressionKind::Call { idnref, .. },
+                            ..
+                        }) = &kind
+                        {
+                            let candidates = super::parse_ast::PIdnRef::decls(idnref, |_| true);
+                            if candidates.len() != 1
+                                || !matches!(
+                                    &candidates[0].read().expect("poisoned parse node").kind,
+                                    PNodeKind::DomainMember(
+                                        super::parse_ast::PDomainMember::Function {
+                                            interpretation: None,
+                                            ..
+                                        }
+                                    )
+                                )
+                            {
+                                return Err(TypeCheckError::Unsupported(
+                                    "domain axiom call contextual rules",
+                                ));
+                            }
+                        }
+                        if matches!(
+                            kind,
+                            PNodeKind::Expression(super::parse_ast::PExpression {
+                                kind: PExpressionKind::FieldAccess { .. }
+                                    | PExpressionKind::AccPred { .. }
+                                    | PExpressionKind::Extension(_),
+                                ..
+                            })
+                        ) {
+                            return Err(TypeCheckError::Unsupported(
+                                "domain axiom contextual expression",
+                            ));
+                        }
+                        for child in subnodes(node)
+                            .map_err(|_| TypeCheckError::Unsupported("domain axiom traversal"))?
+                        {
+                            no_calls(&child)?;
+                        }
+                        Ok(())
+                    }
+                    no_calls(axiom.exp().inner().node())?;
+                    check_program_expression(axiom.exp().inner(), Some(&boolean), &mut *warn)?;
+                }
+            }
             PMemberKind::Function {
                 pres,
                 posts,
@@ -1300,6 +1516,21 @@ pub fn check_statement_core(
         S::Seqn { statements, .. } => {
             for statement in statements.inner().to_seq() {
                 check_statement_core(statement, &mut *warn)?;
+            }
+        }
+        S::Extension(extension) => {
+            if let Some(refute) = extension
+                .as_any()
+                .downcast_ref::<crate::plugin::standard::refute::refute_past_extension::PRefute>(
+            ) {
+                check_program_expression(&refute.expression, Some(&boolean), &mut *warn)?;
+            } else if !extension
+                .as_any()
+                .is::<crate::plugin::standard::smoke::unreachable_past_extension::PUnreachable>(
+            ) {
+                return Err(TypeCheckError::Unsupported(
+                    "statement extension typechecking",
+                ));
             }
         }
         S::Assert { exp, .. }

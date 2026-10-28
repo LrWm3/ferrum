@@ -295,7 +295,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/Frontend.scala"
 destination = "crates/ferrum-silver/src/frontend/frontend.rs"
 status = "skeleton"
-remaining = ["Generic phase execution/state/reset and errors exist; concrete parsing, analysis, translation, consistency and backend phases remain to connect."]
+remaining = ["Parse, resolve, typecheck, translate and plugin boundaries are connected; complete transitive consistency, selection, reporting and standalone verifier lifecycle remain."]
 
 [[modules]]
 repository = "silver"
@@ -315,7 +315,8 @@ remaining = ["Shared options and validation exist; full Scallop-compatible backe
 repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/SilFrontend.scala"
 destination = "crates/ferrum-silver/src/frontend/sil_frontend.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Parse, resolve, typecheck, translate and plugin boundaries are connected; complete transitive consistency, selection, reporting and standalone verifier lifecycle remain."]
 
 [[modules]]
 repository = "silver"
@@ -356,27 +357,28 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/FastParser.scala"
 destination = "crates/ferrum-silver/src/parser/fast_parser.rs"
 status = "skeleton"
-remaining = ["Core expression, type and program grammar exists; imports, macros, domains, complete plugins and parser recovery remain."]
+remaining = ["Core program grammar, recursive imports and non-generic domain calls exist; macros, generic/interpreted domains, full extension grammar, recovery and complete semantic checks remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/MacroExpander.scala"
 destination = "crates/ferrum-silver/src/parser/macro_expander.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Core program grammar, recursive imports and non-generic domain calls exist; macros, generic/interpreted domains, full extension grammar, recovery and complete semantic checks remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ParseAst.scala"
 destination = "crates/ferrum-silver/src/parser/parse_ast.rs"
 status = "skeleton"
-remaining = ["Typed graph, expression equality, substitutions and macro types exist; universal graph reconstruction/ownership and full resolver integration remain."]
+remaining = ["Core program grammar, recursive imports and non-generic domain calls exist; macros, generic/interpreted domains, full extension grammar, recovery and complete semantic checks remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ParseAstKeyword.scala"
 destination = "crates/ferrum-silver/src/parser/parse_ast_keyword.rs"
 status = "skeleton"
-remaining = ["Fixed/dynamic keyword tokens, categories, graph identity, delimiters and signatures exist; full parser/plugin/formatter integration remains."]
+remaining = ["Core program grammar, recursive imports and non-generic domain calls exist; macros, generic/interpreted domains, full extension grammar, recovery and complete semantic checks remain."]
 
 [[modules]]
 repository = "silver"
@@ -389,14 +391,14 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/Resolver.scala"
 destination = "crates/ferrum-silver/src/parser/resolver.rs"
 status = "skeleton"
-remaining = ["Name resolution and core program typechecking exist; complete domain/plugin constraints, diagnostic recovery and source-wide semantic coverage remain."]
+remaining = ["Core program grammar, recursive imports and non-generic domain calls exist; macros, generic/interpreted domains, full extension grammar, recovery and complete semantic checks remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/Translator.scala"
 destination = "crates/ferrum-silver/src/parser/translator.rs"
 status = "skeleton"
-remaining = ["Core program and statement translation preserve shared field identity; domains, macros, extensions and impure-assume lowering remain."]
+remaining = ["Core program grammar, recursive imports and non-generic domain calls exist; macros, generic/interpreted domains, full extension grammar, recovery and complete semantic checks remain."]
 
 [[modules]]
 repository = "silver"
@@ -409,21 +411,22 @@ remaining = ["Ordered native extension parsing hook protocol exists; concrete gr
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/PluginTemplate.scala"
 destination = "crates/ferrum-silver/src/plugin/plugin_template.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Fallible lifecycle, feature registration and result mapping exist; remaining plugin implementations and complete CLI/registry integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/SilverPlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/silver_plugin.rs"
 status = "skeleton"
-remaining = ["Ordered transformation/error hooks exist; concrete plugin implementations and registration remain."]
+remaining = ["Fallible lifecycle, feature registration and result mapping exist; remaining plugin implementations and complete CLI/registry integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/SilverPluginManager.scala"
 destination = "crates/ferrum-silver/src/plugin/silver_plugin_manager.rs"
 status = "skeleton"
-remaining = ["Ordered short-circuit hooks and full result-hook folds exist; concrete registration, diagnostic equality and frontend integration remain."]
+remaining = ["Fallible lifecycle, feature registration and result mapping exist; remaining plugin implementations and complete CLI/registry integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -511,25 +514,29 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/predicateinstance/PredicateInstanceASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_ast_extension.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Predicate-instance syntax, generated functions and bounded diagnostic mapping are connected; general reconstruction and complete verification integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/predicateinstance/PredicateInstanceErrors.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_errors.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Predicate-instance syntax, generated functions and bounded diagnostic mapping are connected; general reconstruction and complete verification integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/predicateinstance/PredicateInstancePASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_past_extension.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Predicate-instance syntax, generated functions and bounded diagnostic mapping are connected; general reconstruction and complete verification integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/predicateinstance/PredicateInstancePlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_plugin.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Predicate-instance syntax, generated functions and bounded diagnostic mapping are connected; general reconstruction and complete verification integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -542,38 +549,43 @@ remaining = ["Typed refute AST node, metadata, structural equality and adapters 
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/refute/RefuteErrors.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/refute/refute_errors.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Refute/smoke parser, lowering, reachability and result hooks exist; general extension reconstruction and complete backend integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/refute/RefutePASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/refute/refute_past_extension.rs"
 status = "skeleton"
-remaining = ["Typed refute syntax node and check/translation adapters exist; parser registry and resolver/translator extension integration remain."]
+remaining = ["Refute/smoke parser, lowering, reachability and result hooks exist; general extension reconstruction and complete backend integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/refute/RefutePlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/refute/refute_plugin.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Refute/smoke parser, lowering, reachability and result hooks exist; general extension reconstruction and complete backend integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/smoke/SmokeDetectionPlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/smoke/smoke_detection_plugin.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Refute/smoke parser, lowering, reachability and result hooks exist; general extension reconstruction and complete backend integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/smoke/UnreachableASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/smoke/unreachable_ast_extension.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Refute/smoke parser, lowering, reachability and result hooks exist; general extension reconstruction and complete backend integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/smoke/UnreachablePASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/smoke/unreachable_past_extension.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Refute/smoke parser, lowering, reachability and result hooks exist; general extension reconstruction and complete backend integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -666,14 +678,14 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/reporter/Message.scala"
 destination = "crates/ferrum-silver/src/reporter/message.rs"
 status = "skeleton"
-remaining = ["Core lifecycle/entity/result/state messages exist; remaining message families and renderers remain."]
+remaining = ["Structured reports and core sink cases exist; full verifier/progress reporting and output integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/reporter/Reporter.scala"
 destination = "crates/ferrum-silver/src/reporter/reporter.rs"
 status = "skeleton"
-remaining = ["Plugin mapping, polling and core CSV/StdIO paths exist; remaining event renderers and full sink compatibility remain."]
+remaining = ["Structured reports and core sink cases exist; full verifier/progress reporting and output integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -990,7 +1002,8 @@ status = "described"
 repository = "silver"
 upstream = "src/test/scala/TestInput.scala"
 destination = "crates/ferrum-silver/tests/upstream/test_input.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Test input grouping and tags exist; upstream suite integration remains."]
 
 [[modules]]
 repository = "silver"

@@ -31,8 +31,8 @@
 //! Reconcile message ownership, extension/state payloads and serialized/rendered compatibility
 //! with plugin manager and Silicon.
 //!
-//! Status: partial; core result, source and verifier-state events implemented; dependency,
-//! exception and remaining warning events and message string rendering await their interfaces.
+//! Status: partial; core result, source, dependency, warning and verifier-state events implemented;
+//! source-compatible message string rendering and some exception details remain pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -43,9 +43,31 @@ use super::package::{Definition, Entity, Time};
 use crate::ast::expression::{Exp, Trigger};
 use crate::ast::position::Position;
 use crate::parser::parse_ast::PProgramHandle;
-use crate::verifier::verification_result::{AbstractError, ParseReport, VerificationResult};
+use crate::verifier::verification_result::{
+    AbstractError, FrontendError, ParseReport, VerificationResult,
+};
 use std::fmt::Debug;
 use std::sync::Arc;
+
+/// A dependency can be rendered and inspected without losing its concrete implementation.
+pub trait ReportDependency: Debug + Send + Sync {
+    fn name(&self) -> &str;
+    fn version(&self) -> &str;
+    fn location(&self) -> &str;
+}
+impl ReportDependency for crate::verifier::verifier::DefaultDependency {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn version(&self) -> &str {
+        &self.version
+    }
+    fn location(&self) -> &str {
+        &self.location
+    }
+}
+pub trait TraceValue: std::fmt::Display + Debug + Send + Sync {}
+impl<T: std::fmt::Display + Debug + Send + Sync> TraceValue for T {}
 
 /// Typed events sent to a reporter. Event families depending on backend dependency and
 /// diagnostic representations will be added as those interfaces are connected.
@@ -102,6 +124,23 @@ pub enum Message {
     PProgram {
         semantic_analysis_success: bool,
         program: PProgramHandle,
+    },
+    ExecutionTrace {
+        member_traces: Vec<Arc<dyn TraceValue>>,
+        axioms: Vec<Arc<dyn TraceValue>>,
+        function_post_axioms: Vec<Arc<dyn TraceValue>>,
+    },
+    Exception {
+        error: Arc<dyn std::error::Error + Send + Sync>,
+    },
+    ExternalDependencies {
+        dependencies: Vec<Arc<dyn ReportDependency>>,
+    },
+    WarningsDuringTypechecking {
+        warnings: Vec<FrontendError>,
+    },
+    WarningsDuringVerification {
+        warnings: Vec<FrontendError>,
     },
     InvalidArguments {
         tool_signature: String,
@@ -219,6 +258,11 @@ impl Message {
             Self::ProgramOutline { .. } => "program_outline",
             Self::ProgramDefinitions { .. } => "program_definitions",
             Self::PProgram { .. } => "pprogram",
+            Self::ExecutionTrace { .. } => "symbolic_execution_logger_report",
+            Self::Exception { .. } => "exception_report",
+            Self::ExternalDependencies { .. } => "external_dependencies_report",
+            Self::WarningsDuringTypechecking { .. } => "warnings_during_typechecking",
+            Self::WarningsDuringVerification { .. } => "warnings_during_verification",
             Self::InvalidArguments { .. } => "invalid_args_report",
             Self::BackendSubProcess { .. } => "backend_sub_process_report",
             Self::WarningsDuringParsing { .. } => "warnings_during_parsing",

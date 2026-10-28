@@ -94,6 +94,16 @@ pub trait FrontendPhases {
     fn translate(&mut self, input: Self::Analyzed) -> Result<Program, Vec<AbstractError>>;
     fn check_consistency(&mut self, input: Program) -> Result<Program, Vec<AbstractError>>;
     fn reset_messages(&mut self);
+    fn prepare_verification(&mut self, input: Program) -> Result<Program, Vec<AbstractError>> {
+        Ok(input)
+    }
+    fn map_verification(
+        &mut self,
+        _program: &Program,
+        input: VerificationResult,
+    ) -> Result<VerificationResult, Vec<AbstractError>> {
+        Ok(input)
+    }
 }
 /// Phase state and retained results of the source DefaultFrontend.
 pub struct DefaultFrontend<F: FrontendPhases> {
@@ -217,14 +227,28 @@ impl<F: FrontendPhases> DefaultFrontend<F> {
             {
                 let program = self
                     .program
-                    .as_ref()
+                    .clone()
                     .ok_or(FrontendError::MissingPhaseResult("consistency"))?;
+                let program = match self.phases.prepare_verification(program) {
+                    Ok(program) => program,
+                    Err(errors) => {
+                        self.errors.extend(errors);
+                        return Ok(());
+                    }
+                };
+                self.program = Some(program.clone());
                 let verifier = self
                     .verifier
                     .as_mut()
                     .ok_or(FrontendError::NotInitialized)?;
-                self.verification_result =
-                    Some(verifier.verify(program).map_err(FrontendError::Verifier)?);
+                let result = verifier.verify(&program).map_err(FrontendError::Verifier)?;
+                match self.phases.map_verification(&program, result) {
+                    Ok(result) => self.verification_result = Some(result),
+                    Err(errors) => {
+                        self.errors.extend(errors);
+                        return Ok(());
+                    }
+                }
                 self.state = DefaultState::Verification;
             }
             _ => {}

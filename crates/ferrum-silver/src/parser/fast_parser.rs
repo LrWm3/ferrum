@@ -33,7 +33,8 @@
 //! agreement with parse_ast, plugin and reformatter.
 //!
 //! Status: partial; common expressions, types, fields, functions, predicates and methods are
-//! implemented. Imports, macro expansion, extensions, recovery and remaining forms are pending.
+//! implemented, with injectable recursive import loading. Macro expansion, arbitrary extension
+//! hooks, domain interpretations, error recovery and remaining grammar forms are pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -86,6 +87,7 @@ pub fn parse_expression(
         file: file.as_ref().to_owned(),
         cursor: 0,
         warnings: Vec::new(),
+        features: &[],
     };
     let result = parser.expression(0)?;
     parser.trivia()?;
@@ -112,6 +114,7 @@ pub fn parse_type(source: &str, file: impl AsRef<Path>) -> Result<ParsedType, Sy
         file: file.as_ref().to_owned(),
         cursor: 0,
         warnings: Vec::new(),
+        features: &[],
     };
     let typ = parser.typ()?;
     parser.trivia()?;
@@ -124,15 +127,59 @@ pub fn parse_type(source: &str, file: impl AsRef<Path>) -> Result<ParsedType, Sy
     })
 }
 
+/// Built-in parser extensions currently supported by the native grammar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParserFeature {
+    Refute,
+    Unreachable,
+    PredicateInstance,
+}
+
 /// Parse a complete program containing the currently supported declarations.
-/// Imports, domains and macros are rejected until their grammar and processing
-/// are connected, so an unsupported program is never accepted as a partial program.
+/// Imports require the loader-enabled entry point. Domain grammar is partial and
+/// domain name resolution and translation remain explicitly unsupported.
 pub fn parse_program(source: &str, file: impl AsRef<Path>) -> Result<PProgramHandle, SyntaxError> {
+    parse_program_with_features(source, file, &[])
+}
+pub fn parse_program_with_features(
+    source: &str,
+    file: impl AsRef<Path>,
+    features: &[ParserFeature],
+) -> Result<PProgramHandle, SyntaxError> {
+    let program = parse_file_with_features(source, file.as_ref(), features)?;
+    if program.all_members().iter().any(|member| {
+        matches!(
+            &member.node().read().expect("poisoned parse node").kind,
+            PNodeKind::Member(PMember {
+                kind: PMemberKind::Import { .. },
+                ..
+            })
+        )
+    }) {
+        return Err(SyntaxError {
+            message: "imports require an import loader".into(),
+            position: program
+                .node()
+                .read()
+                .expect("poisoned parse node")
+                .pos
+                .0
+                .clone(),
+        });
+    }
+    Ok(program)
+}
+fn parse_file_with_features(
+    source: &str,
+    file: &Path,
+    features: &[ParserFeature],
+) -> Result<PProgramHandle, SyntaxError> {
     let mut parser = ExpressionParser {
         source,
-        file: file.as_ref().to_owned(),
+        file: file.to_owned(),
         cursor: 0,
         warnings: Vec::new(),
+        features,
     };
     let mut members = Vec::new();
     loop {
@@ -179,14 +226,184 @@ pub fn parse_program(source: &str, file: impl AsRef<Path>) -> Result<PProgramHan
     ))
 }
 
+/// Load local and standard imports recursively using native caller-provided loaders.
+/// `load` receives the normalized path and whether it is a standard resource;
+/// `before_parse` applies imported-file plugin preprocessing. Errors are explicit
+/// and stop the first failed import; source recovery aggregation remains pending.
+pub fn parse_program_with_imports(
+    source: &str,
+    file: impl AsRef<Path>,
+    features: &[ParserFeature],
+    load: &mut impl FnMut(&Path, bool) -> Result<String, String>,
+    before_parse: &mut impl FnMut(String) -> Result<String, String>,
+) -> Result<PProgramHandle, SyntaxError> {
+    use std::collections::HashSet;
+    use std::path::Component;
+    fn normalize(path: &Path) -> PathBuf {
+        let mut result = PathBuf::new();
+        for part in path.components() {
+            match part {
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if result.file_name().is_some_and(|name| name != "..") {
+                        result.pop();
+                    } else if !result.has_root() {
+                        result.push("..");
+                    }
+                }
+                _ => result.push(part.as_os_str()),
+            }
+        }
+        result
+    }
+    let absolute = if file.as_ref().is_absolute() {
+        file.as_ref().to_owned()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| SyntaxError {
+                message: e.to_string(),
+                position: Position::NoPosition,
+            })?
+            .join(file)
+    };
+    let root = normalize(&absolute);
+    fn visit(
+        source: &str,
+        file: &Path,
+        is_std: bool,
+        features: &[ParserFeature],
+        local_seen: &mut HashSet<PathBuf>,
+        std_seen: &mut HashSet<PathBuf>,
+        load: &mut impl FnMut(&Path, bool) -> Result<String, String>,
+        before_parse: &mut impl FnMut(String) -> Result<String, String>,
+    ) -> Result<PProgramHandle, SyntaxError> {
+        let program = parse_file_with_features(source, file, features)?;
+        let members = match &program.node().read().expect("poisoned parse node").kind {
+            PNodeKind::Program(p) => p.members.clone(),
+            _ => unreachable!(),
+        };
+        let mut imported = Vec::new();
+        for member in members {
+            let (raw, local, pos) = {
+                let node = member.node().read().expect("poisoned parse node");
+                match &node.kind {
+                    PNodeKind::Member(PMember {
+                        kind:
+                            PMemberKind::Import {
+                                file: path, local, ..
+                            },
+                        ..
+                    }) => (
+                        path.grouped().inner().text().to_owned(),
+                        *local,
+                        node.pos.0.clone(),
+                    ),
+                    _ => continue,
+                }
+            };
+            let path = if local {
+                normalize(&file.parent().unwrap_or(Path::new("")).join(&raw))
+            } else {
+                normalize(Path::new(&raw))
+            };
+            let standard = !local || is_std;
+            let seen = if standard {
+                &mut *std_seen
+            } else {
+                &mut *local_seen
+            };
+            if !seen.insert(path.clone()) {
+                continue;
+            }
+            {
+                let mut node = member.node().write().expect("poisoned parse node");
+                if let PNodeKind::Member(PMember {
+                    kind:
+                        PMemberKind::Import {
+                            local, resolved, ..
+                        },
+                    ..
+                }) = &mut node.kind
+                {
+                    *resolved = Some(path.clone());
+                    if standard {
+                        *local = false;
+                    }
+                }
+            }
+            let contents = load(&path, standard).map_err(|e| SyntaxError {
+                message: format!("could not import file ({e})"),
+                position: pos.clone(),
+            })?;
+            let contents = if standard {
+                format!("{}\n", contents.lines().collect::<Vec<_>>().join("\n"))
+            } else {
+                contents
+            };
+            let contents = before_parse(contents).map_err(|e| SyntaxError {
+                message: format!("Plugin failed: {e}"),
+                position: pos,
+            })?;
+            imported.push(visit(
+                &contents,
+                &path,
+                standard,
+                features,
+                local_seen,
+                std_seen,
+                load,
+                before_parse,
+            )?);
+        }
+        if let PNodeKind::Program(p) =
+            &mut program.node().write().expect("poisoned parse node").kind
+        {
+            p.imported = imported;
+        }
+        Ok(program)
+    }
+    visit(
+        source,
+        &root,
+        false,
+        features,
+        &mut HashSet::from([root.clone()]),
+        &mut HashSet::new(),
+        load,
+        before_parse,
+    )
+}
+
+fn comma_pairs<T: super::parse_ast_keyword::PGraphElement>(
+    pairs: Vec<(T, Option<PReserved<PSym>>)>,
+    pos: Span,
+) -> PDelimited<T, PReserved<PSym>> {
+    let mut items = pairs.into_iter();
+    let Some((first, mut delimiter)) = items.next() else {
+        return PDelimited::new(None, vec![], None, pos);
+    };
+    let mut rest = Vec::new();
+    for (item, next) in items {
+        rest.push((delimiter.expect("comma between elements"), item));
+        delimiter = next;
+    }
+    PDelimited::new(Some(first), rest, delimiter, pos)
+}
+
 struct ExpressionParser<'a> {
     source: &'a str,
     file: PathBuf,
     cursor: usize,
     warnings: Vec<ParseWarning>,
+    features: &'a [ParserFeature],
 }
 
 impl ExpressionParser<'_> {
+    fn is_keyword(&self, name: &str) -> bool {
+        is_keyword(name)
+            || (name == "refute" && self.features.contains(&ParserFeature::Refute))
+            || (name == "unreachable" && self.features.contains(&ParserFeature::Unreachable))
+    }
     fn position(&self, offset: usize) -> Position {
         let prefix = &self.source[..offset];
         let mut line = 1i32;
@@ -471,7 +688,7 @@ impl ExpressionParser<'_> {
         }
         self.cursor = self.identifier_end(start);
         let name = &self.source[start..self.cursor];
-        if is_keyword(name) {
+        if self.is_keyword(name) {
             return Err(self.error("expected identifier"));
         }
         Ok(PNode::new(
@@ -668,6 +885,26 @@ impl ExpressionParser<'_> {
         }
         let end = self.identifier_end(start);
         let name = &self.source[start..end];
+        if name == "refute" && self.features.contains(&ParserFeature::Refute) {
+            self.cursor = end;
+            let keyword = crate::plugin::standard::refute::refute_past_extension::refute_keyword(
+                self.span(start, end),
+            );
+            let expression = self.expression(0)?;
+            return Ok(
+                crate::plugin::standard::refute::refute_past_extension::PRefute {
+                    keyword,
+                    expression,
+                    pos: self.span(start, self.cursor),
+                }
+                .statement(),
+            );
+        }
+        if name == "unreachable" && self.features.contains(&ParserFeature::Unreachable) {
+            self.cursor = end;
+            let pos = self.span(start, end);
+            return Ok(crate::plugin::standard::smoke::unreachable_past_extension::PUnreachable { keyword: crate::plugin::standard::smoke::unreachable_past_extension::unreachable_keyword(pos.clone()), pos }.statement());
+        }
         let keyword = match name {
             "assert" => Some(PKw::Assert),
             "assume" => Some(PKw::Assume),
@@ -910,6 +1147,232 @@ impl ExpressionParser<'_> {
         self.cursor = end;
         let keyword_span = self.span(start, end);
         let kind = match name {
+            "import" => {
+                self.trivia()?;
+                let open = self.cursor;
+                let (local, left, right, closing) = if self.source[open..].starts_with('"') {
+                    (true, PSym::Quote, PSym::Quote, '"')
+                } else if self.source[open..].starts_with('<') {
+                    (false, PSym::LAngle, PSym::RAngle, '>')
+                } else {
+                    return Err(self.error("expected quoted or standard import path"));
+                };
+                self.cursor += 1;
+                let raw_start = self.cursor;
+                let remaining = &self.source[raw_start..];
+                let Some(length) = remaining.find(closing) else {
+                    return Err(self.error("unterminated import path"));
+                };
+                let raw = &remaining[..length];
+                let valid = regex::Regex::new(r"^[~.]?(?:/?[.A-Za-z0-9_\- \n\t])+$")
+                    .expect("source import path pattern");
+                if !valid.is_match(raw) {
+                    return Err(self.error("invalid relative import path"));
+                }
+                self.cursor += length;
+                let raw_node = super::parse_ast::PRawString::new(
+                    raw.into(),
+                    self.span(raw_start, self.cursor),
+                );
+                let close = self.cursor;
+                self.cursor += 1;
+                let span = self.span(open, self.cursor);
+                let group = PGrouped::new(
+                    PReserved::new(left, self.span(open, open + 1)),
+                    raw_node,
+                    PReserved::new(right, self.span(close, self.cursor)),
+                    span.clone(),
+                );
+                let file = super::parse_ast::PStringLiteral::new(group, span);
+                PMemberKind::Import {
+                    keyword: PReserved::new(PKw::Import, keyword_span),
+                    file,
+                    local,
+                    resolved: None,
+                }
+            }
+            "domain" => {
+                let keyword = PReserved::new(PKw::Domain, keyword_span);
+                let idndef = self.identifier_definition()?;
+                let type_vars = if let Some(left) = self.take("[")? {
+                    let begin = left.0.clone();
+                    let mut pairs = Vec::new();
+                    self.trivia()?;
+                    if !self.source[self.cursor..].starts_with(']') {
+                        loop {
+                            let id = self.identifier_definition()?;
+                            let pos = id.read().expect("poisoned parse node").pos.clone();
+                            let decl =
+                                PNode::new(PNodeKind::TypeVarDecl { children: vec![id] }, pos);
+                            let comma = self.take(",")?.map(|p| PReserved::new(PSym::Comma, p));
+                            let more = comma.is_some();
+                            pairs.push((decl, comma));
+                            if !more {
+                                break;
+                            }
+                        }
+                    }
+                    let right = self
+                        .take("]")?
+                        .ok_or_else(|| self.error("expected ']' after domain type variables"))?;
+                    let end = right.1.clone();
+                    let list = comma_pairs(pairs, (begin.clone(), end.clone()));
+                    Some(PGrouped::new(
+                        PReserved::new(PSym::LBracket, left),
+                        list,
+                        PReserved::new(PSym::RBracket, right),
+                        (begin, end),
+                    ))
+                } else {
+                    None
+                };
+                let left = self
+                    .take("{")?
+                    .ok_or_else(|| self.error("expected '{' in domain"))?;
+                let group_start = left.0.clone();
+                let mut members = Vec::new();
+                loop {
+                    self.trivia()?;
+                    if self.source[self.cursor..].starts_with('}') {
+                        break;
+                    }
+                    let start = self.cursor;
+                    let end = self.identifier_end(start);
+                    if start == end {
+                        return Err(self.error("expected domain function or axiom"));
+                    }
+                    let mut word = &self.source[start..end];
+                    self.cursor = end;
+                    let unique = if word == "unique" {
+                        let token = PReserved::new(PKw::Unique, self.span(start, end));
+                        self.trivia()?;
+                        let at = self.cursor;
+                        let end = self.identifier_end(at);
+                        word = &self.source[at..end];
+                        self.cursor = end;
+                        Some(token)
+                    } else {
+                        None
+                    };
+                    let keyword_start = if unique.is_some() {
+                        self.cursor - word.len()
+                    } else {
+                        start
+                    };
+                    let kind = if word == "axiom" && unique.is_none() {
+                        let keyword =
+                            PReserved::new(PKw::Axiom, self.span(keyword_start, self.cursor));
+                        self.trivia()?;
+                        let name = if self.source[self.cursor..].starts_with('{') {
+                            None
+                        } else {
+                            Some(self.identifier_definition()?)
+                        };
+                        let exp = self
+                            .braced_expression()?
+                            .ok_or_else(|| self.error("expected axiom body"))?;
+                        super::parse_ast::PDomainMember::Axiom {
+                            annotations: vec![],
+                            keyword,
+                            idndef: name,
+                            exp,
+                            scope_id: fresh_scope_id(),
+                        }
+                    } else if word == "function" {
+                        let keyword =
+                            PReserved::new(PKw::FunctionD, self.span(keyword_start, self.cursor));
+                        let idndef = self.identifier_definition()?;
+                        let left = self
+                            .take("(")?
+                            .ok_or_else(|| self.error("expected domain function arguments"))?;
+                        let group_begin = left.0.clone();
+                        let mut args = Vec::new();
+                        self.trivia()?;
+                        if !self.source[self.cursor..].starts_with(')') {
+                            loop {
+                                self.trivia()?;
+                                let arg_start = self.cursor;
+                                let end = self.identifier_end(arg_start);
+                                self.cursor = end;
+                                self.trivia()?;
+                                let named = end > arg_start
+                                    && self.source[self.cursor..].starts_with(':')
+                                    && !self.source[self.cursor..].starts_with("::");
+                                self.cursor = arg_start;
+                                let (name, colon) = if named {
+                                    let name = self.identifier_definition()?;
+                                    let colon = self.take(":")?.expect("lookahead colon");
+                                    (Some(name), Some(PReserved::new(PSym::Colon, colon)))
+                                } else {
+                                    (None, None)
+                                };
+                                let typ = self.typ()?;
+                                let pos = self.span(arg_start, self.cursor);
+                                let arg = super::parse_ast::PDomainFunctionArg::new(
+                                    name, colon, typ, pos,
+                                );
+                                let comma = self.take(",")?.map(|p| PReserved::new(PSym::Comma, p));
+                                let more = comma.is_some();
+                                args.push((arg, comma));
+                                if !more {
+                                    break;
+                                }
+                            }
+                        }
+                        let right = self.take(")")?.ok_or_else(|| {
+                            self.error("expected ')' after domain function arguments")
+                        })?;
+                        let group_end = right.1.clone();
+                        let list = comma_pairs(args, (group_begin.clone(), group_end.clone()));
+                        let args = PGrouped::new(
+                            PReserved::new(PSym::LParen, left),
+                            list,
+                            PReserved::new(PSym::RParen, right),
+                            (group_begin, group_end),
+                        );
+                        let colon = self
+                            .take(":")?
+                            .ok_or_else(|| self.error("expected domain function result type"))?;
+                        let result_type = self.typ()?;
+                        super::parse_ast::PDomainMember::Function {
+                            annotations: vec![],
+                            unique,
+                            keyword,
+                            idndef,
+                            args,
+                            colon: PReserved::new(PSym::Colon, colon),
+                            result_type,
+                            interpretation: None,
+                            scope_id: fresh_scope_id(),
+                        }
+                    } else {
+                        return Err(self.error("expected domain function or axiom"));
+                    };
+                    let member = super::parse_ast::PDomainMemberHandle::new(
+                        kind,
+                        self.span(start, self.cursor),
+                    );
+                    let semi = self.take(";")?.map(|p| PReserved::new(PSym::Semi, p));
+                    members.push((member, ND(semi)));
+                }
+                let right = self.take("}")?.expect("lookahead domain close");
+                let group_end = right.1.clone();
+                let list =
+                    PDelimited::from_pairs(members, (group_start.clone(), group_end.clone()));
+                let members = PGrouped::new(
+                    PReserved::new(PSym::LBrace, left),
+                    list,
+                    PReserved::new(PSym::RBrace, right),
+                    (group_start, group_end),
+                );
+                PMemberKind::Domain {
+                    keyword,
+                    idndef,
+                    type_vars,
+                    interpretations: None,
+                    members,
+                }
+            }
             "field" => {
                 let keyword = PReserved::new(PKw::Field, keyword_span);
                 let first = self.binding(PDeclarationKind::field())?;
@@ -1140,7 +1603,7 @@ impl ExpressionParser<'_> {
             }
         } else {
             // Only identifiers may denote domain types. Reserved words are rejected.
-            if is_keyword(name) {
+            if self.is_keyword(name) {
                 return Err(self.error(format!("expected type, found keyword '{name}'")));
             }
             let domain = PNode::new(
@@ -1209,6 +1672,33 @@ impl ExpressionParser<'_> {
     fn atom(&mut self) -> Result<PExpHandle, SyntaxError> {
         self.trivia()?;
         let start = self.cursor;
+        if self.features.contains(&ParserFeature::PredicateInstance)
+            && self.source[start..].starts_with('#')
+        {
+            self.cursor += 1;
+            let marker = crate::plugin::standard::predicateinstance::predicate_instance_past_extension::marker_symbol(self.span(start, self.cursor));
+            let call = self.atom()?;
+            let kind = match &call.node().read().expect("poisoned parse node").kind {
+                PNodeKind::Expression(e) => e.kind.clone(),
+                _ => return Err(self.error("expected predicate call")),
+            };
+            let PExpressionKind::Call {
+                idnref,
+                call_args,
+                type_annotated: None,
+                ..
+            } = kind
+            else {
+                return Err(self.error("expected predicate call after '#'"));
+            };
+            if let PNodeKind::IdnRef(reference) =
+                &mut idnref.write().expect("poisoned parse node").kind
+            {
+                reference.declaration_class = PDeclarationClass::Predicate;
+            }
+            let instance = crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance { marker, idnuse: idnref, args: call_args, pos: self.span(start, self.cursor) }.expression();
+            return self.suffix(instance);
+        }
         if self.take("(")?.is_some() {
             let left = PReserved::new(PSym::LParen, self.span(start, start + 1));
             let expression = self.expression(0)?;
@@ -1440,7 +1930,7 @@ impl ExpressionParser<'_> {
                         let label = if &self.source[at..end] == "lhs" {
                             POldLabel::Lhs(PReserved::new(PKw::Lhs, label_span))
                         } else {
-                            if is_keyword(&self.source[at..end]) {
+                            if self.is_keyword(&self.source[at..end]) {
                                 return Err(self.error("expected old label"));
                             }
                             POldLabel::Label(PNode::new(
@@ -1572,7 +2062,7 @@ impl ExpressionParser<'_> {
                     _ => unreachable!(),
                 }
             } else {
-                if is_keyword(name) {
+                if self.is_keyword(name) {
                     return Err(
                         self.error(format!("expression form '{name}' is not yet implemented"))
                     );
@@ -1757,7 +2247,7 @@ impl ExpressionParser<'_> {
                 return Err(self.error("expected field name"));
             }
             self.cursor = self.identifier_end(name_start);
-            if is_keyword(&self.source[name_start..self.cursor]) {
+            if self.is_keyword(&self.source[name_start..self.cursor]) {
                 return Err(self.error("expected field identifier"));
             }
             let idnref = PNode::new(
@@ -1860,6 +2350,59 @@ fn is_keyword(name: &str) -> bool {
 mod tests {
     use super::*;
     #[test]
+    fn domain_grammar_builds_typed_members() {
+        let program = parse_program(
+            "domain D[T] { unique function f(x: T, Int): Int; axiom A { true }; axiom { false } }",
+            "test.vpr",
+        )
+        .unwrap();
+        let PNodeKind::Program(program) = program.node().read().unwrap().kind.clone() else {
+            panic!("program")
+        };
+        let PNodeKind::Member(member) = program.members[0].node().read().unwrap().kind.clone()
+        else {
+            panic!("domain")
+        };
+        let PMemberKind::Domain {
+            type_vars, members, ..
+        } = member.kind
+        else {
+            panic!("domain")
+        };
+        assert_eq!(type_vars.unwrap().inner().len(), 1);
+        assert_eq!(members.inner().len(), 3);
+        assert!(matches!(
+            &members.inner().head().node().read().unwrap().kind,
+            PNodeKind::DomainMember(super::super::parse_ast::PDomainMember::Function {
+                unique: Some(_),
+                ..
+            })
+        ));
+    }
+    #[test]
+    fn recursive_imports_are_deduplicated_and_preprocessed() {
+        let mut calls = Vec::new();
+        let mut preprocess_count = 0;
+        let program = parse_program_with_imports(
+            "import \"lib.vpr\" import \"./lib.vpr\" method m() {}",
+            "/work/main.vpr",
+            &[],
+            &mut |path, standard| {
+                calls.push((path.to_owned(), standard));
+                Ok("import \"main.vpr\" field f: Int".into())
+            },
+            &mut |text| {
+                preprocess_count += 1;
+                Ok(text)
+            },
+        )
+        .unwrap();
+        assert_eq!(calls, vec![(PathBuf::from("/work/lib.vpr"), false)]);
+        assert_eq!(preprocess_count, 1);
+        assert_eq!(program.all_members().len(), 5);
+        assert!(parse_program("import \"lib.vpr\"", "/work/main.vpr").is_err());
+    }
+    #[test]
     fn operator_associativity_and_deprecated_call_spacing() {
         let parsed = parse_expression("a ==> f (1 + 2 * 3) ==> b", "test.vpr").unwrap();
         assert_eq!(parsed.warnings.len(), 1);
@@ -1953,7 +2496,7 @@ mod tests {
                 ..
             })
         ));
-        assert!(parse_program("field f: Int domain D {}", "test.vpr").is_err());
+        assert!(parse_program("field f: Int domain D {}", "test.vpr").is_ok());
     }
     #[test]
     fn method_with_statements_is_a_typed_parse_tree() {

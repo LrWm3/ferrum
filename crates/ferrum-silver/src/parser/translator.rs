@@ -175,6 +175,13 @@ fn translate_expression_with_fields(
                 meta.clone(),
             ))
         }
+        PExpressionKind::Extension(extension) => {
+            let Some(instance) = extension.as_any().downcast_ref::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() else { return Err(TranslationError::Unsupported("expression extension translation")); };
+            return instance.translate(
+                |_| meta,
+                |exp| translate_expression_with_fields(exp, fields),
+            );
+        }
         PExpressionKind::FieldAccess {
             receiver, idnref, ..
         } => {
@@ -229,17 +236,59 @@ fn translate_expression_with_fields(
             if declarations.len() != 1 {
                 return Err(TranslationError::UnresolvedIdentifier(name));
             }
-            let member = match &declarations[0].read().expect("poisoned parse node").kind {
-                PNodeKind::Member(member) => member.kind.clone(),
-                _ => return Err(TranslationError::Unsupported("domain function call")),
-            };
+            let declaration = declarations[0]
+                .read()
+                .expect("poisoned parse node")
+                .kind
+                .clone();
             let args = call_args
                 .inner()
                 .to_seq()
                 .into_iter()
                 .map(|e| translate_expression_with_fields(e, fields))
                 .collect::<Result<Vec<_>, _>>()?;
-            match member {
+            if matches!(
+                declaration,
+                PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function {
+                    interpretation: None,
+                    ..
+                })
+            ) {
+                let owner = super::parse_ast::get_ancestor(&declarations[0], |node| {
+                    matches!(
+                        &node.read().expect("poisoned parse node").kind,
+                        PNodeKind::Member(super::parse_ast::PMember {
+                            kind: super::parse_ast::PMemberKind::Domain { .. },
+                            ..
+                        })
+                    )
+                })
+                .ok_or(TranslationError::Unsupported("domain function owner"))?;
+                let domain_name = match &owner.read().expect("poisoned parse node").kind {
+                    PNodeKind::Member(member) => match &member.kind {
+                        super::parse_ast::PMemberKind::Domain {
+                            idndef, type_vars, ..
+                        } if type_vars.as_ref().is_none_or(|v| v.inner().is_empty()) => {
+                            declaration_name(idndef)?
+                        }
+                        _ => return Err(TranslationError::Unsupported("generic domain function")),
+                    },
+                    _ => unreachable!(),
+                };
+                return Ok(Exp::with_extra(
+                    ExpKind::DomainFuncApp(name, args, Default::default()),
+                    meta,
+                    crate::ast::expression::ExpExtra {
+                        typ: Some(translate_type(&expression.typ)?),
+                        domain_name: Some(domain_name),
+                        ..Default::default()
+                    },
+                ));
+            }
+            let PNodeKind::Member(member) = declaration else {
+                return Err(TranslationError::Unsupported("non-function call"));
+            };
+            match member.kind {
                 super::parse_ast::PMemberKind::Function { .. } => {
                     return Ok(Exp::with_extra(
                         ExpKind::FuncApp(name, args),
@@ -534,6 +583,32 @@ fn translate_statement_with_fields(
     };
     let meta = metadata(input.node())?;
     let kind = match statement.kind {
+        PStatementKind::Extension(extension) => {
+            if let Some(refute) = extension
+                .as_any()
+                .downcast_ref::<crate::plugin::standard::refute::refute_past_extension::PRefute>(
+            ) {
+                return Ok(
+                    crate::plugin::standard::refute::refute_ast_extension::Refute::new(
+                        translate_expression_with_fields(&refute.expression, fields)?,
+                        meta,
+                    )
+                    .statement(),
+                );
+            }
+            if extension
+                .as_any()
+                .is::<crate::plugin::standard::smoke::unreachable_past_extension::PUnreachable>()
+            {
+                return Ok(
+                    crate::plugin::standard::smoke::unreachable_ast_extension::Unreachable { meta }
+                        .statement(),
+                );
+            }
+            return Err(TranslationError::Unsupported(
+                "statement extension translation",
+            ));
+        }
         PStatementKind::Assert { exp, .. } => {
             StmtKind::Assert(translate_expression_with_fields(&exp, fields)?)
         }
@@ -807,8 +882,9 @@ pub fn translate_program_core(
 ) -> Result<crate::ast::program::Program, TranslationError> {
     use super::parse_ast::{PMemberKind, PStatementKind};
     use crate::ast::program::{
-        Field, FieldData, Function, FunctionData, Method, MethodData, Predicate, PredicateData,
-        Program,
+        AnyLocalVarDecl, Domain, DomainAxiom, DomainAxiomKind, DomainData, DomainFunc,
+        DomainFuncData, Field, FieldData, Function, FunctionData, Method, MethodData, Predicate,
+        PredicateData, Program,
     };
     fn contains_assume(node: &PNodeHandle) -> Result<bool, TranslationError> {
         let kind = node.read().expect("poisoned parse node").kind.clone();
@@ -858,6 +934,7 @@ pub fn translate_program_core(
             }
         }
     }
+    let mut domains = Vec::new();
     let mut functions = Vec::new();
     let mut predicates = Vec::new();
     let mut methods = Vec::new();
@@ -870,6 +947,116 @@ pub fn translate_program_core(
         member_meta.info = annotation_info(member.annotations());
         match member.kind {
             PMemberKind::Fields { .. } => {}
+            PMemberKind::Domain {
+                idndef,
+                type_vars,
+                interpretations,
+                members,
+                ..
+            } if type_vars.as_ref().is_none_or(|v| v.inner().is_empty())
+                && interpretations.is_none()
+                && members.inner().to_seq().iter().all(|m| {
+                    matches!(
+                        &m.node().read().expect("poisoned parse node").kind,
+                        PNodeKind::DomainMember(
+                            super::parse_ast::PDomainMember::Axiom { .. }
+                                | super::parse_ast::PDomainMember::Function {
+                                    interpretation: None,
+                                    ..
+                                }
+                        )
+                    )
+                }) =>
+            {
+                let domain_name = declaration_name(&idndef)?;
+                let mut axioms = Vec::new();
+                let mut domain_functions = Vec::new();
+                for axiom in members.inner().to_seq() {
+                    let kind = axiom
+                        .node()
+                        .read()
+                        .expect("poisoned parse node")
+                        .kind
+                        .clone();
+                    if let PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function {
+                        annotations,
+                        unique,
+                        idndef,
+                        args,
+                        result_type,
+                        ..
+                    }) = kind
+                    {
+                        let mut formal_args = Vec::new();
+                        for arg in args.inner().to_seq() {
+                            let typ = translate_type(arg.typ())?;
+                            let mut meta = metadata(arg.node())?;
+                            meta.info = Info::SourcePNode(arg.node().clone());
+                            formal_args.push(if let Some(name) = arg.name() {
+                                AnyLocalVarDecl::Named(crate::ast::program::LocalVarDecl::new(
+                                    declaration_name(name)?,
+                                    typ,
+                                    meta,
+                                ))
+                            } else {
+                                AnyLocalVarDecl::Unnamed(
+                                    crate::ast::program::UnnamedLocalVarDecl::new(
+                                        crate::ast::program::UnnamedLocalVarDeclData { typ, meta },
+                                    ),
+                                )
+                            });
+                        }
+                        let mut meta = metadata(axiom.node())?;
+                        meta.info = annotation_info(&annotations);
+                        domain_functions.push(DomainFunc::new(DomainFuncData {
+                            name: declaration_name(&idndef)?,
+                            formal_args,
+                            typ: translate_type(&result_type)?,
+                            unique: unique.is_some(),
+                            interpretation: None,
+                            domain_name: domain_name.clone(),
+                            meta,
+                        }));
+                        continue;
+                    }
+                    let (annotations, idndef, exp) =
+                        match &axiom.node().read().expect("poisoned parse node").kind {
+                            PNodeKind::DomainMember(super::parse_ast::PDomainMember::Axiom {
+                                annotations,
+                                idndef,
+                                exp,
+                                ..
+                            }) => (annotations.clone(), idndef.clone(), exp.clone()),
+                            _ => unreachable!(),
+                        };
+                    let mut meta = metadata(axiom.node())?;
+                    meta.info = annotation_info(&annotations);
+                    let exp =
+                        translate_expression_with_fields(exp.exp().inner(), Some(&field_map))?;
+                    axioms.push(DomainAxiom::new(if let Some(id) = idndef {
+                        DomainAxiomKind::Named {
+                            name: declaration_name(&id)?,
+                            exp,
+                            domain_name: domain_name.clone(),
+                            meta,
+                        }
+                    } else {
+                        DomainAxiomKind::Anonymous {
+                            exp,
+                            domain_name: domain_name.clone(),
+                            meta,
+                        }
+                    }));
+                }
+                domains.push(Domain::new(DomainData {
+                    name: domain_name,
+                    functions: domain_functions,
+                    axioms,
+                    type_vars: vec![],
+                    interpretations: None,
+                    meta: member_meta,
+                }));
+            }
             PMemberKind::Function {
                 idndef,
                 args,
@@ -945,7 +1132,7 @@ pub fn translate_program_core(
     let mut meta = metadata(input.node())?;
     meta.info = Info::NoInfo;
     Ok(Program::new(
-        Vec::new(),
+        domains,
         fields,
         functions,
         predicates,
@@ -960,6 +1147,78 @@ mod program_tests {
     use super::*;
     use crate::parser::fast_parser::parse_program;
     use crate::parser::resolver::{NameAnalyser, check_program_core};
+    #[test]
+    fn non_generic_domain_function_call_translates_with_owner() {
+        let parsed = parse_program(
+            "domain D { function f(Int): Int axiom A { f(1) == 1 } } function g(): Int { f(1) }",
+            "test.vpr",
+        )
+        .unwrap();
+        super::super::parse_ast::init_properties(parsed.node()).unwrap();
+        assert!(NameAnalyser::default().run(parsed.node()).unwrap());
+        check_program_core(&parsed, &mut |_, _| {}).unwrap();
+        let program = translate_program_core(&parsed).unwrap();
+        let body = program.functions[0].body.as_ref().unwrap();
+        assert!(
+            matches!(body.kind(), ExpKind::DomainFuncApp(name, args, types) if name == "f" && args.len() == 1 && types.is_empty())
+        );
+        assert_eq!(body.0.extra.domain_name.as_deref(), Some("D"));
+    }
+    #[test]
+    fn domain_functions_preserve_named_and_unnamed_arguments() {
+        use crate::ast::program::AnyLocalVarDecl;
+        let parsed = parse_program(
+            "domain D { function f(x: Int, Bool): Ref axiom { true } }",
+            "test.vpr",
+        )
+        .unwrap();
+        super::super::parse_ast::init_properties(parsed.node()).unwrap();
+        assert!(NameAnalyser::default().run(parsed.node()).unwrap());
+        check_program_core(&parsed, &mut |_, _| {}).unwrap();
+        let program = translate_program_core(&parsed).unwrap();
+        let function = &program.domains[0].functions[0];
+        assert_eq!(function.name, "f");
+        assert!(matches!(&function.formal_args[0], AnyLocalVarDecl::Named(d) if d.name == "x"));
+        assert!(matches!(
+            &function.formal_args[1],
+            AnyLocalVarDecl::Unnamed(_)
+        ));
+        assert_eq!(program.domains[0].axioms.len(), 1);
+    }
+    #[test]
+    fn domain_axioms_are_checked_and_translated_in_order() {
+        use crate::ast::program::DomainAxiomKind;
+        let parsed =
+            parse_program("domain D { axiom A { 1 < 2 } axiom { true } }", "test.vpr").unwrap();
+        super::super::parse_ast::init_properties(parsed.node()).unwrap();
+        assert!(NameAnalyser::default().run(parsed.node()).unwrap());
+        check_program_core(&parsed, &mut |_, _| {}).unwrap();
+        let program = translate_program_core(&parsed).unwrap();
+        assert!(
+            matches!(program.domains[0].axioms[0].kind(), DomainAxiomKind::Named { name, .. } if name == "A")
+        );
+        assert!(matches!(
+            program.domains[0].axioms[1].kind(),
+            DomainAxiomKind::Anonymous { .. }
+        ));
+    }
+    #[test]
+    fn predicate_instance_expression_keeps_predicate_reference() {
+        use crate::parser::fast_parser::{ParserFeature, parse_program_with_features};
+        let parsed = parse_program_with_features(
+            "predicate p() function f(): Bool { #p() == #p() }",
+            "test.vpr",
+            &[ParserFeature::PredicateInstance],
+        )
+        .unwrap();
+        super::super::parse_ast::init_properties(parsed.node()).unwrap();
+        assert!(NameAnalyser::default().run(parsed.node()).unwrap());
+        check_program_core(&parsed, &mut |_, _| {}).unwrap();
+        let program = translate_program_core(&parsed).unwrap();
+        assert!(
+            matches!(program.functions[0].body.as_ref().unwrap().kind(), ExpKind::EqCmp(left, _) if matches!(left.kind(), ExpKind::Extension(extension) if extension.0.as_any().is::<crate::plugin::standard::predicateinstance::predicate_instance_ast_extension::PredicateInstance>()))
+        );
+    }
     #[test]
     fn field_assignments_reuse_program_field_identity() {
         use crate::ast::statement::StmtKind;

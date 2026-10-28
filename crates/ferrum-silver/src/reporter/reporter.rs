@@ -168,6 +168,19 @@ impl Reporter for PollingReporter {
         self.pass_through.report(message)
     }
 }
+fn render_state(state: &super::message::VerifierState) -> Result<String, ReportError> {
+    if state.frames.iter().any(|frame| {
+        matches!(
+            frame.branch_condition,
+            Some(super::message::BranchCondition::Condition(_))
+        )
+    }) {
+        return Err(ReportError::Unsupported(
+            "expression source printer required for verifier state",
+        ));
+    }
+    Ok(state.render(&|_| unreachable!("expression conditions checked above")))
+}
 /// Writes the core lifecycle and entity records in source CSV order and flushes each report.
 /// Other message families fail explicitly until their source renderers are available.
 pub struct CsvReporter<W: Write + Send> {
@@ -242,6 +255,87 @@ impl<W: Write + Send> Reporter for CsvReporter<W> {
                 "BranchFailureMessage,{},{}",
                 concerning.name(),
                 cached
+            )?,
+            Message::Exception { error } => writeln!(writer, "ExceptionReport,{error}")?,
+            Message::ExternalDependencies { dependencies } => {
+                for dep in dependencies {
+                    writeln!(
+                        writer,
+                        "ExternalDependenciesReport,{} {} located at {}",
+                        dep.name(),
+                        dep.version(),
+                        dep.location()
+                    )?;
+                }
+            }
+            Message::WarningsDuringTypechecking { warnings } => {
+                for warning in warnings {
+                    writeln!(
+                        writer,
+                        "WarningsDuringTypechecking,{}",
+                        crate::verifier::verification_result::AbstractError::Frontend(warning)
+                            .render()?
+                    )?;
+                }
+            }
+            Message::WarningsDuringVerification { warnings } => {
+                for warning in warnings {
+                    writeln!(
+                        writer,
+                        "WarningsDuringVerification,{}",
+                        crate::verifier::verification_result::AbstractError::Frontend(warning)
+                            .render()?
+                    )?;
+                }
+            }
+            Message::VerifierState {
+                verifier,
+                concerning,
+                millis_since_progress,
+                state,
+            } => {
+                let rendered = render_state(&state)?.replace('\n', "\\n");
+                writeln!(
+                    writer,
+                    "verifier_state_message(verifier={verifier}, concerning={}, millisSinceProgress={millis_since_progress}, state={rendered})",
+                    concerning.name()
+                )?;
+            }
+            Message::QuantifierInstantiations {
+                quantifier,
+                instantiations,
+                max_gen,
+                max_cost,
+            } => writeln!(
+                writer,
+                "quantifier_instantiations_message(quantifier={quantifier}, instantiations={instantiations}, max_gen={max_gen}, max_cost={max_cost})"
+            )?,
+            Message::VerificationTermination => {
+                writeln!(writer, "verification_termination_message")?
+            }
+            Message::BlockReached {
+                method_name,
+                label,
+                path_id,
+            } => writeln!(
+                writer,
+                "block_reached_message(methodName={method_name}, label={label}, pathId={path_id})"
+            )?,
+            Message::BlockFailure {
+                method_name,
+                label,
+                path_id,
+            } => writeln!(
+                writer,
+                "block_failure_message(methodName={method_name}, label={label}, pathId={path_id})"
+            )?,
+            Message::PathProcessed {
+                method_name,
+                path_id,
+                result,
+            } => writeln!(
+                writer,
+                "path_processed_message(methodName={method_name}, pathId={path_id}, result={result})"
             )?,
             Message::WarningsDuringParsing { warnings } => {
                 for warning in warnings {
@@ -363,6 +457,73 @@ impl<W: Write + Send> Reporter for StdIoReporter<W> {
                 let width = n.to_string().len();
                 for (i, error) in errors.iter().enumerate() {
                     writeln!(writer, "  [{i:>width$}] {}", error.readable_message()?)?;
+                }
+            }
+            Message::VerifierState {
+                verifier,
+                concerning,
+                millis_since_progress,
+                state,
+            } => {
+                let rendered = render_state(&state)?;
+                if self.time_info {
+                    writeln!(
+                        writer,
+                        "{verifier} has been working on {} without visible progress for {}. Current state:",
+                        concerning.name(),
+                        self.time(millis_since_progress)?
+                    )?;
+                } else {
+                    writeln!(
+                        writer,
+                        "{verifier} has been working on {} without visible progress. Current state:",
+                        concerning.name()
+                    )?;
+                }
+                for line in rendered.lines() {
+                    writeln!(writer, "  {line}")?;
+                }
+            }
+            Message::ExternalDependencies { dependencies } => {
+                writeln!(writer, "The following dependencies are used:")?;
+                for dep in dependencies {
+                    writeln!(
+                        writer,
+                        "  {} {}, located at {}.",
+                        dep.name(),
+                        dep.version(),
+                        dep.location()
+                    )?;
+                }
+            }
+            Message::WarningsDuringTypechecking { warnings }
+            | Message::WarningsDuringVerification { warnings } => {
+                for warning in warnings {
+                    writeln!(
+                        writer,
+                        "{}",
+                        crate::verifier::verification_result::AbstractError::Frontend(warning)
+                            .render()?
+                    )?;
+                }
+            }
+            Message::ExecutionTrace {
+                member_traces,
+                axioms,
+                function_post_axioms,
+            } => {
+                writeln!(writer, "Execution trace for the last run:")?;
+                writeln!(writer, "  Members:")?;
+                for value in member_traces {
+                    writeln!(writer, "    {value}")?;
+                }
+                writeln!(writer, "  Axioms:")?;
+                for value in axioms {
+                    writeln!(writer, "    {value}")?;
+                }
+                writeln!(writer, "  FunctionPostAxioms:")?;
+                for value in function_post_axioms {
+                    writeln!(writer, "    {value}")?;
                 }
             }
             Message::WarningsDuringParsing { warnings } => {
