@@ -364,7 +364,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/MacroExpander.scala"
 destination = "crates/ferrum-silver/src/parser/macro_expander.rs"
 status = "skeleton"
-remaining = ["Source renaming/substitution handles built-in expression and supported statement products, versioned identifiers and macro sequences; name/proof-script reports and warnings accumulate. Per-import expansion recovery, extension specs, token positions and conservative name seeding remain partial."]
+remaining = ["Source macro expansion, per-import recovery, file spans and checked argument/body-kind diagnostics are connected. Failed-expansion parse graph rollback, wrapper token spans and broader compatibility remain incomplete."]
 
 [[modules]]
 repository = "silver"

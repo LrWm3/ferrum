@@ -279,8 +279,8 @@ impl FrontendPhases for SilFrontendPhases {
         let mut reports = snapshot.local_errors;
         if let Some(error) = macro_error {
             reports.push(ParseReport::Error(ParseError::new(
-                error.message,
-                error.pos.0,
+                error.message.clone(),
+                error.error_position(&program),
             )));
         }
         for imported in snapshot.imported {
@@ -2372,6 +2372,29 @@ mod tests {
         assert_eq!(lowered.functions[1].name, "PI_p");
     }
     #[test]
+    fn elseif_chain_reaches_nested_if_translation() {
+        use crate::ast::statement::StmtKind;
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("method m(x: Int) { if (x == 0) { assert true; } elseif (x == 1) { assert true; } elseif (x == 2) { assert true; } else { assert true; } }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let StmtKind::Seqn { statements, .. } = program.methods[0].body.as_ref().unwrap().kind()
+        else {
+            panic!("method block")
+        };
+        let StmtKind::If { else_branch, .. } = statements[0].kind() else {
+            panic!("outer if")
+        };
+        let StmtKind::Seqn { statements, .. } = else_branch.kind() else {
+            panic!("else block")
+        };
+        assert!(matches!(statements[0].kind(), StmtKind::If { .. }));
+        assert!(phases.parse("method m() { elseif (true) {} }").is_err());
+    }
+
+    #[test]
     fn every_macro_in_a_wand_proof_is_reported() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
@@ -2415,6 +2438,111 @@ mod tests {
                 .all(|m| !m.contains("Parse error: Parse error:")),
             "{messages:?}"
         );
+    }
+
+    #[test]
+    fn macro_body_kind_mismatch_reports_source_diagnostic() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        for (source, expected) in [
+            (
+                "define m 1 method p() { m; }",
+                "Expression macro used in statement position",
+            ),
+            (
+                "define m { assert true; } method p() { assert m; }",
+                "Statement macro used in expression position",
+            ),
+            (
+                "define m 1 method p(x: m) {}",
+                "Expression macro used in type position",
+            ),
+        ] {
+            let errors = phases.parse(source).unwrap_err();
+            let messages = errors
+                .iter()
+                .map(|e| e.readable_message().unwrap())
+                .collect::<Vec<_>>();
+            assert!(
+                messages.iter().any(|m| m.contains(expected)),
+                "{messages:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn bare_parameterized_macros_report_source_argument_suggestion() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        for (source, suggestion) in [
+            (
+                "define m(x, y) x + y method p() { assert m == 0; }",
+                "`(x, y)`",
+            ),
+            ("define m() { assert true; } method p() { m; }", "`()`"),
+            ("define m() true method p() { assert m; }", "`()`"),
+        ] {
+            let errors = phases.parse(source).unwrap_err();
+            let message = errors
+                .iter()
+                .map(|e| e.readable_message().unwrap())
+                .find(|m| m.contains("referenced without"))
+                .expect("missing argument error");
+            assert!(
+                message.contains(suggestion) && message.contains("try adding"),
+                "{message}"
+            );
+        }
+    }
+
+    #[test]
+    fn macro_definition_diagnostic_spans_exclude_trailing_trivia() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let errors = phases
+            .parse("define a 1\ndefine a 2\nmethod m() {}")
+            .unwrap_err();
+        let message = errors[0].readable_message().unwrap();
+        assert!(
+            message.contains("test.vpr@1.1--1.11") && message.contains("test.vpr@2.1--2.11"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn imported_macro_expansion_errors_do_not_skip_siblings() {
+        use std::{path::Path, sync::Arc};
+        struct Loader;
+        impl crate::ast::utility::file_loader::FileLoader for Loader {
+            fn load_content(&self, path: &Path) -> std::io::Result<String> {
+                if path.ends_with("a.vpr") {
+                    Ok("define a(x) x method a_user() { assert a(); }".into())
+                } else {
+                    Ok("define b(x) x method b_user() { assert b(); }".into())
+                }
+            }
+        }
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("/work/main.vpr"),
+            SilverPluginManager::default(),
+        );
+        phases.local_loader = Arc::new(Loader);
+        let errors = phases
+            .parse("import \"a.vpr\" import \"b.vpr\" method m() {}")
+            .unwrap_err();
+        let messages = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            messages
+                .iter()
+                .filter(|m| m.contains("Number of macro arguments does not match"))
+                .count(),
+            2,
+            "{messages:?}"
+        );
+        assert!(errors.iter().filter(|e| e.readable_message().unwrap().contains("Number of macro arguments does not match")).all(|e| matches!(e, AbstractError::Parse(ParseReport::Error(error)) if matches!(&error.pos, Position::LineColumn(LineColumn::Source(source)) if source.end.is_some()))));
     }
 
     #[test]

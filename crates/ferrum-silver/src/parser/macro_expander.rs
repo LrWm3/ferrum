@@ -96,6 +96,35 @@ pub struct MacroError {
     pub pos: super::parse_ast_keyword::Span,
 }
 
+impl MacroError {
+    /// Source MacroExpander uses the exception span when file-backed, then the
+    /// enclosing program span, finally the exception start position.
+    pub fn error_position(
+        &self,
+        program: &super::parse_ast::PProgramHandle,
+    ) -> crate::ast::position::Position {
+        use crate::ast::position::{LineColumn, Position, SourcePosition};
+        fn source(span: &super::parse_ast_keyword::Span) -> Option<Position> {
+            match span {
+                (
+                    Position::LineColumn(LineColumn::File(start)),
+                    Position::LineColumn(LineColumn::File(end)),
+                ) => Some(Position::LineColumn(LineColumn::Source(Box::new(
+                    SourcePosition {
+                        file: Some(start.file.clone()),
+                        start: Box::new(LineColumn::File(start.clone())),
+                        end: Some(Box::new(LineColumn::File(end.clone()))),
+                    },
+                )))),
+                _ => None,
+            }
+        }
+        source(&self.pos)
+            .or_else(|| source(&program.node().read().expect("poisoned parse node").pos))
+            .unwrap_or_else(|| self.pos.0.clone())
+    }
+}
+
 /// Validate global macro uniqueness and clashes with domain/function/predicate/method names.
 /// Upstream checks duplicate macro declarations first, then checks the set of other names.
 pub fn validate_global_names(
@@ -232,6 +261,41 @@ mod tests {
     }
 
     #[test]
+    fn macro_error_uses_program_span_when_exception_is_not_file_backed() {
+        use crate::ast::position::{FilePosition, LineColumn};
+        let file = std::path::PathBuf::from("test.vpr");
+        let span = (
+            Position::LineColumn(LineColumn::File(FilePosition {
+                file: file.clone(),
+                line: 1,
+                column: 1,
+            })),
+            Position::LineColumn(LineColumn::File(FilePosition {
+                file,
+                line: 2,
+                column: 3,
+            })),
+        );
+        let program = PProgramHandle::new(
+            PProgram {
+                imported: vec![],
+                members: vec![],
+                local_errors: vec![],
+                offsets: vec![],
+                raw_program: String::new(),
+            },
+            span,
+        );
+        let error = MacroError {
+            message: "bad".into(),
+            pos: (Position::NoPosition, Position::NoPosition),
+        };
+        assert!(
+            matches!(error.error_position(&program), Position::LineColumn(LineColumn::Source(source)) if source.end.is_some())
+        );
+    }
+
+    #[test]
     fn duplicate_macro_and_fresh_names_follow_source_order() {
         let span = (Position::NoPosition, Position::NoPosition);
         let make = || {
@@ -278,6 +342,13 @@ mod tests {
 struct ExpressionMacro {
     parameters: Option<Vec<String>>,
     body: super::parse_ast::PDefineBody,
+}
+
+fn missing_macro_arguments(name: &str, parameters: &[String]) -> String {
+    format!(
+        "macro `{name}` is defined with parameters but referenced without, try adding `({})`",
+        parameters.join(", ")
+    )
 }
 
 #[derive(Default)]
@@ -1976,6 +2047,39 @@ pub fn expand_global_expression_macros(
             let node = node.read().expect("poisoned parse node");
             (node.kind.clone(), node.pos.clone())
         };
+        if let PNodeKind::Program(program) = &kind {
+            // Scala expands imported PPrograms independently and catches each
+            // MacroException at that program boundary before processing siblings.
+            for imported in &program.imported {
+                let mut imported_warnings = Vec::new();
+                let result = walk(
+                    imported.node(),
+                    definitions,
+                    &mut Vec::new(),
+                    &mut imported_warnings,
+                    scope,
+                );
+                let error_report = result.err().map(|error| {
+                    let position = error.error_position(imported);
+                    crate::verifier::verification_result::ParseReport::Error(
+                        crate::verifier::verification_result::ParseError::new(
+                            error.message,
+                            position,
+                        ),
+                    )
+                });
+                if let PNodeKind::Program(child) =
+                    &mut imported.node().write().expect("poisoned parse node").kind
+                {
+                    child.local_errors.extend(imported_warnings);
+                    child.local_errors.extend(error_report);
+                }
+            }
+            for member in &program.members {
+                walk(member.node(), definitions, stack, warnings, scope)?;
+            }
+            return Ok(());
+        }
         if matches!(
             &kind,
             PNodeKind::Member(super::parse_ast::PMember {
@@ -2147,19 +2251,25 @@ pub fn expand_global_expression_macros(
                                 pos,
                             });
                         }
+                        if args.is_none() {
+                            if let Some(parameters) = def.parameters.as_deref() {
+                                return Err(MacroError {
+                                    message: missing_macro_arguments(&name, parameters),
+                                    pos,
+                                });
+                            }
+                        }
                         if args.is_some() != def.parameters.is_some()
                             || args.as_ref().map(Vec::len) != def.parameters.as_ref().map(Vec::len)
                         {
                             return Err(MacroError {
-                                message: format!("wrong number of arguments to macro `{name}`"),
+                                message: "Number of macro arguments does not match".into(),
                                 pos,
                             });
                         }
                         let PDefineBody::Statement(body) = &def.body else {
                             return Err(MacroError {
-                                message: format!(
-                                    "expression macro `{name}` cannot be used as a statement"
-                                ),
+                                message: "Expression macro used in statement position".into(),
                                 pos,
                             });
                         };
@@ -2200,14 +2310,22 @@ pub fn expand_global_expression_macros(
             if let Some(definition) = definitions.get(&name) {
                 if definition.parameters.is_some() {
                     return Err(MacroError {
-                        message: format!(
-                            "macro `{name}` is defined with parameters but referenced without arguments"
+                        message: missing_macro_arguments(
+                            &name,
+                            definition
+                                .parameters
+                                .as_deref()
+                                .expect("checked parameters"),
                         ),
                         pos,
                     });
                 }
                 return Err(MacroError {
-                    message: format!("macro `{name}` does not have a type body"),
+                    message: match &definition.body {
+                        PDefineBody::Expression(_) => "Expression macro used in type position",
+                        PDefineBody::Statement(_) => "Statement macro used in type position",
+                    }
+                    .into(),
                     pos,
                 });
             }
@@ -2217,8 +2335,12 @@ pub fn expand_global_expression_macros(
                 let name = reference.name.clone();
                 if definition.parameters.is_some() {
                     return Err(MacroError {
-                        message: format!(
-                            "macro `{name}` is defined with parameters but referenced without arguments"
+                        message: missing_macro_arguments(
+                            &name,
+                            definition
+                                .parameters
+                                .as_deref()
+                                .expect("checked parameters"),
                         ),
                         pos,
                     });
@@ -2312,8 +2434,9 @@ pub fn expand_global_expression_macros(
                     match definitions.get(&name) {
                         Some(def) if def.parameters.is_some() => {
                             return Err(MacroError {
-                                message: format!(
-                                    "macro `{name}` is defined with parameters but referenced without arguments"
+                                message: missing_macro_arguments(
+                                    &name,
+                                    def.parameters.as_deref().expect("checked parameters"),
                                 ),
                                 pos,
                             });
@@ -2337,14 +2460,14 @@ pub fn expand_global_expression_macros(
             let params = def.parameters.as_deref().unwrap_or_default();
             if params.len() != args.len() {
                 return Err(MacroError {
-                    message: format!("wrong number of arguments to macro `{name}`"),
+                    message: "Number of macro arguments does not match".into(),
                     pos,
                 });
             }
             let replacements = map_parameters_to_arguments(params, &args);
             let PDefineBody::Expression(body) = &def.body else {
                 return Err(MacroError {
-                    message: format!("statement macro `{name}` cannot be used as an expression"),
+                    message: "Statement macro used in expression position".into(),
                     pos,
                 });
             };

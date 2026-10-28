@@ -145,9 +145,12 @@ and alternate SIF configurations retain explicit unsupported boundaries.
 Frontend parsing now retains sibling import failures, macro name/proof-script
 reports and warnings in source order, and uses source-aware node rendering for
 consistency diagnostics. Macro copying also handles versioned identifiers and
-already-expanded sequence products. All 276 Silver unit tests and four independent
-CLI import/macro cases pass. Macro recovery across imported programs and exact
-diagnostic compatibility still require completion.
+already-expanded sequence products. Imported macro failures are caught per program
+so sibling reports survive; definition/call spans and argument/body-kind messages
+match the checked Scala fixtures. `elseif` chains now translate to nested conditionals.
+All 283 Silver unit tests and ten independent CLI cases pass. Full diagnostic
+compatibility remains incomplete; failed macro expansion can leave transient parse
+nodes partially rewritten, but those programs are rejected before analysis.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and

@@ -1427,40 +1427,7 @@ impl ExpressionParser<'_> {
                         init,
                     }
                 }
-                PKw::If => {
-                    let cond = self.parenthesized_expression()?;
-                    let thn = self
-                        .statement_block()?
-                        .ok_or_else(|| self.error("expected if body"))?;
-                    self.trivia()?;
-                    let at = self.cursor;
-                    let els = if self.source[at..].starts_with("else")
-                        && self.identifier_end(at) == at + 4
-                    {
-                        self.cursor += 4;
-                        let else_token = PReserved::new(PKw::Else, self.span(at, self.cursor));
-                        let body = self
-                            .statement_block()?
-                            .ok_or_else(|| self.error("expected else body"))?;
-                        Some(PStmtHandle::new(
-                            PStatement {
-                                kind: PStatementKind::Else {
-                                    keyword: else_token,
-                                    els: body,
-                                },
-                            },
-                            self.span(at, self.cursor),
-                        ))
-                    } else {
-                        None
-                    };
-                    PStatementKind::If {
-                        keyword: token,
-                        cond,
-                        thn,
-                        els,
-                    }
-                }
+                PKw::If => self.if_statement(token)?,
                 PKw::While => {
                     let cond = self.parenthesized_expression()?;
                     let invs = self.specifications("invariant", PKw::Invariant)?;
@@ -2175,11 +2142,74 @@ impl ExpressionParser<'_> {
                 return Err(self.error(format!("declaration form '{name}' is not yet implemented")));
             }
         };
+        // Parsing an expression may look through trailing trivia while searching
+        // for an operator; the source Define position ends at its body itself.
+        let end = match &kind {
+            PMemberKind::Define { body, .. } => match body.body() {
+                super::parse_ast::PDefineBody::Expression(exp) => exp
+                    .node()
+                    .read()
+                    .expect("poisoned parse node")
+                    .pos
+                    .1
+                    .clone(),
+                super::parse_ast::PDefineBody::Statement(stmt) => stmt
+                    .node()
+                    .read()
+                    .expect("poisoned parse node")
+                    .pos
+                    .1
+                    .clone(),
+            },
+            _ => self.position(self.cursor),
+        };
         Ok(PMemberHandle::new(
             PMember::new(annotations, kind),
-            self.span(start, self.cursor),
+            (self.position(start), end),
         ))
     }
+    /// Parse the source `if` / `elseif` continuation chain, retaining each keyword.
+    fn if_statement(&mut self, keyword: PReserved<PKw>) -> Result<PStatementKind, SyntaxError> {
+        let cond = self.parenthesized_expression()?;
+        let thn = self
+            .statement_block()?
+            .ok_or_else(|| self.error("expected if body"))?;
+        self.trivia()?;
+        let at = self.cursor;
+        let els = if self.source[at..].starts_with("elseif") && self.identifier_end(at) == at + 6 {
+            self.cursor += 6;
+            let token = PReserved::new(PKw::Elseif, self.span(at, self.cursor));
+            let kind = self.if_statement(token)?;
+            Some(PStmtHandle::new(
+                PStatement { kind },
+                self.span(at, self.cursor),
+            ))
+        } else if self.source[at..].starts_with("else") && self.identifier_end(at) == at + 4 {
+            self.cursor += 4;
+            let token = PReserved::new(PKw::Else, self.span(at, self.cursor));
+            let body = self
+                .statement_block()?
+                .ok_or_else(|| self.error("expected else body"))?;
+            Some(PStmtHandle::new(
+                PStatement {
+                    kind: PStatementKind::Else {
+                        keyword: token,
+                        els: body,
+                    },
+                },
+                self.span(at, self.cursor),
+            ))
+        } else {
+            None
+        };
+        Ok(PStatementKind::If {
+            keyword,
+            cond,
+            thn,
+            els,
+        })
+    }
+
     fn typ(&mut self) -> Result<PTypeHandle, SyntaxError> {
         self.trivia()?;
         let start = self.cursor;
