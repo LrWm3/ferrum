@@ -31,8 +31,8 @@
 //! tests before any correction.
 //!
 //! Status: partial; whole-program lowering and all source axiom families are implemented.
-//! Scoped-name collection and typed plugin lifecycle are wired; source parsing and
-//! pre-resolution remain pending. Unsupported extension reconstruction fails explicitly.
+//! The plugin supplies scoped names and invokes encoding before verification. ADT parsing and
+//! pre-resolution rewriting remain pending; unsupported extension products fail explicitly.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -53,7 +53,7 @@ use crate::plugin::standard::adt::adt_ast_extension::{
 use crate::verifier::verification_result::DiagnosticError;
 use std::collections::{HashMap, HashSet};
 
-/// Generates the ordinary domain representation and lowers typed ADT programs.
+/// Generates domains and rewrites ADT declarations, applications and types throughout a program.
 pub struct AdtEncoder {
     pub names: AdtNameManager,
     tags: HashMap<String, HashMap<String, i32>>,

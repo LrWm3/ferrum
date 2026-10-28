@@ -257,6 +257,13 @@ impl PIdnRef {
 
 /// Typed node families will be extended with the remaining source variants as they are ported.
 #[derive(Clone, Debug)]
+pub struct PDelimitedNewlineParts {
+    pub first: Vec<PNodeHandle>,
+    pub inner: Vec<(Vec<PNodeHandle>, Vec<PNodeHandle>)>,
+    pub end: Vec<PNodeHandle>,
+}
+
+#[derive(Clone, Debug)]
 pub enum PNodeKind {
     IdnDef(PIdnDef),
     IdnRef(PIdnRef),
@@ -271,6 +278,8 @@ pub enum PNodeKind {
     },
     Delimited {
         children: Vec<PNodeHandle>,
+        /// Original ND delimiters require linebreaks between logical items.
+        newline_parts: Option<PDelimitedNewlineParts>,
     },
     PairArgument {
         children: Vec<PNodeHandle>,
@@ -1848,7 +1857,7 @@ pub fn subnodes(node: &PNodeHandle) -> Result<Vec<PNodeHandle>, ChildrenNotPorte
             right,
         ]),
         Grouped { children }
-        | Delimited { children }
+        | Delimited { children, .. }
         | PairArgument { children }
         | MaybePairArgument { children }
         | StringLiteral { children }

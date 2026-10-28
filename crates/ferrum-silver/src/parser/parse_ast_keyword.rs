@@ -41,6 +41,10 @@ pub type Span = (Position, Position);
 /// Source product fields expose their actual parse-node handles in traversal order.
 pub trait PGraphElement {
     fn graph_nodes(&self) -> Vec<super::parse_ast::PNodeHandle>;
+    /// True only for the source ND delimiter wrapper.
+    fn is_newline_delimiter(&self) -> bool {
+        false
+    }
 }
 impl<T: PGraphElement> PGraphElement for Option<T> {
     fn graph_nodes(&self) -> Vec<super::parse_ast::PNodeHandle> {
@@ -338,14 +342,33 @@ impl<T, D> PDelimited<T, D> {
         T: PGraphElement,
         D: PGraphElement,
     {
-        let mut children = first.graph_nodes();
-        for (delimiter, item) in &inner {
-            children.extend(delimiter.graph_nodes());
-            children.extend(item.graph_nodes());
+        let first_nodes = first.graph_nodes();
+        let inner_nodes = inner
+            .iter()
+            .map(|(delimiter, item)| (delimiter.graph_nodes(), item.graph_nodes()))
+            .collect::<Vec<_>>();
+        let end_nodes = end.graph_nodes();
+        let newline_delimiters = inner
+            .first()
+            .map(|(delimiter, _)| delimiter.is_newline_delimiter())
+            .or_else(|| end.as_ref().map(PGraphElement::is_newline_delimiter))
+            .unwrap_or(false);
+        let newline_parts = newline_delimiters.then(|| super::parse_ast::PDelimitedNewlineParts {
+            first: first_nodes.clone(),
+            inner: inner_nodes.clone(),
+            end: end_nodes.clone(),
+        });
+        let mut children = first_nodes;
+        for (delimiter, item) in inner_nodes {
+            children.extend(delimiter);
+            children.extend(item);
         }
-        children.extend(end.graph_nodes());
+        children.extend(end_nodes);
         let node = super::parse_ast::PNode::new(
-            super::parse_ast::PNodeKind::Delimited { children },
+            super::parse_ast::PNodeKind::Delimited {
+                children,
+                newline_parts,
+            },
             pos.clone(),
         );
         Self {
@@ -452,6 +475,9 @@ pub struct ND<T>(pub T);
 impl<T: PGraphElement> PGraphElement for ND<T> {
     fn graph_nodes(&self) -> Vec<super::parse_ast::PNodeHandle> {
         self.0.graph_nodes()
+    }
+    fn is_newline_delimiter(&self) -> bool {
+        true
     }
 }
 

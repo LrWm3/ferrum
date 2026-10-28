@@ -371,20 +371,21 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ParseAst.scala"
 destination = "crates/ferrum-silver/src/parser/parse_ast.rs"
 status = "skeleton"
-remaining = ["Typed statement-block registration and checked try-block translation exist; full parser coverage, extension reconstruction and backend integration remain."]
+remaining = ["Typed parse records and logical ND delimiter metadata exist; full identity/mutation/rewriter and grammar integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ParseAstKeyword.scala"
 destination = "crates/ferrum-silver/src/parser/parse_ast_keyword.rs"
 status = "skeleton"
-remaining = ["Core program grammar, recursive imports and non-generic domain calls exist; macros, generic/interpreted domains, full extension grammar, recovery and complete semantic checks remain."]
+remaining = ["Source keywords and logical delimiter groups exist; complete parser and formatting integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ReformatPrettyPrinter.scala"
 destination = "crates/ferrum-silver/src/parser/reformat_pretty_printer.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source trivia, UTF-16 offsets and logical delimiters implemented; most concrete parse-node rules and exact native pretty layout remain."]
 
 [[modules]]
 repository = "silver"
@@ -474,7 +475,8 @@ remaining = ["Typed ADT declarations, applications and name allocation exist; fu
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/adt/AdtPASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/adt/adt_past_extension.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed ADT parse records, resolution, translation and inference substitutions exist; grammar/name analysis, punctuation products and concrete ADT call inference/translation remain."]
 
 [[modules]]
 repository = "silver"
@@ -718,7 +720,8 @@ remaining = ["Typed symbols and definitions exist; source AST entity printer rem
 repository = "silver"
 upstream = "src/main/scala/viper/silver/testing/BackendTypeTest.scala"
 destination = "crates/ferrum-silver/src/testing/backend_type_test.rs"
-status = "described"
+status = "skeleton"
+remaining = ["All 15 source backend-type cases and lifecycle/negative matching helpers exist; running them against a concrete native verifier awaits backend assembly."]
 
 [[modules]]
 repository = "silver"
