@@ -518,7 +518,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/arp/ARPPlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/arp/arp_plugin.rs"
 status = "skeleton"
-remaining = ["Method, loop and call read-permission lowering exists; loop-condition permissions, complete error aggregation and arbitrary extension coverage remain."]
+remaining = ["Source ARP transformations traverse typed extension statements and expressions. ARP call_rd declarations inside opaque TryBlock CFG nodes retain the upstream missing-store scope limitation; broader extension/runtime compatibility remains incomplete."]
 
 [[modules]]
 repository = "silver"

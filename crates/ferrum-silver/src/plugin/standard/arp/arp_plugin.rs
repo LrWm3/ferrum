@@ -706,6 +706,48 @@ fn transform_body(
                 statement.metadata().clone(),
             ))
         }
+        StmtKind::Extension(extension) => {
+            use crate::verifier::verification_result::DiagnosticError;
+            let failure = std::cell::RefCell::new(None);
+            let expressions = if let Some(rd) = rd {
+                let mapped = extension.0.map_expressions(&|root| {
+                    replace_rd_expression(root, rd).map_err(|error| {
+                        *failure.borrow_mut() = Some(error);
+                        DiagnosticError::Unsupported("ARP extension expression rewrite")
+                    })
+                });
+                if let Some(error) = failure.borrow_mut().take() {
+                    return Err(error);
+                }
+                mapped.map_err(|_| {
+                    ArpError::Unsupported("ARP statement extension expression traversal")
+                })?
+            } else {
+                extension.clone()
+            };
+            if let Some(error) = failure.borrow_mut().take() {
+                return Err(error);
+            }
+            let names = std::cell::RefCell::new(names);
+            let mapped = expressions.0.map_statements(&|child| {
+                transform_body(child, rd, &mut names.borrow_mut(), program, params).map_err(
+                    |error| {
+                        *failure.borrow_mut() = Some(error);
+                        DiagnosticError::Unsupported("ARP extension statement rewrite")
+                    },
+                )
+            });
+            if let Some(error) = failure.into_inner() {
+                return Err(error);
+            }
+            let mapped = mapped
+                .map_err(|_| ArpError::Unsupported("ARP statement extension traversal"))?
+                .unwrap_or(expressions);
+            Ok(Stmt::new(
+                StmtKind::Extension(mapped),
+                statement.metadata().clone(),
+            ))
+        }
         _ => {
             let Some(rd) = rd else {
                 return Ok(statement.clone());

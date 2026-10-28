@@ -158,6 +158,11 @@ match the checked Scala fixtures. `elseif` chains now translate to nested condit
 All 283 Silver unit tests and ten independent CLI cases pass. Full diagnostic
 compatibility remains incomplete; failed macro expansion can leave transient parse
 nodes partially rewritten, but those programs are rejected before analysis.
+ARP now traverses typed statement extensions, including TryBlock children.
+Focused checks preserve permission reads, TryBlock fallback and later failures.
+ARP-generated method-call locals inside TryBlock still expose the pinned source's
+CFG/executor scope gap: these programs fail with a missing store value rather than
+verify. The port retains that limitation and records the source locations.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and
