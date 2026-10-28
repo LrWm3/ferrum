@@ -190,13 +190,15 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/rewriter/Rewritable.scala"
 destination = "crates/ferrum-silver/src/ast/utility/rewriter/rewritable.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Generic product reconstruction and structural reuse exist; concrete AST/parser adapters and complete metadata reconstruction remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/rewriter/Strategy.scala"
 destination = "crates/ferrum-silver/src/ast/utility/rewriter/strategy.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Context-aware top-down/bottom-up/innermost traversal, noRec, repetition and selection exist; outermost/composition and concrete adapters remain."]
 
 [[modules]]
 repository = "silver"
@@ -711,20 +713,22 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/verifier/ModelParser.scala"
 destination = "crates/ferrum-silver/src/verifier/model_parser.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Model/value/map grammar, let substitution and merge exist; full parser backtracking audit and exact FastParse diagnostics remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/verifier/VerificationError.scala"
 destination = "crates/ferrum-silver/src/verifier/verification_error.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Legacy solver model values and normalization exist; concrete verification error/reason families and backtransformation remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/verifier/VerificationResult.scala"
 destination = "crates/ferrum-silver/src/verifier/verification_result.rs"
 status = "skeleton"
-remaining = ["Parse reports and shared mutable scope exist; verification outcomes and other error categories remain."]
+remaining = ["Verification outcomes and frontend error categories exist; executable metadata error backtransformation and exceptional stacktrace side effects remain."]
 
 [[modules]]
 repository = "silver"
