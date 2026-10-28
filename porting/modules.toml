@@ -1089,7 +1089,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/Utils.scala"
 destination = "crates/ferrum-silicon/src/utils.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Map/counter, AST construction/substitution, range membership and backend consistency helpers exist; parser type extraction, advanced triggers, sort embedding and native stack capture remain."]
 
 [[modules]]
 repository = "silicon"
