@@ -90,8 +90,15 @@ pub struct NativeOptions {
     pub report_reason_unknown: bool,
     pub report_branch_conditions: bool,
     pub alternative_function_verification_order: bool,
+    pub prover_randomize_seeds: bool,
+    seed_commands: Arc<std::sync::Mutex<Option<(Vec<String>, Vec<String>)>>>,
 }
 impl NativeOptions {
+    /// Begin a fresh solver run after all contexts from the previous run have stopped.
+    /// The coordinating owner calls this once before resetting shared worker contexts.
+    pub fn reset_seed_epoch(&self) {
+        *self.seed_commands.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
     /// Select only features for which the native execution and reporting context is connected.
     pub fn from_config(
         config: &crate::config::Config,
@@ -101,8 +108,6 @@ impl NativeOptions {
             || config.parallelize_branches
             || config.enable_simplified_unfolds
             || config.conditionalize_permissions
-            || config.prover_randomize_seeds
-            || config.report_reason_unknown
             || config.frontend.ide_mode_advanced
             || config.generate_block_messages
             || config.print_method_cf_gs
@@ -195,6 +200,8 @@ impl NativeOptions {
             report_reason_unknown: config.report_reason_unknown,
             report_branch_conditions: config.enable_branchcondition_reporting,
             alternative_function_verification_order: config.alternative_function_verification_order,
+            prover_randomize_seeds: config.prover_randomize_seeds,
+            seed_commands: Arc::new(std::sync::Mutex::new(None)),
         })
     }
 }
@@ -347,6 +354,43 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
                 .prover
                 .emit_settings(&settings)
                 .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+            self.checkpoint()?;
+            if self.options.prover_randomize_seeds {
+                use std::hash::{BuildHasher, Hasher};
+                let keys = self.base.decider.prover.randomize_seeds_options().to_vec();
+                let seeds = {
+                    let mut shared = self
+                        .options
+                        .seed_commands
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    if let Some((existing_keys, commands)) = shared.as_ref() {
+                        if existing_keys != &keys {
+                            return Err(NativeError::Unsupported(
+                                "different solver profiles in one seed epoch",
+                            ));
+                        }
+                        commands.clone()
+                    } else {
+                        let commands = keys
+                            .iter()
+                            .map(|key| {
+                                let mut random =
+                                    std::collections::hash_map::RandomState::new().build_hasher();
+                                random.write(key.as_bytes());
+                                format!("(set-option :{key} {})", random.finish() % 10_000)
+                            })
+                            .collect::<Vec<_>>();
+                        *shared = Some((keys, commands.clone()));
+                        commands
+                    }
+                };
+                self.base
+                    .decider
+                    .prover
+                    .emit_settings(&seeds)
+                    .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+            }
             self.checkpoint()?;
             if !self.config_options.is_empty() {
                 self.base

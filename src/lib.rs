@@ -497,11 +497,7 @@ fn make_api_prover(
         native_z3::{LinkedProverOptions, LinkedZ3, LinkedZ3Prover},
         z3_prover_api::ApiTimeoutSettings,
     };
-    if config.output_prover_log() {
-        return Err(FerrumError::Configuration(
-            "Z3-API prover logging is not yet connected".into(),
-        ));
-    }
+    // Pinned Z3ProverAPI intentionally ignores the stdio transcript options.
     let version = LinkedZ3::library_version();
     if version != (4, 16, 0, 0) {
         return Err(FerrumError::Configuration(format!(

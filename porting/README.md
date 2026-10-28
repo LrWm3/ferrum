@@ -89,8 +89,16 @@ verification order are connected. Twenty direct Session model cases and seventy
 CLI cases pass per transport, including one/two-worker value checks; all fifteen
 permanent native CLI regressions pass on both transports. A reproduced linked-Z3
 fractional-function model crash is fixed by retaining interpretation/entry handles.
-Counterexamples still have explicit unsupported model/heap forms; debugger and
-unknown-reason options require further integration.
+Counterexamples still have explicit unsupported model/heap forms; debugger profiles
+require further integration. `reportReasonUnknown` now preserves the source
+distinction between an absent reason and a recorded solver reason, including
+literal `null` after soft assertions. `proverRandomizeSeeds` emits one shared seed
+vector per stdio run; the API route keeps the source per-context randomization.
+Thirty-six one/two-worker CLI checks cover assertion modes, counterexamples, seeds
+and API log options; the reason text also matches the pinned Scala reference.
+Low-level owners reusing NativeOptions must call `reset_seed_epoch` once after
+all old workers stop and before starting the next shared run. Session does this
+by constructing fresh options.
 
 The opt-in SIF plugin now connects paired domain/permission values, relational
 predicate helpers, optimized loops and AST return/termination control. Source
@@ -194,7 +202,8 @@ This archive is platform specific; Ferrum does not download or install it.
 Both assertion modes, typed startup solver parameters and invalid-trigger retry are
 connected. Documented Z3 context keys can be supplied with `--proverArgs key=value`;
 unsupported context keys return errors. Source solver warnings reach the CLI.
-Logging and richer runtime reporting remain unfinished. Dynamic options remain
+The API route ignores stdio transcript-log options, matching pinned Z3ProverAPI;
+remaining runtime reporting is incomplete. Dynamic options remain
 unsupported, as in the source API backend. A non-reference-counted Z3
 context retains AST allocations until the context and its last handle are dropped;
 long-lived API contexts can therefore retain more memory than the Java binding.
