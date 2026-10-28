@@ -642,3 +642,78 @@ pub fn magic_wand_structure(
     }
     transform(e, &holes, &HashMap::new(), &unique, unique_names)
 }
+
+/// Failure of source well-definedness analysis, including unresolved function references.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WellDefinednessError {
+    Traversal(super::nodes::TraversalError),
+    MissingFunction(String),
+}
+/// Source `Expressions.isKnownWellDefined`. Only direct expression children are
+/// followed; trigger and declaration nodes are not implicitly traversed.
+pub fn is_known_well_defined(
+    e: &Exp,
+    program: Option<&crate::ast::program::Program>,
+) -> Result<bool, WellDefinednessError> {
+    use super::nodes::{Node, subnodes};
+    use crate::ast::expression::ExpKind;
+    match e.kind() {
+        ExpKind::FieldAccessPredicate(loc, permission) => {
+            if !is_known_well_defined(&loc.receiver, program)? {
+                return Ok(false);
+            }
+            return match permission {
+                Some(p) => is_known_well_defined(p, program),
+                None => Ok(true),
+            };
+        }
+        ExpKind::FieldAccess(_)
+        | ExpKind::Unfolding(..)
+        | ExpKind::Applying(..)
+        | ExpKind::Asserting(..)
+        | ExpKind::SeqIndex(..)
+        | ExpKind::MapLookup(..)
+        | ExpKind::Div(..)
+        | ExpKind::Mod(..) => return Ok(false),
+        ExpKind::FuncApp(name, args) => {
+            let Some(program) = program else {
+                return Ok(false);
+            };
+            let function = program
+                .find_function_optionally(name)
+                .ok_or_else(|| WellDefinednessError::MissingFunction(name.clone()))?;
+            if !function.pres.is_empty() {
+                return Ok(false);
+            }
+            for arg in args {
+                if !is_known_well_defined(arg, Some(program))? {
+                    return Ok(false);
+                }
+            }
+            return Ok(true);
+        }
+        _ => {}
+    }
+    for node in subnodes(&Node::Exp(e.clone())).map_err(WellDefinednessError::Traversal)? {
+        let exp = match node {
+            Node::Exp(e) => Some(e),
+            Node::LocalVar(v) => Some(Exp::new(ExpKind::LocalVar(v.clone()), v.meta.clone())),
+            Node::FieldAccess(v) => Some(Exp::new(ExpKind::FieldAccess(v.clone()), v.meta.clone())),
+            Node::PredicateAccess(v) => Some(Exp::new(
+                ExpKind::PredicateAccess(v.clone()),
+                v.meta.clone(),
+            )),
+            Node::PredicateAccessPredicate(v) => Some(Exp::new(
+                ExpKind::PredicateAccessPredicate(v.clone()),
+                v.meta.clone(),
+            )),
+            _ => None,
+        };
+        if let Some(exp) = exp {
+            if !is_known_well_defined(&exp, program)? {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
+}

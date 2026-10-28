@@ -46,7 +46,8 @@ status = "ported"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/pretty/PrettyPrinter.scala"
 destination = "crates/ferrum-silver/src/ast/pretty/pretty_printer.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Document primitives, type output and common expression output exist; complete member/statement dispatch, annotations and source layout remain."]
 
 [[modules]]
 repository = "silver"
@@ -73,7 +74,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Expressions.scala"
 destination = "crates/ferrum-silver/src/ast/utility/expressions.rs"
 status = "skeleton"
-remaining = ["Projection, variable queries and wand canonicalization exist; remaining expression helpers and extension integration need source audit."]
+remaining = ["Core queries, projections and wand canonicalization exist; complete dependency/proof-obligation helpers and extension reconstruction remain."]
 
 [[modules]]
 repository = "silver"
@@ -144,7 +145,8 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Simplifier.scala"
 destination = "crates/ferrum-silver/src/ast/utility/simplifier.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Expression rules and per-node cache exist; statement dispatch, extension reconstruction and integrated well-definedness analysis remain."]
 
 [[modules]]
 repository = "silver"
@@ -157,7 +159,8 @@ remaining = ["Statement queries and expression replacement exist; general recons
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Triggers.scala"
 destination = "crates/ferrum-silver/src/ast/utility/triggers.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Arithmetic adapter exists; Silver trigger discovery, axiom adapter and extension classification remain."]
 
 [[modules]]
 repository = "silver"
@@ -719,7 +722,8 @@ remaining = ["Opt-in payload/metrics and filtered arguments exist; native HTTP/J
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/Sanitizer.scala"
 destination = "crates/ferrum-silver/src/utility/sanitizer.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Capture-avoiding expression replacement exists; parse-program scope sanitation and general reconstruction remain."]
 
 [[modules]]
 repository = "silver"
