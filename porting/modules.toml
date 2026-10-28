@@ -1257,7 +1257,8 @@ remaining = ["Native record/config data and source rendering contracts exist; co
 repository = "silicon"
 upstream = "src/main/scala/logger/StateReporting.scala"
 destination = "crates/ferrum-silicon/src/logger/state_reporting.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Branch/scope progress tracking, stall snapshots and ordered polling exist; native fixed-delay scheduler and member logger hooks remain."]
 
 [[modules]]
 repository = "silicon"
