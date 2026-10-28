@@ -9,12 +9,15 @@ and will continue to use an existing SMT solver, initially Z3.
 
 The implementation sequence is:
 
-1. Inventory the upstream code and establish Rust types and crate boundaries.
-2. Translate each component into Rust, using compilation and structural checks
+1. Inventory the upstream code and map each source file to its Rust destination.
+2. Read each source file and write a comment-only implementation brief in the
+   corresponding `.rs` file, with shared design decisions recorded separately.
+3. Activate the Cargo workspace and establish the Rust types and interfaces.
+4. Translate each component into Rust, using compilation and structural checks
    as the main feedback loop.
-3. Connect the translated components into the complete verification pipeline.
-4. Run a broader compatibility, correctness, and performance testing pass.
-5. Optimize or reorganize only after the port has a useful compatibility baseline.
+5. Connect the translated components into the complete verification pipeline.
+6. Run a broader compatibility, correctness, and performance testing pass.
+7. Optimize or reorganize only after the port has a useful compatibility baseline.
 
 This is a component-by-component port of the existing implementation. The first
 implementation should retain its rules, representations, and control flow rather
@@ -68,7 +71,10 @@ Start with three packages, following the existing major dependency boundary:
 | `ferrum-silicon` | Library | Port of Silicon, including symbolic state, rules, solver interaction, and worker management |
 | `ferrum` | Library and binary | Small public facade, configuration/CLI entry point, and pipeline assembly |
 
-`ferrum` is the root Cargo package and the workspace root. The initial layout is:
+`ferrum` will be the root Cargo package and the workspace root. The intended
+layout below includes manifests and assembly files added when implementation
+starts; the preceding description stage creates comment-only Rust files and
+porting documents without requiring a compiling workspace.
 
 ```text
 Cargo.toml
@@ -93,6 +99,8 @@ crates/
       reporter/
       logger/
       utility/
+    tests/
+      upstream/
   ferrum-silicon/
     Cargo.toml
     src/
@@ -108,11 +116,15 @@ crates/
       debugger/
       extensions/
       common/
+      annotation/
       config.rs
     resources/
+    tests/
+      upstream/
 porting/
   sources.toml
   modules.toml
+  conventions.md
   differences.md
 tools/
 tests/
@@ -201,32 +213,177 @@ reimplement Scala's standard library or reproduce the JVM's object model.
 
 ## Port inventory and completion tracking
 
-Create `porting/modules.toml` when implementation starts. Each source component
+Create `porting/modules.toml` during the description stage. Each source component
 gets an entry containing:
 
 - Upstream repository, revision, path, and relevant symbols.
 - Destination crate/module and its prerequisites.
-- Status: `mapped`, `skeleton`, `ported`, `wired`, or `validated`.
+- Status: `mapped`, `described`, `skeleton`, `ported`, `wired`, or `validated`.
 - Any explicit exclusions, remaining code paths, and translation differences.
 - The checks performed at the current stage.
 
-Use a file-level entry by default; use symbol-level entries for large files such
-as `Terms.scala`, `Evaluator.scala`, and `Executor.scala`. Track resource files and
-configuration alternatives as well as the default execution path.
+Use a file-level entry for every source file. Add symbol-level detail within that
+entry for large files such as `Terms.scala`, `Evaluator.scala`, and
+`Executor.scala`. Track resource files and configuration alternatives as well as
+the default execution path.
+
+`mapped` means a destination or explicit disposition is recorded. `described`
+means the source and its immediate collaborators have been read and a specific
+implementation brief has been written in the destination file. A generated
+filename or generic comment alone does not qualify. `skeleton` means Rust types
+and interfaces have begun to take shape during implementation.
 
 `ported` means the implementation has been translated and compiles. `wired` means
 the real caller reaches that implementation. `validated` is reserved for the
 broader comparison pass. Neither a compiling skeleton nor a CLI that starts is
 evidence that a verification feature is complete.
 
-Temporary placeholders must produce an explicit internal port-incomplete or
-unsupported result. They must never return success, discard a proof obligation,
-or replace a missing rule with an assumption. Keep them listed in the inventory
-and make their presence visible when assembling the pipeline.
+During implementation, temporary executable placeholders must produce an explicit
+internal port-incomplete or unsupported result. They must never return success,
+discard a proof obligation, or replace a missing rule with an assumption. Keep
+them listed in the inventory and make their presence visible when assembling
+the pipeline.
 
 Account for every source file. For non-runtime files such as `.bak` files or
 obsolete build scaffolding, record why a Rust implementation is unnecessary.
 This avoids silently shrinking the project to the easiest features.
+
+## Comment-only source-file descriptions
+
+Before implementing the workspace, create one comment-only Rust file for each
+upstream Scala source file being ported. Put the implementation brief in the
+file that will eventually contain its code. This makes the planned port browsable
+in its intended directory structure and keeps the source reference beside the
+future implementation.
+
+### Mapping rules
+
+- Preserve the upstream directory structure within the relevant crate and convert
+  filenames to `snake_case`. For Silver, strip the
+  `src/main/scala/viper/silver/` prefix; for Silicon's main sources, strip
+  `src/main/scala/`.
+- Keep all types from one Scala file in one Rust destination initially. Large
+  files get a more detailed outline of their symbol groups, rather than an early
+  architectural split.
+- Map `package.scala` to `package.rs`. Reserve `mod.rs` and `lib.rs` for Rust
+  module assembly; later re-export package-level aliases/helpers as appropriate.
+- Map Silicon's separate `common` sources beneath
+  `crates/ferrum-silicon/src/common/`. Give annotation sources explicit destinations,
+  initially beneath `src/annotation/`, and describe any eventual movement into
+  native term factories or macro machinery.
+- Map Scala test sources to comment-only future test modules under the relevant
+  crate's `tests/upstream/` directory, retaining their relative directory structure.
+  These briefs describe the harness and cases to port during the later testing
+  phase; they do not introduce executable tests now.
+- Inventory `.vpr` fixtures, `.smt2` resources, notices, and other non-Scala files
+  with their intended copy/reuse/adaptation disposition. Keep their formats;
+  do not create artificial Rust modules for resource or fixture contents.
+- Record obsolete files and other exclusions with reasons. Inventory the canonical
+  Silver checkout once; Silicon's matching Silver submodule is the same source,
+  not a second set of Rust destinations.
+- Detect filename collisions explicitly, especially after acronym conversion or
+  combining source roots. Record any necessary naming exception in the inventory.
+
+Examples:
+
+| Upstream file | Initial Ferrum destination |
+| --- | --- |
+| Silver `ast/Expression.scala` | `crates/ferrum-silver/src/ast/expression.rs` |
+| Silicon `rules/Consumer.scala` | `crates/ferrum-silicon/src/rules/consumer.rs` |
+| Silicon `state/State.scala` | `crates/ferrum-silicon/src/state/state.rs` |
+| Silicon `state/Terms.scala` | `crates/ferrum-silicon/src/state/terms.rs` |
+| Silicon `state/package.scala` | `crates/ferrum-silicon/src/state/package.rs` |
+
+### Required contents of each brief
+
+Use one top-level `//!` module documentation block. At this stage, each `.rs`
+file contains only that block and whitespace: no imports, declarations, function
+bodies, `mod` statements, or `todo!()` placeholders. If assembly files are created
+for navigation, they are comment-only too and are identified as Ferrum scaffolding
+in the inventory.
+
+Each brief must contain:
+
+1. **Provenance:** upstream repository/path and a GitHub `blob/<full SHA>/...` link
+   pinned to `sources.toml`. Local sibling paths can be additional conveniences,
+   but must not be the only reference.
+2. **Purpose:** the responsibility of this file in the existing pipeline.
+3. **Planned Rust structure:** actual source types/entry points and their intended
+   Rust counterparts, grouping/order of helpers, and relevant state ownership.
+4. **Behavior to preserve:** file-specific control flow, ordering, error handling,
+   state updates, caching/equality rules, or configuration alternatives.
+5. **Integration:** callers, called components, and shared data/interfaces; name
+   their intended Rust modules so neighboring briefs can be reconciled.
+6. **Rust adaptations:** necessary language/runtime substitutions, linked to shared
+   conventions instead of independently inventing incompatible designs.
+7. **Open decisions:** unresolved interface or ownership choices, with the related
+   files that need to agree. Proposed signatures are provisional.
+8. **Status:** description only, with implementation not started.
+
+Read the actual source and its immediate collaborators before writing the brief.
+The amount of detail should follow the file's complexity. A small utility may need
+only a short block; a large rule engine should enumerate its major dispatch and
+helper groups. Do not fill the tree with identical boilerplate descriptions.
+
+For example, the initial `rules/consumer.rs` brief would look like:
+
+```rust
+//! Port plan: assertion consumption
+//!
+//! Upstream:
+//! https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/rules/Consumer.scala
+//!
+//! Purpose:
+//! Consume assertions and required permissions from symbolic state, returning
+//! the resulting state and, when requested, a heap snapshot.
+//!
+//! Planned Rust structure:
+//! - Represent the ConsumptionRules interface and consumer implementation.
+//! - Preserve consume and consumes as the main entry points.
+//! - Group recursive, conjunct, and wrapped-consumption helpers as upstream.
+//! - Use shared State, Heap, Term, and verification-result types.
+//! - Pass verifier context explicitly.
+//!
+//! Behavior to preserve:
+//! - Select the assertion's exhale interpretation before consumption.
+//! - Preserve conjunct order and per-assertion error attribution.
+//! - Restore partially-consumed-heap state at the corresponding boundary.
+//! - Finalize snapshots before invoking the continuation.
+//! - Preserve failure-driven consolidation and retry behavior.
+//!
+//! Integration:
+//! - Calls evaluator, brancher, chunk/permission helpers, and snapshot support.
+//! - Agree with Producer on continuation and snapshot conventions.
+//!
+//! Rust adaptations:
+//! - Follow porting/conventions.md for ownership and continuations.
+//! - Keep branch state independent when translating Scala state copies.
+//!
+//! Open decisions:
+//! - Exact continuation representation; reconcile with producer and brancher.
+//!
+//! Status: description only; implementation has not started.
+```
+
+This illustrates the format; the actual file brief must cover the full source,
+including dispatch groups and configuration-dependent behavior found on review.
+
+### Shared conventions and revisions
+
+Use `porting/conventions.md` for decisions about AST handles, term identity,
+collection ordering, state cloning, continuations, verifier contexts, errors,
+and solver ownership. Distinguish settled conventions from open proposals.
+Reconcile cross-file choices there and reference them from individual briefs.
+
+The inventory owns source/destination mappings and status. The `.rs` comment owns
+the detailed local implementation outline. Shared conventions own cross-file
+design decisions; `differences.md` records departures from upstream behavior.
+Avoid maintaining competing copies of a file's full design in multiple documents.
+
+When implementation exposes friction, revise the relevant briefs and conventions.
+Moving or splitting a file is allowed: update its inventory mapping, retain the
+upstream reference, and update affected neighbors. The initial correspondence is
+a starting structure, not a requirement to preserve awkward boundaries forever.
 
 ## Component map
 
@@ -256,12 +413,34 @@ Paths in the Silver rows are relative to
 
 ## Implementation sequence
 
-### 1. Freeze references and create the workspace
+### 0. Describe the source tree before implementation
 
-Create the workspace manifests, toolchain pin, source manifest, port inventory,
-and minimal module trees. Establish diagnostic/status types and the public
-verification interfaces before filling in their behavior. Add resource-loading
-locations and preserve upstream attribution.
+Complete the description stage in three passes:
+
+1. **Inventory:** pin references; enumerate every source, test, and resource;
+   record destinations/dispositions and naming exceptions.
+2. **Describe:** read each source and its immediate collaborators; create the
+   corresponding comment-only `.rs` brief; record shared conventions and open
+   decisions; advance complete descriptions to `described`.
+3. **Reconcile:** check coverage, collisions, pinned source links, and consistency
+   between neighboring interface/ownership proposals. Review descriptions for
+   actual file-specific content rather than just presence of template headings.
+
+Commit and push logical groups of descriptions as they are completed. Automated
+inventory generation is useful, but generated entries remain `mapped` until their
+source-specific descriptions have been written and reviewed.
+
+**Completion:** every in-scope source has a described Rust destination, every
+other file has an explicit disposition, and the description audit passes. The
+Rust files still contain comments only; workspace compilation is not the check
+for this milestone.
+
+### 1. Activate the workspace and establish interfaces
+
+Create the workspace manifests, toolchain pin, module declarations, and resource
+loading locations using the described tree. Establish diagnostic/status types and
+the public verification interfaces before filling in their behavior. Preserve
+upstream attribution and keep the source inventory and briefs current.
 
 Sketch the signatures connecting the Silver frontend, the Silicon verifier,
 reporters, and solver processes. Compile their real type relationships early;
@@ -413,9 +592,15 @@ backend is still available for the broader comparison pass.
 
 ## Checks during the port
 
-Keep this stage focused on implementation and integration. Do not require a new
-unit-test suite for each translated class or function, and do not repeatedly run
-the entire upstream or Prusti test suite after every logical chunk.
+During the comment-only description stage, check inventory completeness, unique
+destinations, source revision/link consistency, comment-only file contents, and
+cross-file design assumptions. Do not treat `cargo check` on empty or unregistered
+files as evidence of port completeness. The compilation loop below starts when
+the workspace and actual Rust interfaces are activated.
+
+Keep the implementation stage focused on translation and integration. Do not
+require a new unit-test suite for each translated class or function, and do not
+repeatedly run the entire upstream or Prusti test suite after every logical chunk.
 
 The normal loop is:
 
@@ -515,7 +700,8 @@ performance.
 
 | Milestone | Required evidence |
 | --- | --- |
-| M0: Inventory and workspace | Pinned sources, complete component map, compiling crate skeletons |
+| M0a: Source descriptions | Pinned sources, complete inventory/dispositions, source-specific comment-only Rust files, reconciled shared conventions |
+| M0b: Workspace activated | Cargo manifests/module declarations and initial Rust interfaces compile together |
 | M1: Silver port | Real AST/frontend/CFG/plugin implementations compile and connect through Silver interfaces |
 | M2: Silicon representations and SMT | State/term/resource interfaces compile; resources load; minimal solver protocol check succeeds |
 | M3: Silicon component port | Supporters, rule families, alternatives, reporting, and orchestration have translated implementations |
@@ -525,19 +711,24 @@ performance.
 | M7: Performance baseline | Reproducible release measurements available before optimization work |
 
 Milestones describe completion criteria rather than calendar promises. Track
-progress by mapped, ported, wired, and validated components. Revisit remaining
-effort after the Silver data model and Silicon term/state/solver interfaces have
-exposed the main language-adaptation costs.
+progress by mapped, described, skeleton, ported, wired, and validated components.
+Revisit remaining effort after the Silver data model and Silicon term/state/solver
+interfaces have exposed the main language-adaptation costs.
 
 ## Commit and push workflow
 
-Follow `AGENTS.md`: commit and push completed logical chunks as implementation
-progresses. A chunk normally covers one component or a small group of mutually
-dependent components needed to keep the workspace compiling.
+Follow `AGENTS.md`: commit and push completed logical chunks during both the
+description stage and implementation. Description chunks cover related source
+files and their inventory entries. Implementation chunks normally cover one
+component or a small group of mutually dependent components needed to keep the
+workspace compiling.
 
 Use Linux-style subjects such as:
 
 ```text
+porting: Map upstream source files to Rust destinations
+silver: Describe expression and statement ports
+silicon: Describe assertion consumption and production
 workspace: Add Silver and Silicon crates
 silver: Port source positions and type nodes
 silver: Port CFG dominator computation
