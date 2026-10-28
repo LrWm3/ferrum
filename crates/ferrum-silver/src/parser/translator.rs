@@ -116,10 +116,76 @@ pub fn translate_type(typ: &PTypeHandle) -> Result<Type, TranslationError> {
         ),
         PTypeKind::BoolImpure | PTypeKind::BoolPredicate => Type::Bool,
         PTypeKind::BoolWand => Type::Wand,
-        PTypeKind::Domain { .. } => {
-            return Err(TranslationError::Unsupported(
-                "domain signature translation",
-            ));
+        PTypeKind::Domain { domain, args, kind } => {
+            use super::parse_ast::{PDomainTypeKind, PIdnRef};
+            use crate::ast::r#type::{DomainType, TypeVar};
+            let name = match &domain.read().expect("poisoned parse node").kind {
+                PNodeKind::IdnRef(reference) => reference.name.clone(),
+                _ => return Err(TranslationError::InvalidType),
+            };
+            match kind {
+                PDomainTypeKind::TypeVar => Type::Var(TypeVar::new(name)),
+                PDomainTypeKind::Domain => {
+                    let declarations = PIdnRef::decls(&domain, |node| {
+                        matches!(
+                            &node.read().expect("poisoned parse node").kind,
+                            PNodeKind::Member(super::parse_ast::PMember {
+                                kind: super::parse_ast::PMemberKind::Domain { .. },
+                                ..
+                            })
+                        )
+                    });
+                    let Some(declaration) = declarations.first() else {
+                        return Err(TranslationError::InvalidType);
+                    };
+                    if declarations.len() != 1 {
+                        return Err(TranslationError::InvalidType);
+                    }
+                    let params = match &declaration.read().expect("poisoned parse node").kind {
+                        PNodeKind::Member(super::parse_ast::PMember {
+                            kind: super::parse_ast::PMemberKind::Domain { type_vars, .. },
+                            ..
+                        }) => type_vars
+                            .as_ref()
+                            .map(|v| {
+                                v.inner()
+                                    .to_seq()
+                                    .into_iter()
+                                    .map(|node| {
+                                        match &node.read().expect("poisoned parse node").kind {
+                                            PNodeKind::TypeVarDecl { children } => children
+                                                .first()
+                                                .ok_or(TranslationError::InvalidType)
+                                                .and_then(declaration_name)
+                                                .map(TypeVar::new),
+                                            _ => Err(TranslationError::InvalidType),
+                                        }
+                                    })
+                                    .collect::<Result<Vec<_>, _>>()
+                            })
+                            .transpose()?
+                            .unwrap_or_default(),
+                        _ => return Err(TranslationError::InvalidType),
+                    };
+                    let actuals = args
+                        .as_ref()
+                        .map(|a| {
+                            a.inner()
+                                .to_seq()
+                                .into_iter()
+                                .map(translate_type)
+                                .collect::<Result<Vec<_>, _>>()
+                        })
+                        .transpose()?
+                        .unwrap_or_default();
+                    if params.len() != actuals.len() {
+                        return Err(TranslationError::InvalidType);
+                    }
+                    let substitution = params.iter().cloned().zip(actuals).collect();
+                    Type::Domain(DomainType::new(name, substitution, params))
+                }
+                _ => return Err(TranslationError::Unsupported("unresolved domain type")),
+            }
         }
         _ => return Err(TranslationError::InvalidType),
     })
@@ -256,7 +322,7 @@ fn translate_expression_with_fields(
             ))
         }
         PExpressionKind::Call {
-            idnref, call_args, ..
+            idnref, call_args, domain_substitution, ..
         } => {
             let declarations = PIdnRef::decls(&idnref, |_| true);
             let name = match &idnref.read().expect("poisoned parse node").kind {
@@ -297,16 +363,17 @@ fn translate_expression_with_fields(
                 let domain_name = match &owner.read().expect("poisoned parse node").kind {
                     PNodeKind::Member(member) => match &member.kind {
                         super::parse_ast::PMemberKind::Domain {
-                            idndef, type_vars, ..
-                        } if type_vars.as_ref().is_none_or(|v| v.inner().is_empty()) => {
+                            idndef, ..
+                        } => {
                             declaration_name(idndef)?
                         }
-                        _ => return Err(TranslationError::Unsupported("generic domain function")),
+                        _ => return Err(TranslationError::Unsupported("domain function owner")),
                     },
                     _ => unreachable!(),
                 };
+                let substitution = domain_substitution.ok_or(TranslationError::Unsupported("unresolved domain function substitution"))?.iter().map(|(name, typ)| Ok((crate::ast::r#type::TypeVar::new(name), translate_type(typ)?))).collect::<Result<_, TranslationError>>()?;
                 return Ok(Exp::with_extra(
-                    ExpKind::DomainFuncApp(name, args, Default::default()),
+                    ExpKind::DomainFuncApp(name, args, substitution),
                     meta,
                     crate::ast::expression::ExpExtra {
                         typ: Some(translate_type(&expression.typ)?),
@@ -1306,8 +1373,7 @@ pub fn translate_program_core(
                 interpretations,
                 members,
                 ..
-            } if type_vars.as_ref().is_none_or(|v| v.inner().is_empty())
-                && interpretations.is_none()
+            } if interpretations.is_none()
                 && members.inner().to_seq().iter().all(|m| {
                     matches!(
                         &m.node().read().expect("poisoned parse node").kind,
@@ -1405,7 +1471,26 @@ pub fn translate_program_core(
                     name: domain_name,
                     functions: domain_functions,
                     axioms,
-                    type_vars: vec![],
+                    type_vars: type_vars
+                        .as_ref()
+                        .map(|vars| {
+                            vars.inner()
+                                .to_seq()
+                                .into_iter()
+                                .map(
+                                    |node| match &node.read().expect("poisoned parse node").kind {
+                                        PNodeKind::TypeVarDecl { children } => children
+                                            .first()
+                                            .ok_or(TranslationError::InvalidType)
+                                            .and_then(declaration_name)
+                                            .map(crate::ast::r#type::TypeVar::new),
+                                        _ => Err(TranslationError::InvalidType),
+                                    },
+                                )
+                                .collect::<Result<Vec<_>, _>>()
+                        })
+                        .transpose()?
+                        .unwrap_or_default(),
                     interpretations: None,
                     meta: member_meta,
                 }));

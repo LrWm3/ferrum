@@ -169,6 +169,7 @@ pub struct SilFrontendPhases {
     pub standard_loader: Option<std::sync::Arc<dyn crate::ast::utility::file_loader::FileLoader>>,
     pub backend_type_format: Option<String>,
     pub respect_function_pre_perm_amounts: bool,
+    pub select: Option<String>,
     pub parsing_warnings: Vec<ParseReport>,
     pub typechecking_warnings: Vec<FrontendError>,
 }
@@ -183,6 +184,7 @@ impl SilFrontendPhases {
             )),
             backend_type_format: None,
             respect_function_pre_perm_amounts: false,
+            select: None,
             parsing_warnings: vec![],
             typechecking_warnings: vec![],
         }
@@ -192,6 +194,7 @@ impl SilFrontendPhases {
         config: &crate::frontend::sil_front_end_config::SilFrontendConfig,
     ) {
         self.respect_function_pre_perm_amounts = config.respect_function_pre_perm_amounts;
+        self.select = config.select.clone();
     }
     fn failure(message: String, position: Position) -> Vec<AbstractError> {
         vec![AbstractError::Frontend(FrontendError::new(
@@ -376,6 +379,12 @@ impl FrontendPhases for SilFrontendPhases {
             .plugins
             .before_method_filter(input)
             .ok_or_else(|| self.plugins.errors().to_vec())?;
+        if self.select.is_some() {
+            return Err(Self::failure(
+                "member selection requires the Silver dependency chopper".into(),
+                program.meta.position.clone(),
+            ));
+        }
         self.plugins
             .before_verify(program)
             .map_err(|e| {
@@ -412,6 +421,80 @@ impl FrontendPhases for SilFrontendPhases {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn configured_selection_cannot_silently_verify_all_members() {
+        let mut config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        config.select = Some("m".into());
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        phases.configure_consistency(&config);
+        let parsed = phases.parse("method m() {} method other() {}").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        assert!(phases.prepare_verification(program).is_err());
+    }
+    #[test]
+    fn generic_domain_signature_preserves_bound_type_variable() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("domain D[T] { function f(x: T): T }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        assert_eq!(program.domains[0].type_vars[0].name, "T");
+        assert!(
+            matches!(&program.domains[0].functions[0].typ, crate::ast::r#type::Type::Var(v) if v.name == "T")
+        );
+    }
+    #[test]
+    fn generic_domain_call_infers_type_arguments() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases
+            .parse(
+                "domain D[T] { function f(x: T): T } method m() { assert f(1) == 1 && f(true); }",
+            )
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        fn inspect(
+            node: &crate::ast::utility::nodes::Node,
+            found: &mut Vec<crate::ast::r#type::Type>,
+        ) {
+            if let crate::ast::utility::nodes::Node::Exp(exp) = node {
+                if let crate::ast::expression::ExpKind::DomainFuncApp(_, _, subst) = exp.kind() {
+                    found.push(subst[&crate::ast::r#type::TypeVar::new("T")].clone());
+                }
+            }
+            for child in crate::ast::utility::nodes::subnodes(node).unwrap() {
+                inspect(&child, found);
+            }
+        }
+        let mut types = Vec::new();
+        inspect(
+            &crate::ast::utility::nodes::Node::Program(program.clone()),
+            &mut types,
+        );
+        assert_eq!(
+            types,
+            vec![
+                crate::ast::r#type::Type::Int,
+                crate::ast::r#type::Type::Bool
+            ]
+        );
+        phases.check_consistency(program).unwrap();
+    }
+    #[test]
+    fn bundled_integer_order_import_runs_semantic_analysis() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases
+            .parse("import <decreases/int.vpr> method m() {}")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+    }
     #[test]
     fn plugin_scala_product_hashes_match_scala_2_13() {
         use crate::ast::ast::Metadata;

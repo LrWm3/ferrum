@@ -332,6 +332,7 @@ fn declaration_identifier(node: &PNodeHandle) -> Option<PNodeHandle> {
         PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function { idndef, .. }) => {
             Some(idndef.clone())
         }
+        PNodeKind::TypeVarDecl { children } => children.first().cloned(),
         PNodeKind::Statement(statement) => match &statement.kind {
             PStatementKind::Label { idndef, .. } => Some(idndef.clone()),
             _ => None,
@@ -389,8 +390,8 @@ fn visit_names(
                     messages,
                 )?,
                 PMemberKind::Fields { .. } | PMemberKind::Import { .. } => {}
-                PMemberKind::Domain { idndef, type_vars, interpretations, members, .. }
-                    if type_vars.as_ref().is_none_or(|vars| vars.inner().is_empty()) && interpretations.is_none() && members.inner().to_seq().iter().all(|m| matches!(&m.node().read().expect("poisoned parse node").kind, PNodeKind::DomainMember(super::parse_ast::PDomainMember::Axiom { .. } | super::parse_ast::PDomainMember::Function { interpretation: None, .. }))) =>
+                PMemberKind::Domain { idndef, interpretations, members, .. }
+                    if interpretations.is_none() && members.inner().to_seq().iter().all(|m| matches!(&m.node().read().expect("poisoned parse node").kind, PNodeKind::DomainMember(super::parse_ast::PDomainMember::Axiom { .. } | super::parse_ast::PDomainMember::Function { interpretation: None, .. }))) =>
                 {
                     add_named_declaration(current, node, idndef, DeclarationVisibility::Global, DeclarationUniqueness::Global, true, messages)?;
                 }
@@ -442,8 +443,11 @@ fn visit_names(
             add_named_declaration(current, node, idndef, DeclarationVisibility::Global, DeclarationUniqueness::Global, true, messages)?;
             scope = Some(DeclarationMap::new(true, false));
         },
+        PNodeKind::TypeVarDecl { children } => {
+            let idndef = children.first().ok_or(NameAnalysisError::Unsupported("type variable identifier"))?;
+            add_named_declaration(current, node, idndef, DeclarationVisibility::Member, DeclarationUniqueness::None, false, messages)?;
+        }
         PNodeKind::DomainMember(_)
-        | PNodeKind::TypeVarDecl { .. }
         | PNodeKind::DefineParam { .. }
         | PNodeKind::LetNestedScope { .. }
         | PNodeKind::Extension(_) => {
@@ -513,6 +517,28 @@ mod tests {
         assert!(!names.run(program.node()).unwrap());
         assert_eq!(names.messages.len(), 1);
         assert!(names.messages[0].label.contains("duplicate identifier `x`"));
+    }
+    #[test]
+    fn resolves_domain_type_variables_inside_domain_members() {
+        let program = parse_program("domain D[T] { function f(x: T): T }", "test.vpr").unwrap();
+        let mut names = NameAnalyser::default();
+        assert!(names.run(program.node()).unwrap());
+        let mut nodes = Vec::new();
+        collect(program.node(), &mut nodes);
+        let refs: Vec<_> = nodes
+            .into_iter()
+            .filter_map(|n| {
+                let kind = n.read().unwrap().kind.clone();
+                match kind {
+                    PNodeKind::IdnRef(r) if r.name == "T" => Some(r.declarations),
+                    _ => None,
+                }
+            })
+            .collect();
+        assert_eq!(refs.len(), 2);
+        assert!(refs.iter().all(|decls| decls.len() == 1
+            && matches!(decls[0].read().unwrap().kind, PNodeKind::TypeVarDecl { .. })));
+        assert!(names.global_definitions("T").is_empty());
     }
 }
 
@@ -810,23 +836,31 @@ pub fn check_expression(
                         )
                     })
                     .ok_or(TypeCheckError::Unsupported("domain function owner"))?;
-                    let is_generic = match &domain.read().expect("poisoned parse node").kind {
+                    let (domain_name, names) = match &domain.read().expect("poisoned parse node").kind {
                         PNodeKind::Member(PMember {
-                            kind: PMemberKind::Domain { type_vars, .. },
+                            kind: PMemberKind::Domain { idndef, type_vars, .. },
                             ..
-                        }) => type_vars.as_ref().is_some_and(|v| !v.inner().is_empty()),
-                        _ => true,
+                        }) => {
+                            let names = type_vars.as_ref().map(|v| v.inner().to_seq().into_iter().map(|node| declaration_identifier(node).map(|id| definition_name(&id)).ok_or(TypeCheckError::Unsupported("domain type variable"))).collect::<Result<Vec<_>, _>>()).transpose()?.unwrap_or_default();
+                            (definition_name(idndef), names)
+                        },
+                        _ => return Err(TypeCheckError::Unsupported("domain function owner")),
                     };
-                    if is_generic {
-                        return Err(TypeCheckError::Unsupported("generic domain function"));
+                    let renaming = super::parse_ast::fresh_type_renaming(&names, Some(&domain_name));
+                    let substitution = renaming.as_substitution();
+                    if let PNodeKind::Expression(exp) = &mut input.node().write().expect("poisoned parse node").kind {
+                        if let PExpressionKind::Call { domain_type_renaming, extra_local_type_variables, .. } = &mut exp.kind {
+                            *domain_type_renaming = Some(renaming);
+                            *extra_local_type_variables = names.into_iter().map(super::parse_ast::p_type_var).collect();
+                        }
                     }
                     (
                         args.inner()
                             .to_seq()
                             .into_iter()
-                            .map(|a| a.typ().clone())
+                            .map(|a| a.typ().substitute(&substitution))
                             .collect(),
-                        result_type,
+                        result_type.substitute(&substitution),
                         false,
                     )
                 }
@@ -1010,7 +1044,7 @@ pub fn check_expression(
             let body_type = check_top_expression(&q.body, Some(&expected_body), |_, _| {})?;
             for trigger in q.triggers {
                 for exp in trigger.expressions().inner().to_seq() {
-                    check_expression(exp, None)?;
+                    check_top_expression(exp, None, |_, _| {})?;
                 }
             }
             let substitutions = q
@@ -1161,6 +1195,19 @@ fn check_operator(
         }
     }
     let renaming = fresh_type_renaming(&names.into_iter().collect::<Vec<_>>(), None);
+    if let PNodeKind::Expression(expression) =
+        &mut input.node().write().expect("poisoned parse node").kind
+    {
+        if let PExpressionKind::Call {
+            domain_type_renaming: Some(domain),
+            ..
+        } = &mut expression.kind
+        {
+            for fresh in domain.mappings.values_mut() {
+                *fresh = renaming.rename(fresh).to_owned();
+            }
+        }
+    }
     let replacement = renaming.as_substitution();
     let refreshed = signatures
         .iter()
@@ -1417,6 +1464,52 @@ fn check_supported_type(typ: &PTypeHandle) -> Result<(), TypeCheckError> {
             check_supported_type(types.inner().first())?;
             check_supported_type(types.inner().second())
         }
+        super::parse_ast::PTypeKind::Domain { domain, args, .. } => {
+            use super::parse_ast::{PDomainTypeKind, PIdnRef};
+            let declarations = PIdnRef::decls(&domain, |node| {
+                matches!(
+                    &node.read().expect("poisoned parse node").kind,
+                    PNodeKind::TypeVarDecl { .. }
+                        | PNodeKind::Member(PMember {
+                            kind: PMemberKind::Domain { .. },
+                            ..
+                        })
+                )
+            });
+            if declarations.len() != 1 {
+                return Err(TypeCheckError::Unsupported(
+                    "ambiguous or undeclared domain type",
+                ));
+            }
+            let arguments = args
+                .as_ref()
+                .map(|a| a.inner().to_seq())
+                .unwrap_or_default();
+            for arg in &arguments {
+                check_supported_type(arg)?;
+            }
+            let (resolved, arity) = match &declarations[0].read().expect("poisoned parse node").kind
+            {
+                PNodeKind::TypeVarDecl { .. } => (PDomainTypeKind::TypeVar, 0),
+                PNodeKind::Member(PMember {
+                    kind: PMemberKind::Domain { type_vars, .. },
+                    ..
+                }) => (
+                    PDomainTypeKind::Domain,
+                    type_vars.as_ref().map_or(0, |v| v.inner().len()),
+                ),
+                _ => unreachable!(),
+            };
+            if arity != arguments.len() {
+                return Err(TypeCheckError::Unsupported("domain type argument count"));
+            }
+            if let PNodeKind::Type(super::parse_ast::PTypeKind::Domain { kind, .. }) =
+                &mut typ.node().write().expect("poisoned parse node").kind
+            {
+                *kind = resolved;
+            }
+            Ok(())
+        }
         _ => Err(TypeCheckError::Unsupported(
             "domain, macro or internal declaration type",
         )),
@@ -1547,12 +1640,10 @@ pub fn check_program_core(
         match member.kind {
             PMemberKind::Import { .. } => {}
             PMemberKind::Domain {
-                type_vars,
                 interpretations,
                 members,
                 ..
-            } if type_vars.as_ref().is_none_or(|v| v.inner().is_empty())
-                && interpretations.is_none()
+            } if interpretations.is_none()
                 && members.inner().to_seq().iter().all(|m| {
                     matches!(
                         &m.node().read().expect("poisoned parse node").kind,
@@ -1622,12 +1713,10 @@ pub fn check_program_core(
         match member.kind {
             PMemberKind::Fields { .. } | PMemberKind::Import { .. } => {}
             PMemberKind::Domain {
-                type_vars,
                 interpretations,
                 members,
                 ..
-            } if type_vars.as_ref().is_none_or(|v| v.inner().is_empty())
-                && interpretations.is_none()
+            } if interpretations.is_none()
                 && members.inner().to_seq().iter().all(|m| {
                     matches!(
                         &m.node().read().expect("poisoned parse node").kind,
