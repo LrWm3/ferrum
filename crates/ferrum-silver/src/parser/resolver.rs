@@ -535,7 +535,7 @@ fn visit_names(
             PExpressionKind::Forall(_)
             | PExpressionKind::Exists(_)
             | PExpressionKind::ForPerm { .. } => scope = Some(DeclarationMap::new(false, false)),
-            PExpressionKind::Extension(extension) if !extension.as_any().is::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() && !extension.as_any().is::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() && !extension.as_any().is::<crate::plugin::standard::arp::arppast_extension::PRdPerm>() && !extension.as_any().is::<crate::plugin::standard::termination::termination_past_extension::PDecreasesClause>() => {
+            PExpressionKind::Extension(extension) if !extension.expression_name_analysis_passthrough() && !extension.as_any().is::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() && !extension.as_any().is::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() && !extension.as_any().is::<crate::plugin::standard::arp::arppast_extension::PRdPerm>() && !extension.as_any().is::<crate::plugin::standard::termination::termination_past_extension::PDecreasesClause>() => {
                 return Err(NameAnalysisError::Unsupported("expression extension name analysis"));
             }
             PExpressionKind::Let { .. } => scope = Some(DeclarationMap::new(false, false)),
@@ -1204,23 +1204,16 @@ pub fn check_expression(
             (type_from_signature(&super::parse_ast_keyword::SignatureType::Bool), vec![PTypeSubstitution::default()])
         }
         PExpressionKind::Extension(extension) => {
-            let Some(instance) = extension.as_any().downcast_ref::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() else { return Err(TypeCheckError::Unsupported("expression extension typechecking")); };
-            if let Some(message) = instance.check_as_predicate_call(input)? {
-                return Err(TypeCheckError::AmbiguousIdentifier(message));
+            if let Some(instance) = extension.as_any().downcast_ref::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() {
+                if let Some(message) = instance.check_as_predicate_call(input)? {
+                    return Err(TypeCheckError::AmbiguousIdentifier(message));
+                }
+                let state = input.node().read().expect("poisoned parse node");
+                let PNodeKind::Expression(expression) = &state.kind else { unreachable!() };
+                (expression.typ.clone(), expression.type_substitutions.clone().ok_or(TypeCheckError::Unsupported("predicate instance substitutions"))?)
+            } else {
+                extension.typecheck_expression(input, expected, &mut |child, expected| check_expression(child, expected))?
             }
-            let state = input.node().read().expect("poisoned parse node");
-            let PNodeKind::Expression(expression) = &state.kind else {
-                unreachable!()
-            };
-            (
-                expression.typ.clone(),
-                expression
-                    .type_substitutions
-                    .clone()
-                    .ok_or(TypeCheckError::Unsupported(
-                        "predicate instance substitutions",
-                    ))?,
-            )
         }
         PExpressionKind::ForPerm { vars, trigger, body, .. } => {
             for var in vars.to_seq() {
@@ -2522,5 +2515,228 @@ mod sif_event_operator_tests {
             .parse("method m() { assert lowEvent + 1 == 2; }")
             .unwrap();
         assert!(phases.analyze(parsed).is_err());
+    }
+}
+
+#[cfg(test)]
+mod custom_expression_extension_tests {
+    use super::*;
+    use crate::ast::{ast::Metadata, expression::Exp};
+    use crate::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
+    use crate::parser::fast_parser::ParserFeature;
+    use crate::parser::parse_ast::{
+        ForceSubstitutionError, PExpGroup, PExpression, PExtender, PTypeSubstitution,
+    };
+    use crate::parser::parse_ast_keyword::{PGraphElement, SignatureType, Span};
+    use crate::parser::translator::TranslationError;
+    use crate::plugin::{silver_plugin::SilverPlugin, silver_plugin_manager::SilverPluginManager};
+    use std::{any::Any, path::PathBuf, sync::Arc};
+
+    #[derive(Debug)]
+    struct CustomExpression {
+        keyword: Span,
+        argument: PExpGroup,
+        pos: Span,
+    }
+    impl PExtender for CustomExpression {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+        fn subnodes(&self) -> Vec<PNodeHandle> {
+            self.argument.graph_nodes()
+        }
+        fn copy_macro_expression(
+            &self,
+            copy: &dyn Fn(
+                &PExpHandle,
+            )
+                -> Result<PExpHandle, crate::parser::macro_expander::MacroError>,
+            _: &dyn Fn(
+                &PNodeHandle,
+            )
+                -> Result<PNodeHandle, crate::parser::macro_expander::MacroError>,
+        ) -> Result<Option<PExpHandle>, crate::parser::macro_expander::MacroError> {
+            let group = crate::parser::macro_expander::copy_extension_expression_group(
+                &self.argument,
+                copy,
+            )?;
+            Ok(Some(custom_factory(
+                self.keyword.clone(),
+                group,
+                self.pos.clone(),
+            )))
+        }
+        fn expression_name_analysis_passthrough(&self) -> bool {
+            true
+        }
+        fn typecheck_expression(
+            &self,
+            _: &PExpHandle,
+            _: Option<&PTypeHandle>,
+            check: &mut dyn FnMut(
+                &PExpHandle,
+                Option<&PTypeHandle>,
+            ) -> Result<PTypeHandle, TypeCheckError>,
+        ) -> Result<(PTypeHandle, Vec<PTypeSubstitution>), TypeCheckError> {
+            let int = type_from_signature(&SignatureType::Int);
+            check(self.argument.inner(), Some(&int))?;
+            Ok((int, self.argument.inner().type_subs_distinct().unwrap()))
+        }
+        fn force_expression_substitution(
+            &self,
+            input: &PExpHandle,
+            substitution: &PTypeSubstitution,
+        ) -> Result<(), ForceSubstitutionError> {
+            self.argument.inner().force_substitution(substitution)?;
+            let mut node = input.node().write().unwrap();
+            let PNodeKind::Expression(expression) = &mut node.kind else {
+                unreachable!()
+            };
+            expression.typ = expression.typ.substitute(substitution);
+            expression.type_substitutions = Some(vec![substitution.clone()]);
+            Ok(())
+        }
+        fn translate_expression(
+            &self,
+            translate: &mut dyn FnMut(&PExpHandle) -> Result<Exp, TranslationError>,
+            _: Metadata,
+        ) -> Result<Exp, TranslationError> {
+            translate(self.argument.inner())
+        }
+    }
+    fn custom_factory(keyword: Span, argument: PExpGroup, pos: Span) -> PExpHandle {
+        PExpHandle::new(
+            PExpression::from_kind(PExpressionKind::Extension(Arc::new(CustomExpression {
+                keyword,
+                argument,
+                pos: pos.clone(),
+            }))),
+            pos,
+        )
+    }
+    struct CustomPlugin;
+    impl SilverPlugin for CustomPlugin {
+        fn parser_features(&self) -> Vec<ParserFeature> {
+            vec![ParserFeature::ExpressionGroup {
+                keyword: "custom",
+                factory: custom_factory,
+            }]
+        }
+    }
+    fn make_phases() -> SilFrontendPhases {
+        SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            SilverPluginManager::new(vec![Box::new(CustomPlugin)]),
+        )
+    }
+    #[test]
+    fn custom_expression_parses_resolves_types_substitutes_and_translates() {
+        let mut phases = make_phases();
+        let parsed = phases
+            .parse("method m(x:Int) { assert custom(x) > 0; }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        let mut phases = make_phases();
+        let parsed = phases
+            .parse("method m() { assert custom(true) > 0; }")
+            .unwrap();
+        assert!(phases.analyze(parsed).is_err());
+        let mut phases = make_phases();
+        let parsed = phases
+            .parse("method m(x:Int) { assert custom(x); }")
+            .unwrap();
+        assert!(phases.analyze(parsed).is_err());
+    }
+    #[test]
+    fn custom_expression_macro_copy_substitutes_argument_and_preserves_group() {
+        let mut phases = make_phases();
+        let parsed = phases
+            .parse("define f(v) custom(v) method m(x:Int) { assert f(x) > 0; }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let crate::ast::statement::StmtKind::Seqn { statements, .. } =
+            program.methods[0].body.as_ref().unwrap().kind()
+        else {
+            panic!("expected method block")
+        };
+        let crate::ast::statement::StmtKind::Assert(assertion) = statements[0].kind() else {
+            panic!("expected assert")
+        };
+        let crate::ast::expression::ExpKind::GtCmp(left, _) = assertion.kind() else {
+            panic!("expected comparison")
+        };
+        let crate::ast::expression::ExpKind::LocalVar(local) = left.kind() else {
+            panic!("expected substituted local")
+        };
+        assert_eq!(local.name, "x");
+        phases.check_consistency(program).unwrap();
+    }
+    #[test]
+    fn unknown_expression_extensions_fail_closed() {
+        #[derive(Debug)]
+        struct Unknown;
+        impl PExtender for Unknown {
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+            fn subnodes(&self) -> Vec<PNodeHandle> {
+                vec![]
+            }
+        }
+        fn unknown_factory(_: Span, _: PExpGroup, pos: Span) -> PExpHandle {
+            PExpHandle::new(
+                PExpression::from_kind(PExpressionKind::Extension(Arc::new(Unknown))),
+                pos,
+            )
+        }
+        struct UnknownPlugin;
+        impl SilverPlugin for UnknownPlugin {
+            fn parser_features(&self) -> Vec<ParserFeature> {
+                vec![ParserFeature::ExpressionGroup {
+                    keyword: "mystery",
+                    factory: unknown_factory,
+                }]
+            }
+        }
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            SilverPluginManager::new(vec![Box::new(UnknownPlugin)]),
+        );
+        let parsed = phases
+            .parse("method m() { assert mystery(true); }")
+            .unwrap();
+        assert!(phases.analyze(parsed).is_err());
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            SilverPluginManager::new(vec![Box::new(UnknownPlugin)]),
+        );
+        assert!(
+            phases
+                .parse("define f mystery(true) method m() { assert f; }")
+                .is_err()
+        );
+        let pos = (
+            crate::ast::position::Position::NoPosition,
+            crate::ast::position::Position::NoPosition,
+        );
+        let expression = PExpHandle::new(
+            PExpression::from_kind(PExpressionKind::Extension(Arc::new(Unknown))),
+            pos,
+        );
+        assert!(matches!(
+            check_expression(&expression, None),
+            Err(TypeCheckError::Unsupported(_))
+        ));
+        assert!(matches!(
+            expression.force_substitution(&PTypeSubstitution::default()),
+            Err(ForceSubstitutionError::ExtensionNotImplemented)
+        ));
+        assert!(matches!(
+            crate::parser::translator::translate_expression(&expression),
+            Err(TranslationError::Unsupported(_))
+        ));
     }
 }

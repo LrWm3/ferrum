@@ -413,3 +413,12 @@ composition and verifier event producers remain separate integration work.
 Internal parse function types now use the source implied delimiters in the
 reformatter, including its trailing comma for nonempty arguments. The two focused
 empty/nonempty cases match the pinned JVM; this adds no parsed-language syntax.
+
+Custom expression plugins can opt into ordinary name traversal, type inference,
+substitution and translation using child callbacks. A bounded keyword plus one
+parenthesized-expression parser hook connects registered plugins to those phases.
+Hygienic macro copying can reuse the grouped-expression copier and retain delimiter
+positions; missing hooks return unsupported errors. Focused positive/negative
+checks cover parsing through checked translation and macro argument substitution.
+This does not provide a general parser-combinator or custom binding-scope API;
+the pinned source's PScope trait is sealed.

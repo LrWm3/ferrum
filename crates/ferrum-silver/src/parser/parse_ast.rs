@@ -382,6 +382,47 @@ pub trait PExtender: std::fmt::Debug + Send + Sync {
     ) -> Option<super::parse_ast_keyword::Formatting> {
         None
     }
+    /// Opt in when ordinary name analysis may traverse this expression's children.
+    fn expression_name_analysis_passthrough(&self) -> bool {
+        false
+    }
+    /// Infer the extension and expose its candidate substitutions to enclosing expressions.
+    fn typecheck_expression(
+        &self,
+        _input: &PExpHandle,
+        _expected: Option<&PTypeHandle>,
+        _check: &mut dyn FnMut(
+            &PExpHandle,
+            Option<&PTypeHandle>,
+        ) -> Result<PTypeHandle, super::resolver::TypeCheckError>,
+    ) -> Result<(PTypeHandle, Vec<PTypeSubstitution>), super::resolver::TypeCheckError> {
+        Err(super::resolver::TypeCheckError::Unsupported(
+            "expression extension typechecking",
+        ))
+    }
+    /// Apply the selected substitution to this extension's own type and children.
+    fn force_expression_substitution(
+        &self,
+        _input: &PExpHandle,
+        _substitution: &PTypeSubstitution,
+    ) -> Result<(), ForceSubstitutionError> {
+        Err(ForceSubstitutionError::ExtensionNotImplemented)
+    }
+    /// Translate an expression extension with the caller's metadata and child translator.
+    fn translate_expression(
+        &self,
+        _translate: &mut dyn FnMut(
+            &PExpHandle,
+        ) -> Result<
+            crate::ast::expression::Exp,
+            super::translator::TranslationError,
+        >,
+        _meta: crate::ast::ast::Metadata,
+    ) -> Result<crate::ast::expression::Exp, super::translator::TranslationError> {
+        Err(super::translator::TranslationError::Unsupported(
+            "expression extension translation",
+        ))
+    }
     /// Rebuild an extension expression with hygienic typed child and name copying.
     fn copy_macro_expression(
         &self,
@@ -3603,7 +3644,7 @@ impl PExpHandle {
                 else if let Some(sif) = extension.as_any().downcast_ref::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() { sif.force_substitution(substitution) }
                 else if let Some(instance) = extension.as_any().downcast_ref::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() { instance.force_substitution(substitution) }
                 else if let Some(clause) = extension.as_any().downcast_ref::<crate::plugin::standard::termination::termination_past_extension::PDecreasesClause>() { clause.force_substitution(substitution); Ok(()) }
-                else { Err(ForceSubstitutionError::ExtensionNotImplemented) }
+                else { extension.force_expression_substitution(self, substitution) }
             }
             IntLit(_)
             | ResultLit(_)

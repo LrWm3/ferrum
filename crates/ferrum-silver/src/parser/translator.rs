@@ -361,7 +361,9 @@ fn translate_expression_with_fields(
             return clause.translate(|_| meta, |exp| translate_expression_with_fields(exp, fields));
         }
         PExpressionKind::Extension(extension) => {
-            let Some(instance) = extension.as_any().downcast_ref::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() else { return Err(TranslationError::Unsupported("expression extension translation")); };
+            let Some(instance) = extension.as_any().downcast_ref::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() else {
+                return extension.translate_expression(&mut |child| translate_expression_with_fields(child, fields), meta);
+            };
             return instance.translate(
                 |_| meta,
                 |exp| translate_expression_with_fields(exp, fields),

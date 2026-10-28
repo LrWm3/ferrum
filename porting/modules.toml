@@ -357,7 +357,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/FastParser.scala"
 destination = "crates/ferrum-silver/src/parser/fast_parser.rs"
 status = "skeleton"
-remaining = ["Source grammar subset, expression macros, annotations, ADT derives and recursive import error aggregation reach checked translation. Remaining grammar, recovery and extension/diagnostic compatibility require completion."]
+remaining = ["Ordinary grammar, imports, macros, ADTs and bounded custom expression parser hooks reach checked translation. Remaining grammar/recovery, general extension parsing and diagnostic compatibility remain."]
 
 [[modules]]
 repository = "silver"
@@ -371,7 +371,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ParseAst.scala"
 destination = "crates/ferrum-silver/src/parser/parse_ast.rs"
 status = "skeleton"
-remaining = ["Source expression macros, annotations and ADT derives reach checked frontend translation; remaining grammar, macro hygiene/local and statement forms, extension and diagnostic compatibility require completion."]
+remaining = ["Typed parse nodes and opt-in expression name/type/substitution/translation hooks are connected. Complete reconstruction, remaining grammar/macros and diagnostic compatibility remain."]
 
 [[modules]]
 repository = "silver"
@@ -392,14 +392,14 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/Resolver.scala"
 destination = "crates/ferrum-silver/src/parser/resolver.rs"
 status = "skeleton"
-remaining = ["Source expression macros, annotations and ADT derives reach checked frontend translation; remaining grammar, macro hygiene/local and statement forms, extension and diagnostic compatibility require completion."]
+remaining = ["Built-in and opted-in custom expressions reach name/type/substitution analysis. Remaining grammar, general extension scopes and diagnostic compatibility remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/Translator.scala"
 destination = "crates/ferrum-silver/src/parser/translator.rs"
 status = "skeleton"
-remaining = ["Source expression macros, annotations and ADT derives reach checked frontend translation; remaining grammar, macro hygiene/local and statement forms, extension and diagnostic compatibility require completion."]
+remaining = ["Built-in and opted-in custom expressions reach checked AST translation. Remaining extension families and complete source/diagnostic compatibility remain."]
 
 [[modules]]
 repository = "silver"

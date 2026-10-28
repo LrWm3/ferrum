@@ -138,6 +138,15 @@ pub enum ParserFeature {
     Arp,
     Termination,
     Adt,
+    /// Register a keyword followed by one parenthesized expression.
+    ExpressionGroup {
+        keyword: &'static str,
+        factory: fn(
+            super::parse_ast_keyword::Span,
+            super::parse_ast::PExpGroup,
+            super::parse_ast_keyword::Span,
+        ) -> super::parse_ast::PExpHandle,
+    },
     StatementBlock {
         keyword: &'static str,
         factory: fn(
@@ -157,6 +166,16 @@ impl PartialEq for ParserFeature {
             | (Self::Arp, Self::Arp)
             | (Self::Termination, Self::Termination)
             | (Self::Adt, Self::Adt) => true,
+            (
+                Self::ExpressionGroup {
+                    keyword: a,
+                    factory: af,
+                },
+                Self::ExpressionGroup {
+                    keyword: b,
+                    factory: bf,
+                },
+            ) => a == b && std::ptr::fn_addr_eq(*af, *bf),
             (
                 Self::StatementBlock {
                     keyword: a,
@@ -468,7 +487,7 @@ impl ExpressionParser<'_> {
     fn is_keyword(&self, name: &str) -> bool {
         is_keyword(name)
             || self.features.iter().any(
-                |f| matches!(f, ParserFeature::StatementBlock { keyword, .. } if *keyword == name),
+                |f| matches!(f, ParserFeature::StatementBlock { keyword, .. } | ParserFeature::ExpressionGroup { keyword, .. } if *keyword == name),
             )
             || (name == "rd" && self.features.contains(&ParserFeature::Arp))
             || (name == "decreases" && self.features.contains(&ParserFeature::Termination))
@@ -2525,6 +2544,21 @@ impl ExpressionParser<'_> {
                 );
             }
             return Ok(expression);
+        }
+        let end = self.identifier_end(start);
+        let expression_factory = self.features.iter().find_map(|feature| match feature {
+            ParserFeature::ExpressionGroup { keyword, factory }
+                if end > start && &self.source[start..end] == *keyword =>
+            {
+                Some(*factory)
+            }
+            _ => None,
+        });
+        if let Some(factory) = expression_factory {
+            self.cursor = end;
+            let group = self.parenthesized_expression()?;
+            let expression = factory(self.span(start, end), group, self.span(start, self.cursor));
+            return self.suffix(expression);
         }
         if self.features.contains(&ParserFeature::Arp)
             && self.identifier_end(start) == start + 2

@@ -364,10 +364,18 @@ fn copy_expression_group(
     replacements: &HashMap<String, PExpHandle>,
     scope: &std::cell::RefCell<MacroCopyScope>,
 ) -> Result<super::parse_ast::PExpGroup, MacroError> {
+    copy_extension_expression_group(group, &|child| copy_expression(child, replacements, scope))
+}
+/// Rebuild a grouped expression in a plugin macro-copy hook, preserving delimiter
+/// and group positions while using the caller's hygienic child copier.
+pub fn copy_extension_expression_group(
+    group: &super::parse_ast::PExpGroup,
+    copy: &dyn Fn(&PExpHandle) -> Result<PExpHandle, MacroError>,
+) -> Result<super::parse_ast::PExpGroup, MacroError> {
     use super::parse_ast_keyword::{PGrouped, PReserved};
     Ok(PGrouped::new(
         PReserved::new(*group.left().value(), group.left().position().clone()),
-        copy_expression(group.inner(), replacements, scope)?,
+        copy(group.inner())?,
         PReserved::new(*group.right().value(), group.right().position().clone()),
         group.position().clone(),
     ))
