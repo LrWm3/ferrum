@@ -23,8 +23,7 @@ quantified permissions, ForPerm, heap-dependent triggers and recursive-function
 predicate triggers now reach the native solver. Independent checks cover 27
 quantified-resource cases, including fractional ownership, consumed permissions,
 disjoint snapshots and failing assertions; 21 function cases and four existing
-native runner regressions also pass. Full trigger rewriting, complete exhale
-and advanced reporting remain incomplete. No comparative speed improvement
+native runner regressions also pass. Full trigger rewriting and advanced reporting remain incomplete. No comparative speed improvement
 has been established.
 Single-resource and quantified heap havoc now replace selected snapshots while
 preserving permissions and unrelated chunks. Independent CLI checks cover aliases,
@@ -36,6 +35,13 @@ transferred footprints, consumed wands, nested packaging, conditional resources,
 quantified wands and `old[lhs]` snapshots. The permanent regression checks that
 packaging removes transferred permissions and that application consumes the wand.
 This focused coverage does not establish full source compatibility.
+More-complete and on-demand exhale (`--exhaleMode 1` or `2`) and CFG joins
+(`--moreJoins 2`) now connect the source summaries, permission consumption and
+branch merging. A frozen suite of 115 cases passed through both solver transports,
+covering aliases, missing/zero/fractional ownership, functions, predicates with
+collection arguments, conditional heaps, loops and wand combinations. Nine
+permanent native CLI regressions also pass. Parallel execution and advanced
+configuration profiles still require integration.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and

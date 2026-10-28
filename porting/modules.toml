@@ -1717,7 +1717,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/MoreCompleteExhaleSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/more_complete_exhale_supporter.rs"
 status = "skeleton"
-remaining = ["Tagged snapshot data exists; complete exhale heuristics and verification rules remain."]
+remaining = ["Source permission sums, snapshot caching and exact/constrainable consumption connect through NativeVerifierContext. Focused native checks cover aliasing, zero/missing permissions, snapshots, predicate collection arguments, joins and wands. Debug/counterexample profiles and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2568,7 +2568,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Quantified permissions, heap havoc, magic-wand packaging/application and applying expressions connect to source snapshots and reserve heaps. Source call precondition heaps, arithmetic triggers and generic Prover orchestration are connected. Full joins, more-complete exhale, parallelism and advanced reporting remain gated or incomplete; broad compatibility is pending."]
+remaining = ["Native source context connects quantified resources, havoc, wands, complete and on-demand exhale, and CFG joins. Shared worker analysis and ordered post-verification preamble seams exist; parallelism and advanced reporting/configurations remain gated or incomplete. Broader compatibility is pending."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"

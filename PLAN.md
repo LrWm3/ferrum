@@ -36,8 +36,9 @@ branches, loops, predicate permissions, unfolding and method calls have native
 smoke coverage. Heap-independent quantifiers, generic domain axioms and nested
 Seq/Set/Multiset/Map instances now reach the solver. Source ground-instance
 closure handles recursive domain dependencies and ADTs mixed with collections.
-The native context also connects impure branch joins and the two-phase function
-protocol, including heap snapshots and function contracts. Field and predicate
+The native context connects impure and CFG branch joins and the two-phase
+function protocol, including heap snapshots and function contracts. More-complete
+and on-demand exhale now connect source permission sums and snapshot summaries. Field and predicate
 quantified permissions, ForPerm, heap-dependent triggers and recursive-function
 predicate triggers now connect to the native context. Magic-wand packaging,
 application and applying expressions connect to reserve heaps and snapshots.

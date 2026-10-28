@@ -128,16 +128,10 @@ impl NativeOptions {
                 "requested timeout, logging, solver, worker, cache or encoding policy is not connected",
             ));
         }
-        if config.more_joins == JoinMode::All {
-            return Err(NativeError::Unsupported("CFG join mode"));
-        }
         if config.include_methods != ".*" || !config.exclude_methods.is_empty() {
             return Err(NativeError::Unsupported(
                 "method inclusion/exclusion filters",
             ));
-        }
-        if config.exhale_mode() != crate::config::ExhaleMode::Greedy {
-            return Err(NativeError::Unsupported("more-complete exhale mode"));
         }
         let [prelude, contract, unfold, inhale, repetition] = config
             .saturation_weights
@@ -3530,9 +3524,57 @@ where
         &mut self,
         state: &State<PD, FD, JoinMode>,
     ) -> Result<(), Self::Error> {
-        Err(NativeError::Unsupported(
-            "assume_more_complete_field_bounds",
-        ))
+        use crate::interfaces::state::chunks::{GeneralChunk, NonQuantifiedChunk};
+        use crate::state::heap::Heap;
+        let mut groups: Vec<(String, Vec<crate::state::chunks::BasicChunk>)> = Vec::new();
+        for chunk in state.h.values() {
+            if let Chunk::Basic(chunk) = chunk {
+                if chunk.resource_id() == crate::resources::resources::ResourceId::Field {
+                    let name = chunk.id_ref().0.clone();
+                    if let Some((_, values)) = groups.iter_mut().find(|(id, _)| id == &name) {
+                        values.push(chunk.clone());
+                    } else {
+                        groups.push((name, vec![chunk.clone()]));
+                    }
+                }
+            }
+        }
+        let factory = self.factory.clone();
+        let receiver = factory.var(
+            crate::state::identifiers::Identifier::new("?rcvr"),
+            Sort::Ref,
+            false,
+        );
+        for (_, chunks) in groups {
+            let mut sum = factory.no_perm();
+            for chunk in &chunks {
+                let arg = chunk
+                    .args()
+                    .first()
+                    .ok_or(NativeError::Unsupported("field chunk receiver"))?;
+                let equal = factory.builtin_equals(receiver.clone(), arg.clone());
+                sum = factory.perm_plus(
+                    sum,
+                    factory.ite(equal, chunk.permission(&factory), factory.no_perm()),
+                );
+            }
+            for chunk in chunks {
+                let arg = chunk
+                    .args()
+                    .first()
+                    .ok_or(NativeError::Unsupported("field chunk receiver"))?;
+                let instantiated = factory
+                    .replace(
+                        &sum,
+                        &std::collections::HashMap::from([(receiver.clone(), arg.clone())]),
+                    )
+                    .map_err(|e| {
+                        NativeError::Consolidation(format!("field bound substitution: {e:?}"))
+                    })?;
+                self.assume_term(&factory.perm_at_most(instantiated, factory.full_perm()))?;
+            }
+        }
+        Ok(())
     }
     fn merge_mask_heaps(
         &mut self,
@@ -3635,9 +3677,88 @@ where
         crate::interfaces::verification::VerificationResult<VerificationError>,
         ChunkExecutionError<Self::Error>,
     > {
-        Err(ChunkExecutionError::Context(NativeError::Unsupported(
-            "consume_complete",
-        )))
+        use crate::interfaces::state::chunks::GeneralChunk;
+        use crate::state::heap::Heap;
+        use crate::state::package::{
+            NonQuantifiedChunkKey as C, SnapshotSummary, SnapshotSummaryKey,
+        };
+        let identifier = match resource {
+            ResourceKey::Field(f) => {
+                ChunkIdentifier::Basic(crate::state::chunks::BasicChunkIdentifier(f.name.clone()))
+            }
+            ResourceKey::Predicate(p) => {
+                ChunkIdentifier::Basic(crate::state::chunks::BasicChunkIdentifier(p.name.clone()))
+            }
+            ResourceKey::Wand(w) => ChunkIdentifier::Wand(w.clone()),
+        };
+        let chunks: Vec<_> = heap
+            .values()
+            .iter()
+            .filter_map(|chunk| match chunk {
+                Chunk::Basic(c) if c.identifier() == identifier => Some(C::Basic(c.clone())),
+                Chunk::MagicWand(c) if c.identifier() == identifier => Some(C::Wand(c.clone())),
+                _ => None,
+            })
+            .collect();
+        if !state.assert_read_access_only {
+            return self.complete_consume_exact(
+                state,
+                heap,
+                resource,
+                args,
+                permission,
+                return_snapshot,
+                error,
+                continuation,
+            );
+        }
+        let factory = self.factory.clone();
+        let (state, snapshot, available) = if return_snapshot {
+            let (state, snapshot, sum) = self
+                .complete_lookup_summary(state, resource, &chunks, args, None)
+                .map_err(ChunkExecutionError::Context)?;
+            (state, Some(snapshot), sum)
+        } else {
+            let mut state = state;
+            let key = SnapshotSummaryKey {
+                resource: native_quantified_source(resource),
+                chunks: chunks.clone(),
+                arguments: args.to_vec(),
+            };
+            let sum = if let Some(summary) = state.ss_cache.get(&key) {
+                summary.permission.clone()
+            } else {
+                let sum = crate::rules::more_complete_exhale_supporter::permission_sum(
+                    &factory, &chunks, args,
+                );
+                state.ss_cache.insert(
+                    key,
+                    SnapshotSummary {
+                        tagged_snapshot: None,
+                        definitions: None,
+                        permission: sum.clone(),
+                        permission_exp: None,
+                    },
+                );
+                sum
+            };
+            (state, None, sum)
+        };
+        let goal = factory.implies(
+            factory.is_positive_perm(permission.clone()),
+            factory.is_positive_perm(available),
+        );
+        if self
+            .base
+            .decider
+            .check(&goal, self.base.decider.assert_timeout)
+            .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?
+        {
+            continuation(self, state, heap, snapshot)
+        } else {
+            self.consumption_failure(&state, error, "complete read permission", true)
+                .map_err(ChunkExecutionError::Context)
+        }
     }
     fn transfer_wand(
         &mut self,
@@ -3756,9 +3877,64 @@ where
         crate::interfaces::verification::VerificationResult<VerificationError>,
         ChunkExecutionError<Self::Error>,
     > {
-        Err(ChunkExecutionError::Context(NativeError::Unsupported(
-            "lookup_complete",
-        )))
+        use crate::state::heap::Heap;
+        use crate::state::package::NonQuantifiedChunkKey as C;
+        let identifier = match resource {
+            ResourceKey::Field(f) => {
+                ChunkIdentifier::Basic(crate::state::chunks::BasicChunkIdentifier(f.name.clone()))
+            }
+            ResourceKey::Predicate(p) => {
+                ChunkIdentifier::Basic(crate::state::chunks::BasicChunkIdentifier(p.name.clone()))
+            }
+            ResourceKey::Wand(w) => ChunkIdentifier::Wand(w.clone()),
+        };
+        use crate::interfaces::state::chunks::GeneralChunk;
+        let chunks: Vec<_> = heap
+            .values()
+            .iter()
+            .filter_map(|chunk| match chunk {
+                Chunk::Basic(c) if c.identifier() == identifier => Some(C::Basic(c.clone())),
+                Chunk::MagicWand(c) if c.identifier() == identifier => Some(C::Wand(c.clone())),
+                _ => None,
+            })
+            .collect();
+        if chunks.is_empty() {
+            if self
+                .base
+                .decider
+                .check_smoke(true)
+                .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?
+            {
+                if state.is_in_package {
+                    let sort = self
+                        .resource_snapshot_sort(&state, resource)
+                        .map_err(ChunkExecutionError::Context)?;
+                    let (snapshot, _) = self
+                        .fresh_snapshot(&sort)
+                        .map_err(ChunkExecutionError::Context)?;
+                    return continuation(self, state, snapshot);
+                }
+                return Ok(VerificationResult::success());
+            }
+            return self
+                .consumption_failure(&state, error, "branch is dead", true)
+                .map_err(ChunkExecutionError::Context);
+        }
+        let (state, snapshot, permission) = self
+            .complete_lookup_summary(state, resource, &chunks, args, None)
+            .map_err(ChunkExecutionError::Context)?;
+        let positive = self.factory.is_positive_perm(permission);
+        if self
+            .base
+            .decider
+            .check(&positive, self.base.decider.assert_timeout)
+            .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?
+        {
+            continuation(self, state, snapshot)
+        } else {
+            self.consumption_failure(&state, error, "complete lookup permission", true)
+                .map_err(ChunkExecutionError::Context)
+        }
     }
     fn resource_snapshot_sort(
         &mut self,
@@ -5974,9 +6150,68 @@ where
             ExecutionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
-        Err(ExecutionError::Context(NativeError::Unsupported(
-            "join_cfg_branches",
-        )))
+        let error = std::cell::RefCell::new(None);
+        let result = self.join_impure_branches(
+            state,
+            condition,
+            original,
+            rewritten,
+            &mut |ctx, state, done| match yes(ctx, state, &mut |ctx, state| {
+                done(ctx, state, ()).map_err(ExecutionError::Context)
+            }) {
+                Ok(value) => Ok(value),
+                Err(e) => {
+                    *error.borrow_mut() = Some(e);
+                    Err(NativeError::ContinuationAbort)
+                }
+            },
+            &mut |ctx, state, done| match no(ctx, state, &mut |ctx, state| {
+                done(ctx, state, ()).map_err(ExecutionError::Context)
+            }) {
+                Ok(value) => Ok(value),
+                Err(e) => {
+                    *error.borrow_mut() = Some(e);
+                    Err(NativeError::ContinuationAbort)
+                }
+            },
+            &mut |ctx, entries| {
+                let state = match entries {
+                    [one] => one.state.clone(),
+                    [first, second] => {
+                        let factory = ctx.factory.clone();
+                        let merged = first
+                            .state
+                            .merge_recorded(
+                                &first.path_conditions,
+                                &second.state,
+                                &second.path_conditions,
+                                &factory,
+                                false,
+                                &mut |warning| ctx.warnings.push(warning),
+                            )
+                            .map_err(NativeError::State)?;
+                        let choice = ctx.consolidation_choice(&merged)?;
+                        crate::rules::state_consolidator::consolidate(
+                            &factory, ctx, merged, choice, false,
+                        )
+                        .map_err(|e| NativeError::Consolidation(format!("CFG join: {e:?}")))?
+                    }
+                    _ => return Err(NativeError::Unsupported("unexpected CFG join entries")),
+                };
+                Ok((state, ()))
+            },
+            &mut |ctx, state, ()| match continuation(ctx, state) {
+                Ok(value) => Ok(value),
+                Err(e) => {
+                    *error.borrow_mut() = Some(e);
+                    Err(NativeError::ContinuationAbort)
+                }
+            },
+        );
+        if let Some(error) = error.into_inner() {
+            return Err(error);
+        }
+        result.map_err(ExecutionError::Context)
     }
     fn begin_edges(&mut self, count: usize) -> Result<(), Self::Error> {
         Ok(())
@@ -6599,6 +6834,32 @@ pub struct NativeAnalysis {
     snapshot_sorts: crate::state::package::OrderedMap<String, Sort>,
     snapshot_formals: crate::state::package::OrderedMap<String, Vec<Term>>,
 }
+/// Owned analysis retained after function and predicate verification for worker methods.
+/// Strong owners keep the weak function handles valid throughout worker execution.
+/// A worker must replay the source-ordered main and member preamble before using this.
+#[derive(Clone)]
+pub struct NativeWorkerAnalysis {
+    program: ferrum_silver::ast::program::Program,
+    function_owners: Vec<(
+        String,
+        Arc<
+            std::sync::Mutex<
+                crate::supporters::functions::function_data::FunctionData<NativeFunctionData>,
+            >,
+        >,
+    )>,
+    function_handles: crate::state::package::OrderedMap<String, Arc<NativeFunctionData>>,
+    predicates: crate::state::package::OrderedMap<
+        String,
+        Arc<crate::supporters::predicate_verification_unit::PredicateData>,
+    >,
+    snapshot_sorts: crate::state::package::OrderedMap<String, Sort>,
+    snapshot_formals: crate::state::package::OrderedMap<String, Vec<Term>>,
+    function_heights: std::collections::HashMap<String, i32>,
+    function_fresh_variables: Vec<Term>,
+    failed_functions: std::collections::HashSet<String>,
+}
+
 impl<S: Prover>
     NativeVerifierContext<
         S,
@@ -6608,6 +6869,73 @@ impl<S: Prover>
 where
     S::Error: std::fmt::Debug,
 {
+    /// Replay verification-generated symbols and axioms after the worker's main preamble.
+    /// Predicate symbols precede function symbols; function axioms are emitted last.
+    pub fn emit_worker_post_preamble<T: crate::interfaces::decider::prover::ProverLike>(
+        &self,
+        analysis: &NativeAnalysis,
+        sink: &mut T,
+    ) -> Result<(), T::Error> {
+        crate::supporters::predicate_verification_unit::declare_predicate_verification_symbols(
+            sink,
+            &analysis.predicates,
+        )?;
+        let functions = analysis.functions.borrow();
+        functions.declare_verification_symbols(&self.factory, sink)?;
+        functions.emit_recorded_axioms(sink)
+    }
+
+    /// Capture immutable method-phase analysis after source function/predicate verification.
+    pub fn worker_analysis(
+        &self,
+        program: &ferrum_silver::ast::program::Program,
+        analysis: &NativeAnalysis,
+    ) -> NativeWorkerAnalysis {
+        NativeWorkerAnalysis {
+            program: program.clone(),
+            function_owners: analysis.functions.borrow().data.clone(),
+            function_handles: analysis.function_handles.clone(),
+            predicates: analysis.predicates.clone(),
+            snapshot_sorts: analysis.snapshot_sorts.clone(),
+            snapshot_formals: analysis.snapshot_formals.clone(),
+            function_heights: self.function_heights.clone(),
+            function_fresh_variables: self.function_fresh_variables.clone(),
+            failed_functions: self.failed_functions.clone(),
+        }
+    }
+    /// Verify one method with an already-started worker prover and replayed preamble.
+    pub fn verify_worker_method(
+        &mut self,
+        analysis: &NativeWorkerAnalysis,
+        method: &Method,
+    ) -> Result<Vec<VerificationResult<VerificationError>>, NativeError<S::Error>> {
+        self.active_program = Some(analysis.program.clone());
+        self.function_handles = analysis.function_handles.clone();
+        self.function_heights = analysis.function_heights.clone();
+        self.function_fresh_variables = analysis.function_fresh_variables.clone();
+        self.failed_functions = analysis.failed_functions.clone();
+        self.predicate_snapshots.snap_map = analysis.snapshot_sorts.clone();
+        self.predicate_snapshots.formal_var_map = analysis.snapshot_formals.clone();
+        let mut unit = crate::supporters::functions::function_verification_unit::FunctionVerificationUnit::default();
+        unit.program = Some(analysis.program.clone());
+        unit.data = analysis.function_owners.clone();
+        let local = NativeAnalysis {
+            functions: std::cell::RefCell::new(unit),
+            function_handles: analysis.function_handles.clone(),
+            predicates: analysis.predicates.clone(),
+            snapshot_sorts: analysis.snapshot_sorts.clone(),
+            snapshot_formals: analysis.snapshot_formals.clone(),
+        };
+        let state = self.initial_state(
+            &analysis.program,
+            &local,
+            ferrum_silver::ast::program::Member::Method(method.clone()),
+        )?;
+        crate::supporters::method_supporter::verify_method(self, state, method)
+            .map(flatten_results)
+            .map_err(|e| NativeError::Execution(format!("worker method verification: {e:?}")))
+    }
+
     /// Execute the actual main-verifier orchestration with one owned solver.
     /// This first supported profile rejects constructs whose contributor, solver or
     /// worker services are not yet connected before starting any member proof.
@@ -11719,3 +12047,647 @@ type NativePackageResult<E> = Result<
     VerificationResult<VerificationError>,
     crate::rules::magic_wand_supporter::PackageExecutionError<NativeError<E>>,
 >;
+
+impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    /// Summarise a source-ordered nonquantified resource heap for complete exhale.
+    fn complete_lookup_summary(
+        &mut self,
+        mut state: State<PD, FD, JoinMode>,
+        resource: &ResourceKey,
+        chunks: &[crate::state::package::NonQuantifiedChunkKey],
+        args: &[Term],
+        known_value: Option<Option<Term>>,
+    ) -> Result<(State<PD, FD, JoinMode>, Term, Term), NativeError<S::Error>> {
+        use crate::interfaces::state::chunks::{GeneralChunk, NonQuantifiedChunk};
+        use crate::rules::more_complete_exhale_supporter::{
+            TaggedSummarisingSnapshot, permission_sum,
+        };
+        use crate::state::package::{
+            NonQuantifiedChunkKey as C, SnapshotSummary, SnapshotSummaryKey,
+        };
+        let factory = self.factory.clone();
+        let view = |c: &C| match c {
+            C::Basic(v) => (
+                v.args().to_vec(),
+                v.permission(&factory),
+                v.snapshot().clone(),
+            ),
+            C::Wand(v) => (
+                v.args().to_vec(),
+                v.permission(&factory),
+                v.snapshot().clone(),
+            ),
+        };
+        if let [only] = chunks {
+            let (arguments, permission, snapshot) = view(only);
+            let equal = factory.and(
+                arguments
+                    .into_iter()
+                    .zip(args.iter().cloned())
+                    .map(|(a, b)| factory.equals(a, b)),
+            );
+            if self
+                .base
+                .decider
+                .check(&equal, self.base.decider.check_timeout)
+                .map_err(NativeError::Decider)?
+            {
+                return Ok((state, snapshot, permission));
+            }
+        }
+        let source = native_quantified_source(resource);
+        let key = SnapshotSummaryKey {
+            resource: source.clone(),
+            chunks: chunks.to_vec(),
+            arguments: args.to_vec(),
+        };
+        if let Some(summary) = state.ss_cache.get(&key).cloned() {
+            if let (Some(tagged), Some(definitions)) =
+                (summary.tagged_snapshot, summary.definitions)
+            {
+                self.base
+                    .decider
+                    .assume([(factory.and(definitions.clone()), None)], false, true)
+                    .map_err(NativeError::Decider)?;
+                if matches!(tagged, TaggedSummarisingSnapshot::Fresh(_)) {
+                    state.function_recorder = state.function_recorder.record_fvf_and_domain(
+                        crate::rules::quantified_chunk_support::SnapshotMapDefinition {
+                            resource: source.clone(),
+                            snapshot_map: tagged.snapshot().clone(),
+                            value_definitions: definitions,
+                            domain_definitions: vec![],
+                        },
+                    );
+                }
+                return Ok((state, tagged.snapshot().clone(), summary.permission));
+            }
+        }
+        let sort = match resource {
+            ResourceKey::Field(field) => self
+                .base
+                .symbol_converter
+                .to_sort(&field.typ)
+                .map_err(NativeError::Sort)?,
+            ResourceKey::Predicate(_) => Sort::Snap,
+            ResourceKey::Wand(_) => Sort::MagicWandSnapFunction,
+        };
+        let hole = factory.var(
+            crate::state::identifiers::Identifier::new("?s"),
+            sort.clone(),
+            false,
+        );
+        let mut definitions = Vec::new();
+        for chunk in chunks {
+            let (arguments, permission, snapshot) = view(chunk);
+            let equal = factory.and(
+                arguments
+                    .into_iter()
+                    .zip(args.iter().cloned())
+                    .map(|(a, b)| factory.equals(a, b)),
+            );
+            definitions.push(factory.implies(
+                factory.and([equal, factory.is_positive_perm(permission)]),
+                factory.equals(hole.clone(), snapshot),
+            ));
+        }
+        let mut reused = None;
+        for definition in &definitions {
+            if let crate::state::terms::TermKind::BuiltinEquals(a, b)
+            | crate::state::terms::TermKind::CustomEquals(a, b) = definition.kind()
+            {
+                if *a == hole {
+                    reused = Some(b.clone());
+                    break;
+                }
+            }
+        }
+        if reused.is_none() {
+            if let Some(value) = &known_value {
+                reused = value.clone();
+            }
+        }
+        if reused.is_none() && known_value.is_none() {
+            let heap = ListBackedHeap::from_chunks(chunks.iter().map(|chunk| match chunk {
+                C::Basic(v) => Chunk::Basic(v.clone()),
+                C::Wand(v) => Chunk::MagicWand(v.clone()),
+            }));
+            let identifier = match resource {
+                ResourceKey::Field(f) => ChunkIdentifier::Basic(
+                    crate::state::chunks::BasicChunkIdentifier(f.name.clone()),
+                ),
+                ResourceKey::Predicate(p) => ChunkIdentifier::Basic(
+                    crate::state::chunks::BasicChunkIdentifier(p.name.clone()),
+                ),
+                ResourceKey::Wand(w) => ChunkIdentifier::Wand(w.clone()),
+            };
+            if let Some(index) =
+                crate::rules::chunk_supporter::find_chunk(self, &heap, &identifier, args)
+                    .map_err(|e| NativeError::Chunk(format!("summary alias: {e:?}")))?
+            {
+                let (_, permission, snapshot) = view(&chunks[index]);
+                if self
+                    .base
+                    .decider
+                    .check(
+                        &factory.is_positive_perm(permission),
+                        self.base.decider.check_timeout,
+                    )
+                    .map_err(NativeError::Decider)?
+                {
+                    reused = Some(snapshot);
+                }
+            }
+        }
+        let tagged = if let Some(snapshot) = reused {
+            TaggedSummarisingSnapshot::Reused(snapshot)
+        } else {
+            let variables: Vec<_> = state
+                .function_recorder
+                .arguments()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(t, _)| t)
+                .chain(
+                    state
+                        .packaging_wand_snapshots
+                        .iter()
+                        .map(|(t, _)| t.clone()),
+                )
+                .chain(state.quantified_variables.iter().map(|(t, _)| t.clone()))
+                .collect();
+            let sorts: Vec<_> = variables.iter().map(|v| v.sort().clone()).collect();
+            let (target, _) = self
+                .base
+                .decider
+                .fresh(&factory, "ss", &sorts, &sort)
+                .map_err(NativeError::Decider)?;
+            let snapshot = match target {
+                ApplicationTarget::Function(f) => factory.app(f, variables),
+                ApplicationTarget::Variable(v) if variables.is_empty() => v,
+                _ => return Err(NativeError::Unsupported("summary snapshot target")),
+            };
+            TaggedSummarisingSnapshot::Fresh(snapshot)
+        };
+        let snapshot = tagged.snapshot().clone();
+        let replacements = std::collections::HashMap::from([(hole, snapshot.clone())]);
+        let definitions = definitions
+            .into_iter()
+            .map(|term| factory.replace(&term, &replacements))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NativeError::Chunk(format!("snapshot summary substitution: {e:?}")))?;
+        let permission = permission_sum(&factory, chunks, args);
+        state.ss_cache.insert(
+            key,
+            SnapshotSummary {
+                tagged_snapshot: Some(tagged.clone()),
+                definitions: Some(definitions.clone()),
+                permission: permission.clone(),
+                permission_exp: None,
+            },
+        );
+        self.base
+            .decider
+            .assume([(factory.and(definitions.clone()), None)], false, true)
+            .map_err(NativeError::Decider)?;
+        if matches!(tagged, TaggedSummarisingSnapshot::Fresh(_)) {
+            state.function_recorder = state.function_recorder.record_fvf_and_domain(
+                crate::rules::quantified_chunk_support::SnapshotMapDefinition {
+                    resource: source,
+                    snapshot_map: snapshot.clone(),
+                    value_definitions: definitions,
+                    domain_definitions: vec![],
+                },
+            );
+        }
+        Ok((state, snapshot, permission))
+    }
+}
+
+impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn complete_consume_exact(
+        &mut self,
+        mut state: State<PD, FD, JoinMode>,
+        heap: Arc<ListBackedHeap>,
+        resource: &ResourceKey,
+        args: &[Term],
+        permission: &Term,
+        return_snapshot: bool,
+        error: &Option<VerificationError>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Arc<ListBackedHeap>,
+            Option<Term>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ChunkExecutionError<NativeError<S::Error>>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, ChunkExecutionError<NativeError<S::Error>>>
+    {
+        use crate::interfaces::state::chunks::{GeneralChunk, NonQuantifiedChunk};
+        use crate::rules::chunk_supporter::ChunkExecutionContext;
+        use crate::state::{
+            heap::Heap,
+            package::NonQuantifiedChunkKey as C,
+            terms::{ApplicableData, ApplicableKind, TermKind},
+        };
+        let factory = self.factory.clone();
+        let identifier = match resource {
+            ResourceKey::Field(f) => {
+                ChunkIdentifier::Basic(crate::state::chunks::BasicChunkIdentifier(f.name.clone()))
+            }
+            ResourceKey::Predicate(p) => {
+                ChunkIdentifier::Basic(crate::state::chunks::BasicChunkIdentifier(p.name.clone()))
+            }
+            ResourceKey::Wand(w) => ChunkIdentifier::Wand(w.clone()),
+        };
+        let mut relevant = Vec::new();
+        let mut others = Vec::new();
+        for chunk in heap.values() {
+            match chunk {
+                Chunk::Basic(c) if c.identifier() == identifier => {
+                    relevant.push(C::Basic(c.clone()))
+                }
+                Chunk::MagicWand(c) if c.identifier() == identifier => {
+                    relevant.push(C::Wand(c.clone()))
+                }
+                _ => others.push(chunk.clone()),
+            }
+        }
+        if relevant.is_empty() {
+            let goal = factory.equals(permission.clone(), factory.no_perm());
+            if self
+                .base
+                .decider
+                .check(&goal, self.base.decider.assert_timeout)
+                .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?
+            {
+                return continuation(self, state, heap, None);
+            }
+            return self
+                .consumption_failure(&state, error, "complete empty heap", true)
+                .map_err(ChunkExecutionError::Context);
+        }
+        if !crate::state::terms::consume_exact_read(permission, &state.constrainable_arps) {
+            return self.complete_consume_constrainable(
+                state,
+                relevant,
+                others,
+                resource,
+                args,
+                permission,
+                return_snapshot,
+                error,
+                continuation,
+            );
+        }
+        let originals = relevant.clone();
+        let candidate_heap = ListBackedHeap::from_chunks(relevant.iter().map(|c| match c {
+            C::Basic(v) => Chunk::Basic(v.clone()),
+            C::Wand(v) => Chunk::MagicWand(v.clone()),
+        }));
+        let alias =
+            crate::rules::chunk_supporter::find_chunk(self, &candidate_heap, &identifier, args)
+                .map_err(|e| {
+                    ChunkExecutionError::Context(NativeError::Chunk(format!(
+                        "complete alias: {e:?}"
+                    )))
+                })?;
+        let view = |c: &C| match c {
+            C::Basic(v) => (v.args().to_vec(), v.permission(&factory)),
+            C::Wand(v) => (v.args().to_vec(), v.permission(&factory)),
+        };
+        let definite = if let Some(index) = alias {
+            let (_, p) = view(&relevant[index]);
+            if self
+                .base
+                .decider
+                .check(
+                    &factory.is_positive_perm(p),
+                    self.base.decider.check_timeout,
+                )
+                .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?
+            {
+                Some(relevant[index].clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        relevant.sort_by_key(|chunk| {
+            if definite.as_ref() == Some(chunk) {
+                0
+            } else if view(chunk).0 == args {
+                1
+            } else {
+                2
+            }
+        });
+        let additional: Vec<_> = state
+            .function_recorder
+            .arguments()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(t, _)| t)
+            .chain(state.quantified_variables.iter().map(|(t, _)| t.clone()))
+            .collect();
+        let mut needed = permission.clone();
+        let mut more = true;
+        let mut updated = Vec::new();
+        for chunk in relevant {
+            if !more {
+                updated.push(chunk);
+                continue;
+            }
+            let (arguments, available) = view(&chunk);
+            let equal = factory.and(
+                arguments
+                    .into_iter()
+                    .zip(args.iter().cloned())
+                    .map(|(a, b)| factory.equals(a, b)),
+            );
+            let taken = factory.ite(
+                equal,
+                factory.perm_min(available.clone(), needed.clone()),
+                factory.no_perm(),
+            );
+            let literal = matches!(
+                taken.kind(),
+                TermKind::NoPerm | TermKind::FullPerm | TermKind::FractionPermLiteral(_)
+            );
+            let taken = if literal
+                || !matches!(state.function_recorder, FunctionRecorder::Noop)
+                || factory.options().use_flyweight
+            {
+                taken
+            } else {
+                let declaration = self
+                    .base
+                    .decider
+                    .fresh_macro(
+                        &factory,
+                        &mut self.base.identifiers,
+                        "mce_pTaken",
+                        additional.clone(),
+                        taken.clone(),
+                    )
+                    .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?;
+                let target = factory.applicable(ApplicableData {
+                    kind: ApplicableKind::Macro,
+                    id: declaration.id(),
+                    arg_sorts: additional.iter().map(|t| t.sort().clone()).collect(),
+                    result_sort: taken.sort().clone(),
+                });
+                state.function_recorder = state.function_recorder.record_fresh_macro(declaration);
+                factory.app(target, additional.clone())
+            };
+            let remaining = factory.perm_minus(available, taken.clone());
+            needed = factory.perm_minus(needed, taken);
+            let keep = !self
+                .base
+                .decider
+                .check(
+                    &factory.is_nonpositive_perm(remaining.clone()),
+                    Some(self.options.qp_split_timeout),
+                )
+                .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?;
+            if keep {
+                updated.push(match chunk {
+                    C::Basic(c) => C::Basic(c.with_permission(remaining, None)),
+                    C::Wand(c) => C::Wand(c.with_permission(remaining, None)),
+                });
+            }
+            more = !self
+                .base
+                .decider
+                .check(
+                    &factory.equals(needed.clone(), factory.no_perm()),
+                    Some(self.options.qp_split_timeout),
+                )
+                .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?;
+        }
+        let new_chunks: Vec<_> = updated
+            .into_iter()
+            .map(|c| match c {
+                C::Basic(v) => Chunk::Basic(v),
+                C::Wand(v) => Chunk::MagicWand(v),
+            })
+            .collect();
+        let result_heap =
+            ListBackedHeap::from_chunks(others.into_iter().chain(new_chunks.iter().cloned()));
+        for chunk in &new_chunks {
+            crate::rules::chunk_supporter::ChunkSolver::assume_properties(
+                self,
+                &state,
+                &result_heap,
+                chunk,
+            )
+            .map_err(ChunkExecutionError::Context)?;
+        }
+        let snapshot = if return_snapshot {
+            let (next, snapshot, _) = self
+                .complete_lookup_summary(
+                    state,
+                    resource,
+                    &originals,
+                    args,
+                    Some(definite.as_ref().map(|chunk| match chunk {
+                        C::Basic(c) => c.snapshot().clone(),
+                        C::Wand(c) => c.snapshot().clone(),
+                    })),
+                )
+                .map_err(ChunkExecutionError::Context)?;
+            state = next;
+            if self
+                .base
+                .decider
+                .check(
+                    &factory.is_positive_perm(permission.clone()),
+                    self.base.decider.check_timeout,
+                )
+                .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?
+            {
+                Some(snapshot)
+            } else {
+                Some(factory.ite(
+                    factory.is_positive_perm(permission.clone()),
+                    factory.sort_wrapper(snapshot, Sort::Snap),
+                    factory.unit(),
+                ))
+            }
+        } else {
+            None
+        };
+        if more
+            && !self
+                .base
+                .decider
+                .check(
+                    &factory.equals(needed, factory.no_perm()),
+                    self.base.decider.assert_timeout,
+                )
+                .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?
+        {
+            return self
+                .consumption_failure(&state, error, "complete permission consumption", true)
+                .map_err(ChunkExecutionError::Context);
+        }
+        continuation(self, state, Arc::new(result_heap), snapshot)
+    }
+}
+
+impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn complete_consume_constrainable(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        chunks: Vec<crate::state::package::NonQuantifiedChunkKey>,
+        others: Vec<Chunk>,
+        resource: &ResourceKey,
+        args: &[Term],
+        permission: &Term,
+        return_snapshot: bool,
+        error: &Option<VerificationError>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Arc<ListBackedHeap>,
+            Option<Term>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ChunkExecutionError<NativeError<S::Error>>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, ChunkExecutionError<NativeError<S::Error>>>
+    {
+        use crate::interfaces::state::chunks::{GeneralChunk, NonQuantifiedChunk};
+        use crate::rules::chunk_supporter::ChunkExecutionContext;
+        use crate::state::package::NonQuantifiedChunkKey as C;
+        let factory = self.factory.clone();
+        let variables: Vec<_> = state
+            .function_recorder
+            .arguments()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(t, _)| t)
+            .chain(state.quantified_variables.iter().map(|(t, _)| t.clone()))
+            .collect();
+        let sorts: Vec<_> = variables.iter().map(|term| term.sort().clone()).collect();
+        let mut recorder = state.function_recorder.clone();
+        let mut total_sum = factory.no_perm();
+        let mut total_taken = factory.no_perm();
+        let mut updated = Vec::new();
+        for chunk in &chunks {
+            let (arguments, available) = match chunk {
+                C::Basic(c) => (c.args(), c.permission(&factory)),
+                C::Wand(c) => (c.args(), c.permission(&factory)),
+            };
+            let equal = factory.and(
+                arguments
+                    .iter()
+                    .cloned()
+                    .zip(args.iter().cloned())
+                    .map(|(a, b)| factory.equals(a, b)),
+            );
+            let (target, _) = self
+                .base
+                .decider
+                .fresh(&factory, "p", &sorts, &Sort::Perm)
+                .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?;
+            let taken = match &target {
+                ApplicationTarget::Function(fun) => factory.app(fun.clone(), variables.clone()),
+                ApplicationTarget::Variable(v) if variables.is_empty() => v.clone(),
+                _ => {
+                    return Err(ChunkExecutionError::Context(NativeError::Unsupported(
+                        "complete fresh permission target",
+                    )));
+                }
+            };
+            total_sum = factory.perm_plus(
+                total_sum,
+                factory.ite(equal.clone(), available.clone(), factory.no_perm()),
+            );
+            total_taken = factory.perm_plus(total_taken, taken.clone());
+            let constraint = factory.and([
+                factory.is_valid_perm_val(taken.clone()),
+                factory.perm_at_most(taken.clone(), available.clone()),
+                factory.implies(
+                    factory.not(equal.clone()),
+                    factory.equals(taken.clone(), factory.no_perm()),
+                ),
+                factory.implies(
+                    factory.and([equal, factory.is_positive_perm(available.clone())]),
+                    factory.perm_less(taken.clone(), available.clone()),
+                ),
+            ]);
+            self.assume_term(&constraint)
+                .map_err(ChunkExecutionError::Context)?;
+            recorder = recorder
+                .record_path_symbol(target)
+                .record_constraint(constraint);
+            let remaining = factory.perm_minus(available, taken);
+            updated.push(match chunk {
+                C::Basic(c) => Chunk::Basic(c.with_permission(remaining, None)),
+                C::Wand(c) => Chunk::MagicWand(c.with_permission(remaining, None)),
+            });
+        }
+        let bounds = factory.implies(
+            factory.not(factory.equals(total_sum.clone(), factory.no_perm())),
+            factory.and([
+                factory.perm_less(factory.no_perm(), total_taken.clone()),
+                factory.perm_less(total_taken.clone(), total_sum),
+            ]),
+        );
+        self.assume_term(&bounds)
+            .map_err(ChunkExecutionError::Context)?;
+        recorder = recorder.record_constraint(bounds);
+        let goal = factory.implies(
+            factory.perm_less(factory.no_perm(), permission.clone()),
+            factory.not(factory.equals(total_taken.clone(), factory.no_perm())),
+        );
+        if !self
+            .base
+            .decider
+            .check(&goal, self.base.decider.assert_timeout)
+            .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?
+        {
+            return self
+                .consumption_failure(&state, error, "complete constrainable permission", true)
+                .map_err(ChunkExecutionError::Context);
+        }
+        self.assume_term(&factory.equals(permission.clone(), total_taken))
+            .map_err(ChunkExecutionError::Context)?;
+        let mut state = state;
+        state.function_recorder = recorder;
+        let snapshot = if return_snapshot {
+            let (next, snapshot, _) = self
+                .complete_lookup_summary(state, resource, &chunks, args, None)
+                .map_err(ChunkExecutionError::Context)?;
+            state = next;
+            Some(snapshot)
+        } else {
+            None
+        };
+        let heap = Arc::new(ListBackedHeap::from_chunks(
+            updated.into_iter().chain(others),
+        ));
+        continuation(self, state, heap, snapshot)
+    }
+}
+
+#[cfg(test)]
+mod worker_analysis_contract_tests {
+    #[test]
+    fn worker_analysis_is_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<super::NativeWorkerAnalysis>();
+    }
+}

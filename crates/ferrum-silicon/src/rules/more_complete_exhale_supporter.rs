@@ -33,7 +33,8 @@
 //! Open decisions:
 //! Summarising cache identity, fresh symbols and continuation context.
 //!
-//! Status: tagged summarising snapshot data implemented; execution rules remain pending.
+//! Status: tagged snapshot data and symbolic permission summation live here; native context
+//! implements lookup, snapshot summaries and consumption. Mode admission remains gated.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -53,4 +54,30 @@ impl TaggedSummarisingSnapshot {
             Self::Fresh(t) | Self::Reused(t) => t,
         }
     }
+}
+
+/// Sum permission at the requested arguments over all source-ordered chunks.
+/// This is the symbolic expression used by both complete lookup and consumption;
+/// a chunk contributes only when each argument equals the requested one.
+pub fn permission_sum(
+    factory: &crate::state::terms::TermFactory,
+    chunks: &[crate::state::package::NonQuantifiedChunkKey],
+    arguments: &[Term],
+) -> Term {
+    use crate::interfaces::state::chunks::{GeneralChunk, NonQuantifiedChunk};
+    use crate::state::package::NonQuantifiedChunkKey;
+    let mut sum = factory.no_perm();
+    for chunk in chunks {
+        let (args, permission) = match chunk {
+            NonQuantifiedChunkKey::Basic(chunk) => (chunk.args(), chunk.permission(factory)),
+            NonQuantifiedChunkKey::Wand(chunk) => (chunk.args(), chunk.permission(factory)),
+        };
+        let equal = factory.and(
+            args.iter()
+                .zip(arguments)
+                .map(|(a, b)| factory.equals(a.clone(), b.clone())),
+        );
+        sum = factory.perm_plus(sum, factory.ite(equal, permission, factory.no_perm()));
+    }
+    sum
 }

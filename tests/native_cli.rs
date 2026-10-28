@@ -48,6 +48,30 @@ fn check(source: &str, expected: i32) {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn complete_exhale_and_cfg_joins_preserve_conditional_permissions() {
+    let prefix = "field f: Int method m(x: Ref, y: Ref, b: Bool)
+        requires acc(x.f, 1/2) && acc(y.f, 1/2) {
+        assume x == y;
+        if (b) { exhale acc(x.f, 1/4); } else { exhale acc(x.f, 1/2); }";
+    for mode in ["1", "2"] {
+        for (amount, expected) in [("1/2", 0), ("3/4", 1)] {
+            let source = format!("{prefix} assert acc(x.f, {amount}); }}");
+            let output = run(&source, &["--exhaleMode", mode, "--moreJoins", "2"]);
+            assert_eq!(
+                output.status.code(),
+                Some(expected),
+                "{source}\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            if expected == 1 {
+                assert!(String::from_utf8_lossy(&output.stderr).contains("assert.failed"));
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn try_plugin_preserves_fallback_and_later_failures() {
     let plugin = ["--plugin", "viper.silicon.extensions.TryBlockParserPlugin"];
     for (source, expected) in [
