@@ -93,6 +93,9 @@ pub trait SymbolicRecord: Any + Send + Sync {
     fn as_data_record(&self) -> Option<&dyn DataRecord> {
         None
     }
+    fn is_joining(&self) -> bool {
+        false
+    }
     fn get_data(
         &self,
         config: &LogConfig,

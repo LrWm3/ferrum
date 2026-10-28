@@ -1259,7 +1259,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/logger/SymbExLogger.scala"
 destination = "crates/ferrum-silicon/src/logger/symb_ex_logger.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Member scope/branch recording and tree rendering exist; root-run ownership, configuration decoding, periodic reporting and exact renderers remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1273,7 +1274,7 @@ repository = "silicon"
 upstream = "src/main/scala/logger/records/SymbolicRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/symbolic_record.rs"
 status = "skeleton"
-remaining = ["Native record/config data and source rendering contracts exist; concrete renderers, logger integration and JSON configuration remain."]
+remaining = ["Member scope/branch recording and tree rendering exist; root-run ownership, configuration decoding, periodic reporting and exact renderers remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1441,7 +1442,7 @@ repository = "silicon"
 upstream = "src/main/scala/logger/records/structural/JoiningRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/structural/joining_record.rs"
 status = "skeleton"
-remaining = ["Native record/config data and source rendering contracts exist; concrete renderers, logger integration and JSON configuration remain."]
+remaining = ["Member scope/branch recording and tree rendering exist; root-run ownership, configuration decoding, periodic reporting and exact renderers remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1454,13 +1455,15 @@ remaining = ["Native record/config data and source rendering contracts exist; co
 repository = "silicon"
 upstream = "src/main/scala/logger/renderer/Renderer.scala"
 destination = "crates/ferrum-silicon/src/logger/renderer/renderer.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Member scope/branch recording and tree rendering exist; root-run ownership, configuration decoding, periodic reporting and exact renderers remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/renderer/SimpleTreeRenderer.scala"
 destination = "crates/ferrum-silicon/src/logger/renderer/simple_tree_renderer.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Member scope/branch recording and tree rendering exist; root-run ownership, configuration decoding, periodic reporting and exact renderers remain."]
 
 [[modules]]
 repository = "silicon"

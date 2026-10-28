@@ -66,6 +66,9 @@ impl<S: Send + Sync + 'static> SymbolicRecord for JoiningRecord<S> {
     fn as_data_record(&self) -> Option<&dyn DataRecord> {
         Some(self)
     }
+    fn is_joining(&self) -> bool {
+        true
+    }
 }
 impl<S: Send + Sync + 'static> DataRecord for JoiningRecord<S> {
     fn value(&self) -> Option<Node> {
