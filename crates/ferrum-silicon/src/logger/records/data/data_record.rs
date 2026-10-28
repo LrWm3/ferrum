@@ -86,6 +86,12 @@ pub trait NativeRecordFactory<P, D, J> {
         state: &crate::state::state::State<P, D, J>,
         paths: &crate::decider::path_conditions::LayeredPathConditionStack,
     ) -> std::sync::Arc<dyn DataRecord>;
+    fn execute(
+        &self,
+        statement: &ferrum_silver::ast::statement::Stmt,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord>;
     fn joining(
         &self,
         state: &crate::state::state::State<P, D, J>,
@@ -147,6 +153,18 @@ where
     ) -> std::sync::Arc<dyn DataRecord> {
         std::sync::Arc::new(super::consume_record::ConsumeRecord::new(
             Some(assertion.clone()),
+            Some(state.clone()),
+            Some(paths),
+        ))
+    }
+    fn execute(
+        &self,
+        statement: &ferrum_silver::ast::statement::Stmt,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord> {
+        std::sync::Arc::new(super::execute_record::ExecuteRecord::new(
+            Some(statement.clone()),
             Some(state.clone()),
             Some(paths),
         ))

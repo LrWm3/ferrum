@@ -138,6 +138,57 @@ fn context_scope_hooks_capture_full_state_and_reject_missing_factory() {
     assert_eq!(cond.env, "CondExp");
     worker.context.close_expression_scope(conditional).unwrap();
     worker.context.close_expression_scope(implies).unwrap();
+    let imp = Exp::new(
+        ExpKind::Implies(expr.clone(), expr.clone()),
+        Default::default(),
+    );
+    let conditional = Exp::new(
+        ExpKind::CondExp(expr.clone(), expr.clone(), expr.clone()),
+        Default::default(),
+    );
+    let produce_cond = worker
+        .context
+        .open_production_conditional_scope(&state, &imp)
+        .unwrap();
+    let consume_cond = worker
+        .context
+        .open_consumption_conditional_scope(&state, &conditional)
+        .unwrap();
+    let records = log.records().unwrap();
+    let produced = records.iter().find(|record| record.id() == produce_cond.unwrap()).unwrap()
+        .as_any().downcast_ref::<ferrum_silicon::logger::records::data::implies_record::ImpliesRecord<NativeBranchState>>().unwrap();
+    assert_eq!(produced.env, "produce");
+    assert!(produced.value.as_ref().unwrap().same_node(&imp));
+    let consumed = records.iter().find(|record| record.id() == consume_cond.unwrap()).unwrap()
+        .as_any().downcast_ref::<ferrum_silicon::logger::records::data::cond_exp_record::CondExpRecord<NativeBranchState>>().unwrap();
+    assert_eq!(consumed.env, "consume");
+    assert!(consumed.value.as_ref().unwrap().same_node(&conditional));
+    worker
+        .context
+        .close_consumption_conditional_scope(consume_cond)
+        .unwrap();
+    worker
+        .context
+        .close_production_conditional_scope(produce_cond)
+        .unwrap();
+    use ferrum_silicon::interfaces::verification::VerificationResult;
+    use ferrum_silver::ast::statement::{Stmt, StmtKind};
+    let statement = Stmt::new(
+        StmtKind::Seqn {
+            statements: vec![],
+            declarations: vec![],
+        },
+        Default::default(),
+    );
+    ferrum_silicon::rules::executor::execute(&mut worker.context, state.clone(), &statement, &mut |_, _| {
+        let records = log.records().unwrap();
+        let record = records.iter().find(|r| r.as_any().is::<ferrum_silicon::logger::records::data::execute_record::ExecuteRecord<NativeBranchState>>()).unwrap();
+        let execution = record.as_any().downcast_ref::<ferrum_silicon::logger::records::data::execute_record::ExecuteRecord<NativeBranchState>>().unwrap();
+        assert!(execution.value.as_ref().unwrap().same_node(&statement));
+        assert!(execution.state.as_ref().unwrap().under_join);
+        assert!(records.iter().any(|r| r.as_any().downcast_ref::<ferrum_silicon::logger::records::scoping::close_scope_record::CloseScopeRecord>().is_some_and(|close| close.ref_id == record.id())));
+        Ok(VerificationResult::success())
+    }).unwrap();
     let disabled = NativeSymbExLogger::of_config(
         &config,
         Arc::new(ferrum_silver::reporter::reporter::NoopReporter),

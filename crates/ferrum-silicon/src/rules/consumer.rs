@@ -114,6 +114,18 @@ pub trait ConsumptionContext<P, D, J, V>: Sized {
     fn close_consumption_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
         Ok(())
     }
+    /// Source impure implication or conditional-expression scope.
+    fn open_consumption_conditional_scope(
+        &mut self,
+        _state: &State<P, D, J>,
+        _assertion: &Exp,
+    ) -> Result<Option<i32>, Self::Error> {
+        Ok(None)
+    }
+    fn close_consumption_conditional_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     fn factory(&self) -> &crate::state::terms::TermFactory;
     fn debugging(&self) -> bool;
     fn unsafe_wildcard_optimization(&self) -> bool;
@@ -562,6 +574,9 @@ where
             _ => None,
         };
         if let Some((condition, yes, no)) = conditional {
+            let conditional_scope = context
+                .open_consumption_conditional_scope(&state, assertion)
+                .map_err(ConsumptionError::Context)?;
             return context.evaluate(
                 state,
                 condition,
@@ -583,7 +598,12 @@ where
                                 yes,
                                 return_snapshot,
                                 error,
-                                done,
+                                &mut |context, state, heap, snapshot| {
+                                    context
+                                        .close_consumption_conditional_scope(conditional_scope)
+                                        .map_err(ConsumptionError::Context)?;
+                                    done(context, state, heap, snapshot)
+                                },
                             )
                         },
                         &mut |context, state, done| {
@@ -595,9 +615,17 @@ where
                                     no,
                                     return_snapshot,
                                     error,
-                                    done,
+                                    &mut |context, state, heap, snapshot| {
+                                        context
+                                            .close_consumption_conditional_scope(conditional_scope)
+                                            .map_err(ConsumptionError::Context)?;
+                                        done(context, state, heap, snapshot)
+                                    },
                                 )
                             } else {
+                                context
+                                    .close_consumption_conditional_scope(conditional_scope)
+                                    .map_err(ConsumptionError::Context)?;
                                 let snapshot = return_snapshot.then(|| context.unit_snapshot());
                                 done(context, state, heap.clone(), snapshot)
                             }

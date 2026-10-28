@@ -102,6 +102,17 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
         statement: &Stmt,
     ) -> Result<(), Self::Error>;
     fn close_statement(&mut self) -> Result<(), Self::Error>;
+    fn open_statement_scope(
+        &mut self,
+        state: &State<P, D, J>,
+        statement: &Stmt,
+    ) -> Result<Option<i32>, Self::Error> {
+        self.open_statement(state, statement)?;
+        Ok(None)
+    }
+    fn close_statement_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_statement()
+    }
     fn execution_heap(
         &mut self,
         state: &State<P, D, J>,
@@ -308,8 +319,8 @@ pub fn execute<C, P, D, J: Clone, V>(
 where
     C: ExecutionContext<P, D, J, V>,
 {
-    context
-        .open_statement(&state, statement)
+    let scope = context
+        .open_statement_scope(&state, statement)
         .map_err(ExecutionError::Context)?;
     state.h = context
         .execution_heap(&state)
@@ -318,7 +329,9 @@ where
         let state = context
             .move_to_reserve_heap(state)
             .map_err(ExecutionError::Context)?;
-        context.close_statement().map_err(ExecutionError::Context)?;
+        context
+            .close_statement_scope(scope)
+            .map_err(ExecutionError::Context)?;
         continuation(context, state)
     };
     match statement.kind() {

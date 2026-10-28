@@ -488,6 +488,43 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             .map(Some)
             .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
     }
+    fn open_assertion_conditional_scope(
+        &self,
+        state: &State<PD, FD, JoinMode>,
+        assertion: &Exp,
+        environment: &str,
+    ) -> Result<Option<i32>, NativeError<S::Error>> {
+        let Some(log) = &self.member_log else {
+            return Ok(None);
+        };
+        if log.when_enabled(|| ()).is_none() {
+            return Ok(None);
+        }
+        let factory = self
+            .record_factory
+            .as_ref()
+            .ok_or(NativeError::Unsupported(
+                "active symbolic logger requires record factory",
+            ))?;
+        let record = match assertion.kind() {
+            ExpKind::Implies(..) => {
+                factory.implies(Some(assertion), state, &self.base.decider.pcs, environment)
+            }
+            ExpKind::CondExp(..) => factory.conditional_expression(
+                assertion,
+                state,
+                &self.base.decider.pcs,
+                environment,
+            ),
+            _ => return Err(NativeError::Unsupported("conditional symbolic record")),
+        };
+        let renderer = crate::logger::state_reporting::NativeStateRecordRenderer {
+            factory: &self.factory,
+        };
+        log.open_scope(record, &renderer)
+            .map(Some)
+            .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
+    }
     fn close_logged_scope(&self, id: Option<i32>) -> Result<(), NativeError<S::Error>> {
         match (&self.member_log, id) {
             (None, None) => Ok(()),
@@ -2691,6 +2728,17 @@ where
     fn close_produce_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
         self.close_logged_scope(id)
     }
+    fn open_production_conditional_scope(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        assertion: &Exp,
+    ) -> Result<Option<i32>, Self::Error> {
+        self.open_assertion_conditional_scope(state, assertion, "produce")
+    }
+    fn close_production_conditional_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_logged_scope(id)
+    }
+
     fn assume_empty_snapshot(
         &mut self,
         state: &State<PD, FD, JoinMode>,
@@ -3487,6 +3535,17 @@ where
     fn close_consumption_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
         self.close_logged_scope(id)
     }
+    fn open_consumption_conditional_scope(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        assertion: &Exp,
+    ) -> Result<Option<i32>, Self::Error> {
+        self.open_assertion_conditional_scope(state, assertion, "consume")
+    }
+    fn close_consumption_conditional_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_logged_scope(id)
+    }
+
     fn factory(&self) -> &crate::state::terms::TermFactory {
         &self.factory
     }
@@ -6332,6 +6391,35 @@ where
     }
     fn close_statement(&mut self) -> Result<(), Self::Error> {
         Ok(())
+    }
+    fn open_statement_scope(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        statement: &Stmt,
+    ) -> Result<Option<i32>, Self::Error> {
+        self.checkpoint()?;
+        let Some(log) = &self.member_log else {
+            return Ok(None);
+        };
+        if log.when_enabled(|| ()).is_none() {
+            return Ok(None);
+        }
+        let factory = self
+            .record_factory
+            .as_ref()
+            .ok_or(NativeError::Unsupported(
+                "active symbolic logger requires record factory",
+            ))?;
+        let record = factory.execute(statement, state, &self.base.decider.pcs);
+        let renderer = crate::logger::state_reporting::NativeStateRecordRenderer {
+            factory: &self.factory,
+        };
+        log.open_scope(record, &renderer)
+            .map(Some)
+            .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
+    }
+    fn close_statement_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_logged_scope(id)
     }
     fn execution_heap(
         &mut self,

@@ -112,6 +112,18 @@ pub trait ProductionContext<P, D, J, V>: Sized {
         self.close_produce()
     }
 
+    /// Source impure implication or conditional-expression scope.
+    fn open_production_conditional_scope(
+        &mut self,
+        _state: &State<P, D, J>,
+        _assertion: &Exp,
+    ) -> Result<Option<i32>, Self::Error> {
+        Ok(None)
+    }
+    fn close_production_conditional_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     fn assume_empty_snapshot(
         &mut self,
         state: &State<P, D, J>,
@@ -420,6 +432,9 @@ where
             _ => None,
         };
         if let Some((condition, yes, no)) = conditional {
+            let conditional_scope = context
+                .open_production_conditional_scope(&state, assertion)
+                .map_err(ProductionError::Context)?;
             return context.evaluate(
                 state,
                 condition,
@@ -434,14 +449,41 @@ where
                         join,
                         no.is_some(),
                         &mut |context, state, done| {
-                            produce_recursive(context, state, snapshot.clone(), yes, error, done)
+                            produce_recursive(
+                                context,
+                                state,
+                                snapshot.clone(),
+                                yes,
+                                error,
+                                &mut |context, state| {
+                                    context
+                                        .close_production_conditional_scope(conditional_scope)
+                                        .map_err(ProductionError::Context)?;
+                                    done(context, state)
+                                },
+                            )
                         },
                         &mut |context, state, done| {
                             if let Some(no) = no {
-                                produce_recursive(context, state, snapshot.clone(), no, error, done)
+                                produce_recursive(
+                                    context,
+                                    state,
+                                    snapshot.clone(),
+                                    no,
+                                    error,
+                                    &mut |context, state| {
+                                        context
+                                            .close_production_conditional_scope(conditional_scope)
+                                            .map_err(ProductionError::Context)?;
+                                        done(context, state)
+                                    },
+                                )
                             } else {
                                 context
                                     .assume_empty_snapshot(&state, snapshot)
+                                    .map_err(ProductionError::Context)?;
+                                context
+                                    .close_production_conditional_scope(conditional_scope)
                                     .map_err(ProductionError::Context)?;
                                 done(context, state)
                             }

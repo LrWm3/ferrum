@@ -591,3 +591,12 @@ other threads. Nested reporting and queue access on the same thread therefore
 complete, and RAII releases the monitor after callback errors or unwinding.
 Already queued messages remain available. Focused checks cover reentry,
 serialization and error/panic recovery.
+
+Impure production and consumption conditionals now capture their source record
+and close it in each successful branch before the collector or continuation.
+False implications retain the source empty/unit snapshot ordering. Execution
+records now retain each statement and its original state before execution-heap
+selection, closing after reserve-heap restoration and before the continuation.
+Nested statement scope IDs remain distinct. These optional hooks preserve the
+disabled path and leave public reporting profiles gated pending the remaining
+branch, retry, consolidation and lifecycle integration.
