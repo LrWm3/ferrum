@@ -178,6 +178,15 @@ fn translate_expression_with_fields(
         PExpressionKind::Extension(extension)
             if extension
                 .as_any()
+                .is::<crate::plugin::standard::arp::arppast_extension::PRdPerm>() =>
+        {
+            return Ok(
+                crate::plugin::standard::arp::arpast_extension::RdPerm { meta }.expression(),
+            );
+        }
+        PExpressionKind::Extension(extension)
+            if extension
+                .as_any()
                 .is::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() =>
         {
             let sif = extension
@@ -473,6 +482,51 @@ fn translate_expression_with_fields(
             translate_expression_with_fields(&inhale, fields)?,
             translate_expression_with_fields(&exhale, fields)?,
         ),
+        PExpressionKind::Forall(q) | PExpressionKind::Exists(q) => {
+            let forall = matches!(q.keyword.value(), PKw::Forall);
+            let vars = q
+                .vars
+                .to_seq()
+                .iter()
+                .map(|v| formal_declaration(v))
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut triggers = Vec::new();
+            for trigger in &q.triggers {
+                let mut expressions = Vec::new();
+                for source in trigger.expressions.inner().to_seq() {
+                    let value = translate_expression_with_fields(source, fields)?;
+                    expressions.push(match value.kind() {
+                        ExpKind::PredicateAccessPredicate(access) => Exp::new(
+                            ExpKind::PredicateAccess(access.location.clone()),
+                            access.location.meta.clone(),
+                        ),
+                        _ => value,
+                    });
+                }
+                triggers.push(crate::ast::expression::Trigger::new(
+                    expressions,
+                    metadata(&trigger.node)?,
+                ));
+            }
+            let body = translate_expression_with_fields(&q.body, fields)?;
+            if !forall {
+                ExpKind::Exists(vars, triggers, body)
+            } else {
+                let result = Exp::new(ExpKind::Forall(vars, triggers, body), meta.clone());
+                if result.is_pure() {
+                    return Ok(result);
+                }
+                let parts = crate::ast::utility::quantified_permissions::desugar_source_quantified_permission_syntax(&result).map_err(|_| TranslationError::Unsupported("quantified permission desugaring"))?;
+                let mut parts = parts.into_iter();
+                let mut combined = parts.next().ok_or(TranslationError::Unsupported(
+                    "empty quantified permission desugaring",
+                ))?;
+                for part in parts {
+                    combined = Exp::new(ExpKind::And(combined, part), meta.clone());
+                }
+                return Ok(combined);
+            }
+        }
         PExpressionKind::RangeSeq { low, high, .. } => ExpKind::RangeSeq(
             translate_expression_with_fields(&low, fields)?,
             translate_expression_with_fields(&high, fields)?,
@@ -598,6 +652,83 @@ fn translate_statement_with_fields(
         _ => return Err(TranslationError::Unsupported("statement node")),
     };
     let meta = metadata(input.node())?;
+    if let PStatementKind::Assign { targets, rhs, .. } = &statement.kind {
+        let call = match &rhs.node().read().expect("poisoned parse node").kind {
+            PNodeKind::Expression(e) => match &e.kind {
+                PExpressionKind::Call {
+                    idnref,
+                    call_args,
+                    type_annotated: None,
+                    ..
+                } => Some((idnref.clone(), call_args.clone())),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some((reference, call_args)) = call {
+            let candidates = PIdnRef::decls(&reference, |_| true);
+            if candidates.len() == 1
+                && matches!(
+                    &candidates[0].read().expect("poisoned parse node").kind,
+                    PNodeKind::Member(super::parse_ast::PMember {
+                        kind: super::parse_ast::PMemberKind::Method { .. },
+                        ..
+                    })
+                )
+            {
+                let name = match &reference.read().expect("poisoned parse node").kind {
+                    PNodeKind::IdnRef(id) => id.name.clone(),
+                    _ => return Err(TranslationError::InvalidType),
+                };
+                let args = call_args
+                    .inner()
+                    .to_seq()
+                    .into_iter()
+                    .map(|exp| translate_expression_with_fields(exp, fields))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let mut translated_targets = Vec::new();
+                for target in targets.to_seq() {
+                    let reference = match &target.node().read().expect("poisoned parse node").kind {
+                        PNodeKind::Expression(e) => match &e.kind {
+                            PExpressionKind::IdnUse { idnref } => idnref.clone(),
+                            _ => {
+                                return Err(TranslationError::Unsupported(
+                                    "method call field target",
+                                ));
+                            }
+                        },
+                        _ => return Err(TranslationError::InvalidType),
+                    };
+                    let declarations = PIdnRef::decls(&reference, |_| true);
+                    if declarations.len() != 1
+                        || !matches!(
+                            &declarations[0].read().expect("poisoned parse node").kind,
+                            PNodeKind::Declaration(super::parse_ast::PDeclaration {
+                                kind: super::parse_ast::PDeclarationKind::LocalVar
+                                    | super::parse_ast::PDeclarationKind::FormalReturn,
+                                ..
+                            })
+                        )
+                    {
+                        return Err(TranslationError::InvalidType);
+                    }
+                    let translated = translate_expression_with_fields(target, fields)?;
+                    let ExpKind::LocalVar(local) = translated.kind() else {
+                        return Err(TranslationError::InvalidType);
+                    };
+                    translated_targets.push(local.clone());
+                }
+                return Ok(Stmt::new(
+                    StmtKind::MethodCall {
+                        method_name: name,
+                        args,
+                        targets: translated_targets,
+                    },
+                    meta,
+                ));
+            }
+        }
+    }
     let kind = match statement.kind {
         PStatementKind::Extension(extension) => {
             if let Some(refute) = extension
@@ -1163,6 +1294,23 @@ mod program_tests {
     use super::*;
     use crate::parser::fast_parser::parse_program;
     use crate::parser::resolver::{NameAnalyser, check_program_core};
+    #[test]
+    fn method_calls_translate_multiple_assignable_targets() {
+        let source = "method m(x: Int) returns (a: Int, b: Int) method caller() { var x: Int; var y: Int; x, y := m(1); }";
+        let parsed = parse_program(source, "test.vpr").unwrap();
+        super::super::parse_ast::init_properties(parsed.node()).unwrap();
+        assert!(NameAnalyser::default().run(parsed.node()).unwrap());
+        check_program_core(&parsed, &mut |_, _| {}).unwrap();
+        let program = translate_program_core(&parsed).unwrap();
+        let crate::ast::statement::StmtKind::Seqn { statements, .. } =
+            program.methods[1].body.as_ref().unwrap().kind()
+        else {
+            panic!("caller")
+        };
+        assert!(
+            matches!(statements.last().unwrap().kind(), crate::ast::statement::StmtKind::MethodCall { method_name, args, targets } if method_name == "m" && args.len() == 1 && targets.len() == 2)
+        );
+    }
     #[test]
     fn sif_low_and_rel_are_parsed_checked_and_translated() {
         use crate::parser::fast_parser::{ParserFeature, parse_program_with_features};

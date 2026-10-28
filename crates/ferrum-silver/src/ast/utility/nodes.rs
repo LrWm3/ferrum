@@ -1068,6 +1068,21 @@ pub fn map_node_tree(
     node: &Node,
     rule: &dyn Fn(&Node) -> Result<Node, crate::verifier::verification_result::DiagnosticError>,
 ) -> Result<Node, crate::verifier::verification_result::DiagnosticError> {
+    map_node_tree_impl(node, rule, true)
+}
+
+/// Visit source checkTransitively product fields, which exclude maps.
+pub fn visit_check_products(
+    node: &Node,
+    rule: &dyn Fn(&Node) -> Result<Node, crate::verifier::verification_result::DiagnosticError>,
+) -> Result<Node, crate::verifier::verification_result::DiagnosticError> {
+    map_node_tree_impl(node, rule, false)
+}
+fn map_node_tree_impl(
+    node: &Node,
+    rule: &dyn Fn(&Node) -> Result<Node, crate::verifier::verification_result::DiagnosticError>,
+    visit_maps: bool,
+) -> Result<Node, crate::verifier::verification_result::DiagnosticError> {
     use crate::ast::{
         expression::{Exp, ExpKind, FieldAccess, PredicateAccess, Trigger},
         program::{LocalVarDecl, Member},
@@ -1077,6 +1092,7 @@ pub fn map_node_tree(
     use crate::verifier::verification_result::DiagnosticError;
     struct Walker<'a> {
         rule: &'a dyn Fn(&Node) -> Result<Node, DiagnosticError>,
+        visit_maps: bool,
     }
     impl Walker<'_> {
         fn pre(&self, node: &Node) -> Result<Node, DiagnosticError> {
@@ -1111,6 +1127,9 @@ pub fn map_node_tree(
                     Type::map(key, value)
                 }
                 Type::Domain(domain) => {
+                    if !self.visit_maps {
+                        return Ok(current);
+                    }
                     let mut mappings = std::collections::HashMap::new();
                     for (var, value) in &domain.partial_type_vars {
                         let Type::Var(var) = self.typ(&Type::Var(var.clone()))? else {
@@ -1130,6 +1149,12 @@ pub fn map_node_tree(
                     ))
                 }
                 Type::Extension(extension) => {
+                    if !self.visit_maps {
+                        for child in extension.check_product_nodes()? {
+                            self.pass(&child)?;
+                        }
+                        return Ok(current);
+                    }
                     let mapped = extension.map_types(&|t| self.typ(t))?;
                     if extension.equals(mapped.as_ref()) {
                         return Ok(current);
@@ -1289,8 +1314,12 @@ pub fn map_node_tree(
                         .map(|v| self.exp(v))
                         .collect::<Result<Vec<_>, _>>()?;
                     let mut substitutions2 = std::collections::HashMap::new();
-                    for (k, v) in substitutions {
-                        substitutions2.insert(self.type_var(k)?, self.typ(v)?);
+                    if self.visit_maps {
+                        for (k, v) in substitutions {
+                            substitutions2.insert(self.type_var(k)?, self.typ(v)?);
+                        }
+                    } else {
+                        substitutions2 = substitutions.clone();
                     }
                     if args2 == *args && substitutions2 == *substitutions {
                         return Ok(current);
@@ -1363,6 +1392,14 @@ pub fn map_node_tree(
                     current.0.extra.clone(),
                 ));
             }
+            if !self.visit_maps {
+                if let ExpKind::Extension(extension) = current.kind() {
+                    for child in extension.0.check_product_nodes()? {
+                        self.pass(&child)?;
+                    }
+                    return Ok(current);
+                }
+            }
             current.map_expression_children(
                 &mut |v| self.exp(v),
                 &mut |extension| extension.0.map_expressions(&|e| self.exp(e)),
@@ -1377,7 +1414,16 @@ pub fn map_node_tree(
                 &|e| self.exp(e),
                 &|n| self.pre(n),
                 &|n| self.pass(n),
-                &|ext, map| ext.0.map_expressions(map),
+                &|ext, map| {
+                    if self.visit_maps {
+                        ext.0.map_expressions(map)
+                    } else {
+                        for child in ext.0.check_product_nodes()? {
+                            self.pass(&child)?;
+                        }
+                        Ok(ext.clone())
+                    }
+                },
             )
         }
         fn domain_func(
@@ -1565,6 +1611,12 @@ pub fn map_node_tree(
                     )
                 }
                 Member::Extension(v) => {
+                    if !self.visit_maps {
+                        for child in v.0.check_product_nodes()? {
+                            self.pass(&child)?;
+                        }
+                        return Ok(Member::Extension(v));
+                    }
                     let rebuilt = v.0.map_nodes(&|n| self.pass(n))?;
                     Member::Extension(if rebuilt == v { v } else { rebuilt })
                 }
@@ -1696,13 +1748,39 @@ pub fn map_node_tree(
             })
         }
     }
-    Walker { rule }.pass(node)
+    Walker { rule, visit_maps }.pass(node)
 }
 
 #[cfg(test)]
 mod reconstruction_tests {
     use super::*;
     use crate::ast::{ast::Metadata, program::Function, r#type::Type};
+    #[test]
+    fn consistency_products_skip_extension_substitution_maps() {
+        use crate::ast::r#type::TypeVar;
+        use crate::plugin::standard::adt::adt_ast_extension::AdtType;
+        use std::cell::Cell;
+        use std::collections::HashMap;
+        let variable = TypeVar::new("T");
+        let ty = AdtType::new("D", HashMap::from([(variable, Type::Int)]), vec![]).as_type();
+        let seen = Cell::new(0);
+        visit_check_products(&Node::Type(ty.clone()), &|node| {
+            if matches!(node, Node::Type(Type::Int)) {
+                seen.set(seen.get() + 1);
+            }
+            Ok(node.clone())
+        })
+        .unwrap();
+        assert_eq!(seen.get(), 0);
+        map_node_tree(&Node::Type(ty), &|node| {
+            if matches!(node, Node::Type(Type::Int)) {
+                seen.set(seen.get() + 1);
+            }
+            Ok(node.clone())
+        })
+        .unwrap();
+        assert_eq!(seen.get(), 1);
+    }
     #[test]
     fn shared_node_mapper_rewrites_nested_type_product_fields() {
         use crate::ast::{

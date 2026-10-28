@@ -143,8 +143,45 @@ impl PartialEq for Trigger {
 impl Eq for Trigger {}
 
 pub trait ExtensionExp: Debug + Send + Sync {
+    /// Complete source local check, or an explicit unsupported error.
+    fn check(
+        &self,
+    ) -> Result<
+        Vec<crate::verifier::verification_result::FrontendError>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Err(
+            crate::verifier::verification_result::DiagnosticError::Unsupported(
+                "extension local consistency",
+            ),
+        )
+    }
+    /// Source scope membership and declarations; default deliberately fails closed.
+    fn scope_declarations(
+        &self,
+    ) -> Result<
+        Option<Vec<super::program::Declaration>>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Err(crate::verifier::verification_result::DiagnosticError::Unsupported("extension scope"))
+    }
+
     fn metadata(&self) -> &Metadata;
     fn with_metadata(&self, metadata: Metadata) -> ExtensionExpHandle;
+    /// First-constructor Node products visited by source checkTransitively; excludes maps.
+    fn check_product_nodes(
+        &self,
+    ) -> Result<
+        Vec<super::utility::nodes::Node>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Err(
+            crate::verifier::verification_result::DiagnosticError::Unsupported(
+                "extension consistency product traversal",
+            ),
+        )
+    }
+
     fn as_any(&self) -> &dyn Any;
     fn equals(&self, other: &dyn ExtensionExp) -> bool;
     fn typ(&self) -> Type;

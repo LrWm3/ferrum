@@ -60,6 +60,32 @@ impl Refute {
     }
 }
 impl ExtensionStmt for Refute {
+    fn check_product_nodes(
+        &self,
+    ) -> Result<
+        Vec<crate::ast::utility::nodes::Node>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(vec![Node::Exp(self.exp.clone())])
+    }
+
+    fn check(
+        &self,
+    ) -> Result<
+        Vec<crate::verifier::verification_result::FrontendError>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(vec![])
+    }
+    fn scope_declarations(
+        &self,
+    ) -> Result<
+        Option<Vec<crate::ast::program::Declaration>>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(None)
+    }
+
     fn metadata(&self) -> &Metadata {
         &self.meta
     }

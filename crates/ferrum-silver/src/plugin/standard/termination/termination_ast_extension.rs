@@ -132,6 +132,53 @@ impl DecreasesClause {
     }
 }
 impl ExtensionExp for DecreasesClause {
+    fn check_product_nodes(
+        &self,
+    ) -> Result<
+        Vec<crate::ast::utility::nodes::Node>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(match &self.kind {
+            DecreasesKind::Tuple { tuple, condition } => tuple
+                .iter()
+                .chain(condition.iter())
+                .cloned()
+                .map(Node::Exp)
+                .collect(),
+            DecreasesKind::Wildcard { condition } => {
+                condition.iter().cloned().map(Node::Exp).collect()
+            }
+            DecreasesKind::Star => vec![],
+        })
+    }
+
+    fn check(
+        &self,
+    ) -> Result<
+        Vec<crate::verifier::verification_result::FrontendError>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        match &self.kind {
+            DecreasesKind::Tuple { tuple, condition } => {
+                crate::plugin::silver_plugin::check_pure_expressions(
+                    tuple.iter().chain(condition.iter()),
+                )
+            }
+            DecreasesKind::Wildcard { condition } => {
+                crate::plugin::silver_plugin::check_pure_expressions(condition.iter())
+            }
+            DecreasesKind::Star => Ok(vec![]),
+        }
+    }
+    fn scope_declarations(
+        &self,
+    ) -> Result<
+        Option<Vec<crate::ast::program::Declaration>>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(None)
+    }
+
     fn metadata(&self) -> &Metadata {
         &self.meta
     }

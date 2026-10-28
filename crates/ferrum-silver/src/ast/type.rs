@@ -41,6 +41,43 @@ pub type TypeSubstitution = HashMap<TypeVar, Type>;
 /// Plugin type behavior is provisional until extension-node reconstruction and
 /// pretty printing are connected. Implementations define their own equality.
 pub trait ExtensionType: fmt::Debug + Send + Sync {
+    /// Complete source local check, or an explicit unsupported error.
+    fn check(
+        &self,
+    ) -> Result<
+        Vec<crate::verifier::verification_result::FrontendError>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Err(
+            crate::verifier::verification_result::DiagnosticError::Unsupported(
+                "extension local consistency",
+            ),
+        )
+    }
+    /// Source scope membership and declarations; default deliberately fails closed.
+    fn scope_declarations(
+        &self,
+    ) -> Result<
+        Option<Vec<super::program::Declaration>>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Err(crate::verifier::verification_result::DiagnosticError::Unsupported("extension scope"))
+    }
+
+    /// First-constructor Node products visited by source checkTransitively; excludes maps.
+    fn check_product_nodes(
+        &self,
+    ) -> Result<
+        Vec<super::utility::nodes::Node>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Err(
+            crate::verifier::verification_result::DiagnosticError::Unsupported(
+                "extension consistency product traversal",
+            ),
+        )
+    }
+
     fn as_any(&self) -> &dyn Any;
     fn equals(&self, other: &dyn ExtensionType) -> bool;
     /// Equal extension values must return the same hash.

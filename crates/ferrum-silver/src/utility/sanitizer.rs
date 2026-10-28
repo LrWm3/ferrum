@@ -92,7 +92,21 @@ fn rewrite(e: &Exp, context: &Context, skip_root_rewrite: bool) -> Result<Exp, S
     let child = |x: &Exp| rewrite(x, &active, false);
     let mapped = e.map_expression_children(
         &mut |x| child(x),
-        &mut |_| Err(SanitizeError::Extension),
+        &mut |extension| {
+            let saved = std::cell::RefCell::new(None);
+            let result = extension.0.map_expressions(&|child| {
+                rewrite(child, &active, false).map_err(|error| {
+                    *saved.borrow_mut() = Some(error);
+                    crate::verifier::verification_result::DiagnosticError::Unsupported(
+                        "sanitizer extension child",
+                    )
+                })
+            });
+            match result {
+                Ok(value) => Ok(value),
+                Err(_) => Err(saved.into_inner().unwrap_or(SanitizeError::Extension)),
+            }
+        },
         &mut |f| {
             let r = child(&f.receiver)?;
             Ok(if r == f.receiver {
@@ -173,6 +187,37 @@ pub fn replace_free_variables_in_expression(
 mod tests {
     use super::*;
     use crate::ast::{ast::Metadata, r#type::Type};
+    #[test]
+    fn substitution_descends_through_extension_expression_children() {
+        use crate::plugin::standard::predicateinstance::predicate_instance_ast_extension::PredicateInstance;
+        let m = Metadata::default();
+        let x = Exp::new(
+            ExpKind::LocalVar(LocalVar::new("x".into(), Type::Int, m.clone())),
+            m.clone(),
+        );
+        let replacement = Exp::new(ExpKind::IntLit(7.into()), m.clone());
+        let ext = PredicateInstance {
+            predicate: "p".into(),
+            args: vec![x],
+            meta: m,
+        }
+        .expression();
+        let result = replace_free_variables_in_expression(
+            &ext,
+            HashMap::from([("x".into(), replacement.clone())]),
+            HashSet::new(),
+        )
+        .unwrap();
+        let ExpKind::Extension(handle) = result.kind() else {
+            panic!("extension")
+        };
+        let value = handle
+            .0
+            .as_any()
+            .downcast_ref::<PredicateInstance>()
+            .unwrap();
+        assert_eq!(value.args, vec![replacement]);
+    }
     #[test]
     fn quantifier_renames_conflicting_binder_and_preserves_replacement() {
         let m = Metadata::default();

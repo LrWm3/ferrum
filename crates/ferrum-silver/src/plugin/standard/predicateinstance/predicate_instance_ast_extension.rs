@@ -78,6 +78,32 @@ impl PredicateInstance {
     }
 }
 impl ExtensionExp for PredicateInstance {
+    fn check_product_nodes(
+        &self,
+    ) -> Result<
+        Vec<crate::ast::utility::nodes::Node>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(self.args.iter().cloned().map(Node::Exp).collect())
+    }
+
+    fn check(
+        &self,
+    ) -> Result<
+        Vec<crate::verifier::verification_result::FrontendError>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        crate::plugin::silver_plugin::check_pure_expressions(&self.args)
+    }
+    fn scope_declarations(
+        &self,
+    ) -> Result<
+        Option<Vec<crate::ast::program::Declaration>>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(None)
+    }
+
     fn metadata(&self) -> &Metadata {
         &self.meta
     }

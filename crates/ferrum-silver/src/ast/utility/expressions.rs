@@ -1314,3 +1314,58 @@ mod proof_obligations_tests {
         );
     }
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InstantiateError {
+    ArityMismatch,
+    NotAbstractLocalVariable,
+    Sanitizer(crate::utility::sanitizer::SanitizeError),
+}
+/// Instantiate declared locals, preserving source capture avoidance and supplied scope.
+pub fn instantiate_variables(
+    expression: &Exp,
+    variables: &[crate::ast::program::LocalVarDecl],
+    values: &[Exp],
+    scope: &std::collections::HashSet<String>,
+) -> Result<Exp, InstantiateError> {
+    if variables.len() != values.len() {
+        return Err(InstantiateError::ArityMismatch);
+    }
+    let replacements = variables
+        .iter()
+        .zip(values)
+        .map(|(v, e)| (v.name.clone(), e.clone()))
+        .collect();
+    crate::utility::sanitizer::replace_free_variables_in_expression(
+        expression,
+        replacements,
+        scope.clone(),
+    )
+    .map_err(InstantiateError::Sanitizer)
+}
+/// Source overload accepting AbstractLocalVar expression nodes and an empty scope.
+pub fn instantiate_abstract_variables(
+    expression: &Exp,
+    variables: &[Exp],
+    values: &[Exp],
+) -> Result<Exp, InstantiateError> {
+    if variables.len() != values.len() {
+        return Err(InstantiateError::ArityMismatch);
+    }
+    let mut replacements = std::collections::HashMap::new();
+    for (var, value) in variables.iter().zip(values) {
+        let name = match var.kind() {
+            ExpKind::LocalVar(v) => v.name.clone(),
+            ExpKind::LocalVarWithVersion(name, _) => name.clone(),
+            ExpKind::Result(_) => "result".into(),
+            _ => return Err(InstantiateError::NotAbstractLocalVariable),
+        };
+        replacements.insert(name, value.clone());
+    }
+    crate::utility::sanitizer::replace_free_variables_in_expression(
+        expression,
+        replacements,
+        Default::default(),
+    )
+    .map_err(InstantiateError::Sanitizer)
+}

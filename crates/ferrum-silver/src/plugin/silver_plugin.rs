@@ -122,3 +122,28 @@ impl PluginErrors {
         Ok(())
     }
 }
+
+/// Source Consistency.checkPure for plugin expressions. Rendering failures are
+/// propagated rather than inventing a diagnostic expression.
+pub(crate) fn check_pure_expressions<'a>(
+    expressions: impl IntoIterator<Item = &'a crate::ast::expression::Exp>,
+) -> Result<
+    Vec<crate::verifier::verification_result::FrontendError>,
+    crate::verifier::verification_result::DiagnosticError,
+> {
+    use crate::verifier::verification_result::{DiagnosticError, FrontendError, FrontendErrorKind};
+    let mut errors = Vec::new();
+    for expression in expressions {
+        if !expression.is_pure() {
+            let rendered = crate::ast::pretty::pretty_printer::pretty_expression(expression)
+                .map_err(|_| DiagnosticError::Unsupported("plugin purity diagnostic rendering"))?;
+            errors.push(FrontendError::new(
+                FrontendErrorKind::ConsistencyError(format!(
+                    "{rendered} is non pure and appears where only pure expressions are allowed."
+                )),
+                expression.metadata().position.clone(),
+            ));
+        }
+    }
+    Ok(errors)
+}

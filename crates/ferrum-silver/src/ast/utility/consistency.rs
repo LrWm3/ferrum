@@ -1052,3 +1052,2263 @@ mod context_consistency_tests {
         );
     }
 }
+
+/// Failures encountered while checking scoped declarations and uses.
+#[derive(Debug)]
+pub enum IdentifierCheckError {
+    Traversal(TraversalError),
+    Type(crate::ast::expression::ExpressionTypeError),
+    TypePrinter(crate::ast::pretty::pretty_printer::PrintError),
+    UnsupportedExtension,
+    Extension(crate::verifier::verification_result::DiagnosticError),
+}
+impl From<TraversalError> for IdentifierCheckError {
+    fn from(value: TraversalError) -> Self {
+        Self::Traversal(value)
+    }
+}
+
+/// Source Program.checkIdentifiers: scope shadowing, duplicates, and typed uses.
+pub fn check_identifiers(program: &Program) -> Result<Vec<FrontendError>, IdentifierCheckError> {
+    use crate::ast::{
+        position::Position,
+        program::{AnyLocalVarDecl, Declaration, DomainAxiomKind, Member},
+        statement::StmtKind,
+    };
+    use std::collections::HashMap;
+    #[derive(Clone)]
+    struct Entry {
+        name: String,
+        class: &'static str,
+        typ: Option<Type>,
+        pos: Position,
+    }
+    fn entry(d: &Declaration) -> Result<Entry, IdentifierCheckError> {
+        Ok(match d {
+            Declaration::Local(v) => Entry {
+                name: v.name.clone(),
+                class: "LocalVarDecl",
+                typ: Some(v.typ.clone()),
+                pos: v.meta.position.clone(),
+            },
+            Declaration::Label(v) => Entry {
+                name: v.name.clone(),
+                class: "Label",
+                typ: None,
+                pos: v.meta.position.clone(),
+            },
+            Declaration::Field(v) => Entry {
+                name: v.name.clone(),
+                class: "Field",
+                typ: Some(v.typ.clone()),
+                pos: v.meta.position.clone(),
+            },
+            Declaration::Function(v) => Entry {
+                name: v.name.clone(),
+                class: "Function",
+                typ: Some(v.typ.clone()),
+                pos: v.meta.position.clone(),
+            },
+            Declaration::Method(v) => Entry {
+                name: v.name.clone(),
+                class: "Method",
+                typ: None,
+                pos: v.meta.position.clone(),
+            },
+            Declaration::Predicate(v) => Entry {
+                name: v.name.clone(),
+                class: "Predicate",
+                typ: None,
+                pos: v.meta.position.clone(),
+            },
+            Declaration::Domain(v) => Entry {
+                name: v.name.clone(),
+                class: "Domain",
+                typ: None,
+                pos: v.meta.position.clone(),
+            },
+            Declaration::DomainFunc(v) => Entry {
+                name: v.name.clone(),
+                class: "DomainFunc",
+                typ: Some(v.typ.clone()),
+                pos: v.meta.position.clone(),
+            },
+            Declaration::NamedDomainAxiom(v) => match v.kind() {
+                DomainAxiomKind::Named { name, meta, .. } => Entry {
+                    name: name.clone(),
+                    class: "NamedDomainAxiom",
+                    typ: None,
+                    pos: meta.position.clone(),
+                },
+                _ => return Err(IdentifierCheckError::UnsupportedExtension),
+            },
+            Declaration::Extension(v) => Entry {
+                name: v.0.name().to_owned(),
+                class: "__extension__",
+                typ: None,
+                pos: v
+                    .0
+                    .metadata()
+                    .map_err(IdentifierCheckError::Extension)?
+                    .position
+                    .clone(),
+            },
+        })
+    }
+    #[derive(Debug)]
+    struct MemberDeclaration(crate::ast::program::ExtensionMemberHandle);
+    impl crate::ast::program::ExtensionDeclaration for MemberDeclaration {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn name(&self) -> &str {
+            self.0.0.name()
+        }
+        fn equals(&self, other: &dyn crate::ast::program::ExtensionDeclaration) -> bool {
+            other
+                .as_any()
+                .downcast_ref::<Self>()
+                .is_some_and(|other| self.0 == other.0)
+        }
+        fn metadata(
+            &self,
+        ) -> Result<&crate::ast::ast::Metadata, crate::verifier::verification_result::DiagnosticError>
+        {
+            self.0.0.metadata()
+        }
+    }
+    fn declarations(n: &Node) -> Result<Option<Vec<Declaration>>, IdentifierCheckError> {
+        Ok(match n {
+            Node::Program(p) => {
+                let mut ds: Vec<Declaration> = p
+                    .domains
+                    .iter()
+                    .cloned()
+                    .map(Declaration::Domain)
+                    .chain(p.fields.iter().cloned().map(Declaration::Field))
+                    .chain(p.functions.iter().cloned().map(Declaration::Function))
+                    .chain(p.predicates.iter().cloned().map(Declaration::Predicate))
+                    .chain(p.methods.iter().cloned().map(Declaration::Method))
+                    .collect();
+                ds.extend(p.extensions.iter().cloned().map(|v| {
+                    Declaration::Extension(crate::ast::program::ExtensionDeclarationHandle(
+                        std::sync::Arc::new(MemberDeclaration(v)),
+                    ))
+                }));
+                for d in &p.domains {
+                    ds.extend(
+                        d.axioms
+                            .iter()
+                            .filter(|a| matches!(a.kind(), DomainAxiomKind::Named { .. }))
+                            .cloned()
+                            .map(Declaration::NamedDomainAxiom),
+                    );
+                    ds.extend(d.functions.iter().cloned().map(Declaration::DomainFunc));
+                }
+                Some(ds)
+            }
+            Node::Member(m) => Some(match m {
+                Member::Domain(_) | Member::Field(_) => vec![],
+                Member::Function(f) => f
+                    .formal_args
+                    .iter()
+                    .cloned()
+                    .map(Declaration::Local)
+                    .collect(),
+                Member::Predicate(p) => p
+                    .formal_args
+                    .iter()
+                    .cloned()
+                    .map(Declaration::Local)
+                    .collect(),
+                Member::Method(m) => m.scoped_declarations()?,
+                Member::Extension(v) => {
+                    v.0.scope_declarations()
+                        .map_err(IdentifierCheckError::Extension)?
+                }
+            }),
+            Node::DomainFunc(f) => Some(
+                f.formal_args
+                    .iter()
+                    .filter_map(|v| match v {
+                        AnyLocalVarDecl::Named(v) => Some(Declaration::Local(v.clone())),
+                        _ => None,
+                    })
+                    .collect(),
+            ),
+            Node::DomainAxiom(_) => Some(vec![]),
+            Node::Stmt(s) => match s.kind() {
+                StmtKind::Seqn { .. } => Some(s.scoped_declarations()),
+                StmtKind::Extension(v) => {
+                    v.0.scope_declarations()
+                        .map_err(IdentifierCheckError::Extension)?
+                }
+                StmtKind::Quasihavocall { variables, .. } => {
+                    Some(variables.iter().cloned().map(Declaration::Local).collect())
+                }
+                _ => None,
+            },
+            Node::Exp(e) => match e.kind() {
+                ExpKind::Extension(v) => {
+                    v.0.scope_declarations()
+                        .map_err(IdentifierCheckError::Extension)?
+                }
+                ExpKind::Let(v, ..) => Some(vec![Declaration::Local(v.clone())]),
+                ExpKind::Forall(v, ..) | ExpKind::Exists(v, ..) | ExpKind::ForPerm(v, ..) => {
+                    Some(v.iter().cloned().map(Declaration::Local).collect())
+                }
+                _ => None,
+            },
+            Node::Type(Type::Extension(v)) => v
+                .scope_declarations()
+                .map_err(IdentifierCheckError::Extension)?,
+            _ => None,
+        })
+    }
+    fn issue(out: &mut Vec<FrontendError>, pos: &Position, message: String) {
+        out.push(FrontendError::new(
+            FrontendErrorKind::ConsistencyError(message),
+            pos.clone(),
+        ));
+    }
+    fn type_string(t: &Type) -> Result<String, IdentifierCheckError> {
+        crate::ast::pretty::pretty_printer::show_type(t).map_err(IdentifierCheckError::TypePrinter)
+    }
+    fn check_scope(
+        root: &Node,
+        outer: &HashMap<String, Entry>,
+        out: &mut Vec<FrontendError>,
+    ) -> Result<(), IdentifierCheckError> {
+        let ds = declarations(root)?.expect("scope caller");
+        let mut own = HashMap::new();
+        for d in ds {
+            let e = entry(&d)?;
+            if !valid_user_defined_identifier(&e.name) {
+                issue(
+                    out,
+                    &e.pos,
+                    format!("{} is not a valid identifier.", e.name),
+                );
+            }
+            if own.contains_key(&e.name) {
+                issue(
+                    out,
+                    &e.pos,
+                    format!("Duplicate identifier `{}` found.", e.name),
+                );
+            } else {
+                own.insert(e.name.clone(), e);
+            }
+        }
+        let mut context = outer.clone();
+        context.extend(own);
+        fn walk(
+            n: &Node,
+            root: &Node,
+            scope: &HashMap<String, Entry>,
+            out: &mut Vec<FrontendError>,
+        ) -> Result<(), IdentifierCheckError> {
+            if n != root && declarations(n)?.is_some() {
+                return if matches!(n, Node::DomainFunc(_)) {
+                    check_scope(n, &HashMap::new(), out)
+                } else {
+                    check_scope(n, scope, out)
+                };
+            }
+            let name_check = |name: &str,
+                              expected: &str,
+                              pos: &Position,
+                              out: &mut Vec<FrontendError>|
+             -> Result<(), IdentifierCheckError> {
+                match scope.get(name) {
+                    Some(d) if d.class == "__extension__" => {
+                        return Err(IdentifierCheckError::UnsupportedExtension);
+                    }
+                    Some(d) if d.class == expected => {}
+                    Some(d) => issue(
+                        out,
+                        pos,
+                        format!(
+                            "No matching identifier {name} found of type {expected}, instead found of type {}.",
+                            d.class
+                        ),
+                    ),
+                    None => issue(
+                        out,
+                        pos,
+                        format!("No matching identifier {name} found of type {expected}."),
+                    ),
+                }
+                Ok(())
+            };
+            let local = |v: &crate::ast::expression::LocalVar,
+                         out: &mut Vec<FrontendError>|
+             -> Result<(), IdentifierCheckError> {
+                match scope.get(&v.name) {
+                    Some(d) if d.class == "LocalVarDecl" && d.typ.as_ref() == Some(&v.typ) => {}
+                    Some(d) if d.class == "LocalVarDecl" => issue(
+                        out,
+                        &v.meta.position,
+                        format!(
+                            "No matching local variable {} found with type {}, instead found {}.",
+                            v.name,
+                            type_string(&v.typ)?,
+                            type_string(d.typ.as_ref().expect("local type"))?
+                        ),
+                    ),
+                    Some(d) if d.class == "__extension__" => {
+                        return Err(IdentifierCheckError::UnsupportedExtension);
+                    }
+                    Some(d) => issue(
+                        out,
+                        &v.meta.position,
+                        format!(
+                            "No matching local variable {} found with type {}, instead found other identifier of type {}.",
+                            v.name,
+                            type_string(&v.typ)?,
+                            d.class
+                        ),
+                    ),
+                    None => issue(
+                        out,
+                        &v.meta.position,
+                        format!("Local variable {} not found.", v.name),
+                    ),
+                };
+                Ok(())
+            };
+            match n {
+                Node::LocalVar(v) => local(v, out)?,
+                Node::FieldAccess(v) => name_check(&v.field.name, "Field", &v.meta.position, out)?,
+                Node::PredicateAccess(v) => {
+                    name_check(&v.predicate_name, "Predicate", &v.meta.position, out)?
+                }
+                Node::Stmt(s) => match s.kind() {
+                    StmtKind::MethodCall { method_name, .. } => {
+                        name_check(method_name, "Method", &s.metadata().position, out)?
+                    }
+                    StmtKind::Goto(name) => name_check(name, "Label", &s.metadata().position, out)?,
+                    _ => {}
+                },
+                Node::Exp(e) => match e.kind() {
+                    ExpKind::LocalVar(v) => local(v, out)?,
+                    ExpKind::FieldAccess(v) => {
+                        name_check(&v.field.name, "Field", &v.meta.position, out)?
+                    }
+                    ExpKind::PredicateAccess(v) => {
+                        name_check(&v.predicate_name, "Predicate", &v.meta.position, out)?
+                    }
+                    ExpKind::FuncApp(name, _) => {
+                        name_check(name, "Function", &e.metadata().position, out)?
+                    }
+                    ExpKind::DomainFuncApp(name, ..) => {
+                        name_check(name, "DomainFunc", &e.metadata().position, out)?
+                    }
+                    ExpKind::LabelledOld(_, name) if name != "lhs" => {
+                        name_check(name, "Label", &e.metadata().position, out)?
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+            for child in subnodes(n)? {
+                walk(&child, root, scope, out)?;
+            }
+            Ok(())
+        }
+        walk(root, root, &context, out)
+    }
+    let mut out = Vec::new();
+    check_scope(&Node::Program(program.clone()), &HashMap::new(), &mut out)?;
+    Ok(out)
+}
+
+#[cfg(test)]
+mod identifier_scope_tests {
+    use super::*;
+    use crate::ast::{
+        ast::Metadata,
+        expression::LocalVar,
+        program::{LocalVarDecl, Method, MethodData},
+        statement::{Stmt, StmtKind},
+    };
+    #[test]
+    fn scope_reports_duplicate_formals_and_unbound_use() {
+        let m = Metadata::default();
+        let formal = LocalVarDecl::new("x".into(), Type::Bool, m.clone());
+        let missing = Exp::new(
+            ExpKind::LocalVar(LocalVar::new("y".into(), Type::Bool, m.clone())),
+            m.clone(),
+        );
+        let body = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![Stmt::new(StmtKind::Assert(missing), m.clone())],
+                declarations: vec![],
+            },
+            m.clone(),
+        );
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![formal.clone(), formal],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: Some(body),
+            meta: m.clone(),
+        });
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], m);
+        let errors = check_identifiers(&program).unwrap();
+        assert_eq!(errors.len(), 2);
+        assert!(
+            matches!(&errors[0].kind, FrontendErrorKind::ConsistencyError(s) if s == "Duplicate identifier `x` found.")
+        );
+        assert!(
+            matches!(&errors[1].kind, FrontendErrorKind::ConsistencyError(s) if s == "Local variable y not found.")
+        );
+    }
+}
+
+#[derive(Debug)]
+pub enum ProgramUseCheckError<E> {
+    Traversal(TraversalError),
+    Type(crate::ast::expression::ExpressionTypeError),
+    Render(E),
+    MissingDomainName,
+    InvalidPredicateAccess,
+}
+impl<E> From<TraversalError> for ProgramUseCheckError<E> {
+    fn from(value: TraversalError) -> Self {
+        Self::Traversal(value)
+    }
+}
+/// The five Program.check use/arity/type and abstract-predicate checks, in source phase order.
+/// The caller supplies source-compatible node and sequence renderers for diagnostic text.
+pub fn check_program_uses<E>(
+    p: &Program,
+    render: &impl Fn(&Node) -> Result<String, E>,
+    render_seq: &impl Fn(&[Node]) -> Result<String, E>,
+) -> Result<Vec<FrontendError>, ProgramUseCheckError<E>> {
+    use crate::ast::{program::AnyLocalVarDecl, statement::StmtKind};
+    fn nodes<E>(root: &Node) -> Result<Vec<Node>, ProgramUseCheckError<E>> {
+        fn go<E>(n: &Node, out: &mut Vec<Node>) -> Result<(), ProgramUseCheckError<E>> {
+            out.push(n.clone());
+            for child in subnodes(n)? {
+                go(&child, out)?;
+            }
+            Ok(())
+        }
+        let mut out = Vec::new();
+        go(root, &mut out)?;
+        Ok(out)
+    }
+    fn assign_exps<E>(xs: &[Exp], targets: &[Type]) -> Result<bool, ProgramUseCheckError<E>> {
+        if xs.len() != targets.len() {
+            return Ok(false);
+        }
+        for (e, target) in xs.iter().zip(targets) {
+            if !e
+                .typ()
+                .map_err(ProgramUseCheckError::Type)?
+                .is_subtype(target)
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+    fn decl_nodes(xs: &[crate::ast::program::LocalVarDecl]) -> Vec<Node> {
+        xs.iter().cloned().map(Node::LocalDecl).collect()
+    }
+    fn exp_nodes(xs: &[Exp]) -> Vec<Node> {
+        xs.iter().cloned().map(Node::Exp).collect()
+    }
+    fn emit(out: &mut Vec<FrontendError>, message: String, pos: &crate::ast::position::Position) {
+        out.push(FrontendError::new(
+            FrontendErrorKind::ConsistencyError(message),
+            pos.clone(),
+        ));
+    }
+    let mut result = Vec::new();
+    for m in &p.methods {
+        if let Some(body) = &m.body {
+            for n in nodes::<E>(&Node::Stmt(body.clone()))? {
+                if let Node::Stmt(s) = n {
+                    if let StmtKind::MethodCall {
+                        method_name,
+                        args,
+                        targets,
+                    } = s.kind()
+                    {
+                        if let Some(def) = p.find_method_optionally(method_name) {
+                            let returns: Vec<_> =
+                                def.formal_returns.iter().map(|v| v.typ.clone()).collect();
+                            let target_types: Vec<_> =
+                                targets.iter().map(|v| v.typ.clone()).collect();
+                            if !are_assignable(&returns, &target_types) {
+                                let a = render_seq(&decl_nodes(&def.formal_returns))
+                                    .map_err(ProgramUseCheckError::Render)?;
+                                let b = render_seq(
+                                    &targets
+                                        .iter()
+                                        .cloned()
+                                        .map(Node::LocalVar)
+                                        .collect::<Vec<_>>(),
+                                )
+                                .map_err(ProgramUseCheckError::Render)?;
+                                emit(
+                                    &mut result,
+                                    format!(
+                                        "Formal returns {a} of method {method_name} are not assignable to targets {b}."
+                                    ),
+                                    &s.metadata().position,
+                                );
+                            }
+                            let formal: Vec<_> =
+                                def.formal_args.iter().map(|v| v.typ.clone()).collect();
+                            if !assign_exps(args, &formal)? {
+                                let a = render_seq(&exp_nodes(args))
+                                    .map_err(ProgramUseCheckError::Render)?;
+                                let b = render_seq(&decl_nodes(&def.formal_args))
+                                    .map_err(ProgramUseCheckError::Render)?;
+                                emit(
+                                    &mut result,
+                                    format!(
+                                        "Arguments {a} are not assignable to formal arguments {b} of method {method_name}"
+                                    ),
+                                    &s.metadata().position,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let all = nodes::<E>(&Node::Program(p.clone()))?;
+    for n in &all {
+        if let Node::Exp(e) = n {
+            if let ExpKind::FuncApp(name, args) = e.kind() {
+                if let Some(def) = p.find_function_optionally(name) {
+                    let formal: Vec<_> = def.formal_args.iter().map(|v| v.typ.clone()).collect();
+                    if !assign_exps(args, &formal)? {
+                        let a = render_seq(&decl_nodes(&def.formal_args))
+                            .map_err(ProgramUseCheckError::Render)?;
+                        let b =
+                            render_seq(&exp_nodes(args)).map_err(ProgramUseCheckError::Render)?;
+                        emit(
+                            &mut result,
+                            format!(
+                                "Function {name} with formal arguments {a} cannot be applied to provided arguments {b}."
+                            ),
+                            &e.metadata().position,
+                        );
+                    }
+                    let typ = e.typ().map_err(ProgramUseCheckError::Type)?;
+                    if typ != def.typ {
+                        let a = render(&Node::Type(typ)).map_err(ProgramUseCheckError::Render)?;
+                        let b = render(&Node::Type(def.typ.clone()))
+                            .map_err(ProgramUseCheckError::Render)?;
+                        emit(
+                            &mut result,
+                            format!(
+                                "No matching function {name} found of return type {a}, instead found with return type {b}."
+                            ),
+                            &e.metadata().position,
+                        );
+                    }
+                }
+            }
+        }
+    }
+    let all = nodes::<E>(&Node::Program(p.clone()))?;
+    for n in &all {
+        if let Node::Exp(e) = n {
+            if let ExpKind::DomainFuncApp(name, args, subst) = e.kind() {
+                if let Some(def) = p.find_domain_function_optionally(name) {
+                    let formal: Vec<_> = def
+                        .formal_args
+                        .iter()
+                        .map(|v| v.typ().substitute(subst))
+                        .collect();
+                    if !assign_exps(args, &formal)? {
+                        let a: Vec<_> = def
+                            .formal_args
+                            .iter()
+                            .map(|v| match v {
+                                AnyLocalVarDecl::Named(v) => Node::LocalDecl(v.clone()),
+                                AnyLocalVarDecl::Unnamed(v) => Node::UnnamedLocalDecl(v.clone()),
+                            })
+                            .collect();
+                        let a = render_seq(&a).map_err(ProgramUseCheckError::Render)?;
+                        let b =
+                            render_seq(&exp_nodes(args)).map_err(ProgramUseCheckError::Render)?;
+                        emit(
+                            &mut result,
+                            format!(
+                                "Domain function {name} with formal arguments {a} cannot be applied to provided arguments {b}."
+                            ),
+                            &e.metadata().position,
+                        );
+                    }
+                    let typ = e.typ().map_err(ProgramUseCheckError::Type)?;
+                    if typ != def.typ.substitute(subst) {
+                        let a = render(&Node::Type(typ)).map_err(ProgramUseCheckError::Render)?;
+                        let b = render(&Node::Type(def.typ.clone()))
+                            .map_err(ProgramUseCheckError::Render)?;
+                        emit(
+                            &mut result,
+                            format!(
+                                "No matching domain function {name} found of return type {a}, instead found with return type {b}."
+                            ),
+                            &e.metadata().position,
+                        );
+                    }
+                    let domain =
+                        e.0.extra
+                            .domain_name
+                            .as_ref()
+                            .ok_or(ProgramUseCheckError::MissingDomainName)?;
+                    if domain != &def.domain_name {
+                        emit(
+                            &mut result,
+                            format!(
+                                "No matching domain function {name} found in domain {domain}, instead found in domain {}.",
+                                def.domain_name
+                            ),
+                            &e.metadata().position,
+                        );
+                    }
+                } else {
+                    emit(
+                        &mut result,
+                        format!("No domain function named {name} found in the program."),
+                        &e.metadata().position,
+                    );
+                }
+            }
+        }
+    }
+    let all = nodes::<E>(&Node::Program(p.clone()))?;
+    for n in &all {
+        let access = match n {
+            Node::PredicateAccess(v) => Some(v),
+            Node::Exp(e) => {
+                if let ExpKind::PredicateAccess(v) = e.kind() {
+                    Some(v)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(access) = access {
+            if let Some(def) = p.find_predicate_optionally(&access.predicate_name) {
+                let formal: Vec<_> = def.formal_args.iter().map(|v| v.typ.clone()).collect();
+                if !assign_exps(&access.args, &formal)? {
+                    let a = render_seq(&decl_nodes(&def.formal_args))
+                        .map_err(ProgramUseCheckError::Render)?;
+                    let b = render_seq(&exp_nodes(&access.args))
+                        .map_err(ProgramUseCheckError::Render)?;
+                    emit(
+                        &mut result,
+                        format!(
+                            "Predicate {} with formal arguments {a} cannot be used with provided arguments {b}.",
+                            access.predicate_name
+                        ),
+                        &access.meta.position,
+                    );
+                }
+            }
+        }
+    }
+    for root in p
+        .predicates
+        .iter()
+        .cloned()
+        .map(crate::ast::program::Member::Predicate)
+        .chain(
+            p.functions
+                .iter()
+                .cloned()
+                .map(crate::ast::program::Member::Function),
+        )
+        .chain(
+            p.methods
+                .iter()
+                .cloned()
+                .map(crate::ast::program::Member::Method),
+        )
+    {
+        for n in nodes::<E>(&Node::Member(root))? {
+            let (access, pos) = match &n {
+                Node::Stmt(s) => match s.kind() {
+                    StmtKind::Fold(a) | StmtKind::Unfold(a) => (
+                        Some(a.location.clone()),
+                        Some(s.metadata().position.clone()),
+                    ),
+                    _ => (None, None),
+                },
+                Node::Exp(e) => match e.kind() {
+                    ExpKind::Unfolding(a, _) => match a.kind() {
+                        ExpKind::PredicateAccessPredicate(a) => (
+                            Some(a.location.clone()),
+                            Some(e.metadata().position.clone()),
+                        ),
+                        _ => return Err(ProgramUseCheckError::InvalidPredicateAccess),
+                    },
+                    _ => (None, None),
+                },
+                _ => (None, None),
+            };
+            if let (Some(access), Some(pos)) = (access, pos) {
+                if p.find_predicate_optionally(&access.predicate_name)
+                    .is_some_and(|d| d.body.is_none())
+                {
+                    let text = render(&Node::PredicateAccess(access.clone()))
+                        .map_err(ProgramUseCheckError::Render)?;
+                    emit(
+                        &mut result,
+                        format!(
+                            "Cannot unfold {text} because {}  is abstract.",
+                            access.predicate_name
+                        ),
+                        &pos,
+                    );
+                }
+            }
+        }
+    }
+    Ok(result)
+}
+
+#[cfg(test)]
+mod program_use_tests {
+    use super::*;
+    use crate::ast::{
+        ast::Metadata,
+        expression::LocalVar,
+        program::{LocalVarDecl, Method, MethodData},
+        statement::{Stmt, StmtKind},
+    };
+    #[test]
+    fn method_returns_are_checked_before_arguments() {
+        let m = Metadata::default();
+        let arg = LocalVarDecl::new("a".into(), Type::Int, m.clone());
+        let ret = LocalVarDecl::new("r".into(), Type::Int, m.clone());
+        let callee = Method::new(MethodData {
+            name: "callee".into(),
+            formal_args: vec![arg],
+            formal_returns: vec![ret],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: m.clone(),
+        });
+        let call = Stmt::new(
+            StmtKind::MethodCall {
+                method_name: "callee".into(),
+                args: vec![Exp::new(ExpKind::FalseLit, m.clone())],
+                targets: vec![LocalVar::new("b".into(), Type::Bool, m.clone())],
+            },
+            m.clone(),
+        );
+        let caller = Method::new(MethodData {
+            name: "caller".into(),
+            formal_args: vec![],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: Some(Stmt::new(
+                StmtKind::Seqn {
+                    statements: vec![call],
+                    declarations: vec![],
+                },
+                m.clone(),
+            )),
+            meta: m.clone(),
+        });
+        let program = Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![caller, callee],
+            vec![],
+            m,
+        );
+        let errors = check_program_uses(
+            &program,
+            &|_| -> Result<String, ()> { Ok("node".into()) },
+            &|_| -> Result<String, ()> { Ok("nodes".into()) },
+        )
+        .unwrap();
+        assert_eq!(errors.len(), 2);
+        assert!(
+            matches!(&errors[0].kind, FrontendErrorKind::ConsistencyError(s) if s.starts_with("Formal returns"))
+        );
+        assert!(
+            matches!(&errors[1].kind, FrontendErrorKind::ConsistencyError(s) if s.starts_with("Arguments"))
+        );
+    }
+}
+
+#[derive(Debug)]
+pub enum ProgramConsistencyError<E> {
+    Context(ContextConsistencyError),
+    FunctionAnalysis(super::functions::FunctionAnalysisError),
+    Uses(ProgramUseCheckError<E>),
+    Identifiers(IdentifierCheckError),
+}
+/// Program's own consistency checks, in upstream order; this does not recursively
+/// invoke node-local checks and therefore is not a transitive consistency result.
+pub fn check_program<E>(
+    program: &Program,
+    render: &impl Fn(&Node) -> Result<String, E>,
+    render_seq: &impl Fn(&[Node]) -> Result<String, E>,
+) -> Result<Vec<FrontendError>, ProgramConsistencyError<E>> {
+    let mut result = check_context_dependent_consistency(&Node::Program(program.clone()), program)
+        .map_err(ProgramConsistencyError::Context)?;
+    result.extend(
+        check_no_function_recurses_via_preconditions(program)
+            .map_err(ProgramConsistencyError::FunctionAnalysis)?,
+    );
+    result.extend(
+        check_program_uses(program, render, render_seq).map_err(ProgramConsistencyError::Uses)?,
+    );
+    result.extend(check_identifiers(program).map_err(ProgramConsistencyError::Identifiers)?);
+    Ok(result)
+}
+
+#[derive(Debug)]
+pub enum NodeConsistencyError<E> {
+    Program(ProgramConsistencyError<E>),
+    Helper(ConsistencyCheckError<E>),
+    Traversal(TraversalError),
+    Type(crate::ast::expression::ExpressionTypeError),
+    Render(E),
+    Unsupported(&'static str),
+    Extension(crate::verifier::verification_result::DiagnosticError),
+}
+impl<E> From<TraversalError> for NodeConsistencyError<E> {
+    fn from(value: TraversalError) -> Self {
+        Self::Traversal(value)
+    }
+}
+impl<E> From<crate::ast::expression::ExpressionTypeError> for NodeConsistencyError<E> {
+    fn from(value: crate::ast::expression::ExpressionTypeError) -> Self {
+        Self::Type(value)
+    }
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ConsistencyOptions {
+    pub respect_function_pre_perm_amounts: bool,
+}
+
+/// Local source `Node.check` dispatch. Unported families explicitly fail.
+pub fn check_node<E>(
+    node: &Node,
+    program: &Program,
+    render: &impl Fn(&Node) -> Result<String, E>,
+    render_seq: &impl Fn(&[Node]) -> Result<String, E>,
+) -> Result<Vec<FrontendError>, NodeConsistencyError<E>> {
+    check_node_with_options(
+        node,
+        program,
+        render,
+        render_seq,
+        ConsistencyOptions::default(),
+    )
+}
+
+pub fn check_node_with_options<E>(
+    node: &Node,
+    program: &Program,
+    render: &impl Fn(&Node) -> Result<String, E>,
+    render_seq: &impl Fn(&[Node]) -> Result<String, E>,
+    options: ConsistencyOptions,
+) -> Result<Vec<FrontendError>, NodeConsistencyError<E>> {
+    use crate::ast::{program::Member, statement::StmtKind};
+    fn add(out: &mut Vec<FrontendError>, message: String, pos: &crate::ast::position::Position) {
+        out.push(FrontendError::new(
+            FrontendErrorKind::ConsistencyError(message),
+            pos.clone(),
+        ));
+    }
+    let render_exp = |e: &Exp| render(&Node::Exp(e.clone()));
+    let render_type = |t: &Type| render(&Node::Type(t.clone()));
+    let mut out = Vec::new();
+    match node {
+        Node::Program(p) => {
+            return check_program(p, render, render_seq).map_err(NodeConsistencyError::Program);
+        }
+        Node::Type(Type::Extension(v)) => {
+            out.extend(v.check().map_err(NodeConsistencyError::Extension)?)
+        }
+        Node::Type(_) | Node::Trigger(_) | Node::LocalDecl(_) | Node::UnnamedLocalDecl(_) => {}
+        Node::DomainFunc(f) => {
+            if f.unique && !f.formal_args.is_empty() {
+                add(
+                    &mut out,
+                    "Only constants, i.e. nullary domain functions can be unique.".into(),
+                    &f.meta.position,
+                );
+            }
+        }
+        Node::DomainAxiom(a) => {
+            let e = a.exp();
+            let n = Node::Exp(e.clone());
+            for (bad, text) in [
+                (
+                    !no_result(&n)?,
+                    "Axioms can never contain result variables.",
+                ),
+                (!no_old(&n)?, "Axioms can never contain old expressions."),
+                (
+                    !no_location_accesses(&n)?,
+                    "Axioms can never contain location accesses.",
+                ),
+                (
+                    !no_asserting(&n)?,
+                    "Axioms can never contain asserting expressions.",
+                ),
+            ] {
+                if bad {
+                    out.push(diagnostic(e, text.into()));
+                }
+            }
+            if !e.typ()?.is_subtype(&Type::Bool) {
+                out.push(diagnostic(e, "Axioms must be of Bool type".into()));
+            }
+            out.extend(check_pure(e, &render_exp).map_err(NodeConsistencyError::Helper)?);
+        }
+        Node::Member(Member::Domain(d)) => {
+            if !d.type_vars.is_empty() && d.interpretations.is_some() {
+                add(
+                    &mut out,
+                    "Interpreted domains cannot have type arguments.".into(),
+                    &d.meta.position,
+                );
+            }
+        }
+        Node::Member(Member::Field(f)) => {
+            if !f.typ.is_concrete() {
+                add(
+                    &mut out,
+                    format!(
+                        "Type of field {} must be concrete, but found {}.",
+                        f.name,
+                        render_type(&f.typ).map_err(NodeConsistencyError::Render)?
+                    ),
+                    &f.meta.position,
+                );
+            }
+        }
+        Node::Member(Member::Method(m)) => {
+            for e in &m.pres {
+                out.extend(
+                    check_contract(e, ContractKind::Precondition, &render_exp, &render_type)
+                        .map_err(NodeConsistencyError::Helper)?,
+                );
+            }
+            for e in &m.posts {
+                out.extend(
+                    check_contract(e, ContractKind::Postcondition, &render_exp, &render_type)
+                        .map_err(NodeConsistencyError::Helper)?,
+                );
+            }
+            for e in &m.posts {
+                if !no_result(&Node::Exp(e.clone()))? {
+                    out.push(diagnostic(
+                        e,
+                        "Method postconditions must have no result variables.".into(),
+                    ));
+                }
+            }
+            if let Some(body) = &m.body {
+                out.extend(
+                    check_no_args_reassigned(&m.formal_args, body, render)
+                        .map_err(NodeConsistencyError::Helper)?,
+                );
+            }
+            if m.formal_args
+                .iter()
+                .chain(&m.formal_returns)
+                .any(|v| !v.typ.is_concrete())
+            {
+                add(
+                    &mut out,
+                    "Formal args and returns must have concrete types.".into(),
+                    &m.meta.position,
+                );
+            }
+            for e in m.pres.iter().chain(&m.posts) {
+                out.extend(check_no_perm_forperm_except_inhale_exhale(e)?);
+            }
+            fn vars(
+                n: &Node,
+                out: &mut Vec<crate::ast::expression::LocalVar>,
+            ) -> Result<(), TraversalError> {
+                if let Node::LocalVar(v) = n {
+                    out.push(v.clone());
+                }
+                if let Node::Exp(e) = n {
+                    if let ExpKind::LocalVar(v) = e.kind() {
+                        out.push(v.clone());
+                    }
+                }
+                for c in subnodes(n)? {
+                    vars(&c, out)?;
+                }
+                Ok(())
+            }
+            let mut used = Vec::new();
+            for e in &m.pres {
+                vars(&Node::Exp(e.clone()), &mut used)?;
+            }
+            for ret in &m.formal_returns {
+                for v in &used {
+                    if v.name == ret.name && v.typ == ret.typ {
+                        add(
+                            &mut out,
+                            format!(
+                                "Return variable {} cannot be accessed in precondition.",
+                                v.name
+                            ),
+                            &v.meta.position,
+                        );
+                    }
+                }
+            }
+            for e in m.pres.iter().chain(&m.posts) {
+                out.extend(check_wildcard_usage(&Node::Exp(e.clone()), false, false)?);
+            }
+            if let Some(body) = &m.body {
+                out.extend(check_wildcard_usage(
+                    &Node::Stmt(body.clone()),
+                    false,
+                    false,
+                )?);
+            }
+        }
+        Node::Member(Member::Predicate(predicate)) => {
+            if let Some(body) = &predicate.body {
+                out.extend(
+                    check_contract(body, ContractKind::NonPost, &render_exp, &render_type)
+                        .map_err(NodeConsistencyError::Helper)?,
+                );
+                out.extend(check_wildcard_usage(
+                    &Node::Exp(body.clone()),
+                    false,
+                    options.respect_function_pre_perm_amounts,
+                )?);
+                let n = Node::Exp(body.clone());
+                if !no_old(&n)? {
+                    out.push(diagnostic(
+                        body,
+                        "Predicates must not contain old expressions.".into(),
+                    ));
+                }
+                if !no_perm(&n)? || !no_for_perm(&n)? {
+                    out.push(diagnostic(
+                        body,
+                        "perm and forperm expressions are not allowed in predicate bodies".into(),
+                    ));
+                }
+                let wands = std::cell::RefCell::new(Vec::new());
+                super::nodes::map_node_tree(&n, &|node| {
+                    if let Node::Exp(e) = node {
+                        if matches!(e.kind(), ExpKind::MagicWand(..)) {
+                            wands.borrow_mut().push(e.clone());
+                        }
+                    }
+                    Ok(node.clone())
+                })
+                .map_err(NodeConsistencyError::Extension)?;
+                for wand in wands.into_inner() {
+                    out.push(diagnostic(
+                        &wand,
+                        "Magic wands are not supported in predicates.".into(),
+                    ));
+                }
+            }
+        }
+        Node::Member(Member::Function(function)) => {
+            for post in &function.posts {
+                if !no_old(&Node::Exp(post.clone()))? {
+                    out.push(diagnostic(
+                        post,
+                        "Function post-conditions must not have old expressions.".into(),
+                    ));
+                }
+            }
+            for e in function.pres.iter().chain(&function.posts) {
+                out.extend(check_no_perm_forperm_except_inhale_exhale(e)?);
+            }
+            for e in function
+                .pres
+                .iter()
+                .chain(&function.posts)
+                .chain(function.body.iter())
+            {
+                out.extend(check_wildcard_usage(
+                    &Node::Exp(e.clone()),
+                    true,
+                    options.respect_function_pre_perm_amounts,
+                )?);
+            }
+            if let Some(body) = &function.body {
+                if !body.typ()?.is_subtype(&function.typ) {
+                    add(
+                        &mut out,
+                        "Type of function body must match function type.".into(),
+                        &function.meta.position,
+                    );
+                }
+            }
+            for post in &function.posts {
+                let n = Node::Exp(post.clone());
+                if !no_perm(&n)? || !no_for_perm(&n)? {
+                    out.push(diagnostic(
+                        post,
+                        "perm and forperm expressions are not allowed in function postconditions"
+                            .into(),
+                    ));
+                }
+            }
+            for pre in &function.pres {
+                out.extend(
+                    check_contract(pre, ContractKind::Precondition, &render_exp, &render_type)
+                        .map_err(NodeConsistencyError::Helper)?,
+                );
+            }
+            for post in &function.posts {
+                out.extend(
+                    check_contract(post, ContractKind::Postcondition, &render_exp, &render_type)
+                        .map_err(NodeConsistencyError::Helper)?,
+                );
+            }
+            for post in &function.posts {
+                if !no_permissions(&Node::Exp(post.clone()))? {
+                    out.push(diagnostic(
+                        post,
+                        "Function post-conditions must not contain permissions.".into(),
+                    ));
+                }
+            }
+            if let Some(body) = &function.body {
+                out.extend(
+                    check_function_body(body, &render_exp).map_err(NodeConsistencyError::Helper)?,
+                );
+            }
+            if !no_duplicates(&function.formal_args) {
+                add(
+                    &mut out,
+                    "There must be no duplicates in formal args.".into(),
+                    &function.meta.position,
+                );
+            }
+            for pre in &function.pres {
+                let wands = std::cell::RefCell::new(Vec::new());
+                super::nodes::map_node_tree(&Node::Exp(pre.clone()), &|node| {
+                    if let Node::Exp(e) = node {
+                        if matches!(e.kind(), ExpKind::MagicWand(..)) {
+                            wands.borrow_mut().push(e.clone());
+                        }
+                    }
+                    Ok(node.clone())
+                })
+                .map_err(NodeConsistencyError::Extension)?;
+                for wand in wands.into_inner() {
+                    out.push(diagnostic(
+                        &wand,
+                        "Magic wands are not supported in function's preconditions.".into(),
+                    ));
+                }
+            }
+        }
+        Node::Member(Member::Extension(v)) => {
+            out.extend(v.0.check().map_err(NodeConsistencyError::Extension)?)
+        }
+        Node::LocalVar(v) => {
+            if !valid_user_defined_identifier(&v.name) {
+                add(
+                    &mut out,
+                    "Local var name must be valid identifier.".into(),
+                    &v.meta.position,
+                );
+            }
+        }
+        Node::FieldAccess(_) => {}
+        Node::PredicateAccess(v) => {
+            for e in &v.args {
+                out.extend(check_pure(e, &render_exp).map_err(NodeConsistencyError::Helper)?);
+            }
+        }
+        Node::PredicateAccessPredicate(v) => {
+            let permission = v.permission_or_full();
+            let typ = permission.typ()?;
+            if !typ.is_subtype(&Type::Perm) {
+                out.push(diagnostic(&permission, format!("Permission amount parameter of access predicate must be of Perm type, but found {}", render_type(&typ).map_err(NodeConsistencyError::Render)?)));
+            }
+        }
+        Node::LabelDecl(label) => {
+            let view = crate::ast::statement::Stmt::new(
+                StmtKind::Label(label.clone()),
+                label.meta.clone(),
+            );
+            return check_node_with_options(
+                &Node::Stmt(view),
+                program,
+                render,
+                render_seq,
+                options,
+            );
+        }
+        Node::Stmt(s) => {
+            let n = Node::Stmt(s.clone());
+            let no_result_message =
+                "Result variables are only allowed in postconditions of functions.";
+            match s.kind() {
+                StmtKind::Seqn { .. } | StmtKind::Goto(_) | StmtKind::LocalVarDeclStmt(_) => {}
+                StmtKind::Assert(e)
+                | StmtKind::Inhale(e)
+                | StmtKind::Exhale(e)
+                | StmtKind::Assume(e) => {
+                    if !matches!(s.kind(), StmtKind::Assume(_)) && !no_result(&n)? {
+                        add(&mut out, no_result_message.into(), &s.metadata().position);
+                    }
+                    let typ = e.typ()?;
+                    if !typ.is_subtype(&Type::Bool) {
+                        let action = match s.kind() {
+                            StmtKind::Assert(_) => "assert",
+                            StmtKind::Inhale(_) => "inhale",
+                            StmtKind::Exhale(_) => "exhale",
+                            _ => "assume",
+                        };
+                        out.push(diagnostic(
+                            e,
+                            format!(
+                                "Assertion to {action} must be of type Bool, but found {}",
+                                render_type(&typ).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                }
+                StmtKind::Label(label) => {
+                    if !no_result(&n)? {
+                        add(&mut out, no_result_message.into(), &s.metadata().position);
+                    }
+                    for e in &label.invariants {
+                        let typ = e.typ()?;
+                        if !typ.is_subtype(&Type::Bool) {
+                            out.push(diagnostic(
+                                e,
+                                format!(
+                                    "Label invariants must be of type Bool, but found {}",
+                                    render_type(&typ).map_err(NodeConsistencyError::Render)?
+                                ),
+                            ));
+                        }
+                    }
+                }
+                StmtKind::If { condition, .. } => {
+                    out.extend(
+                        check_pure(condition, &render_exp).map_err(NodeConsistencyError::Helper)?,
+                    );
+                    let typ = condition.typ()?;
+                    if !typ.is_subtype(&Type::Bool) {
+                        out.push(diagnostic(
+                            condition,
+                            format!(
+                                "If condition must be of type Bool, but found {}",
+                                render_type(&typ).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                    if !no_result(&n)? {
+                        add(&mut out, no_result_message.into(), &s.metadata().position);
+                    }
+                }
+                StmtKind::NewStmt { lhs, .. } => {
+                    if !no_result(&n)? {
+                        add(&mut out, no_result_message.into(), &s.metadata().position);
+                    }
+                    if !Type::Ref.is_subtype(&lhs.typ) {
+                        add(
+                            &mut out,
+                            format!(
+                                "Left-hand side of New statement must be Ref type, but found {}",
+                                render_type(&lhs.typ).map_err(NodeConsistencyError::Render)?
+                            ),
+                            &lhs.meta.position,
+                        );
+                    }
+                }
+                StmtKind::LocalVarAssign { lhs, rhs } => {
+                    if !no_result(&n)? {
+                        add(&mut out, no_result_message.into(), &s.metadata().position);
+                    }
+                    out.extend(check_pure(rhs, &render_exp).map_err(NodeConsistencyError::Helper)?);
+                    if !rhs.typ()?.is_subtype(&lhs.typ) {
+                        add(
+                            &mut out,
+                            format!(
+                                "Right-hand side {} is not assignable to left-hand side {}.",
+                                render_exp(rhs).map_err(NodeConsistencyError::Render)?,
+                                render(&Node::LocalVar(lhs.clone()))
+                                    .map_err(NodeConsistencyError::Render)?
+                            ),
+                            &lhs.meta.position,
+                        );
+                    }
+                }
+                StmtKind::FieldAssign { lhs, rhs } => {
+                    if !no_result(&n)? {
+                        add(&mut out, no_result_message.into(), &s.metadata().position);
+                    }
+                    out.extend(check_pure(rhs, &render_exp).map_err(NodeConsistencyError::Helper)?);
+                    if !rhs.typ()?.is_subtype(&lhs.field.typ) {
+                        add(
+                            &mut out,
+                            format!(
+                                "Right-hand side {} is not assignable to left-hand side {}.",
+                                render_exp(rhs).map_err(NodeConsistencyError::Render)?,
+                                render(&Node::FieldAccess(lhs.clone()))
+                                    .map_err(NodeConsistencyError::Render)?
+                            ),
+                            &lhs.meta.position,
+                        );
+                    }
+                }
+                StmtKind::MethodCall { args, targets, .. } => {
+                    if !no_result(&n)? {
+                        add(&mut out, no_result_message.into(), &s.metadata().position);
+                    }
+                    if !no_duplicates(targets) {
+                        add(
+                            &mut out,
+                            "Targets are not allowed to have duplicates".into(),
+                            &s.metadata().position,
+                        );
+                    }
+                    for e in args {
+                        out.extend(
+                            check_pure(e, &render_exp).map_err(NodeConsistencyError::Helper)?,
+                        );
+                    }
+                }
+                StmtKind::While {
+                    condition,
+                    invariants,
+                    ..
+                } => {
+                    if !no_result(&n)? {
+                        add(&mut out, no_result_message.into(), &s.metadata().position);
+                    }
+                    out.extend(
+                        check_pure(condition, &render_exp).map_err(NodeConsistencyError::Helper)?,
+                    );
+                    for e in invariants {
+                        out.extend(
+                            check_contract(e, ContractKind::NonPost, &render_exp, &render_type)
+                                .map_err(NodeConsistencyError::Helper)?,
+                        );
+                    }
+                    let typ = condition.typ()?;
+                    if !typ.is_subtype(&Type::Bool) {
+                        out.push(diagnostic(
+                            condition,
+                            format!(
+                                "While loop condition must be of type Bool, but found {}",
+                                render_type(&typ).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                    for e in invariants {
+                        out.extend(check_no_perm_forperm_except_inhale_exhale(e)?);
+                    }
+                }
+                StmtKind::Package { wand, .. } | StmtKind::Apply(wand) => {
+                    if !no_result(&n)? {
+                        add(&mut out, no_result_message.into(), &s.metadata().position);
+                    }
+                    let typ = wand.typ()?;
+                    if !typ.is_subtype(&Type::Wand) {
+                        out.push(diagnostic(
+                            wand,
+                            format!(
+                                "Expected wand but found {} ({})",
+                                render_type(&typ).map_err(NodeConsistencyError::Render)?,
+                                render_exp(wand).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                }
+                StmtKind::Quasihavoc { guard, resource }
+                | StmtKind::Quasihavocall {
+                    guard, resource, ..
+                } => {
+                    use crate::ast::statement::ResourceAccess;
+                    if !no_result(&n)? {
+                        add(&mut out, no_result_message.into(), &s.metadata().position);
+                    }
+                    if let Some(guard) = guard {
+                        if !guard.typ()?.is_subtype(&Type::Bool) {
+                            let resource = match resource {
+                                ResourceAccess::Field(v) => {
+                                    Exp::new(ExpKind::FieldAccess(v.clone()), v.meta.clone())
+                                }
+                                ResourceAccess::Predicate(v) => {
+                                    Exp::new(ExpKind::PredicateAccess(v.clone()), v.meta.clone())
+                                }
+                                ResourceAccess::MagicWand(v) => v.clone(),
+                            };
+                            let name = if matches!(s.kind(), StmtKind::Quasihavoc { .. }) {
+                                "quasihavoc"
+                            } else {
+                                "quasihavocall"
+                            };
+                            out.push(diagnostic(&resource, format!("Left side of {name} implication must be of type Bool, but found {}", render_type(&resource.typ()?).map_err(NodeConsistencyError::Render)?)));
+                        }
+                    }
+                }
+                StmtKind::Fold(_) | StmtKind::Unfold(_) => {
+                    if !no_result(&n)? {
+                        add(&mut out, no_result_message.into(), &s.metadata().position);
+                    }
+                }
+                StmtKind::Extension(v) => {
+                    out.extend(v.0.check().map_err(NodeConsistencyError::Extension)?)
+                }
+            }
+        }
+        Node::Exp(e) => {
+            use ExpKind::*;
+            match e.kind() {
+                IntLit(_) | TrueLit | FalseLit | NullLit | RefLit(_) | BackendValueLit(..)
+                | WildcardPerm | FullPerm | NoPerm | EpsilonPerm | Result(_) | FieldAccess(_)
+                | Add(..) | Sub(..) | Mul(..) | Div(..) | Mod(..) | LtCmp(..) | LeCmp(..)
+                | GtCmp(..) | GeCmp(..) | Minus(..) | And(..) | PermMinus(..) | PermAdd(..)
+                | PermSub(..) | PermMul(..) | IntPermMul(..) | DebugPermMin(..) | PermLtCmp(..)
+                | PermLeCmp(..) | PermGtCmp(..) | PermGeCmp(..) | CurrentPerm(_)
+                | MagicWand(..) => {}
+                LocalVar(v) => {
+                    if !valid_user_defined_identifier(&v.name) {
+                        add(
+                            &mut out,
+                            "Local var name must be valid identifier.".into(),
+                            &v.meta.position,
+                        );
+                    }
+                }
+                LocalVarWithVersion(name, _) => {
+                    if !valid_user_defined_identifier(name) {
+                        out.push(diagnostic(
+                            e,
+                            "Local var name must be valid identifier.".into(),
+                        ));
+                    }
+                }
+                EmptySeq(_) | EmptySet(_) | EmptyMultiset(_) | EmptyMap(..) | Maplet(..) => {}
+                ExplicitSeq(elems) | ExplicitSet(elems) | ExplicitMultiset(elems) => {
+                    let Some(first) = elems.first() else {
+                        return Err(NodeConsistencyError::Type(
+                            crate::ast::expression::ExpressionTypeError::EmptyCollection,
+                        ));
+                    };
+                    let mut same = true;
+                    for item in &elems[1..] {
+                        if item.typ()? != first.typ()? {
+                            same = false;
+                            break;
+                        }
+                    }
+                    if !same {
+                        let collection = match e.kind() {
+                            ExplicitSeq(_) => "sequence",
+                            ExplicitSet(_) => "set",
+                            _ => "multiset",
+                        };
+                        out.push(diagnostic(
+                            first,
+                            format!("All elements of {collection} must have same type."),
+                        ));
+                    }
+                    for item in elems {
+                        out.extend(
+                            check_pure(item, &render_exp).map_err(NodeConsistencyError::Helper)?,
+                        );
+                    }
+                }
+                RangeSeq(low, high) => {
+                    let low_type = low.typ()?;
+                    if !low_type.is_subtype(&Type::Int) {
+                        out.push(diagnostic(low, format!("First parameter of range-sequence expression must be Int, but found {}", render_type(&low_type).map_err(NodeConsistencyError::Render)?)));
+                    }
+                    let high_type = high.typ()?;
+                    if !high_type.is_subtype(&Type::Int) {
+                        out.push(diagnostic(high, format!("Second parameter of range-sequence expression must be Int, but found {}", render_type(&high_type).map_err(NodeConsistencyError::Render)?)));
+                    }
+                }
+                SeqAppend(left, right) => {
+                    let rt = right.typ()?;
+                    let lt = left.typ()?;
+                    if rt != lt {
+                        out.push(diagnostic(left, format!("Left and right sequence types of sequence-append expression must match, but found {} and {}.", render_type(&lt).map_err(NodeConsistencyError::Render)?, render_type(&rt).map_err(NodeConsistencyError::Render)?)));
+                    }
+                }
+                SeqIndex(seq, index) | SeqTake(seq, index) | SeqDrop(seq, index) => {
+                    let typ = seq.typ()?;
+                    if !matches!(typ, Type::Seq(_)) {
+                        out.push(diagnostic(
+                            seq,
+                            format!(
+                                "Expected sequence type but found {}",
+                                render_type(&typ).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                    let typ = index.typ()?;
+                    if !typ.is_subtype(&Type::Int) {
+                        let operation = match e.kind() {
+                            SeqIndex(..) => "access",
+                            SeqTake(..) => "take",
+                            _ => "drop",
+                        };
+                        out.push(diagnostic(index, format!("Second parameter of sequence-{operation} expression must be Int, but found {}", render_type(&typ).map_err(NodeConsistencyError::Render)?)));
+                    }
+                }
+                SeqLength(seq) => {
+                    let typ = seq.typ()?;
+                    if !matches!(typ, Type::Seq(_)) {
+                        out.push(diagnostic(
+                            seq,
+                            format!(
+                                "Expected sequence type but found {}",
+                                render_type(&typ).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                }
+                SeqContains(elem, seq) | SeqUpdate(seq, _, elem) => {
+                    let typ = seq.typ()?;
+                    if !matches!(typ, Type::Seq(_)) {
+                        out.push(diagnostic(
+                            seq,
+                            format!(
+                                "Expected sequence type but found {}",
+                                render_type(&typ).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                    if let SeqUpdate(_, index, _) = e.kind() {
+                        let typ = index.typ()?;
+                        if !typ.is_subtype(&Type::Int) {
+                            out.push(diagnostic(index, format!("Second parameter of sequence-update expression must be of Int type, but found {}", render_type(&typ).map_err(NodeConsistencyError::Render)?)));
+                        }
+                    }
+                    let Type::Seq(element_type) = typ else {
+                        return Err(NodeConsistencyError::Type(
+                            crate::ast::expression::ExpressionTypeError::ExpectedSequence,
+                        ));
+                    };
+                    let actual = elem.typ()?;
+                    if !actual.is_subtype(&element_type) {
+                        out.push(diagnostic(
+                            elem,
+                            format!(
+                                "Expected type {} but found {}",
+                                render_type(&element_type).map_err(NodeConsistencyError::Render)?,
+                                render_type(&actual).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                    if matches!(e.kind(), SeqUpdate(..)) {
+                        out.extend(
+                            check_pure(elem, &render_exp).map_err(NodeConsistencyError::Helper)?,
+                        );
+                    }
+                }
+                AnySetUnion(left, right)
+                | AnySetIntersection(left, right)
+                | AnySetSubset(left, right)
+                | AnySetMinus(left, right) => {
+                    let lt = left.typ()?;
+                    let rt = right.typ()?;
+                    if lt != rt {
+                        out.push(diagnostic(
+                            left,
+                            "Left and right operand types must match".into(),
+                        ));
+                    }
+                    if !matches!(lt, Type::Set(_) | Type::Multiset(_)) {
+                        out.push(diagnostic(
+                            left,
+                            format!(
+                                "Expected SetType or MultisetType, but found {}",
+                                render_type(&lt).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                }
+                AnySetContains(elem, set) => {
+                    let st = set.typ()?;
+                    let compatible = match &st {
+                        Type::Set(t) | Type::Multiset(t) => elem.typ()?.is_subtype(t),
+                        _ => false,
+                    };
+                    if !compatible {
+                        out.push(diagnostic(
+                            elem,
+                            format!(
+                                "Set type {} and element type {} must be compatible.",
+                                render_type(&st).map_err(NodeConsistencyError::Render)?,
+                                render_type(&elem.typ()?).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                }
+                AnySetCardinality(set) => {
+                    let typ = set.typ()?;
+                    if !matches!(typ, Type::Set(_) | Type::Multiset(_)) {
+                        out.push(diagnostic(
+                            set,
+                            format!(
+                                "Set type expected SetType or MultisetType, but found {}",
+                                render_type(&typ).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                }
+                ExplicitMap(elems) => {
+                    let pairs: Vec<_> = elems
+                        .iter()
+                        .filter_map(|item| {
+                            if let Maplet(k, v) = item.kind() {
+                                Some((k, v))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    let Some((first_key, first_value)) = pairs.first() else {
+                        return Err(NodeConsistencyError::Type(
+                            crate::ast::expression::ExpressionTypeError::EmptyCollection,
+                        ));
+                    };
+                    if pairs.len() != elems.len() {
+                        out.push(diagnostic(
+                            e,
+                            "All elements of a map must be key-value pairs.".into(),
+                        ));
+                    }
+                    let mut same_keys = true;
+                    for (k, _) in &pairs[1..] {
+                        if k.typ()? != first_key.typ()? {
+                            same_keys = false;
+                            break;
+                        }
+                    }
+                    if !same_keys {
+                        out.push(diagnostic(
+                            first_key,
+                            "All keys within the map must have same type.".into(),
+                        ));
+                    }
+                    let mut same_values = true;
+                    for (_, v) in &pairs[1..] {
+                        if v.typ()? != first_value.typ()? {
+                            same_values = false;
+                            break;
+                        }
+                    }
+                    if !same_values {
+                        out.push(diagnostic(
+                            first_value,
+                            "All values within the map must have same type.".into(),
+                        ));
+                    }
+                    for item in elems {
+                        out.extend(
+                            check_pure(item, &render_exp).map_err(NodeConsistencyError::Helper)?,
+                        );
+                    }
+                }
+                MapUpdate(base, key, value) => {
+                    out.extend(
+                        check_pure(value, &render_exp).map_err(NodeConsistencyError::Helper)?,
+                    );
+                    match base.typ()? {
+                        Type::Map(pair) => {
+                            let kt = key.typ()?;
+                            if !kt.is_subtype(&pair.0) {
+                                out.push(diagnostic(
+                                    key,
+                                    format!(
+                                        "Expected the key to be of type {}, but found {}",
+                                        render_type(&pair.0)
+                                            .map_err(NodeConsistencyError::Render)?,
+                                        render_type(&kt).map_err(NodeConsistencyError::Render)?
+                                    ),
+                                ));
+                            }
+                            let vt = value.typ()?;
+                            if !vt.is_subtype(&pair.1) {
+                                out.push(diagnostic(
+                                    value,
+                                    format!(
+                                        "Expected the value to be of type {}, but found {}",
+                                        render_type(&pair.1)
+                                            .map_err(NodeConsistencyError::Render)?,
+                                        render_type(&vt).map_err(NodeConsistencyError::Render)?
+                                    ),
+                                ));
+                            }
+                        }
+                        t => out.push(diagnostic(
+                            base,
+                            format!(
+                                "Expected map type but found {}",
+                                render_type(&t).map_err(NodeConsistencyError::Render)?
+                            ),
+                        )),
+                    }
+                }
+                MapLookup(base, key) | MapContains(key, base) => match base.typ()? {
+                    Type::Map(pair) => {
+                        let typ = key.typ()?;
+                        if !typ.is_subtype(&pair.0) {
+                            out.push(diagnostic(
+                                key,
+                                format!(
+                                    "Expected the key to be of type {}, but found {}",
+                                    render_type(&pair.0).map_err(NodeConsistencyError::Render)?,
+                                    render_type(&typ).map_err(NodeConsistencyError::Render)?
+                                ),
+                            ));
+                        }
+                    }
+                    t => out.push(diagnostic(
+                        base,
+                        format!(
+                            "Expected map type but found {}",
+                            render_type(&t).map_err(NodeConsistencyError::Render)?
+                        ),
+                    )),
+                },
+                MapCardinality(base) | MapDomain(base) | MapRange(base) => {
+                    let typ = base.typ()?;
+                    if !matches!(typ, Type::Map(_)) {
+                        out.push(diagnostic(
+                            base,
+                            format!(
+                                "Expected map type but found {}",
+                                render_type(&typ).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                }
+                CondExp(cond, thn, els) => {
+                    let typ = cond.typ()?;
+                    if !typ.is_subtype(&Type::Bool) {
+                        out.push(diagnostic(
+                            cond,
+                            format!(
+                                "Condition must be of Bool type, but found {}",
+                                render_type(&typ).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                    out.extend(
+                        check_pure(cond, &render_exp).map_err(NodeConsistencyError::Helper)?,
+                    );
+                    let a = thn.typ()?;
+                    let b = els.typ()?;
+                    if a != b {
+                        out.push(diagnostic(thn, format!("Second and third parameter types of conditional expression must match, but found {} and {}", render_type(&a).map_err(NodeConsistencyError::Render)?, render_type(&b).map_err(NodeConsistencyError::Render)?)));
+                    }
+                }
+                Unfolding(_, body) | Asserting(_, body) => {
+                    out.extend(check_pure(body, &render_exp).map_err(NodeConsistencyError::Helper)?)
+                }
+                Applying(wand, body) => {
+                    let typ = wand.typ()?;
+                    if !typ.is_subtype(&Type::Wand) {
+                        out.push(diagnostic(
+                            wand,
+                            format!(
+                                "Expected wand but found {} ({})",
+                                render_type(&typ).map_err(NodeConsistencyError::Render)?,
+                                render_exp(wand).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                    out.extend(
+                        check_pure(body, &render_exp).map_err(NodeConsistencyError::Helper)?,
+                    );
+                }
+                Let(var, value, _) => {
+                    let typ = value.typ()?;
+                    if !typ.is_subtype(&var.typ) {
+                        out.push(diagnostic(value, format!("Let-bound variable {} is of type {}, but bound expression is of type {}", var.name, render_type(&var.typ).map_err(NodeConsistencyError::Render)?, render_type(&typ).map_err(NodeConsistencyError::Render)?)));
+                    }
+                    if !value.is_pure() {
+                        out.push(diagnostic(
+                            value,
+                            format!(
+                                "Let expression '{}' is not pure",
+                                render_exp(value).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                }
+                FractionalPerm(left, right) | PermDiv(left, right) | PermPermDiv(left, right) => {
+                    let lt = left.typ()?;
+                    let rt = right.typ()?;
+                    let (expected_left, expected_right, left_msg, right_msg) = match e.kind() {
+                        FractionalPerm(..) => (
+                            Type::Int,
+                            Type::Int,
+                            "Numerator type of fractional permission must be Int, but found",
+                            "Denominator type of fractional permission must be Int, but found",
+                        ),
+                        PermDiv(..) => (
+                            Type::Perm,
+                            Type::Int,
+                            "First parameter of permission division expression must be Perm, but found",
+                            "Second parameter of permission division expression must be Int, but found",
+                        ),
+                        _ => (
+                            Type::Perm,
+                            Type::Perm,
+                            "First parameter of permission division expression must be Perm, but found",
+                            "Second parameter of permission-permission division expression must be Perm, but found",
+                        ),
+                    };
+                    if lt != expected_left {
+                        out.push(diagnostic(
+                            left,
+                            format!(
+                                "{left_msg} {}",
+                                render_type(&lt).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                    if rt != expected_right {
+                        out.push(diagnostic(
+                            right,
+                            format!(
+                                "{right_msg} {}",
+                                render_type(&rt).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                }
+                Forall(vars, triggers, body) => {
+                    let typ = body.typ()?;
+                    if !typ.is_subtype(&Type::Bool) {
+                        out.push(diagnostic(
+                            body,
+                            format!(
+                                "Body of universal quantifier must be of Bool type, but found {}",
+                                render_type(&typ).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                    if vars.is_empty() {
+                        out.push(diagnostic(
+                            e,
+                            "Quantifier must have at least one quantified variable.".into(),
+                        ));
+                    }
+                    out.extend(
+                        check_all_vars_mentioned_in_triggers(vars, triggers, &render_exp)
+                            .map_err(NodeConsistencyError::Helper)?,
+                    );
+                    if let Some((_, condition, _)) =
+                        super::quantified_permissions::quantified_permission_assertion(e)
+                    {
+                        if exists(
+                            &Node::Exp(condition.clone()),
+                            &|n| matches!(n, Node::Exp(e) if matches!(e.kind(), Forall(..))),
+                        )? && !condition.is_pure()
+                        {
+                            out.push(diagnostic(
+                                &condition,
+                                "Nested quantifiers are not allowed for quantified permissions."
+                                    .into(),
+                            ));
+                        }
+                    }
+                    fn outside_unfolding(
+                        n: &Node,
+                        inside: bool,
+                    ) -> std::result::Result<bool, NodeConsistencyError<()>> {
+                        if matches!(n, Node::Exp(e) if matches!(e.kind(), Extension(_)))
+                            || matches!(n, Node::Stmt(s) if matches!(s.kind(), StmtKind::Extension(_)))
+                        {
+                            return Err(NodeConsistencyError::Unsupported(
+                                "extension quantified-permission context",
+                            ));
+                        }
+                        let inside = inside
+                            || matches!(n, Node::Exp(e) if matches!(e.kind(), Unfolding(..)));
+                        let mut found = !inside
+                            && (matches!(n, Node::Exp(e) if matches!(e.kind(), FieldAccessPredicate(..) | PredicateAccessPredicate(_)))
+                                || matches!(n, Node::PredicateAccessPredicate(_)));
+                        for child in subnodes(n)? {
+                            found |= outside_unfolding(&child, inside)?;
+                        }
+                        Ok(found)
+                    }
+                    match outside_unfolding(&Node::Exp(body.clone()), false) {
+                        Ok(true) if !matches!(body.kind(), Implies(..) | FieldAccessPredicate(..) | PredicateAccessPredicate(_)) => out.push(diagnostic(body, "Quantified permissions must have an implication as expression, with the access predicate in its right-hand side.".into())),
+                        Ok(_) => {},
+                        Err(NodeConsistencyError::Traversal(e)) => return Err(NodeConsistencyError::Traversal(e)),
+                        Err(_) => return Err(NodeConsistencyError::Unsupported("extension quantified-permission context")),
+                    }
+                }
+                Exists(vars, triggers, body) => {
+                    out.extend(
+                        check_pure(body, &render_exp).map_err(NodeConsistencyError::Helper)?,
+                    );
+                    let typ = body.typ()?;
+                    if !typ.is_subtype(&Type::Bool) {
+                        out.push(diagnostic(
+                            body,
+                            format!(
+                                "Body of existential quantifier must be of Bool type, but found {}",
+                                render_type(&typ).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                    if vars.is_empty() {
+                        out.push(diagnostic(
+                            e,
+                            "Quantifier must have at least one quantified variable.".into(),
+                        ));
+                    }
+                    out.extend(
+                        check_all_vars_mentioned_in_triggers(vars, triggers, &render_exp)
+                            .map_err(NodeConsistencyError::Helper)?,
+                    );
+                }
+                ForPerm(_, _, body) => {
+                    let typ = body.typ()?;
+                    if !typ.is_subtype(&Type::Bool) {
+                        out.push(diagnostic(
+                            body,
+                            format!(
+                                "Body of forperm quantifier must be of Bool type, but found {}",
+                                render_type(&typ).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                    out.extend(
+                        check_pure(body, &render_exp).map_err(NodeConsistencyError::Helper)?,
+                    );
+                    if !no_perm(&Node::Exp(body.clone()))? {
+                        out.push(diagnostic(body, "Body of forperm quantifier is not allowed to contain perm expressions.".into()));
+                    }
+                    if !no_for_perm(&Node::Exp(body.clone()))? {
+                        out.push(diagnostic(body, "Body of forperm quantifier is not allowed to contain nested forperm expressions.".into()));
+                    }
+                }
+                FieldAccessPredicate(_, permission) => {
+                    let permission = permission.clone().unwrap_or_else(|| {
+                        Exp::new(
+                            FullPerm,
+                            crate::ast::ast::Metadata {
+                                position: e.metadata().position.clone(),
+                                ..Default::default()
+                            },
+                        )
+                    });
+                    let typ = permission.typ()?;
+                    if !typ.is_subtype(&Type::Perm) {
+                        out.push(diagnostic(&permission, format!("Permission amount parameter of access predicate must be of Perm type, but found {}", render_type(&typ).map_err(NodeConsistencyError::Render)?)));
+                    }
+                }
+                PredicateAccessPredicate(v) => {
+                    let permission = v.permission_or_full();
+                    let typ = permission.typ()?;
+                    if !typ.is_subtype(&Type::Perm) {
+                        out.push(diagnostic(&permission, format!("Permission amount parameter of access predicate must be of Perm type, but found {}", render_type(&typ).map_err(NodeConsistencyError::Render)?)));
+                    }
+                }
+                InhaleExhaleExp(first, second) => {
+                    let first_typ = first.typ()?;
+                    if !first_typ.is_subtype(&Type::Bool) {
+                        out.push(diagnostic(first, format!("First parameter to inhale-exhale assertion must be of Bool type, but found {}", render_type(&first_typ).map_err(NodeConsistencyError::Render)?)));
+                    }
+                    let second_typ = second.typ()?;
+                    if !second_typ.is_subtype(&Type::Bool) {
+                        out.push(diagnostic(second, format!("Second parameter to inhale-exhale assertion must be of Bool type, but found {}", render_type(&second_typ).map_err(NodeConsistencyError::Render)?)));
+                    }
+                }
+                PredicateAccess(v) => {
+                    for arg in &v.args {
+                        out.extend(
+                            check_pure(arg, &render_exp).map_err(NodeConsistencyError::Helper)?,
+                        );
+                    }
+                }
+                FuncApp(_, args) | DomainFuncApp(_, args, _) | BackendFuncApp(_, args) => {
+                    for arg in args {
+                        out.extend(
+                            check_pure(arg, &render_exp).map_err(NodeConsistencyError::Helper)?,
+                        );
+                    }
+                }
+                Not(inner) | Old(inner) | LabelledOld(inner, _) | DebugLabelledOld(inner, _) => out
+                    .extend(check_pure(inner, &render_exp).map_err(NodeConsistencyError::Helper)?),
+                Or(a, b) => {
+                    out.extend(check_pure(a, &render_exp).map_err(NodeConsistencyError::Helper)?);
+                    out.extend(check_pure(b, &render_exp).map_err(NodeConsistencyError::Helper)?);
+                }
+                Implies(a, _) => {
+                    out.extend(check_pure(a, &render_exp).map_err(NodeConsistencyError::Helper)?)
+                }
+                EqCmp(a, b) | NeCmp(a, b) => {
+                    out.extend(check_pure(a, &render_exp).map_err(NodeConsistencyError::Helper)?);
+                    out.extend(check_pure(b, &render_exp).map_err(NodeConsistencyError::Helper)?);
+                    let ta = a.typ()?;
+                    let tb = b.typ()?;
+                    if ta != tb {
+                        out.push(diagnostic(
+                            a,
+                            format!(
+                                "expected the same type, but got {} and {}",
+                                render_type(&ta).map_err(NodeConsistencyError::Render)?,
+                                render_type(&tb).map_err(NodeConsistencyError::Render)?
+                            ),
+                        ));
+                    }
+                }
+                Extension(v) => out.extend(v.0.check().map_err(NodeConsistencyError::Extension)?),
+            }
+        }
+    }
+    Ok(out)
+}
+
+#[derive(Debug)]
+pub enum TransitiveConsistencyError<E> {
+    Node(NodeConsistencyError<E>),
+    Reconstruction(crate::verifier::verification_result::DiagnosticError),
+}
+/// Source checkTransitively product traversal. A node family without a complete
+/// local check returns Unsupported; partial checks never become a success result.
+pub fn check_transitively<E>(
+    program: &Program,
+    render: &impl Fn(&Node) -> Result<String, E>,
+    render_seq: &impl Fn(&[Node]) -> Result<String, E>,
+) -> Result<Vec<FrontendError>, TransitiveConsistencyError<E>> {
+    check_transitively_with_options(program, render, render_seq, ConsistencyOptions::default())
+}
+
+pub fn check_transitively_with_options<E>(
+    program: &Program,
+    render: &impl Fn(&Node) -> Result<String, E>,
+    render_seq: &impl Fn(&[Node]) -> Result<String, E>,
+    options: ConsistencyOptions,
+) -> Result<Vec<FrontendError>, TransitiveConsistencyError<E>> {
+    let errors = std::cell::RefCell::new(Vec::new());
+    let failure = std::cell::RefCell::new(None);
+    let result = super::nodes::visit_check_products(&Node::Program(program.clone()), &|node| {
+        match check_node_with_options(node, program, render, render_seq, options) {
+            Ok(mut found) => {
+                errors.borrow_mut().append(&mut found);
+                Ok(node.clone())
+            }
+            Err(err) => {
+                *failure.borrow_mut() = Some(err);
+                Err(
+                    crate::verifier::verification_result::DiagnosticError::Unsupported(
+                        "node consistency check",
+                    ),
+                )
+            }
+        }
+    });
+    if let Some(error) = failure.into_inner() {
+        return Err(TransitiveConsistencyError::Node(error));
+    }
+    result.map_err(TransitiveConsistencyError::Reconstruction)?;
+    Ok(errors.into_inner())
+}
+
+#[cfg(test)]
+mod transitive_consistency_tests {
+    use super::*;
+    use crate::ast::{
+        ast::Metadata,
+        program::{Method, MethodData},
+        statement::{Stmt, StmtKind},
+    };
+    #[derive(Debug)]
+    struct UnknownExtension {
+        meta: Metadata,
+    }
+    impl crate::ast::expression::ExtensionExp for UnknownExtension {
+        fn metadata(&self) -> &Metadata {
+            &self.meta
+        }
+        fn with_metadata(&self, meta: Metadata) -> crate::ast::expression::ExtensionExpHandle {
+            crate::ast::expression::ExtensionExpHandle(std::sync::Arc::new(Self { meta }))
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn equals(&self, other: &dyn crate::ast::expression::ExtensionExp) -> bool {
+            other.as_any().is::<Self>()
+        }
+        fn typ(&self) -> Type {
+            Type::Bool
+        }
+        fn is_pure(&self) -> bool {
+            true
+        }
+        fn scope_declarations(
+            &self,
+        ) -> Result<
+            Option<Vec<crate::ast::program::Declaration>>,
+            crate::verifier::verification_result::DiagnosticError,
+        > {
+            Ok(None)
+        }
+        fn subnodes(&self) -> Result<Vec<Node>, TraversalError> {
+            Ok(vec![])
+        }
+    }
+    #[test]
+    fn sequence_length_expression_is_checked_transitively() {
+        let m = Metadata::default();
+        let length = Exp::new(
+            ExpKind::SeqLength(Exp::new(ExpKind::EmptySeq(Type::Int), m.clone())),
+            m.clone(),
+        );
+        let assertion = Exp::new(
+            ExpKind::EqCmp(length, Exp::new(ExpKind::IntLit(0.into()), m.clone())),
+            m.clone(),
+        );
+        let body = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![Stmt::new(StmtKind::Assert(assertion), m.clone())],
+                declarations: vec![],
+            },
+            m.clone(),
+        );
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: Some(body),
+            meta: m.clone(),
+        });
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], m);
+        let renderer = |_: &Node| -> Result<String, ()> { Ok("node".into()) };
+        let seq = |_: &[Node]| -> Result<String, ()> { Ok("nodes".into()) };
+        assert!(
+            check_transitively(&program, &renderer, &seq)
+                .unwrap()
+                .is_empty()
+        );
+    }
+    #[test]
+    fn pure_function_and_predicate_pass_local_checks() {
+        use crate::ast::program::{Function, FunctionData, Predicate, PredicateData};
+        let m = Metadata::default();
+        let function = Function::new(FunctionData {
+            name: "f".into(),
+            formal_args: vec![],
+            typ: Type::Int,
+            pres: vec![],
+            posts: vec![],
+            body: Some(Exp::new(ExpKind::IntLit(1.into()), m.clone())),
+            meta: m.clone(),
+        });
+        let predicate = Predicate::new(PredicateData {
+            name: "p".into(),
+            formal_args: vec![],
+            body: Some(Exp::new(ExpKind::TrueLit, m.clone())),
+            meta: m.clone(),
+        });
+        let program = Program::new(
+            vec![],
+            vec![],
+            vec![function],
+            vec![predicate],
+            vec![],
+            vec![],
+            m,
+        );
+        let renderer = |_: &Node| -> Result<String, ()> { Ok("node".into()) };
+        let seq = |_: &[Node]| -> Result<String, ()> { Ok("nodes".into()) };
+        assert!(
+            check_transitively(&program, &renderer, &seq)
+                .unwrap()
+                .is_empty()
+        );
+    }
+    #[test]
+    fn simple_method_is_checked() {
+        let m = Metadata::default();
+        let yes = Exp::new(ExpKind::TrueLit, m.clone());
+        let mk_program = |body| {
+            let method = Method::new(MethodData {
+                name: "m".into(),
+                formal_args: vec![],
+                formal_returns: vec![],
+                pres: vec![],
+                posts: vec![],
+                body: Some(body),
+                meta: m.clone(),
+            });
+            Program::new(
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![method],
+                vec![],
+                m.clone(),
+            )
+        };
+        let body = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![Stmt::new(StmtKind::Assert(yes.clone()), m.clone())],
+                declarations: vec![],
+            },
+            m.clone(),
+        );
+        let renderer = |_: &Node| -> Result<String, ()> { Ok("node".into()) };
+        let seq = |_: &[Node]| -> Result<String, ()> { Ok("nodes".into()) };
+        assert!(
+            check_transitively(&mk_program(body), &renderer, &seq)
+                .unwrap()
+                .is_empty()
+        );
+        let unknown = Exp::new(
+            ExpKind::Extension(crate::ast::expression::ExtensionExpHandle(
+                std::sync::Arc::new(UnknownExtension { meta: m.clone() }),
+            )),
+            m.clone(),
+        );
+        let body = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![Stmt::new(StmtKind::Assert(unknown), m.clone())],
+                declarations: vec![],
+            },
+            m.clone(),
+        );
+        assert!(matches!(
+            check_transitively(&mk_program(body), &renderer, &seq),
+            Err(TransitiveConsistencyError::Node(
+                NodeConsistencyError::Extension(_)
+            ))
+        ));
+    }
+}

@@ -430,7 +430,7 @@ fn visit_names(
             PExpressionKind::Forall(_)
             | PExpressionKind::Exists(_)
             | PExpressionKind::ForPerm { .. } => scope = Some(DeclarationMap::new(false, false)),
-            PExpressionKind::Extension(extension) if !extension.as_any().is::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() && !extension.as_any().is::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() => {
+            PExpressionKind::Extension(extension) if !extension.as_any().is::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() && !extension.as_any().is::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() && !extension.as_any().is::<crate::plugin::standard::arp::arppast_extension::PRdPerm>() => {
                 return Err(NameAnalysisError::Unsupported("expression extension name analysis"));
             }
             PExpressionKind::Let { .. } => return Err(NameAnalysisError::Unsupported("let name analysis")),
@@ -916,6 +916,13 @@ pub fn check_expression(
         PExpressionKind::Extension(extension)
             if extension
                 .as_any()
+                .is::<crate::plugin::standard::arp::arppast_extension::PRdPerm>() =>
+        {
+            (expression.typ, vec![PTypeSubstitution::default()])
+        }
+        PExpressionKind::Extension(extension)
+            if extension
+                .as_any()
                 .is::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() =>
         {
             let sif = extension
@@ -969,7 +976,10 @@ pub fn check_expression(
                 } else {
                     type_from_signature(&SignatureType::Bool)
                 };
-            let body_type = check_expression(&q.body, Some(&expected_body))?;
+            // Source `check` is a top-typed check: infer first, then constrain and
+            // ground the selected substitution. Passing the expected type into the
+            // operator inference directly can widen a pure Bool body to Impure.
+            let body_type = check_top_expression(&q.body, Some(&expected_body), |_, _| {})?;
             for trigger in q.triggers {
                 for exp in trigger.expressions().inner().to_seq() {
                     check_expression(exp, None)?;
@@ -1577,6 +1587,105 @@ pub fn check_statement_core(
     };
     let impure = type_from_signature(&SignatureType::Impure);
     let boolean = type_from_signature(&SignatureType::Bool);
+    if let S::Assign { targets, rhs, .. } = &kind {
+        let call = match &rhs.node().read().expect("poisoned parse node").kind {
+            PNodeKind::Expression(e) => match &e.kind {
+                PExpressionKind::Call {
+                    idnref,
+                    call_args,
+                    type_annotated: None,
+                    ..
+                } => Some((idnref.clone(), call_args.clone())),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some((reference, call_args)) = call {
+            let candidates = super::parse_ast::PIdnRef::decls(&reference, |_| true);
+            let methods: Vec<_> = candidates
+                .into_iter()
+                .filter(|n| {
+                    matches!(
+                        &n.read().expect("poisoned parse node").kind,
+                        PNodeKind::Member(PMember {
+                            kind: PMemberKind::Method { .. },
+                            ..
+                        })
+                    )
+                })
+                .collect();
+            if !methods.is_empty() {
+                if methods.len() != 1 {
+                    return Err(TypeCheckError::Unsupported("ambiguous method call"));
+                }
+                let filter = std::sync::Arc::new(|n: &PNodeHandle| {
+                    matches!(
+                        &n.read().expect("poisoned parse node").kind,
+                        PNodeKind::Member(PMember {
+                            kind: PMemberKind::Method { .. },
+                            ..
+                        })
+                    )
+                });
+                super::parse_ast::PIdnRef::filter_decls(&reference, filter, |_| true);
+                let method = methods[0].read().expect("poisoned parse node").kind.clone();
+                let PNodeKind::Member(PMember {
+                    kind: PMemberKind::Method { args, returns, .. },
+                    ..
+                }) = method
+                else {
+                    unreachable!()
+                };
+                let inputs = call_args.inner().to_seq();
+                let formals = args.inner().to_seq();
+                let outputs = returns
+                    .as_ref()
+                    .map(|r| r.formal_returns().inner().to_seq())
+                    .unwrap_or_default();
+                let actual_targets = targets.to_seq();
+                if inputs.len() != formals.len() || actual_targets.len() != outputs.len() {
+                    return Err(TypeCheckError::Unsupported(
+                        "wrong method call argument or target count",
+                    ));
+                }
+                for (actual, formal) in inputs.into_iter().zip(formals) {
+                    let typ = match &formal.node().read().expect("poisoned parse node").kind {
+                        PNodeKind::Declaration(d) => d.typ.clone(),
+                        _ => return Err(TypeCheckError::Unsupported("method formal")),
+                    };
+                    check_program_expression(actual, Some(&typ), &mut *warn)?;
+                }
+                for (target, formal) in actual_targets.into_iter().zip(outputs) {
+                    let idnref = match &target.node().read().expect("poisoned parse node").kind {
+                        PNodeKind::Expression(e) => match &e.kind {
+                            PExpressionKind::IdnUse { idnref } => idnref.clone(),
+                            _ => {
+                                return Err(TypeCheckError::Unsupported(
+                                    "method call field target",
+                                ));
+                            }
+                        },
+                        _ => return Err(TypeCheckError::Unsupported("method call target")),
+                    };
+                    if let PNodeKind::IdnRef(reference) =
+                        &mut idnref.write().expect("poisoned parse node").kind
+                    {
+                        reference.assign_use = true;
+                    }
+                    let filter = std::sync::Arc::new(
+                        |node: &PNodeHandle| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Declaration(d) if matches!(d.kind, PDeclarationKind::LocalVar | PDeclarationKind::FormalReturn)),
+                    );
+                    super::parse_ast::PIdnRef::filter_decls(&idnref, filter, |_| true);
+                    let typ = match &formal.node().read().expect("poisoned parse node").kind {
+                        PNodeKind::Declaration(d) => d.typ.clone(),
+                        _ => return Err(TypeCheckError::Unsupported("method return")),
+                    };
+                    check_program_expression(target, Some(&typ), &mut *warn)?;
+                }
+                return Ok(());
+            }
+        }
+    }
     match kind {
         S::Seqn { statements, .. } => {
             for statement in statements.inner().to_seq() {

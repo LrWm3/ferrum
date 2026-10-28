@@ -60,7 +60,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Consistency.scala"
 destination = "crates/ferrum-silver/src/ast/utility/consistency.rs"
 status = "skeleton"
-remaining = ["Contract, trigger, permission and wand context checks exist; complete local node checks and frontend consistency integration remain."]
+remaining = ["Built-in local, transitive, scope and use checks exist; quantified extension contexts, complete diagnostics and wider integration validation remain."]
 
 [[modules]]
 repository = "silver"
@@ -316,7 +316,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/SilFrontend.scala"
 destination = "crates/ferrum-silver/src/frontend/sil_frontend.rs"
 status = "skeleton"
-remaining = ["Parse, resolve, typecheck, translate and plugin boundaries are connected; complete transitive consistency, selection, reporting and standalone verifier lifecycle remain."]
+remaining = ["Parsing, analysis, translation and checked-subset consistency connect to plugin/backend phases; full grammar, diagnostic rendering and CLI configuration remain."]
 
 [[modules]]
 repository = "silver"
@@ -513,7 +513,8 @@ remaining = ["Typed abstract-read-permission nodes exist; full encoding, consist
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/arp/ARPPlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/arp/arp_plugin.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Method, loop and call read-permission lowering exists; loop-condition permissions, complete error aggregation and arbitrary extension coverage remain."]
 
 [[modules]]
 repository = "silver"

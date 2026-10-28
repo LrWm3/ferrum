@@ -94,6 +94,7 @@ pub trait FrontendPhases {
     fn translate(&mut self, input: Self::Analyzed) -> Result<Program, Vec<AbstractError>>;
     fn check_consistency(&mut self, input: Program) -> Result<Program, Vec<AbstractError>>;
     fn reset_messages(&mut self);
+    fn set_input_file(&mut self, _path: &Path) {}
     fn prepare_verification(&mut self, input: Program) -> Result<Program, Vec<AbstractError>> {
         Ok(input)
     }
@@ -148,6 +149,7 @@ impl<F: FrontendPhases> DefaultFrontend<F> {
         }
         self.state = DefaultState::InputSet;
         self.input_file = Some(input.to_owned());
+        self.phases.set_input_file(input);
         self.input = load(input).ok();
         self.errors.clear();
         self.parsing_result = None;

@@ -134,6 +134,7 @@ pub enum ParserFeature {
     Unreachable,
     PredicateInstance,
     Sif,
+    Arp,
 }
 
 /// Parse a complete program containing the currently supported declarations.
@@ -402,6 +403,7 @@ struct ExpressionParser<'a> {
 impl ExpressionParser<'_> {
     fn is_keyword(&self, name: &str) -> bool {
         is_keyword(name)
+            || (name == "rd" && self.features.contains(&ParserFeature::Arp))
             || (matches!(name, "low" | "lowEvent" | "rel")
                 && self.features.contains(&ParserFeature::Sif))
             || (name == "refute" && self.features.contains(&ParserFeature::Refute))
@@ -1675,6 +1677,19 @@ impl ExpressionParser<'_> {
     fn atom(&mut self) -> Result<PExpHandle, SyntaxError> {
         self.trivia()?;
         let start = self.cursor;
+        if self.features.contains(&ParserFeature::Arp)
+            && self.identifier_end(start) == start + 2
+            && self.source[start..].starts_with("rd")
+        {
+            self.cursor += 2;
+            let pos = self.span(start, self.cursor);
+            let expression = crate::plugin::standard::arp::arppast_extension::PRdPerm {
+                keyword: crate::plugin::standard::arp::arppast_extension::rd_keyword(pos.clone()),
+                pos,
+            }
+            .expression();
+            return self.suffix(expression);
+        }
         if self.features.contains(&ParserFeature::Sif) {
             let end = self.identifier_end(start);
             let name = &self.source[start..end];

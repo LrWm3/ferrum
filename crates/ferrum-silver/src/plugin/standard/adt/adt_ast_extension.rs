@@ -82,6 +82,40 @@ impl AdtType {
     }
 }
 impl ExtensionType for AdtType {
+    fn check_product_nodes(
+        &self,
+    ) -> Result<
+        Vec<crate::ast::utility::nodes::Node>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(vec![])
+    }
+
+    fn check(
+        &self,
+    ) -> Result<
+        Vec<crate::verifier::verification_result::FrontendError>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        if self.type_parameters.iter().cloned().collect::<HashSet<_>>()
+            == self.type_vars_map().into_keys().collect()
+        {
+            Ok(vec![])
+        } else {
+            Err(
+                crate::verifier::verification_result::DiagnosticError::Unsupported(
+                    "ADT type parameter diagnostic rendering",
+                ),
+            )
+        }
+    }
+    fn scope_declarations(
+        &self,
+    ) -> Result<Option<Vec<Declaration>>, crate::verifier::verification_result::DiagnosticError>
+    {
+        Ok(None)
+    }
+
     fn map_types(
         &self,
         map: &dyn Fn(&Type) -> Result<Type, crate::verifier::verification_result::DiagnosticError>,
@@ -217,6 +251,34 @@ impl AdtConstructor {
     }
 }
 impl ExtensionMember for AdtConstructor {
+    fn check_product_nodes(
+        &self,
+    ) -> Result<
+        Vec<crate::ast::utility::nodes::Node>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(self
+            .formal_args
+            .iter()
+            .cloned()
+            .map(Node::LocalDecl)
+            .collect())
+    }
+
+    fn check(
+        &self,
+    ) -> Result<
+        Vec<crate::verifier::verification_result::FrontendError>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(vec![])
+    }
+    fn scope_declarations(
+        &self,
+    ) -> Result<Vec<Declaration>, crate::verifier::verification_result::DiagnosticError> {
+        Ok(self.scoped_declarations())
+    }
+
     fn metadata(&self) -> Result<&Metadata, crate::verifier::verification_result::DiagnosticError> {
         Ok(&self.meta)
     }
@@ -295,6 +357,40 @@ impl Adt {
     }
 }
 impl ExtensionMember for Adt {
+    fn check_product_nodes(
+        &self,
+    ) -> Result<
+        Vec<crate::ast::utility::nodes::Node>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(self
+            .constructors
+            .iter()
+            .cloned()
+            .map(|c| Node::Member(Member::Extension(ExtensionMemberHandle(c))))
+            .chain(
+                self.type_vars
+                    .iter()
+                    .cloned()
+                    .map(|v| Node::Type(Type::Var(v))),
+            )
+            .collect())
+    }
+
+    fn check(
+        &self,
+    ) -> Result<
+        Vec<crate::verifier::verification_result::FrontendError>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(Adt::check(self))
+    }
+    fn scope_declarations(
+        &self,
+    ) -> Result<Vec<Declaration>, crate::verifier::verification_result::DiagnosticError> {
+        Ok(vec![])
+    }
+
     fn metadata(&self) -> Result<&Metadata, crate::verifier::verification_result::DiagnosticError> {
         Ok(&self.meta)
     }
@@ -473,6 +569,30 @@ impl AdtConstructorApp {
     }
 }
 impl ExtensionExp for AdtConstructorApp {
+    fn check_product_nodes(
+        &self,
+    ) -> Result<
+        Vec<crate::ast::utility::nodes::Node>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(self.args.iter().cloned().map(Node::Exp).collect())
+    }
+
+    fn check(
+        &self,
+    ) -> Result<
+        Vec<crate::verifier::verification_result::FrontendError>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        crate::plugin::silver_plugin::check_pure_expressions(self.args.iter())
+    }
+    fn scope_declarations(
+        &self,
+    ) -> Result<Option<Vec<Declaration>>, crate::verifier::verification_result::DiagnosticError>
+    {
+        Ok(None)
+    }
+
     fn map_expressions(
         &self,
         map: &dyn Fn(&Exp) -> Result<Exp, crate::verifier::verification_result::DiagnosticError>,
@@ -569,6 +689,30 @@ impl AdtDestructorApp {
     }
 }
 impl ExtensionExp for AdtDestructorApp {
+    fn check_product_nodes(
+        &self,
+    ) -> Result<
+        Vec<crate::ast::utility::nodes::Node>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(vec![Node::Exp(self.receiver.clone())])
+    }
+
+    fn check(
+        &self,
+    ) -> Result<
+        Vec<crate::verifier::verification_result::FrontendError>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        crate::plugin::silver_plugin::check_pure_expressions(std::iter::once(&self.receiver))
+    }
+    fn scope_declarations(
+        &self,
+    ) -> Result<Option<Vec<Declaration>>, crate::verifier::verification_result::DiagnosticError>
+    {
+        Ok(None)
+    }
+
     fn map_expressions(
         &self,
         map: &dyn Fn(&Exp) -> Result<Exp, crate::verifier::verification_result::DiagnosticError>,
@@ -640,6 +784,30 @@ impl AdtDiscriminatorApp {
     }
 }
 impl ExtensionExp for AdtDiscriminatorApp {
+    fn check_product_nodes(
+        &self,
+    ) -> Result<
+        Vec<crate::ast::utility::nodes::Node>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(vec![Node::Exp(self.receiver.clone())])
+    }
+
+    fn check(
+        &self,
+    ) -> Result<
+        Vec<crate::verifier::verification_result::FrontendError>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        crate::plugin::silver_plugin::check_pure_expressions(std::iter::once(&self.receiver))
+    }
+    fn scope_declarations(
+        &self,
+    ) -> Result<Option<Vec<Declaration>>, crate::verifier::verification_result::DiagnosticError>
+    {
+        Ok(None)
+    }
+
     fn map_expressions(
         &self,
         map: &dyn Fn(&Exp) -> Result<Exp, crate::verifier::verification_result::DiagnosticError>,

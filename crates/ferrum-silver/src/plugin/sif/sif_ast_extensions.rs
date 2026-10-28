@@ -114,6 +114,39 @@ impl SifExpression {
     }
 }
 impl ExtensionExp for SifExpression {
+    fn check_product_nodes(
+        &self,
+    ) -> Result<
+        Vec<crate::ast::utility::nodes::Node>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(match &self.kind {
+            SifExpressionKind::Low { exp, .. } => vec![Node::Exp(exp.clone())],
+            SifExpressionKind::Rel { exp, index } => {
+                vec![Node::Exp(exp.clone()), Node::Exp(index.clone())]
+            }
+            SifExpressionKind::Terminates { condition } => vec![Node::Exp(condition.clone())],
+            _ => vec![],
+        })
+    }
+
+    fn check(
+        &self,
+    ) -> Result<
+        Vec<crate::verifier::verification_result::FrontendError>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(vec![])
+    }
+    fn scope_declarations(
+        &self,
+    ) -> Result<
+        Option<Vec<crate::ast::program::Declaration>>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(None)
+    }
+
     fn metadata(&self) -> &Metadata {
         &self.meta
     }
@@ -305,6 +338,23 @@ impl SifStatement {
     }
 }
 impl crate::ast::statement::ExtensionStmt for SifStatement {
+    fn check(
+        &self,
+    ) -> Result<
+        Vec<crate::verifier::verification_result::FrontendError>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(vec![])
+    }
+    fn scope_declarations(
+        &self,
+    ) -> Result<
+        Option<Vec<crate::ast::program::Declaration>>,
+        crate::verifier::verification_result::DiagnosticError,
+    > {
+        Ok(None)
+    }
+
     fn metadata(&self) -> &Metadata {
         &self.meta
     }
