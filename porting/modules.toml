@@ -114,13 +114,15 @@ remaining = ["Generic algorithm is available through fallible language adapters;
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/ImpureAssumeRewriter.scala"
 destination = "crates/ferrum-silver/src/ast/utility/impure_assume_rewriter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Synthetic helpers and inhale splitting exist; whole-program impure-assume rewriting and diagnostic backtranslation remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/InverseFunctions.scala"
 destination = "crates/ferrum-silver/src/ast/utility/inverse_functions.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Resource inverse functions and axioms exist; extension reconstruction and full caller integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -133,13 +135,15 @@ remaining = ["Ordered traversal, member discovery and expression replacement exi
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Permissions.scala"
 destination = "crates/ferrum-silver/src/ast/utility/permissions.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Permission queries and scaling exist; generic reconstruction and extension hooks remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/QuantifiedPermissions.scala"
 destination = "crates/ferrum-silver/src/ast/utility/quantified_permissions.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Quantified resources and common desugaring exist; nested automatic triggers and let desugaring remain."]
 
 [[modules]]
 repository = "silver"
