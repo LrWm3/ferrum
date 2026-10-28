@@ -542,6 +542,16 @@ pub trait WandApplicationServices<P, D, J, V>: Sized {
         &mut self,
         state: &State<P, D, J>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error>;
+    fn applied_wand_snapshot(
+        &mut self,
+        factory: &TermFactory,
+        wand: &Term,
+        lhs: Term,
+    ) -> Result<Term, Self::Error> {
+        Ok(crate::rules::heap_supporter::applied_wand_snapshot(
+            factory, wand, lhs,
+        ))
+    }
     fn assume_wand_token(&mut self, token: &Term) -> Result<(), Self::Error>;
     /// Produce the RHS using the snapshot-to-sort conversion of the given term.
     fn produce_wand_rhs(
@@ -619,11 +629,9 @@ pub fn apply_wand<P, D, J: Clone, V, C: WandApplicationServices<P, D, J, V>>(
                     state.old_heaps = original_old.clone();
                     state.old_heaps.insert("lhs".into(), old_heap);
                     let old_conserving = state.conserving_snapshot_generation;
-                    let snapshot = crate::rules::heap_supporter::applied_wand_snapshot(
-                        factory,
-                        &wand_snapshot,
-                        lhs_snapshot.clone(),
-                    );
+                    let snapshot = context
+                        .applied_wand_snapshot(factory, &wand_snapshot, lhs_snapshot.clone())
+                        .map_err(WandApplicationError::Service)?;
                     if let TermKind::MwsfLookup(mwsf, _) = snapshot.kind() {
                         context
                             .assume_wand_token(

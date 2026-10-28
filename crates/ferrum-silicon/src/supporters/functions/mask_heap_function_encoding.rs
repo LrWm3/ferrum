@@ -31,9 +31,9 @@
 //! Reconcile FrameInfo lifetime, resource indexing and heap/snapshot aliases with mask heap rules
 //! and function verification.
 //!
-//! Status: partial; resource state arguments, axiom adaptation, triggers, application
-//! translation, footprint construction and QP frame axioms implemented. Concrete translation,
-//! resource discovery and concrete translation remain integration boundaries.
+//! Status: resource arguments, application/trigger translation, footprint construction and QP
+//! frame axioms connect to the native runtime. True frame-construction cycles fail explicitly;
+//! debugging and broad source compatibility remain incomplete.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this

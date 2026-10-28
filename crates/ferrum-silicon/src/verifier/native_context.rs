@@ -70,6 +70,8 @@ pub struct NativeOptions {
     pub enable_simplified_unfolds: bool,
     pub conditionalize_permissions: bool,
     pub print_translated_program: bool,
+    pub mask_heap_mode: bool,
+    pub simplify_on_consume: bool,
     pub set_axiomatization_file: Option<std::path::PathBuf>,
     pub multiset_axiomatization_file: Option<std::path::PathBuf>,
     pub sequence_axiomatization_file: Option<std::path::PathBuf>,
@@ -120,7 +122,6 @@ impl NativeOptions {
         config: &crate::config::Config,
     ) -> Result<Self, NativeError<crate::decider::prover_std_io::ProverError>> {
         if config.enable_debugging
-            || config.mask_heap_mode
             || config.parallelize_branches
             || config.frontend.ide_mode_advanced
             || config.generate_block_messages
@@ -134,7 +135,6 @@ impl NativeOptions {
             || config.log_config.is_some()
             || config.log_level.is_some()
             || !config.logger.is_empty()
-            || config.simplify_on_consume
             || config.report_state_after.is_some()
         {
             return Err(NativeError::Unsupported(
@@ -176,6 +176,8 @@ impl NativeOptions {
             enable_simplified_unfolds: config.enable_simplified_unfolds,
             conditionalize_permissions: config.conditionalize_permissions,
             print_translated_program: config.print_translated_program,
+            mask_heap_mode: config.mask_heap_mode,
+            simplify_on_consume: config.simplify_on_consume,
             set_axiomatization_file: config.set_axiomatization_file.as_ref().map(Into::into),
             multiset_axiomatization_file: config
                 .multiset_axiomatization_file
@@ -285,12 +287,21 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     havoc_counter: u64,
     config_options: Vec<String>,
     predicate_snapshots: crate::supporters::qps::predicate_snap_generator::PredicateSnapGenerator,
+    mask_resources: crate::rules::mask_heap_supporter::ResourceSequenceCache,
+    mask_frames: crate::supporters::functions::mask_heap_function_encoding::SharedFrameCache<FD>,
+    mask_frames_in_progress: Vec<Arc<()>>,
+    active_function_snapshot: Option<crate::supporters::functions::function_data::FunctionData<FD>>,
+    mask_predicate_triggers: Vec<(Arc<()>, crate::state::package::OrderedMap<String, Term>)>,
     active_program: Option<ferrum_silver::ast::program::Program>,
     predicate_contents: crate::state::package::OrderedMap<
         String,
         Arc<crate::supporters::predicate_verification_unit::PredicateData>,
     >,
     function_handles: crate::state::package::OrderedMap<String, Arc<FD>>,
+    function_owners: Vec<(
+        String,
+        Arc<std::sync::Mutex<crate::supporters::functions::function_data::FunctionData<FD>>>,
+    )>,
     function_heights: std::collections::HashMap<String, i32>,
     function_fresh_variables: Vec<Term>,
     function_units: Vec<ferrum_silver::ast::program::Function>,
@@ -312,9 +323,15 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             havoc_counter: 0,
             config_options: Vec::new(),
             predicate_snapshots: Default::default(),
+            mask_resources: Default::default(),
+            mask_frames: Default::default(),
+            mask_frames_in_progress: Vec::new(),
+            active_function_snapshot: None,
+            mask_predicate_triggers: Vec::new(),
             active_program: None,
             predicate_contents: Default::default(),
             function_handles: Default::default(),
+            function_owners: Vec::new(),
             function_heights: Default::default(),
             function_fresh_variables: Vec::new(),
             function_units: Vec::new(),
@@ -323,6 +340,297 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             heap_supporter_counter: 0,
             _state_types: PhantomData,
         }
+    }
+    /// Source heap-support strategy creates per-resource zero-mask heaps in mask mode.
+    fn native_empty_heap(
+        &mut self,
+        program: &ferrum_silver::ast::program::Program,
+        may_define_new_vars: bool,
+    ) -> Result<ListBackedHeap, NativeError<S::Error>>
+    where
+        S::Error: std::fmt::Debug,
+    {
+        if !self.options.mask_heap_mode {
+            return Ok(ListBackedHeap::new());
+        }
+        let factory = self.factory.clone();
+        let converter = self.base.symbol_converter.clone();
+        crate::rules::mask_heap_supporter::empty_heap(
+            program,
+            &factory,
+            &converter,
+            may_define_new_vars,
+            |name, sort| {
+                self.base
+                    .decider
+                    .fresh_variable(&factory, name, &sort, false, None)
+                    .map_err(NativeError::Decider)
+            },
+        )
+        .map_err(|e| NativeError::Chunk(format!("empty mask heap: {e:?}")))
+    }
+    fn mask_resource_sequence(
+        &mut self,
+        assertions: &[Exp],
+        program: &ferrum_silver::ast::program::Program,
+    ) -> Result<Vec<ResourceKey>, NativeError<S::Error>> {
+        self.mask_resources
+            .resources(assertions, program)
+            .map_err(|e| NativeError::Snapshot(format!("mask resources: {e:?}")))
+    }
+    fn mask_term_alias(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        term: Term,
+    ) -> Result<Term, NativeError<S::Error>> {
+        self.base
+            .decider
+            .create_alias(&self.factory, &mut self.base.identifiers, &term, state)
+            .map_err(NativeError::Decider)
+    }
+    fn merge_native_mask_heaps(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        first: &ListBackedHeap,
+        second: &ListBackedHeap,
+    ) -> Result<ListBackedHeap, NativeError<S::Error>>
+    where
+        S::Error: std::fmt::Debug,
+    {
+        let factory = self.factory.clone();
+        let mut service = NativeMaskMerge {
+            context: self,
+            state,
+        };
+        crate::rules::mask_heap_supporter::merge_wand_heaps(
+            &factory,
+            first,
+            second,
+            state.may_assume_upper_bounds(),
+            &mut service,
+        )
+        .map_err(|e| NativeError::Chunk(format!("mask heap merge: {e:?}")))
+    }
+    fn produce_native_mask_single(
+        &mut self,
+        mut state: State<PD, FD, JoinMode>,
+        resource: &ResourceKey,
+        arguments: &[Term],
+        snapshot: Term,
+        permission: Term,
+    ) -> Result<State<PD, FD, JoinMode>, NativeError<S::Error>>
+    where
+        S::Error: std::fmt::Debug,
+    {
+        let factory = self.factory.clone();
+        let heap = state.h.clone();
+        let mut service = NativeMaskProduction {
+            context: self,
+            state: &state,
+            simplify_state: None,
+        };
+        let result = crate::rules::mask_heap_supporter::produce_single_location(
+            &factory,
+            &heap,
+            resource,
+            arguments,
+            permission,
+            snapshot,
+            state.may_assume_upper_bounds(),
+            &mut service,
+        )
+        .map_err(|e| NativeError::Chunk(format!("mask single production: {e:?}")))?;
+        state.h = Arc::new(result);
+        Ok(state)
+    }
+    fn consume_native_mask_single(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        heap: &ListBackedHeap,
+        resource: &ResourceKey,
+        arguments: &[Term],
+        permission: Term,
+        return_snapshot: bool,
+    ) -> Result<crate::rules::mask_heap_supporter::MaskConsumption, NativeError<S::Error>>
+    where
+        S::Error: std::fmt::Debug,
+    {
+        if state.exhale_ext {
+            return Err(NativeError::Unsupported(
+                "mask single resource transfer inside wand package",
+            ));
+        }
+        let factory = self.factory.clone();
+        let exact = crate::state::terms::consume_exact_read(&permission, &state.constrainable_arps);
+        let recording = !matches!(state.function_recorder, FunctionRecorder::Noop);
+        let timeout = self.base.decider.check_timeout.unwrap_or(0);
+        let simplify = self.options.simplify_on_consume;
+        let mut service = NativeMaskProduction {
+            context: self,
+            state,
+            simplify_state: None,
+        };
+        crate::rules::mask_heap_supporter::consume_single_location(
+            &factory,
+            heap,
+            resource,
+            arguments,
+            permission,
+            exact,
+            state.assert_read_access_only,
+            recording,
+            state.may_assume_upper_bounds(),
+            return_snapshot,
+            simplify,
+            timeout,
+            &mut service,
+        )
+        .map_err(|e| NativeError::Chunk(format!("mask single consumption: {e:?}")))
+    }
+    fn consume_mask_transfer(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        resource: &ResourceKey,
+        args: &[Term],
+        permission: Term,
+        return_snapshot: bool,
+        error: VerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Arc<ListBackedHeap>,
+            Option<Term>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            NativeError<S::Error>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>>
+    where
+        S::Error: std::fmt::Debug,
+        FD: Clone,
+    {
+        use crate::rules::{
+            consumption_result::ConsumptionResult, magic_wand_supporter::WandTransferError,
+        };
+        let failure = self.failure_full(error, &state, true)?;
+        let original_state = state.clone();
+        let factory = self.factory.clone();
+        let mut callback_error = None;
+        let result = crate::rules::magic_wand_supporter::transfer(
+            &factory,
+            self,
+            state,
+            permission,
+            None,
+            failure,
+            &[],
+            &mut |ctx, state, heap, needed, needed_exp| {
+                if needed_exp.is_some() {
+                    return Err(NativeError::Unsupported("mask wand transfer debugging"));
+                }
+                let exact =
+                    crate::state::terms::consume_exact_read(&needed, &state.constrainable_arps);
+                let simplify = ctx.options.simplify_on_consume;
+                let timeout = ctx.options.qp_split_timeout;
+                let mut service = NativeMaskProduction {
+                    context: ctx,
+                    state: &state,
+                    simplify_state: Some(&original_state),
+                };
+                let step = crate::rules::mask_heap_supporter::transfer_single_location(
+                    &factory,
+                    &heap,
+                    resource,
+                    args,
+                    needed,
+                    exact,
+                    state.assert_read_access_only,
+                    simplify,
+                    timeout,
+                    &mut service,
+                )
+                .map_err(|e| NativeError::Chunk(format!("mask wand transfer: {e:?}")))?;
+                let outcome = match step.remaining {
+                    None => ConsumptionResult::Complete,
+                    Some(perms_needed) => ConsumptionResult::Incomplete {
+                        perms_needed,
+                        perms_needed_exp: None,
+                    },
+                };
+                Ok((outcome, state, Arc::new(step.heap), step.consumed))
+            },
+            &mut |ctx, state, chunks| {
+                let snapshot = if return_snapshot {
+                    let mut mask = None;
+                    for chunk in chunks {
+                        let Chunk::MaskHeap(chunk) = chunk else {
+                            return Err(WandTransferError::Service(NativeError::Unsupported(
+                                "non-mask transferred chunk",
+                            )));
+                        };
+                        mask = Some(match mask {
+                            None => chunk.mask,
+                            Some(old) => factory.mask_sum(old, chunk.mask),
+                        });
+                    }
+                    let mask = mask.unwrap_or_else(|| {
+                        if matches!(resource, ResourceKey::Field(_)) {
+                            factory.zero_mask()
+                        } else {
+                            factory.pred_zero_mask()
+                        }
+                    });
+                    Some(factory.mask_map_term([(resource.clone(), mask)]))
+                } else {
+                    None
+                };
+                let heap = state.h.clone();
+                match continuation(ctx, state, heap, snapshot) {
+                    Ok(v) => Ok(v),
+                    Err(e) => {
+                        callback_error = Some(e);
+                        Err(WandTransferError::Service(NativeError::ContinuationAbort))
+                    }
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| NativeError::Chunk(format!("mask wand transfer: {e:?}")))
+    }
+    fn native_havoc_resource(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        condition: &Term,
+        resource: &ResourceKey,
+        info: &crate::rules::havoc_supporter::HavocHelperData,
+    ) -> Result<ListBackedHeap, NativeError<S::Error>>
+    where
+        S::Error: std::fmt::Debug,
+        FD: Clone,
+    {
+        if !self.options.mask_heap_mode {
+            return crate::rules::heap_supporter::havoc_resource(
+                self, state, condition, resource, info,
+            )
+            .map_err(|e| NativeError::Execution(format!("havoc resource: {e:?}")));
+        }
+        let factory = self.factory.clone();
+        let mut service = NativeMaskProduction {
+            context: self,
+            state,
+            simplify_state: None,
+        };
+        crate::rules::mask_heap_supporter::havoc_resource(
+            &factory,
+            &state.h,
+            resource,
+            condition.clone(),
+            info,
+            &mut service,
+        )
+        .map_err(|e| NativeError::Chunk(format!("mask havoc: {e:?}")))
     }
     /// Set the reporter used for source-ordered quantifier preprocessing events.
     pub fn set_preprocessing_reporter(
@@ -375,6 +683,12 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         self.checkpoint()?;
         self.quantifier_trigger_events.clear();
         self.predicate_snapshots = Default::default();
+        self.mask_resources.reset();
+        self.mask_frames = Default::default();
+        self.mask_frames_in_progress.clear();
+        self.active_function_snapshot = None;
+        self.mask_predicate_triggers.clear();
+        self.function_owners.clear();
         self.active_program = None;
         self.predicate_contents = Default::default();
         self.havoc_counter = 0;
@@ -1215,6 +1529,39 @@ where
             ))
             .map_err(|e| EvaluationError::Context(NativeError::Diagnostic(format!("{e:?}"))))?;
         let resource = ResourceKey::Field(Arc::new(access.field.clone()));
+        if self.options.mask_heap_mode {
+            let factory = self.factory.clone();
+            let timeout = self.base.decider.assert_timeout;
+            let result = crate::rules::mask_heap_supporter::read_field(
+                &factory,
+                &state.h,
+                &resource,
+                receiver.clone(),
+                |goal| {
+                    self.base
+                        .decider
+                        .assert_with(&goal, timeout, |v| v)
+                        .map_err(NativeError::Decider)
+                },
+            )
+            .map_err(|e| {
+                EvaluationError::Context(NativeError::Chunk(format!("mask field read: {e:?}")))
+            })?;
+            return match result {
+                crate::rules::mask_heap_supporter::MaskFieldRead::Value { value, snapshot } => {
+                    let mut state = state;
+                    state.function_recorder = state.function_recorder.record_location_snapshot(
+                        field_exp,
+                        self.base.decider.pcs.recorded().branch_conditions(),
+                        snapshot,
+                    );
+                    continuation(self, state, value)
+                }
+                crate::rules::mask_heap_supporter::MaskFieldRead::Insufficient { .. } => self
+                    .failure_full(full, &state, false)
+                    .map_err(EvaluationError::Context),
+            };
+        }
         let mut callback_error = None;
         let result = crate::rules::heap_supporter::field_access(
             self,
@@ -1268,6 +1615,17 @@ where
             EvaluationError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
+        if self.options.mask_heap_mode {
+            let amount = crate::rules::mask_heap_supporter::current_permission::<
+                NativeError<S::Error>,
+            >(&self.factory, &heap, resource, args)
+            .map_err(|e| {
+                EvaluationError::Context(NativeError::Chunk(format!(
+                    "mask current permission: {e:?}"
+                )))
+            })?;
+            return continuation(self, state, amount);
+        }
         let (state, amount) = crate::rules::heap_supporter::current_permission(
             self, state, &heap, resource, args, debug_args,
         )
@@ -1662,6 +2020,13 @@ where
         arguments: &[Term],
         snapshot: &Term,
     ) -> Result<(Vec<Term>, Term), Self::Error> {
+        if self.options.mask_heap_mode {
+            let resources = self.mask_resource_sequence(&function.pres, &state.program)?;
+            return crate::rules::mask_heap_supporter::function_app_snapshot::<NativeError<S::Error>>(
+                &self.factory, &state.h, &resources,
+            )
+            .map_err(|e| NativeError::Chunk(format!("function heap snapshot: {e:?}")));
+        }
         let snapshot = self.factory.sort_wrapper(snapshot.clone(), Sort::Snap);
         Ok((vec![snapshot.clone()], snapshot))
     }
@@ -1670,9 +2035,14 @@ where
         function: &ferrum_silver::ast::program::Function,
         program: &ferrum_silver::ast::program::Program,
     ) -> Result<crate::state::terms::Applicable, Self::Error> {
+        let resources = if self.options.mask_heap_mode {
+            Some(self.mask_resource_sequence(&function.pres, program)?)
+        } else {
+            None
+        };
         self.base
             .symbol_converter
-            .heap_dependent_function(function, program, None)
+            .heap_dependent_function(function, program, resources.as_deref())
             .map_err(NativeError::Sort)
     }
     fn assume_function_precondition(
@@ -1723,6 +2093,23 @@ where
                 Default::default(),
             )
         };
+        if self.options.mask_heap_mode {
+            let condition = crate::rules::mask_heap_supporter::forperm_mask_condition::<
+                NativeError<S::Error>,
+            >(&factory, &state.h, resource, args)
+            .map_err(|e| NativeError::Chunk(format!("forperm mask: {e:?}")))?;
+            return Ok(condition
+                .into_iter()
+                .map(|(condition, trigger)| ForPermCondition {
+                    condition,
+                    original: name("chunk has non-zero permission"),
+                    rewritten: None,
+                    variables: variables.iter().map(|(term, _)| term.clone()).collect(),
+                    definitions: MapBackedStore::new(),
+                    triggers: vec![trigger],
+                })
+                .collect());
+        }
         let source = native_quantified_source(resource);
         if state
             .is_quantified_resource(&source)
@@ -2017,7 +2404,23 @@ where
         snapshot: Self::Snapshot,
         assertions: &[Exp],
     ) -> Result<Self::Snapshot, Self::Error> {
-        Ok(snapshot)
+        if !self.options.mask_heap_mode {
+            return Ok(snapshot);
+        }
+        let resources = self.mask_resource_sequence(assertions, &state.program)?;
+        let term = self.snapshot_term(&snapshot, Sort::Snap)?;
+        let factory = self.factory.clone();
+        let converter = self.base.symbol_converter.clone();
+        let supporter =
+            crate::supporters::mask_heap_snapshot_supporter::MaskHeapSnapshotSupporter {
+                factory: &factory,
+            };
+        let adapted = supporter
+            .adapt_produce_snapshot(term, &resources, &converter, |term| {
+                self.mask_term_alias(state, term)
+            })
+            .map_err(|e| NativeError::Snapshot(format!("mask producer snapshot: {e:?}")))?;
+        Ok(NativeSnapshot::Projection(adapted))
     }
     fn split_snapshot(
         &mut self,
@@ -2026,6 +2429,9 @@ where
         first: &Exp,
         rest: &[Exp],
     ) -> Result<Option<(Self::Snapshot, Self::Snapshot)>, Self::Error> {
+        if self.options.mask_heap_mode {
+            return Ok(Some((snapshot.clone(), snapshot.clone())));
+        }
         {
             let snap = self.snapshot_term(snapshot, crate::state::terms::Sort::Snap)?;
             if matches!(snap.kind(), crate::state::terms::TermKind::Unit) {
@@ -2067,6 +2473,9 @@ where
         state: &State<PD, FD, JoinMode>,
         snapshot: &Self::Snapshot,
     ) -> Result<(), Self::Error> {
+        if self.options.mask_heap_mode {
+            return Ok(());
+        }
         {
             let actual = self.snapshot_term(snapshot, crate::state::terms::Sort::Snap)?;
             let equality = self.factory.equals(actual, self.factory.unit());
@@ -2133,6 +2542,12 @@ where
         resource: &crate::state::terms::ResourceKey,
     ) -> Result<Term, Self::Error> {
         use crate::state::terms::{ResourceKey, Sort};
+        if self.options.mask_heap_mode {
+            return match snapshot {
+                NativeSnapshot::Projection(term) => Ok(term.clone()),
+                NativeSnapshot::Fresh => Err(NativeError::Unsupported("unadapted mask snapshot")),
+            };
+        }
         let sort = match resource {
             ResourceKey::Field(field) => self
                 .base
@@ -2222,6 +2637,12 @@ where
             ProductionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ProductionError<Self::Error>> {
+        if self.options.mask_heap_mode {
+            let state = self
+                .produce_native_mask_single(state, resource, arguments, snapshot, gain)
+                .map_err(ProductionError::Context)?;
+            return continuation(self, state);
+        }
         // Only ordinary wand production reevaluates resource arguments and needs an
         // error context; fields and predicates are already evaluated by the producer.
         let full = match resource {
@@ -2471,6 +2892,103 @@ where
         let formals = state
             .formal_arg_vars(&source, &self.base.symbol_converter, &self.factory)
             .map_err(|e| ProductionError::Context(NativeError::Diagnostic(format!("{e:?}"))))?;
+        if self.options.mask_heap_mode {
+            use crate::rules::mask_heap_supporter::{
+                MaskQuantifiedInputs, MaskQuantifiedProduction,
+            };
+            let (_, _, access) = ferrum_silver::ast::utility::quantified_permissions::quantified_permission_assertion(forall)
+                .ok_or(ProductionError::Context(NativeError::Unsupported("quantified permission shape")))?;
+            let permission_exp = access.permission_or_full().ok_or(ProductionError::Context(
+                NativeError::Unsupported("quantified permission expression"),
+            ))?;
+            let explicit =
+                matches!(forall.kind(), ExpKind::Forall(_, triggers, _) if !triggers.is_empty());
+            let snap = match snapshot {
+                NativeSnapshot::Projection(value) => value.clone(),
+                NativeSnapshot::Fresh => {
+                    return Err(ProductionError::Context(NativeError::Unsupported(
+                        "unadapted mask quantified snapshot",
+                    )));
+                }
+            };
+            let input = MaskQuantifiedInputs {
+                resource: resource.clone(),
+                qvars: data.qvars.clone(),
+                qvar_expressions: data.qvar_expressions.clone(),
+                formal_qvars: formals,
+                formal_qvar_expressions: None,
+                condition: data.condition.clone(),
+                condition_expression: data.condition_exp.clone(),
+                arguments: data.arguments.clone(),
+                argument_expressions: data.argument_expressions.clone(),
+                permission: data.permission.clone(),
+                permission_expression: data.permission_exp.clone(),
+                scaling: state.permission_scaling_factor.clone(),
+                snapshot: Some(snap),
+                explicit_triggers: explicit.then(|| data.triggers.clone()),
+                translated_triggers: data.triggers.clone(),
+                auxiliary_globals: data.auxiliary_globals.clone(),
+                auxiliary_non_globals: data.auxiliary_non_globals.clone(),
+                auxiliary_debug: data.auxiliary_debug.clone(),
+                qid: qid.into(),
+                quantifier: forall.clone(),
+            };
+            let factory = self.factory.clone();
+            let heap = state.h.clone();
+            let mut adapter = NativeMaskQuantified {
+                context: self,
+                state: &state,
+                recorder: state.function_recorder.clone(),
+            };
+            let outcome = crate::rules::mask_heap_supporter::produce_quantified(
+                &factory,
+                &heap,
+                &input,
+                state.may_assume_upper_bounds(),
+                adapter.context.options.assume_injectivity_on_inhale,
+                &mut adapter,
+            )
+            .map_err(|e| {
+                ProductionError::Context(NativeError::Chunk(format!(
+                    "mask quantified production: {e:?}"
+                )))
+            })?;
+            let recorder = adapter.recorder;
+            return match outcome {
+                MaskQuantifiedProduction::Complete { heap } => {
+                    let mut state = state;
+                    state.h = Arc::new(heap);
+                    state.function_recorder = recorder;
+                    continuation(self, state)
+                }
+                MaskQuantifiedProduction::NegativePermission { .. } => self
+                    .failure(
+                        error,
+                        ErrorReason::NegativePermission(permission_exp),
+                        &state,
+                    )
+                    .map_err(ProductionError::Context),
+                MaskQuantifiedProduction::NonInjective { .. } => {
+                    use ferrum_silver::ast::utility::nodes::Node;
+                    let node = match access.kind() {
+                        ExpKind::FieldAccessPredicate(location, _) => {
+                            Node::FieldAccess(location.clone())
+                        }
+                        ExpKind::PredicateAccessPredicate(location) => {
+                            Node::PredicateAccess(location.location.clone())
+                        }
+                        ExpKind::MagicWand(..) => Node::Exp(access.clone()),
+                        _ => {
+                            return Err(ProductionError::Context(NativeError::Unsupported(
+                                "quantified injectivity error location",
+                            )));
+                        }
+                    };
+                    self.failure(error, ErrorReason::QPAssertionNotInjective(node), &state)
+                        .map_err(ProductionError::Context)
+                }
+            };
+        }
         let sort = match resource {
             ResourceKey::Field(field) => Sort::FieldValueFunction {
                 codomain: Box::new(
@@ -2592,10 +3110,19 @@ where
     fn callee_height(&self, name: &str) -> Option<i32> { self.function_heights.get(name).copied() }
 
     fn heap_function(&mut self, function: &ferrum_silver::ast::program::Function, program: &ferrum_silver::ast::program::Program) -> Result<crate::state::terms::Applicable, Self::Error> {
-        self.base.symbol_converter.heap_dependent_function(function, program, None).map_err(NativeError::Sort)
+        let resources = if self.options.mask_heap_mode {
+            Some(self.mask_resource_sequence(&function.pres, program)?)
+        } else { None };
+        self.base.symbol_converter.heap_dependent_function(function, program, resources.as_deref()).map_err(NativeError::Sort)
     }
 
-    fn translate_heap_function_application(&mut self, function: crate::state::terms::Applicable, snapshot: Term, args: Vec<Term>, _: &ferrum_silver::ast::program::Function, _: &ferrum_silver::ast::program::Program) -> Result<Term, Self::Error> {
+    fn translate_heap_function_application(&mut self, function: crate::state::terms::Applicable, snapshot: Term, args: Vec<Term>, source_function: &ferrum_silver::ast::program::Function, program: &ferrum_silver::ast::program::Program) -> Result<Term, Self::Error> {
+        if self.options.mask_heap_mode {
+            let resources = self.mask_resource_sequence(&source_function.pres, program)?;
+            return crate::supporters::functions::mask_heap_function_encoding::MaskHeapFunctionEncoding::translate_application(
+                &self.factory, &self.base.symbol_converter, &function, &snapshot, &args, &resources,
+            ).map_err(|e| NativeError::Execution(format!("mask function application: {e:?}")));
+        }
         Ok(crate::supporters::functions::function_encoding::DefaultFunctionEncoding::translate_function_application(&self.factory, function, snapshot, &args))
     }
 }
@@ -2613,7 +3140,11 @@ where
         self.checkpoint()
     }
     fn unit_snapshot(&self) -> Term {
-        self.factory.unit()
+        if self.options.mask_heap_mode {
+            self.factory.mask_map_term([])
+        } else {
+            self.factory.unit()
+        }
     }
     fn combine_snapshots(
         &mut self,
@@ -2623,7 +3154,39 @@ where
         assertion: &Exp,
         rest: &[Exp],
     ) -> Result<Term, Self::Error> {
-        Ok(self.factory.combine(first, second))
+        if !self.options.mask_heap_mode {
+            return Ok(self.factory.combine(first, second));
+        }
+        let first_resources =
+            self.mask_resource_sequence(std::slice::from_ref(assertion), &state.program)?;
+        let rest_resources = self.mask_resource_sequence(rest, &state.program)?;
+        let factory = self.factory.clone();
+        let supporter =
+            crate::supporters::mask_heap_snapshot_supporter::MaskHeapSnapshotSupporter {
+                factory: &factory,
+            };
+        supporter.combine_snapshots(
+            &first,
+            &second,
+            |term| {
+                Ok::<_, NativeError<S::Error>>(
+                    crate::rules::mask_heap_supporter::masks_from_snapshot(
+                        &factory,
+                        term.clone(),
+                        &first_resources,
+                    ),
+                )
+            },
+            |term| {
+                Ok::<_, NativeError<S::Error>>(
+                    crate::rules::mask_heap_supporter::masks_from_snapshot(
+                        &factory,
+                        term.clone(),
+                        &rest_resources,
+                    ),
+                )
+            },
+        )
     }
     fn finalize_snapshot(
         &mut self,
@@ -2632,7 +3195,26 @@ where
         snapshot: Term,
         assertions: &[Exp],
     ) -> Result<Term, Self::Error> {
-        Ok(snapshot)
+        if !self.options.mask_heap_mode {
+            return Ok(snapshot);
+        }
+        let resources = self.mask_resource_sequence(assertions, &state.program)?;
+        let mut eval_state = state.clone();
+        if !state.exhale_ext {
+            eval_state.h = original_heap.clone();
+        }
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &eval_state)
+            .map_err(|e| NativeError::Snapshot(format!("mask evaluation heap: {e:?}")))?;
+        let factory = self.factory.clone();
+        let supporter =
+            crate::supporters::mask_heap_snapshot_supporter::MaskHeapSnapshotSupporter {
+                factory: &factory,
+            };
+        supporter
+            .finalize_consumed_snapshot(&snapshot, &resources, &heap, |term| {
+                self.mask_term_alias(state, term)
+            })
+            .map_err(|e| NativeError::Snapshot(format!("mask consumption snapshot: {e:?}")))
     }
     fn consume_with_retry(
         &mut self,
@@ -2854,6 +3436,43 @@ where
         let full = error
             .due_to(reason)
             .map_err(|e| ConsumptionError::Context(NativeError::Diagnostic(format!("{e:?}"))))?;
+        if self.options.mask_heap_mode {
+            use crate::rules::mask_heap_supporter::MaskConsumption;
+            if state.exhale_ext {
+                let mut callback_error = None;
+                let result = self.consume_mask_transfer(
+                    state,
+                    resource,
+                    args,
+                    loss,
+                    return_snapshot,
+                    full,
+                    &mut |ctx, state, heap, snapshot| match continuation(ctx, state, heap, snapshot)
+                    {
+                        Ok(v) => Ok(v),
+                        Err(e) => {
+                            callback_error = Some(e);
+                            Err(NativeError::ContinuationAbort)
+                        }
+                    },
+                );
+                if let Some(e) = callback_error {
+                    return Err(e);
+                }
+                return result.map_err(ConsumptionError::Context);
+            }
+            return match self
+                .consume_native_mask_single(&state, &heap, resource, args, loss, return_snapshot)
+                .map_err(ConsumptionError::Context)?
+            {
+                MaskConsumption::Complete { heap, snapshot } => {
+                    continuation(self, state, Arc::new(heap), snapshot)
+                }
+                MaskConsumption::Insufficient { .. } => self
+                    .failure_full(full, &state, false)
+                    .map_err(ConsumptionError::Context),
+            };
+        }
         let mut callback_error = None;
         let result = crate::rules::heap_supporter::consume_single(
             self,
@@ -3208,6 +3827,273 @@ where
         };
         let has_explicit_triggers =
             matches!(forall.kind(), ExpKind::Forall(_, triggers, _) if !triggers.is_empty());
+        if self.options.mask_heap_mode {
+            use crate::rules::mask_heap_supporter::{
+                MaskQuantifiedConsumption, MaskQuantifiedInputs,
+            };
+            let input = MaskQuantifiedInputs {
+                resource: resource.clone(),
+                qvars: data.qvars.clone(),
+                qvar_expressions: data.qvar_expressions.clone(),
+                formal_qvars: formals,
+                formal_qvar_expressions: None,
+                condition: data.condition.clone(),
+                condition_expression: data.condition_exp.clone(),
+                arguments: data.arguments.clone(),
+                argument_expressions: data.argument_expressions.clone(),
+                permission: data.permission.clone(),
+                permission_expression: data.permission_exp.clone(),
+                scaling: state.permission_scaling_factor.clone(),
+                snapshot: None,
+                explicit_triggers: has_explicit_triggers.then(|| data.triggers.clone()),
+                translated_triggers: data.triggers.clone(),
+                auxiliary_globals: data.auxiliary_globals.clone(),
+                auxiliary_non_globals: data.auxiliary_non_globals.clone(),
+                auxiliary_debug: data.auxiliary_debug.clone(),
+                qid: qid.into(),
+                quantifier: forall.clone(),
+            };
+            let factory = self.factory.clone();
+            let converter = self.base.symbol_converter.clone();
+            let loss = factory.perm_times(input.permission.clone(), input.scaling.clone());
+            let constrain =
+                !crate::state::terms::consume_exact_read(&loss, &state.constrainable_arps);
+            let recording = !matches!(state.function_recorder, FunctionRecorder::Noop);
+            let simplify = self.options.simplify_on_consume;
+            if state.exhale_ext {
+                use crate::rules::consumption_result::ConsumptionResult;
+                use crate::rules::magic_wand_supporter::WandTransferError;
+                use crate::rules::mask_heap_supporter::MaskQuantifiedPreparation;
+                let mut adapter = NativeMaskQuantified {
+                    context: self,
+                    state: &state,
+                    recorder: state.function_recorder.clone(),
+                };
+                let prepared = crate::rules::mask_heap_supporter::prepare_quantified_consumption(
+                    &factory,
+                    &input,
+                    &mut adapter,
+                )
+                .map_err(|e| {
+                    ConsumptionError::Context(NativeError::Chunk(format!(
+                        "mask quantified preparation: {e:?}"
+                    )))
+                })?;
+                let prepared = match prepared {
+                    MaskQuantifiedPreparation::Ready(value) => value,
+                    MaskQuantifiedPreparation::NegativePermission { .. } => {
+                        return self
+                            .failure(
+                                error,
+                                ErrorReason::NegativePermission(failure.permission.clone()),
+                                &state,
+                            )
+                            .map_err(ConsumptionError::Context);
+                    }
+                    MaskQuantifiedPreparation::NonInjective { .. } => {
+                        use ferrum_silver::ast::utility::nodes::Node;
+                        let node = match failure.access.kind() {
+                            ExpKind::FieldAccessPredicate(location, _) => {
+                                Node::FieldAccess(location.clone())
+                            }
+                            ExpKind::PredicateAccessPredicate(location) => {
+                                Node::PredicateAccess(location.location.clone())
+                            }
+                            ExpKind::MagicWand(..) => Node::Exp(failure.access.clone()),
+                            _ => {
+                                return Err(ConsumptionError::Context(NativeError::Unsupported(
+                                    "quantified injectivity error location",
+                                )));
+                            }
+                        };
+                        return self
+                            .failure(error, ErrorReason::QPAssertionNotInjective(node), &state)
+                            .map_err(ConsumptionError::Context);
+                    }
+                };
+                let reason = match failure.access.kind() {
+                    ExpKind::FieldAccessPredicate(location, _) => {
+                        ErrorReason::InsufficientPermission(
+                            ferrum_silver::ast::utility::nodes::Node::FieldAccess(location.clone()),
+                        )
+                    }
+                    ExpKind::PredicateAccessPredicate(location) => {
+                        ErrorReason::InsufficientPermission(
+                            ferrum_silver::ast::utility::nodes::Node::PredicateAccess(
+                                location.location.clone(),
+                            ),
+                        )
+                    }
+                    ExpKind::MagicWand(..) => {
+                        ErrorReason::MagicWandChunkNotFound(failure.access.clone())
+                    }
+                    _ => {
+                        return Err(ConsumptionError::Context(NativeError::Unsupported(
+                            "quantified permission failure reason",
+                        )));
+                    }
+                };
+                let full = error.due_to(reason).map_err(|e| {
+                    ConsumptionError::Context(NativeError::Diagnostic(format!("{e:?}")))
+                })?;
+                let failure_result = self
+                    .failure_full(full, &state, true)
+                    .map_err(ConsumptionError::Context)?;
+                let original_recorder = state.function_recorder.clone();
+                let mut callback_error = None;
+                let result = crate::rules::magic_wand_supporter::transfer(
+                    &factory,
+                    self,
+                    state,
+                    prepared.loss_at.clone(),
+                    None,
+                    failure_result,
+                    &input.formal_qvars,
+                    &mut |ctx, mut state, heap, remaining, debug| {
+                        if debug.is_some() {
+                            return Err(NativeError::Unsupported(
+                                "mask quantified wand transfer debugging",
+                            ));
+                        }
+                        let mut service = NativeMaskQuantified {
+                            context: ctx,
+                            state: &state,
+                            recorder: original_recorder.clone(),
+                        };
+                        let step = crate::rules::mask_heap_supporter::transfer_quantified_step(
+                            &factory,
+                            &heap,
+                            resource,
+                            &input.formal_qvars,
+                            prepared.condition_at.clone(),
+                            remaining,
+                            constrain,
+                            &prepared.inverse,
+                            &mut service,
+                        )
+                        .map_err(|e| {
+                            NativeError::Chunk(format!("mask quantified wand transfer: {e:?}"))
+                        })?;
+                        if step.consumed.is_some() {
+                            state.function_recorder = service.recorder;
+                        }
+                        let outcome = match step.remaining {
+                            None => ConsumptionResult::Complete,
+                            Some(perms_needed) => ConsumptionResult::Incomplete {
+                                perms_needed,
+                                perms_needed_exp: None,
+                            },
+                        };
+                        Ok((outcome, state, Arc::new(step.heap), step.consumed))
+                    },
+                    &mut |ctx, state, chunks| {
+                        let snapshot = if return_snapshot {
+                            let mut mask = None;
+                            for chunk in chunks {
+                                let Chunk::MaskHeap(chunk) = chunk else {
+                                    return Err(WandTransferError::Service(
+                                        NativeError::Unsupported("non-mask transferred chunk"),
+                                    ));
+                                };
+                                mask = Some(match mask {
+                                    None => chunk.mask,
+                                    Some(old) => factory.mask_sum(old, chunk.mask),
+                                });
+                            }
+                            let mask = mask.unwrap_or_else(|| {
+                                if matches!(resource, ResourceKey::Field(_)) {
+                                    factory.zero_mask()
+                                } else {
+                                    factory.pred_zero_mask()
+                                }
+                            });
+                            Some(factory.mask_map_term([(resource.clone(), mask)]))
+                        } else {
+                            None
+                        };
+                        let heap = state.h.clone();
+                        match continuation(ctx, state, heap, snapshot) {
+                            Ok(value) => Ok(value),
+                            Err(e) => {
+                                callback_error = Some(e);
+                                Err(WandTransferError::Service(NativeError::ContinuationAbort))
+                            }
+                        }
+                    },
+                );
+                if let Some(e) = callback_error {
+                    return Err(e);
+                }
+                return result.map_err(|e| {
+                    ConsumptionError::Context(NativeError::Chunk(format!(
+                        "mask quantified wand transfer: {e:?}"
+                    )))
+                });
+            }
+            let mut adapter = NativeMaskQuantified {
+                context: self,
+                state: &state,
+                recorder: state.function_recorder.clone(),
+            };
+            let outcome = crate::rules::mask_heap_supporter::consume_quantified(
+                &factory,
+                &heap,
+                &input,
+                &state.program,
+                &converter,
+                constrain,
+                state.assert_read_access_only,
+                recording,
+                state.may_assume_upper_bounds(),
+                return_snapshot,
+                simplify,
+                &mut adapter,
+            )
+            .map_err(|e| {
+                ConsumptionError::Context(NativeError::Chunk(format!(
+                    "mask quantified consumption: {e:?}"
+                )))
+            })?;
+            let recorder = adapter.recorder;
+            return match outcome {
+                MaskQuantifiedConsumption::Complete { heap, snapshot } => {
+                    let mut state = state;
+                    state.function_recorder = recorder;
+                    let heap = Arc::new(heap);
+                    state.partially_consumed_heap = Some(heap.clone());
+                    continuation(self, state, heap, snapshot)
+                }
+                MaskQuantifiedConsumption::NegativePermission { .. } => self
+                    .failure(
+                        error,
+                        ErrorReason::NegativePermission(failure.permission),
+                        &state,
+                    )
+                    .map_err(ConsumptionError::Context),
+                MaskQuantifiedConsumption::NonInjective { .. } => {
+                    use ferrum_silver::ast::utility::nodes::Node;
+                    let node = match failure.access.kind() {
+                        ExpKind::FieldAccessPredicate(location, _) => {
+                            Node::FieldAccess(location.clone())
+                        }
+                        ExpKind::PredicateAccessPredicate(location) => {
+                            Node::PredicateAccess(location.location.clone())
+                        }
+                        ExpKind::MagicWand(..) => Node::Exp(failure.access.clone()),
+                        _ => {
+                            return Err(ConsumptionError::Context(NativeError::Unsupported(
+                                "quantified injectivity error location",
+                            )));
+                        }
+                    };
+                    self.failure(error, ErrorReason::QPAssertionNotInjective(node), &state)
+                        .map_err(ConsumptionError::Context)
+                }
+                MaskQuantifiedConsumption::Insufficient { .. } => crate::rules::quantified_chunk_support::GeneralConsumptionExecution::general_insufficient_permission(self, &state, &failure)
+                    .map_err(ConsumptionError::Context),
+            };
+        }
+
         let input = GeneralProductionInput {
             qvars: data.qvars.clone(),
             qvar_exps: data.qvar_expressions.clone(),
@@ -3436,10 +4322,219 @@ where
         .map_err(|e| NativeError::Consumption(format!("{e:?}")))
     }
 }
+struct NativeFrameTranslator<'a, S: Prover, PD, FD> {
+    context: &'a mut NativeVerifierContext<S, PD, FD>,
+    data: &'a crate::supporters::functions::function_data::FunctionData<FD>,
+    resources: &'a [ResourceKey],
+}
+
+impl<S: Prover, PD, FD: Clone>
+    crate::supporters::functions::mask_heap_function_encoding::FrameExpressionTranslator
+    for NativeFrameTranslator<'_, S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+
+    fn translate_frame_expression(&mut self, expression: &Exp) -> Result<Term, Self::Error> {
+        use crate::supporters::{
+            expression_translator::ExpressionTranslator,
+            functions::{
+                heap_access_replacing_expression_translator::HeapAccessReplacingTranslator,
+                mask_heap_function_encoding::MaskHeapFunctionEncoding,
+            },
+        };
+        let factory = self.context.factory.clone();
+        let converter = self.context.base.symbol_converter.clone();
+        let translator = ExpressionTranslator::new(&factory, &converter, |sort: &Sort| {
+            Ok::<_, NativeError<S::Error>>(sort.to_string())
+        });
+        let prior = self
+            .context
+            .failed_functions
+            .contains(&self.data.program_function.name);
+        let mut replacing = HeapAccessReplacingTranslator {
+            program: &self.data.program,
+            data: self.data,
+            services: self.context,
+            failed: false,
+            prior_verification_failures: prior,
+            ignore_access_predicates: false,
+            context: vec![],
+            check_inner_contexts: false,
+        };
+        let translated = replacing
+            .translate_postconditions(&translator, std::slice::from_ref(expression))
+            .map_err(|e| NativeError::Execution(format!("frame expression: {e:?}")))?;
+        let term = translated
+            .into_iter()
+            .next()
+            .ok_or(NativeError::Unsupported("empty frame translation"))?;
+        MaskHeapFunctionEncoding::adapt_axiom(
+            &factory,
+            &converter,
+            &term,
+            self.resources,
+            &self.data.state_args,
+        )
+        .map_err(|e| NativeError::Execution(format!("frame adaptation: {e:?}")))
+    }
+}
+
 impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
 where
     S::Error: std::fmt::Debug,
 {
+    fn mask_function_frame(
+        &mut self,
+        data: &crate::supporters::functions::function_data::FunctionData<FD>,
+    ) -> Result<
+        crate::supporters::functions::mask_heap_function_encoding::FrameInfo,
+        NativeError<S::Error>,
+    > {
+        let identity = data.identity();
+        if let Some(frame) = self.mask_frames.get(&identity) {
+            return Ok(frame);
+        }
+        if self
+            .mask_frames_in_progress
+            .iter()
+            .any(|key| Arc::ptr_eq(key, &identity))
+        {
+            return Err(NativeError::Unsupported(
+                "recursive mask frame construction",
+            ));
+        }
+        let resources = self.mask_resource_sequence(&data.program_function.pres, &data.program)?;
+        let factory = self.factory.clone();
+        self.mask_frames_in_progress.push(identity.clone());
+        let result = {
+            let mut translator = NativeFrameTranslator {
+                context: self,
+                data,
+                resources: &resources,
+            };
+            crate::supporters::functions::mask_heap_function_encoding::MaskHeapFunctionEncoding::compute_frame(
+                &factory, &mut translator, data, &resources,
+            )
+                .map_err(|e| NativeError::Execution(format!("mask function frame: {e:?}")))
+        };
+        self.mask_frames_in_progress.pop();
+        if let Ok(frame) = &result {
+            self.mask_frames.insert(identity, frame.clone());
+        }
+        result
+    }
+
+    fn mask_recursive_predicate_triggers(
+        &mut self,
+        data: &crate::supporters::functions::function_data::FunctionData<FD>,
+    ) -> Result<crate::state::package::OrderedMap<String, Term>, NativeError<S::Error>> {
+        use crate::supporters::{
+            expression_translator::ExpressionTranslator,
+            functions::{
+                heap_access_replacing_expression_translator::HeapAccessReplacingTranslator,
+                mask_heap_function_encoding::MaskHeapFunctionEncoding,
+            },
+        };
+        let identity = data.identity();
+        if let Some((_, triggers)) = self
+            .mask_predicate_triggers
+            .iter()
+            .find(|(key, _)| Arc::ptr_eq(key, &identity))
+        {
+            return Ok(triggers.clone());
+        }
+        let calls =
+            ferrum_silver::ast::utility::functions::recursive_calls_and_surrounding_unfoldings(
+                &data.program_function,
+            )
+            .map_err(|e| NativeError::Execution(format!("recursive function analysis: {e:?}")))?;
+        let resources = self.mask_resource_sequence(&data.program_function.pres, &data.program)?;
+        let factory = self.factory.clone();
+        let converter = self.base.symbol_converter.clone();
+        let translator = ExpressionTranslator::new(&factory, &converter, |sort: &Sort| {
+            Ok::<_, NativeError<S::Error>>(sort.to_string())
+        });
+        let ignored: Vec<_> = data
+            .formal_args
+            .iter()
+            .map(|(local, _)| local.expression().clone())
+            .collect();
+        let prior = self.failed_functions.contains(&data.program_function.name);
+        let mut replacing = HeapAccessReplacingTranslator {
+            program: &data.program,
+            data,
+            services: self,
+            failed: false,
+            prior_verification_failures: prior,
+            ignore_access_predicates: false,
+            context: vec![],
+            check_inner_contexts: false,
+        };
+        let mut triggers = crate::state::package::OrderedMap::default();
+        for (_, unfoldings) in calls {
+            let Some(unfolding) = unfoldings.first() else {
+                continue;
+            };
+            let ExpKind::Unfolding(access, _) = unfolding.kind() else {
+                return Err(NativeError::Unsupported("recursive unfolding shape"));
+            };
+            let ExpKind::PredicateAccessPredicate(access) = access.kind() else {
+                return Err(NativeError::Unsupported("recursive predicate access"));
+            };
+            let location = &access.location;
+            let mut allowed = true;
+            for arg in &location.args {
+                if !ferrum_silver::ast::utility::expressions::free_variables(arg, &ignored)
+                    .map_err(|e| {
+                        NativeError::Diagnostic(format!("recursive trigger free variables: {e:?}"))
+                    })?
+                    .is_empty()
+                {
+                    allowed = false;
+                    break;
+                }
+            }
+            if !allowed {
+                continue;
+            }
+            let predicate = data
+                .program
+                .find_predicate(&location.predicate_name)
+                .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+            let predicate_data =
+                crate::supporters::predicate_verification_unit::PredicateData::new(
+                    predicate.clone(),
+                    &converter,
+                    &factory,
+                    Sort::PredHeap,
+                )
+                .map_err(NativeError::Sort)?;
+            let heap = MaskHeapFunctionEncoding::predicate_trigger_state_arg(
+                predicate,
+                &resources,
+                &data.state_args,
+            )
+            .map_err(|e| NativeError::Execution(format!("recursive predicate heap: {e:?}")))?;
+            let args = replacing
+                .translate_preconditions(&translator, &location.args)
+                .map_err(|e| {
+                    NativeError::Execution(format!("recursive predicate arguments: {e:?}"))
+                })?;
+            triggers.insert(
+                predicate.name.clone(),
+                factory.app(
+                    predicate_data.trigger_function,
+                    std::iter::once(heap).chain(args).collect(),
+                ),
+            );
+        }
+        self.mask_predicate_triggers
+            .push((identity, triggers.clone()));
+        Ok(triggers)
+    }
+
     fn consolidate_optional(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -3803,7 +4898,7 @@ where
         first: &ListBackedHeap,
         second: &ListBackedHeap,
     ) -> Result<ListBackedHeap, Self::Error> {
-        Err(NativeError::Unsupported("merge_mask_heaps"))
+        self.merge_native_mask_heaps(state, first, second)
     }
     fn consolidation_debugging(&self) -> bool {
         false
@@ -5153,6 +6248,37 @@ where
                 ferrum_silver::ast::utility::nodes::Node::FieldAccess(field.clone()),
             ),
         );
+        if self.options.mask_heap_mode {
+            let factory = self.factory.clone();
+            let resource = ResourceKey::Field(Arc::new(field.field.clone()));
+            let timeout = self.base.decider.assert_timeout;
+            let result = crate::rules::mask_heap_supporter::write_field(
+                &factory,
+                &state.h,
+                &resource,
+                receiver.clone(),
+                snapshot.clone(),
+                |goal| {
+                    self.base
+                        .decider
+                        .assert_with(&goal, timeout, |v| v)
+                        .map_err(NativeError::Decider)
+                },
+            )
+            .map_err(|e| {
+                ExecutionError::Context(NativeError::Chunk(format!("mask field write: {e:?}")))
+            })?;
+            return match result {
+                crate::rules::mask_heap_supporter::MaskFieldWrite::Updated(heap) => {
+                    let mut state = state;
+                    state.h = Arc::new(heap);
+                    continuation(self, state)
+                }
+                crate::rules::mask_heap_supporter::MaskFieldWrite::Insufficient { .. } => self
+                    .failure_full(error, &state, false)
+                    .map_err(ExecutionError::Context),
+            };
+        }
         let mut callback_error = None;
         let result = crate::rules::heap_supporter::assign_field(
             self,
@@ -5320,6 +6446,18 @@ where
         >,
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
         let resource = ResourceKey::Field(Arc::new(field.clone()));
+        if self.options.mask_heap_mode {
+            let state = self
+                .produce_native_mask_single(
+                    state,
+                    &resource,
+                    std::slice::from_ref(receiver),
+                    snapshot,
+                    self.factory.full_perm(),
+                )
+                .map_err(ExecutionError::Context)?;
+            return continuation(self, state);
+        }
         let mut callback_error = None;
         let result = crate::rules::heap_supporter::produce_single(
             self,
@@ -5385,6 +6523,9 @@ where
         &mut self,
         state: &State<PD, FD, JoinMode>,
     ) -> Result<(), Self::Error> {
+        if self.options.mask_heap_mode {
+            return Ok(());
+        }
         use crate::state::heap::Heap;
         let used = state.reserve_heaps.first().ok_or_else(|| {
             NativeError::Execution("wand assertion is missing its used reserve heap".into())
@@ -5769,14 +6910,13 @@ where
                         codomain_vars: formals,
                         images_of_codomain: images,
                     };
-                    let heap = crate::rules::heap_supporter::havoc_resource(
-                        ctx, &state, &condition, &key, &helper,
-                    )
-                    .map_err(|e| {
-                        EvaluationError::Context(NativeError::Execution(format!(
-                            "havocall resource: {e:?}"
-                        )))
-                    })?;
+                    let heap = ctx
+                        .native_havoc_resource(&state, &condition, &key, &helper)
+                        .map_err(|e| {
+                            EvaluationError::Context(NativeError::Execution(format!(
+                                "havocall resource: {e:?}"
+                            )))
+                        })?;
                     state.h = Arc::new(heap);
                     match continuation(ctx, state) {
                         Ok(value) => Ok(value),
@@ -5855,18 +6995,18 @@ where
                                     })?,
                                 ),
                             };
-                            let heap = crate::rules::heap_supporter::havoc_resource(
-                                ctx,
-                                &state,
-                                &condition,
-                                &resource,
-                                &crate::rules::havoc_supporter::HavocHelperData::One(arguments),
-                            )
-                            .map_err(|e| {
-                                EvaluationError::Context(NativeError::Execution(format!(
-                                    "havoc resource: {e:?}"
-                                )))
-                            })?;
+                            let heap = ctx
+                                .native_havoc_resource(
+                                    &state,
+                                    &condition,
+                                    &resource,
+                                    &crate::rules::havoc_supporter::HavocHelperData::One(arguments),
+                                )
+                                .map_err(|e| {
+                                    EvaluationError::Context(NativeError::Execution(format!(
+                                        "havoc resource: {e:?}"
+                                    )))
+                                })?;
                             state.h = Arc::new(heap);
                             match continuation(ctx, state) {
                                 Ok(value) => Ok(value),
@@ -5917,14 +7057,28 @@ where
                     } else {
                         None
                     };
-                    let operations = Arc::new(state.reserve_heaps[0].with_chunk(chunk));
+                    let operations = if ctx.options.mask_heap_mode {
+                        Arc::new(
+                            crate::rules::mask_heap_supporter::add_wand_chunk::<
+                                NativeError<S::Error>,
+                            >(&factory, &state.reserve_heaps[0], &chunk)
+                            .map_err(|e| {
+                                PE::Service(NativeError::Chunk(format!("mask add wand: {e:?}")))
+                            })?,
+                        )
+                    } else {
+                        Arc::new(state.reserve_heaps[0].with_chunk(chunk))
+                    };
                     if original.exhale_ext {
                         if original.reserve_heaps.is_empty() {
                             return Err(PE::MissingReserveHeap);
                         }
                         let mut reserve = vec![original.reserve_heaps[0].clone(), operations];
                         reserve.extend_from_slice(&state.reserve_heaps[1..]);
-                        state.h = Arc::new(ListBackedHeap::new());
+                        state.h = Arc::new(
+                            ctx.native_empty_heap(&state.program, true)
+                                .map_err(PE::Service)?,
+                        );
                         state.exhale_ext = true;
                         state.reserve_heaps = reserve;
                     } else {
@@ -6481,7 +7635,7 @@ where
         &mut self,
         state: &State<PD, FD, JoinMode>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
-        Ok(Arc::new(ListBackedHeap::new()))
+        Ok(Arc::new(self.native_empty_heap(&state.program, true)?))
     }
     fn locally_loop(
         &mut self,
@@ -6736,7 +7890,7 @@ where
         &mut self,
         state: &State<PD, FD, JoinMode>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
-        Ok(Arc::new(ListBackedHeap::new()))
+        Ok(Arc::new(self.native_empty_heap(&state.program, true)?))
     }
     fn prepare_method_debug(
         &mut self,
@@ -6970,7 +8124,7 @@ where
         &mut self,
         state: &crate::state::state::State<PD, FD, JoinMode>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
-        Ok(Arc::new(ListBackedHeap::new()))
+        Ok(Arc::new(self.native_empty_heap(&state.program, true)?))
     }
     fn start_predicate_debug_heap(
         &mut self,
@@ -7167,6 +8321,7 @@ where
         self.active_program = Some(analysis.program.clone());
         self.predicate_contents = analysis.predicates.clone();
         self.function_handles = analysis.function_handles.clone();
+        self.function_owners = analysis.function_owners.clone();
         self.function_heights = analysis.function_heights.clone();
         self.function_fresh_variables = analysis.function_fresh_variables.clone();
         self.failed_functions = analysis.failed_functions.clone();
@@ -7203,6 +8358,7 @@ where
         self.active_program = Some(analysis.program.clone());
         self.predicate_contents = analysis.predicates.clone();
         self.function_handles = analysis.function_handles.clone();
+        self.function_owners = analysis.function_owners.clone();
         self.function_heights = analysis.function_heights.clone();
         self.function_fresh_variables = analysis.function_fresh_variables.clone();
         self.failed_functions = analysis.failed_functions.clone();
@@ -7491,6 +8647,33 @@ where
             None
         };
         let program = rewritten.as_ref().unwrap_or(program);
+        if self.options.mask_heap_mode {
+            // The pinned mask encoding declares ordinary functions without the
+            // snapshot argument used by domain-axiom translation. Scala reaches
+            // a prover signature error for this combination; reject it explicitly.
+            fn contains_function(node: &Node) -> Result<bool, &'static str> {
+                if matches!(node, Node::Exp(exp) if matches!(exp.kind(), ExpKind::FuncApp(..))) {
+                    return Ok(true);
+                }
+                for child in subnodes(node).map_err(|_| "domain axiom traversal")? {
+                    if contains_function(&child)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+            for domain in &program.domains {
+                for axiom in &domain.axioms {
+                    if contains_function(&Node::DomainAxiom(axiom.clone()))
+                        .map_err(NativeError::Unsupported)?
+                    {
+                        return Err(NativeError::Unsupported(
+                            "ordinary function in mask-mode domain axiom",
+                        ));
+                    }
+                }
+            }
+        }
         if self.options.print_translated_program {
             let rendered = ferrum_silver::ast::pretty::pretty_printer::pretty_node(&Node::Program(
                 program.clone(),
@@ -7676,7 +8859,11 @@ where
             program,
             &self.base.symbol_converter,
             &self.factory,
-            Sort::Snap,
+            if self.options.mask_heap_mode {
+                Sort::PredHeap
+            } else {
+                Sort::Snap
+            },
         )
         .map_err(NativeError::Sort)?;
         self.predicate_contents = predicates.clone();
@@ -7694,6 +8881,27 @@ where
             .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
         let has_quantified = crate::verifier::native_preamble::uses_quantified_resource(program)
             .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        let mut mask_functions = crate::supporters::qps::mask_heap_functions_contributor::MaskHeapFunctionsContributor::default();
+        if self.options.mask_heap_mode {
+            mask_functions
+                .analyze(
+                    program,
+                    true,
+                    &self.base.symbol_converter,
+                    &mut self.base.term_converter,
+                    &reader,
+                    |sort| Ok::<_, String>(sort.to_string()),
+                    |predicate| {
+                        ferrum_silver::ast::pretty::pretty_printer::pretty_node(
+                            &ferrum_silver::ast::utility::nodes::Node::Member(
+                                ferrum_silver::ast::program::Member::Predicate(predicate.clone()),
+                            ),
+                        )
+                        .map_err(|e| format!("{e:?}"))
+                    },
+                )
+                .map_err(|e| NativeError::Preamble(format!("mask heap functions: {e:?}")))?;
+        }
         let mut field_maps = crate::supporters::qps::field_value_functions_contributor::FieldValueFunctionsContributor::default();
         let mut predicate_maps = crate::supporters::qps::predicate_and_wand_snap_functions_contributor::PredicateAndWandSnapFunctionsContributor::default();
         if has_quantified {
@@ -7728,10 +8936,17 @@ where
                 .declare_sorts(&self.factory, &mut self.base.decider.prover)
                 .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
         }
+        if self.options.mask_heap_mode {
+            mask_functions
+                .declare_sorts(&self.factory, &mut self.base.decider.prover)
+                .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+        }
         let mut wrapper_sorts = vec![Sort::Int, Sort::Bool, Sort::Ref, Sort::Perm];
         wrapper_sorts.extend(contributed_sorts);
         wrapper_sorts.extend(wand_functions.sorts.iter().cloned());
         wrapper_sorts.extend(field_maps.sorts.iter().cloned());
+        wrapper_sorts.extend(mask_functions.heap_sorts.iter().cloned());
+        wrapper_sorts.extend(mask_functions.predicate_sorts.iter().cloned());
         wrapper_sorts.extend(predicate_maps.sorts.iter().cloned());
         for sort in wrapper_sorts {
             for (from, to) in [(sort.clone(), Sort::Snap), (Sort::Snap, sort.clone())] {
@@ -7762,7 +8977,11 @@ where
                 .emit_all(&commands)
                 .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
         }
-        for blocks in [&field_maps.function_blocks, &predicate_maps.function_blocks] {
+        for blocks in [
+            &field_maps.function_blocks,
+            &mask_functions.function_blocks,
+            &predicate_maps.function_blocks,
+        ] {
             crate::supporters::qps::field_value_functions_contributor::FieldValueFunctionsContributor::emit_blocks(blocks, &mut self.base.decider.prover)
                 .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
         }
@@ -7774,12 +8993,35 @@ where
         .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
         let mut functions = crate::supporters::functions::function_verification_unit::FunctionVerificationUnit::default();
         let factory = self.factory.clone();
+        let mut mask_identifiers = self.base.identifiers.clone();
+        let mask_resources = &mut self.mask_resources;
+        let converter = self.base.symbol_converter.clone();
+        let mask_mode = self.options.mask_heap_mode;
         functions.analyze(&factory, &self.base.symbol_converter, &mut self.base.identifiers, program, self.options.alternative_function_verification_order, false,
-            |_, _| Ok::<_, std::convert::Infallible>((crate::supporters::functions::function_encoding::DefaultFunctionEncoding::state_args(&factory), None)))
+            |function, program| {
+                if mask_mode {
+                    let resources = mask_resources.resources(&function.pres, program)
+                        .map_err(|e| format!("mask function resources: {e:?}"))?;
+                    let args = crate::supporters::functions::mask_heap_function_encoding::MaskHeapFunctionEncoding::state_args(
+                        &factory, &converter, &mut mask_identifiers, &resources,
+                    ).map_err(|e| format!("mask function state arguments: {e:?}"))?;
+                    Ok::<_, String>((args, Some(resources)))
+                } else {
+                    Ok((crate::supporters::functions::function_encoding::DefaultFunctionEncoding::state_args(&factory), None))
+                }
+            })
             .map_err(|e| NativeError::Execution(format!("function analysis: {e:?}")))?;
         if !program.functions.is_empty() {
             functions
-                .declare_analysis_symbols(&factory, &mut self.base.decider.prover, |_| vec![])
+                .declare_analysis_symbols(&factory, &mut self.base.decider.prover, |data| {
+                    if mask_mode {
+                        crate::supporters::functions::mask_heap_function_encoding::MaskHeapFunctionEncoding::auxiliary_functions(
+                            &factory, &data.function, data.state_args.len(),
+                        )
+                    } else {
+                        vec![]
+                    }
+                })
                 .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
         }
         // Domain axioms can mention ordinary function and precondition symbols, so
@@ -7802,7 +9044,11 @@ where
                 .emit_domain_axioms(&mut self.base.decider.prover)
                 .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
         }
-        for blocks in [&field_maps.axiom_blocks, &predicate_maps.axiom_blocks] {
+        for blocks in [
+            &field_maps.axiom_blocks,
+            &mask_functions.axiom_blocks,
+            &predicate_maps.axiom_blocks,
+        ] {
             crate::supporters::qps::field_value_functions_contributor::FieldValueFunctionsContributor::emit_blocks(blocks, &mut self.base.decider.prover)
                 .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
         }
@@ -7820,6 +9066,7 @@ where
             );
         }
         self.function_handles = function_handles.clone();
+        self.function_owners = functions.data.clone();
         self.function_units = functions.units();
         self.function_fresh_variables.clear();
         self.failed_functions.clear();
@@ -8067,6 +9314,12 @@ where
             )))
             .map_err(|e| PE::Service(NativeError::Diagnostic(format!("{e:?}"))))?;
         let resource = ResourceKey::Predicate(Arc::new(predicate.clone()));
+        if self.options.mask_heap_mode {
+            let state = self
+                .produce_native_mask_single(state, &resource, args, snapshot, permission)
+                .map_err(PE::Service)?;
+            return continuation(self, state);
+        }
         let mut callback_error = None;
         let result = crate::rules::heap_supporter::produce_single(
             self,
@@ -8133,6 +9386,50 @@ where
             .map_err(|e| PE::Service(NativeError::Diagnostic(format!("{e:?}"))))?;
         let heap = state.h.clone();
         let resource = ResourceKey::Predicate(Arc::new(predicate));
+        if self.options.mask_heap_mode {
+            use crate::rules::mask_heap_supporter::MaskConsumption;
+            if state.exhale_ext {
+                let mut callback_error = None;
+                let result = self.consume_mask_transfer(
+                    state,
+                    &resource,
+                    args,
+                    permission.clone(),
+                    true,
+                    full,
+                    &mut |ctx, state, heap, snapshot| match continuation(ctx, state, heap, snapshot)
+                    {
+                        Ok(v) => Ok(v),
+                        Err(e) => {
+                            callback_error = Some(e);
+                            Err(NativeError::ContinuationAbort)
+                        }
+                    },
+                );
+                if let Some(e) = callback_error {
+                    return Err(e);
+                }
+                return result.map_err(PE::Service);
+            }
+            return match self
+                .consume_native_mask_single(
+                    &state,
+                    &heap,
+                    &resource,
+                    args,
+                    permission.clone(),
+                    true,
+                )
+                .map_err(PE::Service)?
+            {
+                MaskConsumption::Complete { heap, snapshot } => {
+                    continuation(self, state, Arc::new(heap), snapshot)
+                }
+                MaskConsumption::Insufficient { .. } => {
+                    self.failure_full(full, &state, false).map_err(PE::Service)
+                }
+            };
+        }
         let mut callback_error = None;
         let result = crate::rules::heap_supporter::consume_single(
             self,
@@ -8165,6 +9462,13 @@ where
         args: &[Term],
         snapshot: &Term,
     ) -> Result<Term, Self::Error> {
+        if self.options.mask_heap_mode {
+            let resource = ResourceKey::Predicate(Arc::new(predicate.clone()));
+            return crate::rules::mask_heap_supporter::folded_predicate_snapshot::<
+                NativeError<S::Error>,
+            >(&self.factory, &resource, args, snapshot.clone())
+            .map_err(|e| NativeError::Snapshot(format!("mask folded predicate: {e:?}")));
+        }
         let sort = state
             .predicate_snap_map
             .get(&predicate.name)
@@ -8242,10 +9546,37 @@ where
     > {
         use crate::rules::predicate_supporter::PredicateExecutionError as PE;
         let mut callback_error = None;
+        let projection = if self.options.mask_heap_mode {
+            let mut eval_state = state.clone();
+            eval_state.h = Arc::new(pre_heap.clone());
+            let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &eval_state)
+                .map_err(|e| {
+                    PE::Service(NativeError::Snapshot(format!(
+                        "mask predicate evaluation heap: {e:?}"
+                    )))
+                })?;
+            let resource = ResourceKey::Predicate(Arc::new(predicate.clone()));
+            let factory = self.factory.clone();
+            crate::rules::mask_heap_supporter::unfolded_predicate_snapshot(
+                &factory,
+                &resource,
+                args,
+                snapshot.clone(),
+                &heap,
+                |term| self.mask_term_alias(&state, term),
+            )
+            .map_err(|e| {
+                PE::Service(NativeError::Snapshot(format!(
+                    "mask unfolded predicate: {e:?}"
+                )))
+            })?
+        } else {
+            snapshot.clone()
+        };
         let result = crate::rules::producer::produce_all(
             self,
             state,
-            NativeSnapshot::Projection(snapshot.clone()),
+            NativeSnapshot::Projection(projection),
             std::slice::from_ref(body),
             &|_| error.clone(),
             &mut |ctx, state| match continuation(ctx, state) {
@@ -8287,10 +9618,24 @@ where
             predicate.clone(),
             &self.base.symbol_converter,
             &self.factory,
-            Sort::Snap,
+            if self.options.mask_heap_mode {
+                Sort::PredHeap
+            } else {
+                Sort::Snap
+            },
         )
         .map_err(NativeError::Sort)?;
-        let mut terms = vec![self.factory.sort_wrapper(snapshot.clone(), Sort::Snap)];
+        let trigger_snapshot = if self.options.mask_heap_mode {
+            let resource = ResourceKey::Predicate(Arc::new(predicate.clone()));
+            crate::rules::mask_heap_supporter::find_chunk::<NativeError<S::Error>>(heap, &resource)
+                .map_err(|e| NativeError::Chunk(format!("mask predicate trigger: {e:?}")))?
+                .ok_or(NativeError::Unsupported("missing predicate mask chunk"))?
+                .heap
+                .clone()
+        } else {
+            self.factory.sort_wrapper(snapshot.clone(), Sort::Snap)
+        };
+        let mut terms = vec![trigger_snapshot];
         terms.extend_from_slice(args);
         self.assume_term(&self.factory.app(data.trigger_function, terms))
     }
@@ -8424,10 +9769,36 @@ where
                             &mut |ctx, state| finish(ctx, state).map_err(|e| crate::rules::predicate_supporter::PredicateExecutionError::Service(NativeError::Production(format!("{e:?}")))),
                         ).map_err(|e| ProductionError::Context(NativeError::Production(format!("{e:?}"))))
                     } else {
+                        let body_snapshot = if ctx.options.mask_heap_mode {
+                            let eval_heap =
+                                crate::rules::magic_wand_supporter::evaluation_heap(ctx, &bound)
+                                    .map_err(|e| {
+                                        EvaluationError::Context(NativeError::Snapshot(format!(
+                                            "mask unfolding evaluation heap: {e:?}"
+                                        )))
+                                    })?;
+                            let resource = ResourceKey::Predicate(Arc::new(predicate.clone()));
+                            let factory = ctx.factory.clone();
+                            crate::rules::mask_heap_supporter::unfolded_predicate_snapshot(
+                                &factory,
+                                &resource,
+                                args,
+                                snapshot,
+                                &eval_heap,
+                                |term| ctx.mask_term_alias(&bound, term),
+                            )
+                            .map_err(|e| {
+                                EvaluationError::Context(NativeError::Snapshot(format!(
+                                    "mask unfolding snapshot: {e:?}"
+                                )))
+                            })?
+                        } else {
+                            snapshot
+                        };
                         crate::rules::producer::produce_all(
                             ctx,
                             bound,
-                            NativeSnapshot::Projection(snapshot),
+                            NativeSnapshot::Projection(body_snapshot),
                             std::slice::from_ref(predicate_body),
                             &|_| error.clone(),
                             &mut finish,
@@ -8979,6 +10350,58 @@ where
         state: &State<PD, FD, JoinMode>,
         terms: Vec<Term>,
     ) -> Result<Vec<Term>, Self::Error> {
+        if self.options.mask_heap_mode {
+            let factory = self.factory.clone();
+            return crate::supporters::functions::mask_heap_function_encoding::adapt_trigger_terms(
+                &factory,
+                &terms,
+                |function, args, heaps| {
+                    let name = match &function.data().id {
+                        crate::state::identifiers::Identifier::Suffixed { prefix, .. } => {
+                            prefix.name()
+                        }
+                        identifier => identifier.name(),
+                    };
+                    if !state
+                        .program
+                        .functions
+                        .iter()
+                        .any(|source| source.name == name)
+                        || state.function_data.get(&name).is_none()
+                    {
+                        return Ok::<_, NativeError<S::Error>>(None);
+                    }
+                    let Some((_, owner)) =
+                        self.function_owners.iter().find(|(key, _)| key == &name)
+                    else {
+                        return Err(NativeError::Unsupported("missing mask function data owner"));
+                    };
+                    let owner = owner.clone();
+                    let data = if let Some(active) = self
+                        .active_function_snapshot
+                        .as_ref()
+                        .filter(|active| active.program_function.name == name)
+                    {
+                        active.phase_snapshot()
+                    } else {
+                        owner
+                            .lock()
+                            .map_err(|_| {
+                                NativeError::Execution("function data lock poisoned".into())
+                            })?
+                            .phase_snapshot()
+                    };
+                    let info = self.mask_function_frame(&data)?;
+                    let frame = info
+                        .instantiated_frame(&factory, &data, args, heaps)
+                        .map_err(|e| {
+                            NativeError::Execution(format!("mask trigger frame: {e:?}"))
+                        })?;
+                    Ok(Some(frame))
+                },
+            )
+            .map_err(|e| NativeError::Execution(format!("mask trigger adaptation: {e:?}")));
+        }
         Ok(terms)
     }
     fn warn_trigger(&mut self, expression: &Exp) -> Result<(), Self::Error> {
@@ -8987,6 +10410,12 @@ where
         Ok(())
     }
     fn handles_resource_trigger(&self, state: &State<PD, FD, JoinMode>, expression: &Exp) -> bool {
+        if self.options.mask_heap_mode {
+            return matches!(
+                expression.kind(),
+                ExpKind::FieldAccess(..) | ExpKind::PredicateAccess(..) | ExpKind::MagicWand(..)
+            );
+        }
         match expression.kind() {
             ExpKind::FieldAccess(access) => state
                 .heap_dependent_triggers
@@ -9054,6 +10483,40 @@ where
             ),
             _ => return Err(NativeError::Unsupported("heap trigger resource shape")),
         };
+        if self.options.mask_heap_mode {
+            let chunk = crate::rules::mask_heap_supporter::find_chunk::<NativeError<S::Error>>(
+                &state.h, &resource,
+            )
+            .map_err(|e| NativeError::Chunk(format!("mask trigger lookup: {e:?}")))?;
+            if chunk.is_none() && matches!(resource, ResourceKey::Wand(_)) {
+                return Ok((state, vec![], vec![vec![]], vec![]));
+            }
+            let mut trigger_state = state.clone();
+            trigger_state.trigger_exp = true;
+            let mut evaluated = None;
+            let result = crate::rules::evaluator::evaluate_all(
+                self,
+                trigger_state,
+                &args,
+                &|_| error.clone(),
+                &mut |_, _, terms, _| {
+                    evaluated = Some(terms);
+                    Ok(VerificationResult::success())
+                },
+            )
+            .map_err(|e| NativeError::Evaluation(format!("mask trigger arguments: {e:?}")))?;
+            // Source ignores the verification result here: absent a reached callback,
+            // the single empty trigger variant remains in place.
+            let _ = result;
+            let Some(terms) = evaluated else {
+                return Ok((state, vec![], vec![vec![]], vec![]));
+            };
+            let variants = crate::rules::mask_heap_supporter::resource_trigger_variants::<
+                NativeError<S::Error>,
+            >(&self.factory, &state.h, &resource, &terms)
+            .map_err(|e| NativeError::Chunk(format!("mask trigger variants: {e:?}")))?;
+            return Ok((state, vec![], variants, vec![]));
+        }
         let factory = self.factory.clone();
         let source = native_quantified_source(&resource);
         let formals = state
@@ -9811,7 +11274,7 @@ where
         &mut self,
         state: &State<PD, FD, JoinMode>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
-        Ok(Arc::new(ListBackedHeap::new()))
+        Ok(Arc::new(self.native_empty_heap(&state.program, false)?))
     }
     fn function_debug_begin(
         &mut self,
@@ -10122,7 +11585,7 @@ where
     fn begin_function(
         &mut self,
         function: &ferrum_silver::ast::program::Function,
-        _: &crate::supporters::functions::function_data::FunctionData<FD>,
+        data: &crate::supporters::functions::function_data::FunctionData<FD>,
     ) -> Result<(), Self::Error> {
         let options = crate::supporters::annotation_supporter::prover_config_args(
             &function.name,
@@ -10136,9 +11599,12 @@ where
         self.base
             .decider
             .set_options(options)
-            .map_err(NativeError::Decider)
+            .map_err(NativeError::Decider)?;
+        self.active_function_snapshot = Some(data.phase_snapshot());
+        Ok(())
     }
     fn end_function(&mut self) -> Result<(), Self::Error> {
+        self.active_function_snapshot = None;
         self.base
             .decider
             .reset_options()
@@ -10163,31 +11629,122 @@ where
     }
     fn well_definedness_declarations(
         &mut self,
-        _: &crate::supporters::functions::function_data::FunctionData<FD>,
+        data: &crate::supporters::functions::function_data::FunctionData<FD>,
     ) -> Result<Vec<crate::state::terms::Declaration>, Self::Error> {
-        Ok(vec![])
+        self.active_function_snapshot = Some(data.phase_snapshot());
+        if self.options.mask_heap_mode {
+            Ok(self.mask_function_frame(data)?.declarations(&self.factory))
+        } else {
+            Ok(vec![])
+        }
     }
-    fn build_phase_one_axioms(
+    fn build_phase_one_auxiliary_axioms(
         &mut self,
         data: &crate::supporters::functions::function_data::FunctionData<FD>,
-    ) -> Result<
-        crate::supporters::functions::function_verification_unit::FunctionPhaseOneAxioms,
-        Self::Error,
-    > {
+    ) -> Result<Vec<Term>, Self::Error> {
         let factory = self.factory.clone();
+        let resources = if self.options.mask_heap_mode {
+            Some(self.mask_resource_sequence(&data.program_function.pres, &data.program)?)
+        } else {
+            None
+        };
+        let auxiliary_axioms = if let Some(resources) = &resources {
+            use crate::supporters::functions::mask_heap_function_encoding::MaskHeapFunctionEncoding;
+            let has_predicate_triggers = self
+                .mask_recursive_predicate_triggers(data)?
+                .iter()
+                .next()
+                .is_some();
+            let info = self.mask_function_frame(data)?;
+            let mut axioms = MaskHeapFunctionEncoding::frame_axioms(
+                &factory,
+                data,
+                info.frame.clone(),
+                resources.len(),
+                has_predicate_triggers,
+            )
+            .map_err(|e| NativeError::Execution(format!("mask frame axioms: {e:?}")))?;
+            let mut identifiers = self.base.identifiers.clone();
+            let mut translator = NativeFrameTranslator {
+                context: self,
+                data,
+                resources,
+            };
+            axioms.extend(
+                MaskHeapFunctionEncoding::quantified_frame_axioms(
+                    &factory,
+                    &mut translator,
+                    &mut identifiers,
+                    data,
+                    resources,
+                    &info,
+                )
+                .map_err(|e| {
+                    NativeError::Execution(format!("mask quantified frame axioms: {e:?}"))
+                })?,
+            );
+            axioms
+        } else {
+            vec![]
+        };
+        Ok(auxiliary_axioms)
+    }
+    fn build_phase_one_post_axiom(
+        &mut self,
+        data: &crate::supporters::functions::function_data::FunctionData<FD>,
+    ) -> Result<(Option<Term>, Vec<Term>), Self::Error> {
+        let factory = self.factory.clone();
+        let resources = if self.options.mask_heap_mode {
+            Some(self.mask_resource_sequence(&data.program_function.pres, &data.program)?)
+        } else {
+            None
+        };
         let (posts, _) = self.translate_function_terms(data, false)?;
+        let converter = self.base.symbol_converter.clone();
+        let adapt = |term: Term| -> Result<Term, Self::Error> {
+            if let Some(resources) = &resources {
+                crate::supporters::functions::mask_heap_function_encoding::MaskHeapFunctionEncoding::adapt_axiom(
+                    &factory, &converter, &term, resources, &data.state_args,
+                ).map_err(|e| NativeError::Execution(format!("mask function axiom: {e:?}")))
+            } else {
+                Ok(term)
+            }
+        };
         let nested: Vec<_> = data
             .nested_definitional_axioms()
             .map_err(|e| NativeError::Execution(format!("function nested axioms: {e:?}")))?
             .into_iter()
             .collect();
         let post_axiom = data
-            .post_axiom(&factory, &posts, &nested, |term| Ok::<_, Self::Error>(term))
+            .post_axiom(&factory, &posts, &nested, &adapt)
             .map_err(|e| NativeError::Execution(format!("function post axiom: {e:?}")))?;
+        Ok((post_axiom, posts))
+    }
+    fn build_phase_one_post_precondition_axioms(
+        &mut self,
+        data: &crate::supporters::functions::function_data::FunctionData<FD>,
+        posts: &[Term],
+    ) -> Result<Vec<Term>, Self::Error> {
+        let factory = self.factory.clone();
+        let resources = if self.options.mask_heap_mode {
+            Some(self.mask_resource_sequence(&data.program_function.pres, &data.program)?)
+        } else {
+            None
+        };
+        let converter = self.base.symbol_converter.clone();
+        let adapt = |term: Term| -> Result<Term, Self::Error> {
+            if let Some(resources) = &resources {
+                crate::supporters::functions::mask_heap_function_encoding::MaskHeapFunctionEncoding::adapt_axiom(
+                    &factory, &converter, &term, resources, &data.state_args,
+                ).map_err(|e| NativeError::Execution(format!("mask function axiom: {e:?}")))
+            } else {
+                Ok(term)
+            }
+        };
         let post_precondition_axioms = data
             .post_precondition_axioms(
                 &factory,
-                &posts,
+                posts,
                 |term| {
                     crate::state::function_precondition_transformer::transform(
                         &factory,
@@ -10206,17 +11763,10 @@ where
                         ))
                     })
                 },
-                |term| Ok(term),
+                &adapt,
             )
             .map_err(|e| NativeError::Execution(format!("function post propagation: {e:?}")))?;
-        Ok(
-            crate::supporters::functions::function_verification_unit::FunctionPhaseOneAxioms {
-                auxiliary_declarations: vec![],
-                auxiliary_axioms: vec![],
-                post_axiom,
-                post_precondition_axioms,
-            },
-        )
+        Ok(post_precondition_axioms)
     }
     fn declare_function_axiom_symbol(
         &mut self,
@@ -10252,24 +11802,34 @@ where
         >,
         Self::Error,
     > {
+        self.active_function_snapshot = Some(data.phase_snapshot());
         crate::supporters::functions::function_verification_unit::check_function_body(
             self, data, paths,
         )
         .map_err(|e| NativeError::Execution(format!("function body phase: {e:?}")))
     }
-    fn build_phase_two_axioms(
+    fn build_phase_two_definition(
         &mut self,
         data: &crate::supporters::functions::function_data::FunctionData<FD>,
-    ) -> Result<(Option<Term>, Vec<Term>), Self::Error> {
-        let calls =
+    ) -> Result<(Option<Term>, Option<Term>), Self::Error> {
+        self.active_function_snapshot = Some(data.phase_snapshot());
+        let calls = if self.options.mask_heap_mode {
+            Vec::new()
+        } else {
             ferrum_silver::ast::utility::functions::recursive_calls_and_surrounding_unfoldings(
                 &data.program_function,
             )
-            .map_err(|e| NativeError::Execution(format!("recursive function analysis: {e:?}")))?;
+            .map_err(|e| NativeError::Execution(format!("recursive function analysis: {e:?}")))?
+        };
         let factory = self.factory.clone();
         let (_, body) = self.translate_function_terms(data, true)?;
+        let mask_resources = if self.options.mask_heap_mode {
+            Some(self.mask_resource_sequence(&data.program_function.pres, &data.program)?)
+        } else {
+            None
+        };
         let mut predicate_triggers = crate::state::package::OrderedMap::<String, Term>::default();
-        if body.is_some() {
+        if body.is_some() && !self.options.mask_heap_mode {
             use crate::supporters::{
                 expression_translator::ExpressionTranslator,
                 functions::heap_access_replacing_expression_translator::HeapAccessReplacingTranslator,
@@ -10331,18 +11891,28 @@ where
                         predicate.clone(),
                         &converter,
                         &factory,
-                        Sort::Snap,
+                        if mask_resources.is_some() {
+                            Sort::PredHeap
+                        } else {
+                            Sort::Snap
+                        },
                     )
                     .map_err(NativeError::Sort)?;
                 let location_exp = Exp::new(
                     ExpKind::PredicateAccess(location.clone()),
                     location.meta.clone(),
                 );
-                let snapshot = replacing
-                    .resolve_location(&translator, &location_exp, Sort::Snap)
-                    .map_err(|e| {
-                        NativeError::Execution(format!("recursive predicate snapshot: {e:?}"))
-                    })?;
+                let snapshot = if let Some(resources) = &mask_resources {
+                    crate::supporters::functions::mask_heap_function_encoding::MaskHeapFunctionEncoding::predicate_trigger_state_arg(
+                        predicate, resources, &data.state_args,
+                    ).map_err(|e| NativeError::Execution(format!("recursive predicate heap: {e:?}")))?
+                } else {
+                    replacing
+                        .resolve_location(&translator, &location_exp, Sort::Snap)
+                        .map_err(|e| {
+                            NativeError::Execution(format!("recursive predicate snapshot: {e:?}"))
+                        })?
+                };
                 let args = replacing
                     .translate_preconditions(&translator, &location.args)
                     .map_err(|e| {
@@ -10355,27 +11925,72 @@ where
                 );
             }
         }
+        if body.is_some() && self.options.mask_heap_mode {
+            predicate_triggers = self.mask_recursive_predicate_triggers(data)?;
+        }
         let nested: Vec<_> = data
             .nested_definitional_axioms()
             .map_err(|e| NativeError::Execution(format!("function nested axioms: {e:?}")))?
             .into_iter()
             .collect();
+        let resources = mask_resources;
+        let converter = self.base.symbol_converter.clone();
+        let adapt = |term: Term| -> Result<Term, Self::Error> {
+            if let Some(resources) = &resources {
+                crate::supporters::functions::mask_heap_function_encoding::MaskHeapFunctionEncoding::adapt_axiom(
+                    &factory, &converter, &term, resources, &data.state_args,
+                ).map_err(|e| NativeError::Execution(format!("mask function axiom: {e:?}")))
+            } else {
+                Ok(term)
+            }
+        };
+        let triggers = predicate_triggers
+            .iter()
+            .map(|(_, value)| value.clone())
+            .collect::<Vec<_>>();
         let definition = data
-            .definitional_axiom(
-                &factory,
-                body.clone(),
-                &nested,
-                &predicate_triggers
-                    .iter()
-                    .map(|(_, value)| value.clone())
-                    .collect::<Vec<_>>(),
-                |term| Ok::<_, Self::Error>(term),
+            .definitional_axiom_with_encoding(
+                &factory, body.clone(), &nested, &triggers,
+                |body, triggers| {
+                    if self.options.mask_heap_mode {
+                        crate::supporters::functions::mask_heap_function_encoding::MaskHeapFunctionEncoding::definitional_axiom(
+                            &factory, data, body, triggers,
+                        ).map_err(|e| crate::supporters::functions::function_data::FunctionAxiomError::Adapt(
+                            NativeError::Execution(format!("mask function definition: {e:?}"))))
+                    } else {
+                        crate::supporters::functions::function_encoding::DefaultFunctionEncoding::definitional_axiom(
+                            &factory, data.arguments.clone(), body, data.function_application.clone(), data.trigger_application.clone(), triggers,
+                        ).map_err(crate::supporters::functions::function_data::FunctionAxiomError::Transform)
+                    }
+                }, &adapt,
             )
             .map_err(|e| NativeError::Execution(format!("function definition: {e:?}")))?;
+        Ok((definition, body))
+    }
+    fn build_phase_two_precondition_axioms(
+        &mut self,
+        data: &crate::supporters::functions::function_data::FunctionData<FD>,
+        body: Option<&Term>,
+    ) -> Result<Vec<Term>, Self::Error> {
+        let factory = self.factory.clone();
+        let resources = if self.options.mask_heap_mode {
+            Some(self.mask_resource_sequence(&data.program_function.pres, &data.program)?)
+        } else {
+            None
+        };
+        let converter = self.base.symbol_converter.clone();
+        let adapt = |term: Term| -> Result<Term, Self::Error> {
+            if let Some(resources) = &resources {
+                crate::supporters::functions::mask_heap_function_encoding::MaskHeapFunctionEncoding::adapt_axiom(&factory, &converter, &term, resources, &data.state_args)
+                    .map_err(|e| NativeError::Execution(format!("mask function axiom: {e:?}")))
+            } else {
+                Ok(term)
+            }
+        };
         let propagation = data
             .body_precondition_axioms(
                 &factory,
-                body.as_ref(),
+                body,
                 |term| {
                     crate::state::function_precondition_transformer::transform(
                         &factory,
@@ -10394,10 +12009,10 @@ where
                         ))
                     })
                 },
-                |term| Ok(term),
+                &adapt,
             )
             .map_err(|e| NativeError::Execution(format!("function body propagation: {e:?}")))?;
-        Ok((definition, propagation))
+        Ok(propagation)
     }
     fn record_function_failure(
         &mut self,
@@ -12367,18 +13982,23 @@ where
     type Error = NativeError<S::Error>;
     fn merge_evaluation_reserves(
         &mut self,
-        _: &State<PD, FD, JoinMode>,
+        state: &State<PD, FD, JoinMode>,
         used: &ListBackedHeap,
         operations: &ListBackedHeap,
         lhs: &ListBackedHeap,
     ) -> Result<ListBackedHeap, Self::Error> {
-        Ok(used.with_heap(operations).with_heap(lhs))
+        if self.options.mask_heap_mode {
+            let merged = self.merge_native_mask_heaps(state, used, operations)?;
+            self.merge_native_mask_heaps(state, &merged, lhs)
+        } else {
+            Ok(used.with_heap(operations).with_heap(lhs))
+        }
     }
     fn empty_wand_heap(
         &mut self,
-        _: &State<PD, FD, JoinMode>,
+        state: &State<PD, FD, JoinMode>,
     ) -> Result<ListBackedHeap, Self::Error> {
-        Ok(ListBackedHeap::new())
+        self.native_empty_heap(&state.program, true)
     }
     fn merge_wand_operations(
         &mut self,
@@ -12454,6 +14074,18 @@ where
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
         crate::rules::magic_wand_supporter::evaluation_heap(self, state)
             .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))
+    }
+    fn applied_wand_snapshot(
+        &mut self,
+        factory: &TermFactory,
+        wand: &Term,
+        lhs: Term,
+    ) -> Result<Term, Self::Error> {
+        Ok(if self.options.mask_heap_mode {
+            crate::rules::mask_heap_supporter::applied_wand_snapshot(factory, wand, lhs)
+        } else {
+            crate::rules::heap_supporter::applied_wand_snapshot(factory, wand, lhs)
+        })
     }
     fn assume_wand_token(&mut self, token: &Term) -> Result<(), Self::Error> {
         self.assume_term(token)
@@ -12598,6 +14230,14 @@ where
         heap: &ListBackedHeap,
         chunks: &[Chunk],
     ) -> Result<(FunctionRecorder<FD>, ListBackedHeap), Self::Error> {
+        if self.options.mask_heap_mode {
+            let mut merged = heap.clone();
+            for chunk in chunks {
+                let singleton = ListBackedHeap::from_chunks(std::iter::once(chunk.clone()));
+                merged = self.merge_native_mask_heaps(state, &merged, &singleton)?;
+            }
+            return Ok((state.function_recorder.clone(), merged));
+        }
         let factory = self.factory.clone();
         let choice = self.consolidation_choice(state)?;
         crate::rules::state_consolidator::merge_heaps(
@@ -12629,9 +14269,9 @@ where
     }
     fn empty_package_heap(
         &mut self,
-        _: &State<PD, FD, JoinMode>,
+        state: &State<PD, FD, JoinMode>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
-        Ok(Arc::new(ListBackedHeap::new()))
+        Ok(Arc::new(self.native_empty_heap(&state.program, true)?))
     }
     fn assume_package_token_axiom(&mut self, axiom: &Term) -> Result<(), Self::Error> {
         self.assume_term(axiom)
@@ -12666,6 +14306,26 @@ where
         let resource = crate::rules::quantified_chunk_support::SnapshotResource::Wand(wand.clone());
         let id = crate::state::chunks::MagicWandIdentifier::new(wand.clone(), &state.program)
             .map_err(|e| NativeError::Chunk(format!("wand identifier: {e:?}")))?;
+        if self.options.mask_heap_mode {
+            let crate::state::terms::TermKind::MagicWandSnapshot(function) = snapshot.kind() else {
+                return Err(NativeError::Chunk("expected magic wand snapshot".into()));
+            };
+            let at = self.factory.to_snap_tree(args.iter().cloned());
+            let mask = self.factory.mask_add(
+                self.factory.pred_zero_mask(),
+                at.clone(),
+                self.factory.full_perm(),
+            );
+            let heap = self
+                .factory
+                .heap_singleton(at, function.clone(), Sort::WandHeap);
+            return Ok(Chunk::MaskHeap(crate::state::chunks::BasicMaskHeapChunk {
+                resource_id: crate::resources::resources::ResourceId::MagicWand,
+                resource: ResourceKey::Wand(id),
+                mask,
+                heap,
+            }));
+        }
         if state
             .is_quantified_resource(&resource)
             .map_err(|e| NativeError::Chunk(format!("wand resource: {e:?}")))?
@@ -13639,9 +15299,9 @@ where
     type Error = NativeError<S::Error>;
     fn empty_cfg_heap(
         &mut self,
-        _: &State<PD, FD, JoinMode>,
+        state: &State<PD, FD, JoinMode>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
-        Ok(Arc::new(ListBackedHeap::new()))
+        Ok(Arc::new(self.native_empty_heap(&state.program, true)?))
     }
     fn output_cfg(&mut self, _: &SilverCfg) -> Result<(), Self::Error> {
         Ok(())
@@ -13893,6 +15553,102 @@ where
     }
 }
 
+struct NativeMaskMerge<'a, S: Prover, PD, FD> {
+    context: &'a mut NativeVerifierContext<S, PD, FD>,
+    state: &'a State<PD, FD, JoinMode>,
+}
+impl<S: Prover, PD, FD> crate::rules::mask_heap_supporter::MaskHeapMergeService
+    for NativeMaskMerge<'_, S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn alias(&mut self, term: Term) -> Result<Term, Self::Error> {
+        self.context.mask_term_alias(self.state, term)
+    }
+    fn assume_upper_bound(&mut self, mask: Term) -> Result<(), Self::Error> {
+        let factory = self.context.factory.clone();
+        let bound =
+            crate::rules::mask_heap_supporter::upper_bound_assertion(&factory, mask, |sort| {
+                self.context
+                    .base
+                    .decider
+                    .fresh_variable(&factory, "$t", &sort, false, None)
+                    .map_err(NativeError::Decider)
+            })
+            .map_err(|e| NativeError::Chunk(format!("mask upper bound: {e:?}")))?;
+        self.context.assume_term(&bound)
+    }
+}
+
+struct NativeMaskProduction<'a, S: Prover, PD, FD> {
+    context: &'a mut NativeVerifierContext<S, PD, FD>,
+    state: &'a State<PD, FD, JoinMode>,
+    simplify_state: Option<&'a State<PD, FD, JoinMode>>,
+}
+impl<S: Prover, PD, FD> crate::rules::mask_heap_supporter::MaskHeapProductionService
+    for NativeMaskProduction<'_, S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn fresh(&mut self, name: &str, sort: Sort) -> Result<Term, Self::Error> {
+        self.context
+            .base
+            .decider
+            .fresh_variable(&self.context.factory, name, &sort, false, None)
+            .map_err(NativeError::Decider)
+    }
+    fn alias(&mut self, term: Term) -> Result<Term, Self::Error> {
+        self.context.mask_term_alias(self.state, term)
+    }
+    fn assume(&mut self, term: Term) -> Result<(), Self::Error> {
+        self.context.assume_term(&term)
+    }
+}
+
+impl<S: Prover, PD, FD> crate::rules::mask_heap_supporter::MaskHeapConsumptionService
+    for NativeMaskProduction<'_, S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn simplify_alias(&mut self, term: Term) -> Result<Term, Self::Error> {
+        self.context
+            .mask_term_alias(self.simplify_state.unwrap_or(self.state), term)
+    }
+    fn check(&mut self, term: Term, timeout_ms: i32) -> Result<bool, Self::Error> {
+        self.context
+            .base
+            .decider
+            .check(&term, Some(timeout_ms))
+            .map_err(NativeError::Decider)
+    }
+    fn assert_goal(&mut self, term: Term) -> Result<bool, Self::Error> {
+        let timeout = self.context.base.decider.assert_timeout;
+        self.context
+            .base
+            .decider
+            .assert_with(&term, timeout, |value| value)
+            .map_err(NativeError::Decider)
+    }
+    fn transform_precondition(&mut self, term: Term) -> Result<Term, Self::Error> {
+        let factory = self.context.factory.clone();
+        crate::state::function_precondition_transformer::transform(&factory, &term, &mut |fun| {
+            Ok::<_, Self::Error>(crate::rules::function_supporter::precondition_version(
+                &factory, fun,
+            ))
+        })
+        .map_err(|e| NativeError::Chunk(format!("mask precondition: {e:?}")))
+    }
+    fn assume_definition(&mut self, term: Term) -> Result<(), Self::Error> {
+        self.context
+            .base
+            .decider
+            .assume([(term, None)], false, true)
+            .map_err(NativeError::Decider)
+    }
+}
+
 /// Avoid nesting the same solver cleanup failure once per unwound branch scope.
 /// Distinct cleanup failures remain attached in source order.
 fn coalesce_evaluation_cleanup<E: std::fmt::Debug>(
@@ -13941,5 +15697,227 @@ mod cleanup_coalescing_tests {
             }
             _ => panic!("distinct cleanup was lost"),
         }
+    }
+}
+
+struct NativeMaskQuantified<'a, S: Prover, PD, FD> {
+    context: &'a mut NativeVerifierContext<S, PD, FD>,
+    state: &'a State<PD, FD, JoinMode>,
+    recorder: FunctionRecorder<FD>,
+}
+impl<S: Prover, PD, FD> crate::rules::mask_heap_supporter::MaskHeapProductionService
+    for NativeMaskQuantified<'_, S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn fresh(&mut self, name: &str, sort: Sort) -> Result<Term, Self::Error> {
+        self.context
+            .base
+            .decider
+            .fresh_variable(&self.context.factory, name, &sort, false, None)
+            .map_err(NativeError::Decider)
+    }
+    fn alias(&mut self, term: Term) -> Result<Term, Self::Error> {
+        self.context.mask_term_alias(self.state, term)
+    }
+    fn assume(&mut self, term: Term) -> Result<(), Self::Error> {
+        self.context.assume_term(&term)
+    }
+}
+impl<S: Prover, PD, FD: Clone> crate::rules::mask_heap_supporter::MaskQuantifiedProductionService
+    for NativeMaskQuantified<'_, S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn fresh_inverse(
+        &mut self,
+        input: &crate::rules::mask_heap_supporter::MaskQuantifiedInputs,
+    ) -> Result<
+        (
+            crate::rules::quantified_chunk_support::InverseFunctions,
+            Vec<Term>,
+        ),
+        Self::Error,
+    > {
+        let factory = self.context.factory.clone();
+        let additional = self
+            .state
+            .relevant_quantified_variables_in(&input.arguments)
+            .map_err(|e| NativeError::Chunk(format!("mask quantified variables: {e:?}")))?
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        let mut state_vars = Vec::new();
+        for (var, _) in &self.state.quantified_variables {
+            let mut occurs = input
+                .condition
+                .contains(var)
+                .map_err(|e| NativeError::Chunk(format!("mask variable: {e:?}")))?;
+            for arg in &input.arguments {
+                if arg
+                    .contains(var)
+                    .map_err(|e| NativeError::Chunk(format!("mask variable: {e:?}")))?
+                {
+                    occurs = true;
+                    break;
+                }
+            }
+            if occurs {
+                state_vars.push(var.clone());
+            }
+        }
+        let condition = factory.and([
+            input.condition.clone(),
+            factory.is_positive_perm(input.permission.clone()),
+        ]);
+        let disabled = self.context.options.disable_isc_triggers;
+        crate::rules::quantified_chunk_support::fresh_inverse_functions(
+            &factory,
+            self.context,
+            &input.qvars,
+            input.qvar_expressions.clone(),
+            condition,
+            input.arguments.clone(),
+            input.argument_expressions.clone(),
+            &input.formal_qvars,
+            additional,
+            &state_vars,
+            input.explicit_triggers.as_deref(),
+            &input.qid,
+            disabled,
+        )
+        .map_err(|e| NativeError::Chunk(format!("mask inverse: {e:?}")))
+    }
+    fn injectivity(
+        &mut self,
+        input: &crate::rules::mask_heap_supporter::MaskQuantifiedInputs,
+    ) -> Result<Term, Self::Error> {
+        crate::rules::quantified_chunk_support::injectivity_axiom(
+            &self.context.factory,
+            &input.qvars,
+            &input.condition,
+            &input.permission,
+            &input.arguments,
+            vec![],
+            &input.qid,
+        )
+        .map_err(|e| NativeError::Chunk(format!("mask injectivity: {e:?}")))
+    }
+    fn transform_precondition(&mut self, term: Term) -> Result<Term, Self::Error> {
+        let factory = self.context.factory.clone();
+        crate::state::function_precondition_transformer::transform(&factory, &term, &mut |fun| {
+            Ok::<_, Self::Error>(crate::rules::function_supporter::precondition_version(
+                &factory, fun,
+            ))
+        })
+        .map_err(|e| NativeError::Chunk(format!("mask precondition: {e:?}")))
+    }
+    fn assert_goal(&mut self, term: Term) -> Result<bool, Self::Error> {
+        let timeout = self.context.base.decider.assert_timeout;
+        self.context
+            .base
+            .decider
+            .assert_with(&term, timeout, |v| v)
+            .map_err(NativeError::Decider)
+    }
+    fn assume_definition(&mut self, term: Term) -> Result<(), Self::Error> {
+        self.context
+            .base
+            .decider
+            .assume([(term, None)], false, true)
+            .map_err(NativeError::Decider)
+    }
+    fn no_triggers(&mut self, quantifier: &Exp) -> Result<(), Self::Error> {
+        let message = format!(
+            "No triggers available for quantifier at {}",
+            quantifier.metadata().position
+        );
+        if let Some(reporter) = &self.context.preprocessing_reporter {
+            reporter
+                .report(ferrum_silver::reporter::message::Message::Simple {
+                    kind: ferrum_silver::reporter::message::SimpleMessageKind::InternalWarning,
+                    text: message,
+                })
+                .map_err(|e| {
+                    NativeError::Diagnostic(format!("mask trigger warning reporter: {e:?}"))
+                })?;
+        } else {
+            self.context.warnings.push(message);
+        }
+        Ok(())
+    }
+    fn record_inverse_and_mask(
+        &mut self,
+        inverse: crate::rules::quantified_chunk_support::InverseFunctions,
+        mask: Term,
+        definition: Term,
+    ) -> Result<(), Self::Error> {
+        self.recorder = self
+            .recorder
+            .record_field_inv(inverse)
+            .record_constrained_var(mask, definition);
+        Ok(())
+    }
+}
+
+impl<S: Prover, PD, FD: Clone> crate::rules::mask_heap_supporter::MaskHeapConsumptionService
+    for NativeMaskQuantified<'_, S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn check(&mut self, term: Term, timeout_ms: i32) -> Result<bool, Self::Error> {
+        self.context
+            .base
+            .decider
+            .check(&term, Some(timeout_ms))
+            .map_err(NativeError::Decider)
+    }
+    fn assert_goal(&mut self, term: Term) -> Result<bool, Self::Error> {
+        <Self as crate::rules::mask_heap_supporter::MaskQuantifiedProductionService>::assert_goal(
+            self, term,
+        )
+    }
+    fn transform_precondition(&mut self, term: Term) -> Result<Term, Self::Error> {
+        <Self as crate::rules::mask_heap_supporter::MaskQuantifiedProductionService>::transform_precondition(self, term)
+    }
+    fn assume_definition(&mut self, term: Term) -> Result<(), Self::Error> {
+        <Self as crate::rules::mask_heap_supporter::MaskQuantifiedProductionService>::assume_definition(self, term)
+    }
+}
+impl<S: Prover, PD, FD: Clone> crate::rules::mask_heap_supporter::MaskQuantifiedConsumptionService
+    for NativeMaskQuantified<'_, S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn fresh_inverse(
+        &mut self,
+        input: &crate::rules::mask_heap_supporter::MaskQuantifiedInputs,
+    ) -> Result<
+        (
+            crate::rules::quantified_chunk_support::InverseFunctions,
+            Vec<Term>,
+        ),
+        Self::Error,
+    > {
+        <Self as crate::rules::mask_heap_supporter::MaskQuantifiedProductionService>::fresh_inverse(
+            self, input,
+        )
+    }
+    fn injectivity(
+        &mut self,
+        input: &crate::rules::mask_heap_supporter::MaskQuantifiedInputs,
+    ) -> Result<Term, Self::Error> {
+        <Self as crate::rules::mask_heap_supporter::MaskQuantifiedProductionService>::injectivity(
+            self, input,
+        )
+    }
+    fn record_inverse_and_mask(
+        &mut self,
+        inverse: crate::rules::quantified_chunk_support::InverseFunctions,
+        mask: Term,
+        definition: Term,
+    ) -> Result<(), Self::Error> {
+        <Self as crate::rules::mask_heap_supporter::MaskQuantifiedProductionService>::record_inverse_and_mask(self, inverse, mask, definition)
     }
 }

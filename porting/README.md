@@ -169,7 +169,8 @@ conjoined precondition symbols, declaring all contributor symbols before axioms.
 Positive and negative source fixtures now reach the intended result on both Z3
 transports, while preconditioned calls remain rejected. Combining ordinary-function
 domain axioms with mask heaps retains the pinned source solver-signature failure;
-mask function symbols use a different state-argument signature.
+mask function symbols use a different state-argument signature. Ferrum reports
+that combination as unsupported before sending malformed terms to the solver.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and
@@ -300,8 +301,8 @@ Eight focused reporter checks and workspace all-target checks pass; an independe
 
 Mask-heap lower layers now implement source single/quantified production and
 consumption, transfer steps, snapshot adaptation, havoc, function frame construction
-and identity-preserving phase snapshots. The runtime mask gate remains closed
-while its concrete adapters undergo integration review. The linked converter
+and identity-preserving phase snapshots. The native runtime now connects these adapters through `--maskHeapMode`
+and optional `--simplifyOnConsume`. The linked converter
 includes the corresponding SMT-LIB bindings and a regression for recursive alias
 expansion; pinned Scala API mask support differs as documented below.
 
@@ -310,3 +311,16 @@ Boolean proof-obligation guards. The source name-based variable renaming API als
 renames bound declarations, preserving first-match behavior and declaration
 position/info; capture-avoiding instantiation remains a distinct operation.
 Extensions without reconstruction hooks still fail explicitly.
+
+Mask runtime integration covers empty heaps, field reads/writes, predicate
+fold/unfold and unfolding expressions, single/quantified consumption, wand
+transfers, ForPerm, havoc and source function frames. Function phase emission
+retains source declaration/assumption order; readable phase snapshots avoid holding
+a mutable function-data lock across recursive trigger translation. The permanent
+regression exercises predicate reads, disjoint quantified wand transfers and
+recursive trigger reentry with one/two workers and simplification off/on.
+The assembled snapshot matched all 248 expected outcomes per transport in a
+124-input matrix covering both simplification modes, and all 19 permanent CLI
+regressions passed on both transports. Mask timeout/session reuse also passed
+on both transports and worker counts.
+These checks are bounded; full source compatibility and performance remain open.

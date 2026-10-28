@@ -286,10 +286,19 @@ pub trait FunctionVerificationServices<P, D, J, V> {
         &mut self,
         data: &FunctionData<D>,
     ) -> Result<Vec<crate::state::terms::Declaration>, Self::Error>;
-    fn build_phase_one_axioms(
+    fn build_phase_one_auxiliary_axioms(
         &mut self,
         data: &FunctionData<D>,
-    ) -> Result<FunctionPhaseOneAxioms, Self::Error>;
+    ) -> Result<Vec<Term>, Self::Error>;
+    fn build_phase_one_post_axiom(
+        &mut self,
+        data: &FunctionData<D>,
+    ) -> Result<(Option<Term>, Vec<Term>), Self::Error>;
+    fn build_phase_one_post_precondition_axioms(
+        &mut self,
+        data: &FunctionData<D>,
+        posts: &[Term],
+    ) -> Result<Vec<Term>, Self::Error>;
     fn declare_function_axiom_symbol(
         &mut self,
         decl: &crate::state::terms::Declaration,
@@ -302,10 +311,15 @@ pub trait FunctionVerificationServices<P, D, J, V> {
         data: &FunctionData<D>,
         paths: Vec<FunctionPhasePath<P, D, J>>,
     ) -> Result<FunctionPhaseTwo<D, V>, Self::Error>;
-    fn build_phase_two_axioms(
+    fn build_phase_two_definition(
         &mut self,
         data: &FunctionData<D>,
-    ) -> Result<(Option<Term>, Vec<Term>), Self::Error>;
+    ) -> Result<(Option<Term>, Option<Term>), Self::Error>;
+    fn build_phase_two_precondition_axioms(
+        &mut self,
+        data: &FunctionData<D>,
+        body: Option<&Term>,
+    ) -> Result<Vec<Term>, Self::Error>;
     fn record_function_failure(
         &mut self,
         function: &Function,
@@ -372,18 +386,12 @@ impl<D: Clone> FunctionVerificationUnit<D> {
                 let phase_one = context
                     .check_function_specifications(state, &data)
                     .map_err(FunctionVerificationError::Service)?;
-                let declarations = context
-                    .well_definedness_declarations(&data)
-                    .map_err(FunctionVerificationError::Service)?;
-                data.advance_phase(factory, &phase_one.recorders, &declarations)
+                data.advance_phase(factory, &phase_one.recorders, &[])
                     .map_err(FunctionVerificationError::Data)?;
                 let result = if phase_one.result.is_fatal() {
                     context.record_function_failure(function, &phase_one.result);
                     phase_one.result
                 } else {
-                    let axioms = context
-                        .build_phase_one_axioms(&data)
-                        .map_err(FunctionVerificationError::Service)?;
                     for group in [
                         vec![data.limited_axiom.clone()],
                         vec![data.trigger_axiom.clone()],
@@ -393,22 +401,40 @@ impl<D: Clone> FunctionVerificationUnit<D> {
                             .map_err(FunctionVerificationError::Service)?;
                         self.emitted_axioms.extend(group);
                     }
-                    for decl in &axioms.auxiliary_declarations {
+                    let declarations = context
+                        .well_definedness_declarations(&data)
+                        .map_err(FunctionVerificationError::Service)?;
+                    for decl in &declarations {
                         context
                             .declare_function_axiom_symbol(decl)
                             .map_err(FunctionVerificationError::Service)?;
+                        data.recorder_handler.fresh_symbols_across_phases = data
+                            .recorder_handler
+                            .fresh_symbols_across_phases
+                            .incl(decl.clone());
                     }
-                    let post = axioms.post_axiom.into_iter().collect::<Vec<_>>();
-                    for group in [
-                        axioms.auxiliary_axioms,
-                        post.clone(),
-                        axioms.post_precondition_axioms,
-                    ] {
-                        context
-                            .assume_function_axioms(&group)
-                            .map_err(FunctionVerificationError::Service)?;
-                        self.emitted_axioms.extend(group);
-                    }
+                    let auxiliary_axioms = context
+                        .build_phase_one_auxiliary_axioms(&data)
+                        .map_err(FunctionVerificationError::Service)?;
+                    context
+                        .assume_function_axioms(&auxiliary_axioms)
+                        .map_err(FunctionVerificationError::Service)?;
+                    self.emitted_axioms.extend(auxiliary_axioms);
+                    let (post, translated_posts) = context
+                        .build_phase_one_post_axiom(&data)
+                        .map_err(FunctionVerificationError::Service)?;
+                    let post = post.into_iter().collect::<Vec<_>>();
+                    context
+                        .assume_function_axioms(&post)
+                        .map_err(FunctionVerificationError::Service)?;
+                    self.emitted_axioms.extend(post.clone());
+                    let propagation = context
+                        .build_phase_one_post_precondition_axioms(&data, &translated_posts)
+                        .map_err(FunctionVerificationError::Service)?;
+                    context
+                        .assume_function_axioms(&propagation)
+                        .map_err(FunctionVerificationError::Service)?;
+                    self.emitted_axioms.extend(propagation);
                     self.postcondition_axioms.extend(post);
                     if function.body.is_none() {
                         phase_one.result
@@ -421,18 +447,21 @@ impl<D: Clone> FunctionVerificationUnit<D> {
                         if phase_two.result.is_fatal() {
                             context.record_function_failure(function, &phase_two.result);
                         } else {
-                            let (definition, body_preconditions) = context
-                                .build_phase_two_axioms(&data)
+                            let (definition, body) = context
+                                .build_phase_two_definition(&data)
                                 .map_err(FunctionVerificationError::Service)?;
-                            for group in [
-                                definition.into_iter().collect::<Vec<_>>(),
-                                body_preconditions,
-                            ] {
-                                context
-                                    .assume_function_axioms(&group)
-                                    .map_err(FunctionVerificationError::Service)?;
-                                self.emitted_axioms.extend(group);
-                            }
+                            let definition = definition.into_iter().collect::<Vec<_>>();
+                            context
+                                .assume_function_axioms(&definition)
+                                .map_err(FunctionVerificationError::Service)?;
+                            self.emitted_axioms.extend(definition);
+                            let body_preconditions = context
+                                .build_phase_two_precondition_axioms(&data, body.as_ref())
+                                .map_err(FunctionVerificationError::Service)?;
+                            context
+                                .assume_function_axioms(&body_preconditions)
+                                .map_err(FunctionVerificationError::Service)?;
+                            self.emitted_axioms.extend(body_preconditions);
                         }
                         phase_one.result.and_then(|| phase_two.result)
                     }

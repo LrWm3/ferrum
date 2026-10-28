@@ -8,7 +8,7 @@
 //!
 //! Status: source sort and major term dispatch are implemented against an explicit native
 //! context contract and the linked Z3 adapter. Unsupported cases and incomplete substitution
-//! return errors, never fabricated solver objects; mask-mode end-to-end validation remains gated.
+//! return errors, never fabricated solver objects; mask-mode compatibility has bounded checks.
 //! Mask heap sorts and operations are a Ferrum native-transport extension following the pinned
 //! [SMT-LIB converter](https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/decider/TermToSMTLib2Converter.scala):
 //! the pinned Java Z3-API converter instead throws MatchError for HeapSort.

@@ -1709,8 +1709,8 @@ remaining = ["Reserve transfer, wand application and package algorithms exist; c
 repository = "silicon"
 upstream = "src/main/scala/rules/MaskHeapSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/mask_heap_supporter.rs"
-status = "skeleton"
-remaining = ["Source single/quantified mask production, consumption, heap merges, transfer steps and havoc helpers exist; concrete runtime admission, debug paths and broader compatibility checks remain."]
+status = "wired"
+remaining = ["Single/quantified production, consumption, merging, transfer, havoc and simplification connect to the native context; debugging and broad source/performance validation remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1917,8 +1917,8 @@ remaining = ["Source existence traversal and bundled declarations are available;
 repository = "silicon"
 upstream = "src/main/scala/supporters/MaskHeapSnapshotSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/mask_heap_snapshot_supporter.rs"
-status = "skeleton"
-remaining = ["Source mask snapshot combination, decomposition and producer adaptation exist; concrete runtime admission and broader snapshot integration checks remain."]
+status = "wired"
+remaining = ["Combination, finalization and producer adaptation connect to the native runtime; broad source compatibility remains unproved."]
 
 [[modules]]
 repository = "silicon"
@@ -1987,8 +1987,8 @@ remaining = ["Source function encoding, analysis and verification algorithms exi
 repository = "silicon"
 upstream = "src/main/scala/supporters/functions/MaskHeapFunctionEncoding.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/mask_heap_function_encoding.rs"
-status = "skeleton"
-remaining = ["Source mask function frames, conditions, trigger adaptation and identity/phase cache exist; concrete runtime admission and broader framing checks remain."]
+status = "wired"
+remaining = ["Native function frames, quantified conditions and trigger adaptation are connected; genuine recursive frame-construction cycles fail explicitly, debugging and broad compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2568,7 +2568,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Native context connects source heap, quantified-resource and wand transfers, complete-exhale/CFG execution, failure capture, branch diagnostics and cooperative cancellation checkpoints. Nested branch parallelism, CFG-only contributor analysis and debug profiles remain incomplete."]
+remaining = ["Native default and mask heaps, quantified resources, wands, function frames, cancellation and source phase ordering are connected. Nested branch scheduling, debug/reporting profiles, CFG-only contributor analysis and broad compatibility remain."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"

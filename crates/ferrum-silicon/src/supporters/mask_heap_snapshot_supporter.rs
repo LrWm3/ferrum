@@ -27,8 +27,8 @@
 //! Agree on resource-key identity, heap lifetime and alias ownership with mask_heap_supporter and
 //! producer/consumer.
 //!
-//! Status: partial; mask snapshot combination, finalization and producer adaptation are implemented.
-//! Runtime state/continuation integration remains pending.
+//! Status: mask snapshot combination, finalization and producer adaptation connect to native
+//! state and continuations. Broad source compatibility remains unproved.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this

@@ -37,9 +37,8 @@
 //! Open decisions:
 //! Mask/snapshot representation, ordered resource identity and solver/continuation ownership.
 //!
-//! Status: partial; resource discovery, snapshots, ordinary and quantified permission operations,
-//! havoc and per-heap extended-exhale transfer steps are implemented. Full verifier integration,
-//! trigger adaptation, transfer orchestration, debug expressions and source-level validation remain.
+//! Status: resource discovery, snapshots, single/quantified permissions, havoc and wand
+//! transfer steps connect to the native runtime. Debugging and broad compatibility remain.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this

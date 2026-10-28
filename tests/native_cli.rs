@@ -583,3 +583,76 @@ fn domain_axioms_can_call_precondition_free_functions() {
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("FunctionPreconditionInDomainAxiom"));
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn mask_heaps_preserve_unfolding_frames_and_wand_values() {
+    let cases = [
+        (
+            r#"field f: Int predicate p(x: Ref) { acc(x.f) } function read(x: Ref): Int requires acc(p(x)) { unfolding acc(p(x)) in x.f } method test() { var x: Ref := new(f); x.f := 2; fold acc(p(x)); assert read(x)==2; }"#,
+            0,
+        ),
+        (
+            r#"field f: Int predicate p(x: Ref) { acc(x.f) } function read(x: Ref): Int requires acc(p(x)) { unfolding acc(p(x)) in x.f } method test() { var x: Ref := new(f); x.f := 2; fold acc(p(x)); assert read(x)==3; }"#,
+            1,
+        ),
+        (
+            r#"field f: Int
+method m(x: Ref, z: Ref) requires x != z && (forall y: Ref :: y == x || y == z ==> acc(y.f)) && x.f == 1 && z.f == 2 {
+  package acc(x.f) --* (forall y: Ref :: y == x || y == z ==> acc(y.f)) {}
+  apply acc(x.f) --* (forall y: Ref :: y == x || y == z ==> acc(y.f))
+  assert x.f == 1 && z.f == 2
+}
+"#,
+            0,
+        ),
+        (
+            r#"field f: Int
+method m(x: Ref, z: Ref) requires x != z && (forall y: Ref :: y == x || y == z ==> acc(y.f)) && x.f == 1 && z.f == 2 {
+  package acc(x.f) --* (forall y: Ref :: y == x || y == z ==> acc(y.f)) {}
+  apply acc(x.f) --* (forall y: Ref :: y == x || y == z ==> acc(y.f))
+  assert x.f == 2 && z.f == 2
+}
+"#,
+            1,
+        ),
+        (
+            r#"field f: Int
+function foo(r: Ref, n: Int): Bool
+  requires acc(r.f)
+{ forall i: Int :: {foo(r, i)} foo(r, i) == foo(r, i) }
+method test(r: Ref) requires acc(r.f) { assert foo(r, 0) }
+"#,
+            0,
+        ),
+        (
+            r#"field f: Int
+function foo(r: Ref, n: Int): Bool
+  requires acc(r.f)
+{ forall i: Int :: {foo(r, i)} foo(r, i) == foo(r, i) }
+method test(r: Ref) requires acc(r.f) { assert !foo(r, 0) }
+"#,
+            1,
+        ),
+    ];
+    for workers in ["1", "2"] {
+        for simplify in [false, true] {
+            let mut args = vec!["--maskHeapMode", "--numberOfParallelVerifiers", workers];
+            if simplify {
+                args.push("--simplifyOnConsume");
+            }
+            for (source, expected) in cases {
+                let output = run(source, &args);
+                assert_eq!(
+                    output.status.code(),
+                    Some(expected),
+                    "workers={workers}, simplify={simplify}, source={source}\n{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                if expected == 1 {
+                    assert!(String::from_utf8_lossy(&output.stderr).contains("assert.failed"));
+                }
+            }
+        }
+    }
+}

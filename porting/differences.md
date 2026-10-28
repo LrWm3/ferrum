@@ -269,3 +269,17 @@ and mask preamble names and signatures. Mask semantic comparisons therefore use
 the pinned Scala stdio route. Linked Z3 4.16 checks compare against those stdio
 results, not against successful Scala API execution. This extension does not
 change the source mask verification rules or establish general encoding soundness.
+
+## Mask function integration boundaries
+
+Reentry into a function's current phase reads an immutable view sharing its source
+identity. Computed frame data is cached under that identity; a genuinely recursive
+frame-construction cycle returns an explicit unsupported error. This boundary has
+not been shown equivalent to upstream's recursive construction. Ordinary recursive
+trigger reentry and quantified-frame fixtures have positive/negative source checks.
+
+Mask mode combined with ordinary function calls in domain axioms is rejected before
+solver emission. Pinned Silicon's domain translator supplies a Unit snapshot even
+when mask function symbols have a different state-argument signature, causing an
+unknown-precondition-function solver error on the same inputs. Ferrum preserves
+the unsupported combination with an earlier diagnostic.

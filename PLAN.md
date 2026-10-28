@@ -44,6 +44,11 @@ predicate triggers now connect to the native context. Magic-wand packaging,
 application and applying expressions connect to reserve heaps and snapshots,
 including single-location and general quantified resource transfers during
 packaging.
+The source mask-heap mode now connects fields, predicates, quantified permissions,
+wands, havoc, ForPerm and function frames through the same native runtime,
+including optional consumption simplification. Bounded source comparisons cover
+positive and negative cases; recursive frame-construction cycles and the upstream
+mask/domain-function combination remain explicitly unsupported.
 Source quantifier preprocessing now generates ordinary and arithmetic-rewritten
 triggers before conditional-permission rewriting and contributor analysis. Advanced
 execution/reporting profiles remain incomplete; unsupported paths return execution errors.
