@@ -2,7 +2,7 @@
 //! Upstream: https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/Silicon.scala
 //! The backend retains the root across verifier resets and closes it after workers stop.
 //! Status: partial; explicit ownership and worker attachment are connected.
-//! Public configuration, formatter parity and timeout trace reporting remain gated.
+//! Timeout traces are connected; public configuration and formatter parity remain gated.
 
 use std::{rc::Rc, sync::Arc};
 
@@ -62,6 +62,27 @@ impl RunLogOwner {
     }
 }
 impl RunLogAttachment {
+    /// Whether this run requested advanced execution traces.
+    pub fn trace_enabled(&self) -> bool {
+        self.trace
+    }
+    /// Source Silicon.scala timeout report contains retained member logs and explicitly
+    /// empty domain/postcondition lists, irrespective of partial analysis progress.
+    pub fn timeout_trace(
+        &self,
+        factory: &crate::state::terms::TermFactory,
+    ) -> Result<Option<ferrum_silver::reporter::message::Message>, RecordError> {
+        if !self.trace {
+            return Ok(None);
+        }
+        crate::logger::trace_report::execution_trace_report(
+            &self.root,
+            factory,
+            Vec::new(),
+            Vec::new(),
+        )
+        .map(Some)
+    }
     /// Construct the full-state factory on the context's own thread.
     pub fn attach<S: Prover, P, D>(
         &self,

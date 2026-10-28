@@ -2607,4 +2607,4 @@ remaining = ["Lazy native member and axiom trace assembly is connected to Silver
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/logger/run_owner.rs"
 status = "skeleton"
-remaining = ["Explicit run ownership and main/worker logger attachment are connected. Public configuration, source double formatting and timeout trace integration remain incomplete."]
+remaining = ["Explicit run ownership, main/worker attachment and timeout trace reuse are connected. Public configuration and source double formatting remain incomplete."]

@@ -721,3 +721,11 @@ retains the original and rewritten equality and typed/versioned SSA, quantified
 and ForPerm locals. The actual assignment fixture checks replay membership; the
 quantifier path still reports its missing auxiliary debug service explicitly.
 Production debugging remains disabled pending the remaining services.
+
+Timeout traces now preserve the actual member log handles and use the two empty
+axiom lists explicitly specified by Silicon's timeout handler. Native cleanup
+joins workers and closes the logger before reporting, retains the owner for
+subsequent verification, and propagates reporter failures. Interrupted solver
+shutdown errors remain warnings once workers are quiescent and logger close
+succeeds. Tests cover one/two workers, timeout followed by success, rejected
+reports, and outstanding-pool cleanup; public trace configuration stays gated.

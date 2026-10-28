@@ -400,6 +400,18 @@ impl OwnedContext {
             Self::ParallelApi(context) => context.stop(),
         }
     }
+    fn trace_factory(&self) -> Option<TermFactory> {
+        match self {
+            Self::Stdio(context) => Some(context.factory.clone()),
+            Self::ParallelStdio(context) => {
+                context.context.as_ref().map(|main| main.factory.clone())
+            }
+            #[cfg(feature = "native-z3")]
+            Self::Api(context) => Some(context.factory.clone()),
+            #[cfg(feature = "native-z3")]
+            Self::ParallelApi(context) => context.context.as_ref().map(|main| main.factory.clone()),
+        }
+    }
     fn workers_quiesced(&self) -> bool {
         match self {
             Self::ParallelStdio(context) => context.pool.is_none(),
@@ -704,6 +716,33 @@ impl NativeBackend {
             logging: None,
         }
     }
+    /// Return whether all worker contexts are gone and logger close succeeded, independently
+    /// of solver-stop warnings that may occur after cancellation interrupts stdio.
+    fn stop_with_reportability(&mut self) -> (Result<(), FerrumError>, bool) {
+        let primary = self.stop_context();
+        if self.context.is_some() {
+            return (primary, false);
+        }
+        let cleanup = match self.logging.take() {
+            Some(owner) => owner.close().map_err(execution),
+            None => Ok(()),
+        };
+        let reportable = cleanup.is_ok();
+        (combine_logger_cleanup(primary, cleanup), reportable)
+    }
+    /// Source timeout closes the root but retains it for subsequent verification runs.
+    fn close_after_timeout(&mut self) -> (Result<(), FerrumError>, bool) {
+        let primary = self.stop_context();
+        if self.context.is_some() {
+            return (primary, false);
+        }
+        let cleanup = match self.logging.as_ref() {
+            Some(owner) => owner.close().map_err(execution),
+            None => Ok(()),
+        };
+        let reportable = cleanup.is_ok();
+        (combine_logger_cleanup(primary, cleanup), reportable)
+    }
     /// Reset tears down only solver contexts; the run-owned logger survives.
     fn stop_context(&mut self) -> Result<(), FerrumError> {
         if let Some(mut context) = self.context.take() {
@@ -849,16 +888,7 @@ impl SiliconBackend for NativeBackend {
         self.start()
     }
     fn stop(&mut self) -> Result<(), FerrumError> {
-        let primary = self.stop_context();
-        // A still-borrowed pool can own active workers; retain the owner for a later retry.
-        if self.context.is_some() {
-            return primary;
-        }
-        let cleanup = match self.logging.take() {
-            Some(owner) => owner.close().map_err(execution),
-            None => Ok(()),
-        };
-        combine_logger_cleanup(primary, cleanup)
+        self.stop_with_reportability().0
     }
     fn input_file(&self) -> Option<&str> {
         self.config.frontend.file.as_deref()
@@ -972,9 +1002,15 @@ impl SiliconBackend for NativeBackend {
                         .unwrap_or_else(|e| e.into_inner())
                         .push(format!("timeout verification terminated: {error}"));
                 }
+                // Preserve the actual run-owned logger and term factory until after
+                // workers stop and the logger closes; source reports timeout logs afterward.
+                let timeout_attachment = self.logging.as_ref().map(RunLogOwner::attachment);
+                let timeout_factory = self.context.as_ref().and_then(OwnedContext::trace_factory);
                 // Keep the retry monitor alive until all owner threads and solver
                 // contexts have stopped, including failures on the proof path.
-                if let Err(error) = self.stop() {
+                let (cleanup, trace_ready) = self.close_after_timeout();
+                let cleanup_error = cleanup.err();
+                if let Some(error) = &cleanup_error {
                     self.warnings
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
@@ -996,6 +1032,33 @@ impl SiliconBackend for NativeBackend {
                                 .into_iter()
                                 .map(|e| format!("timeout interruption failed: {e}")),
                         );
+                }
+                if let Some(attachment) = timeout_attachment.filter(RunLogAttachment::trace_enabled)
+                {
+                    if !trace_ready {
+                        let cleanup = cleanup_error.unwrap_or_else(|| {
+                            FerrumError::Execution("timeout logger did not close".into())
+                        });
+                        return Err(FerrumError::Cleanup {
+                            primary: Box::new(FerrumError::Execution(
+                                "verification timed out".into(),
+                            )),
+                            cleanup: Box::new(cleanup),
+                        });
+                    }
+                    let factory = timeout_factory.ok_or_else(|| {
+                        FerrumError::Execution("timeout trace term factory unavailable".into())
+                    })?;
+                    let message = attachment
+                        .timeout_trace(&factory)
+                        .map_err(execution)?
+                        .ok_or_else(|| {
+                            FerrumError::Execution("timeout trace unexpectedly disabled".into())
+                        })?;
+                    let reporter = self.reporter.as_ref().ok_or_else(|| {
+                        FerrumError::Execution("timeout trace reporter unavailable".into())
+                    })?;
+                    reporter.report(message).map_err(execution)?;
                 }
                 return Ok(final_result(vec![AbstractError::Frontend(
                     silver::verifier::verification_result::FrontendError::new(
@@ -1463,6 +1526,255 @@ mod run_logging_factory_tests {
         },
     };
 
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn timed_out_trace_uses_retained_logs_and_source_timeout_axiom_lists() {
+        std::thread::Builder::new()
+            .stack_size(VERIFICATION_STACK_SIZE)
+            .spawn(|| {
+                let z3 = std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+                let n = 25;
+                let vars = (0..n).map(|i| format!("x{i}: Int")).collect::<Vec<_>>();
+                let mut clauses = (0..n)
+                    .map(|i| format!("(0 <= x{i} && x{i} < {})", n - 1))
+                    .collect::<Vec<_>>();
+                for i in 0..n {
+                    for j in i + 1..n {
+                        clauses.push(format!("x{i} != x{j}"));
+                    }
+                }
+                let source = format!(
+                    "method hard({}) {{ assert !({}); }}",
+                    vars.join(", "),
+                    clauses.join(" && ")
+                );
+                let mut phases = SilFrontendPhases::new(
+                    "timeout.vpr".into(),
+                    silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                let parsed = phases.parse(&source).unwrap();
+                let checked = phases.analyze(parsed).unwrap();
+                let program = phases.translate(checked).unwrap();
+                for workers in [1, 2] {
+                    let config = Config::parse(&[
+                        "--ignoreFile".into(),
+                        "--z3Exe".into(),
+                        z3.clone(),
+                        "--numberOfParallelVerifiers".into(),
+                        workers.to_string(),
+                        "--timeout".into(),
+                        "1".into(),
+                        "--assertTimeout".into(),
+                        "0".into(),
+                        "--checkTimeout".into(),
+                        "0".into(),
+                        "timeout.vpr".into(),
+                    ])
+                    .unwrap();
+                    let root = Arc::new(NativeSymbExLogger::Enabled(SymbExLog::new(
+                        LogConfig::default(),
+                    )));
+                    let owner =
+                        RunLogOwner::new(root.clone(), Some(|value| value.to_string()), true)
+                            .unwrap();
+                    let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+                    let mut backend = NativeBackend::new(config);
+                    backend.logging = Some(owner);
+                    backend.reporter = Some(reporter.clone());
+                    let mut silicon = Silicon::new(backend);
+                    silicon.configure(&[]).unwrap();
+                    silicon.start().unwrap();
+                    let SiliconOutcome::BackendResult(VerificationResult::Failure(errors)) =
+                        silicon.verify(&program, &[]).unwrap()
+                    else {
+                        panic!("timeout failure expected")
+                    };
+                    assert!(
+                        errors
+                            .iter()
+                            .any(|error| error.full_id() == "timeout.error")
+                    );
+                    let mut traces = 0;
+                    let mut terminated = false;
+                    while reporter.has_new_message() {
+                        match reporter.get_new_message().unwrap() {
+                            Message::ExecutionTrace {
+                                member_traces,
+                                axioms,
+                                function_post_axioms,
+                            } => {
+                                assert!(
+                                    !member_traces.is_empty(),
+                                    "real method log must be retained"
+                                );
+                                assert_eq!(member_traces.len(), root.logs().unwrap().len());
+                                assert!(
+                                    root.logs()
+                                        .unwrap()
+                                        .iter()
+                                        .all(|log| log.is_closed().unwrap())
+                                );
+                                assert!(axioms.is_empty() && function_post_axioms.is_empty());
+                                traces += 1;
+                            }
+                            Message::VerificationTermination => terminated = true,
+                            _ => {}
+                        }
+                    }
+                    assert_eq!(traces, 1);
+                    assert!(!terminated);
+                    assert!(
+                        silicon.backend().logging.is_some(),
+                        "timeout must retain the run owner"
+                    );
+                    let parsed = phases.parse("method after_timeout() {}").unwrap();
+                    let checked = phases.analyze(parsed).unwrap();
+                    let simple = phases.translate(checked).unwrap();
+                    assert!(matches!(
+                        silicon.verify(&simple, &[]).unwrap(),
+                        SiliconOutcome::BackendResult(VerificationResult::Success)
+                    ));
+                    let mut next_trace = false;
+                    let mut next_termination = false;
+                    while reporter.has_new_message() {
+                        match reporter.get_new_message().unwrap() {
+                            Message::ExecutionTrace { member_traces, .. } => {
+                                assert!(
+                                    member_traces.len() >= 2,
+                                    "same root must retain timeout and subsequent member logs"
+                                );
+                                next_trace = true;
+                            }
+                            Message::VerificationTermination => {
+                                assert!(next_trace);
+                                next_termination = true;
+                            }
+                            _ => {}
+                        }
+                    }
+                    assert!(next_trace && next_termination);
+                    silicon.stop().unwrap();
+                }
+                struct RejectTimeoutTrace(std::sync::atomic::AtomicUsize);
+                impl silver::reporter::reporter::Reporter for RejectTimeoutTrace {
+                    fn name(&self) -> &str {
+                        "reject-timeout-trace"
+                    }
+                    fn report(
+                        &self,
+                        message: Message,
+                    ) -> Result<(), silver::reporter::reporter::ReportError> {
+                        if matches!(message, Message::ExecutionTrace { .. }) {
+                            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            Err(silver::reporter::reporter::ReportError::Unsupported(
+                                "timeout trace rejected",
+                            ))
+                        } else {
+                            Ok(())
+                        }
+                    }
+                }
+                let config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3,
+                    "--timeout".into(),
+                    "1".into(),
+                    "--assertTimeout".into(),
+                    "0".into(),
+                    "--checkTimeout".into(),
+                    "0".into(),
+                    "timeout.vpr".into(),
+                ])
+                .unwrap();
+                let root = Arc::new(NativeSymbExLogger::Enabled(SymbExLog::new(
+                    LogConfig::default(),
+                )));
+                let owner =
+                    RunLogOwner::new(root.clone(), Some(|value| value.to_string()), true).unwrap();
+                let reporter = Arc::new(RejectTimeoutTrace(std::sync::atomic::AtomicUsize::new(0)));
+                let mut backend = NativeBackend::new(config);
+                backend.logging = Some(owner);
+                backend.reporter = Some(reporter.clone());
+                let mut silicon = Silicon::new(backend);
+                silicon.configure(&[]).unwrap();
+                silicon.start().unwrap();
+                let error = silicon
+                    .verify(&program, &[])
+                    .err()
+                    .expect("trace rejection must propagate");
+                assert!(format!("{error:?}").contains("timeout trace rejected"));
+                assert_eq!(reporter.0.load(std::sync::atomic::Ordering::SeqCst), 1);
+                assert!(
+                    root.logs()
+                        .unwrap()
+                        .iter()
+                        .all(|log| log.is_closed().unwrap())
+                );
+                silicon.stop().unwrap();
+                let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+                let config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3,
+                    "--numberOfParallelVerifiers".into(),
+                    "2".into(),
+                    "--timeout".into(),
+                    "1".into(),
+                    "--assertTimeout".into(),
+                    "0".into(),
+                    "--checkTimeout".into(),
+                    "0".into(),
+                    "timeout.vpr".into(),
+                ])
+                .unwrap();
+                let root = Arc::new(NativeSymbExLogger::Enabled(SymbExLog::new(
+                    LogConfig::default(),
+                )));
+                let owner =
+                    RunLogOwner::new(root.clone(), Some(|value| value.to_string()), true).unwrap();
+                let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+                let mut backend = NativeBackend::new(config);
+                backend.logging = Some(owner);
+                backend.reporter = Some(reporter.clone());
+                let mut silicon = Silicon::new(backend);
+                silicon.configure(&[]).unwrap();
+                silicon.start().unwrap();
+                let pool = match silicon.backend().context.as_ref().unwrap() {
+                    OwnedContext::ParallelStdio(context) => context.pool.as_ref().unwrap().clone(),
+                    _ => panic!("parallel context expected"),
+                };
+                let error = silicon
+                    .verify(&program, &[])
+                    .err()
+                    .expect("outstanding worker pool must block trace");
+                assert!(format!("{error:?}").contains("still borrowed"));
+                while reporter.has_new_message() {
+                    assert!(!matches!(
+                        reporter.get_new_message().unwrap(),
+                        Message::ExecutionTrace { .. }
+                    ));
+                }
+                assert!(
+                    root.logs()
+                        .unwrap()
+                        .iter()
+                        .all(|log| !log.is_closed().unwrap())
+                );
+                drop(pool);
+                // Interrupted workers can report BrokenPipe while still joining successfully.
+                let _cleanup = silicon.stop();
+                assert!(
+                    root.logs()
+                        .unwrap()
+                        .iter()
+                        .all(|log| log.is_closed().unwrap())
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
     #[test]
     fn logger_cleanup_keeps_primary_and_cleanup_failures() {
         let primary = FerrumError::Execution("solver stop".into());

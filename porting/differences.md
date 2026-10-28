@@ -330,3 +330,9 @@ lexical verification call, which end before backend destruction. A future privat
 caller that retains a pool clone beyond backend destruction would violate this
 invariant: eventual root closure is not guaranteed in that case. Worker attachments
 do not own shutdown authority.
+
+Timeout reporting follows Silicon.scala's explicit empty domain/postcondition
+axiom lists and retained member logs. Native cleanup waits for worker quiescence
+before root close/reporting. The same root survives timeout and subsequent reset.
+As in StateReporting.scala, closing a scheduled state reporter is permanent:
+reused roots can record members, but do not restart scheduled callbacks.
