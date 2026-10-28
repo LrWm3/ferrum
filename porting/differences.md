@@ -319,5 +319,14 @@ across unrelated factories. Public advanced reporting stays gated.
 Parallel trace callers must install the shared run logger and a local record
 factory in every worker. Ferrum checks their identity before traced method/CFG
 execution and rejects missing setup. This is an explicit assembly requirement
-while the default native parallel factory and decider formatting lifecycle
-remain to be connected to public logging configuration.
+when a logger owner is explicitly installed. The native factory now propagates
+that owner to main and workers; source-compatible decider formatting and public
+logging configuration remain incomplete.
+
+Run logger shutdown waits for native worker threads before closing the shared
+root. An extra internal pool `Rc` makes explicit stop retain the context and
+logger for a later retry. Production clones are confined to the main prover and
+lexical verification call, which end before backend destruction. A future private
+caller that retains a pool clone beyond backend destruction would violate this
+invariant: eventual root closure is not guaranteed in that case. Worker attachments
+do not own shutdown authority.

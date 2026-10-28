@@ -142,6 +142,10 @@ impl NativeSymbExLogger {
             None => SymbExLog::new(config),
         }))
     }
+    /// Only recording roots retain member records for an execution trace.
+    pub fn supports_trace(&self) -> bool {
+        matches!(self, Self::Enabled(root) if root.mode == LogMode::Recording)
+    }
     pub fn open_member_scope(
         &self,
         member: ferrum_silver::ast::program::Member,

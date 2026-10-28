@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 404 mapped and assembly modules. `described` files
+The Cargo workspace now has 409 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
@@ -706,3 +706,11 @@ permission parser types and versioned variables when decider debugging is
 injected. Their positive-permission assumption carries the source internal
 debug description. An actual wildcard evaluation exercises this path through
 a test-only evaluator switch; production debug activation remains gated.
+
+The native backend now retains an explicitly supplied logger owner across resets
+and attaches its shared root to main and method-worker contexts with local record
+factories. Final stop joins workers before closing the logger and retains both
+solver and logger cleanup errors. An outstanding internal pool borrow keeps the
+context alive for a later stop retry. Real Z3 checks cover one/two workers, reset,
+trace-report failure and retry; public profile construction and timeout traces
+remain incomplete.

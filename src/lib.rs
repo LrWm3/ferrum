@@ -155,6 +155,8 @@ type ExecutingContext<P> = NativeVerifierContext<
 type WorkerPool<P> = ThreadVerificationPool<NativeMethodWorker<P>>;
 type ParallelMain<P> = ExecutingContext<BroadcastingProver<P, NativeMethodWorker<P>>>;
 type SharedWarnings = Arc<Mutex<Vec<String>>>;
+type RunLogAttachment = silicon::logger::run_owner::RunLogAttachment;
+type RunLogOwner = silicon::logger::run_owner::RunLogOwner;
 type ProverFactory<P> =
     fn(
         &str,
@@ -190,12 +192,14 @@ where
         count: usize,
         make_prover: ProverFactory<P>,
         cancellation: Option<CancellationController>,
+        logging: Option<RunLogAttachment>,
     ) -> Result<Self, FerrumError> {
         let worker_config = config.clone();
         let worker_factory = factory.clone();
         let worker_options = options.clone();
         let worker_warnings = warning_sink.clone();
         let worker_cancellation = cancellation.clone();
+        let worker_logging = logging.clone();
         let create = move |index| {
             // Counterexample lookup uses raw term identifiers, as in upstream.
             // Keep generated worker names unchanged by SMT symbol sanitization.
@@ -218,6 +222,12 @@ where
                 worker_options.clone(),
                 &worker_config,
             );
+            if let Some(logging) = &worker_logging {
+                logging.attach(
+                    &mut worker.context,
+                    Rc::new(silicon::logger::records::data::data_record::FullStateRecordFactory),
+                );
+            }
             if let Some(c) = &worker_cancellation {
                 worker.set_cancellation(c.clone());
             }
@@ -241,6 +251,7 @@ where
             factory,
             options,
             cancellation.clone(),
+            logging.as_ref(),
         );
         match context {
             Ok(context) => Ok(Self {
@@ -305,25 +316,27 @@ where
         };
         drop(context);
         let workers = match self.pool.take() {
-            Some(pool) => {
-                let pool = Rc::try_unwrap(pool)
-                    .map_err(|_| {
-                        FerrumError::Execution(
-                            "Worker pool is still borrowed during shutdown".into(),
-                        )
-                    })?
-                    .into_inner();
-                if self.cancellation.as_ref().is_some_and(|c| c.is_cancelled()) {
-                    let errors = pool.cancel_and_join();
-                    if errors.is_empty() {
-                        Ok(())
+            Some(pool) => match Rc::try_unwrap(pool) {
+                Ok(pool) => {
+                    let pool = pool.into_inner();
+                    if self.cancellation.as_ref().is_some_and(|c| c.is_cancelled()) {
+                        let errors = pool.cancel_and_join();
+                        if errors.is_empty() {
+                            Ok(())
+                        } else {
+                            Err(execution(errors))
+                        }
                     } else {
-                        Err(execution(errors))
+                        pool.shutdown().map_err(execution)
                     }
-                } else {
-                    pool.shutdown().map_err(execution)
                 }
-            }
+                Err(pool) => {
+                    self.pool = Some(pool);
+                    Err(FerrumError::Execution(
+                        "Worker pool is still borrowed during shutdown".into(),
+                    ))
+                }
+            },
             None => Ok(()),
         };
         match (main, workers) {
@@ -387,6 +400,14 @@ impl OwnedContext {
             Self::ParallelApi(context) => context.stop(),
         }
     }
+    fn workers_quiesced(&self) -> bool {
+        match self {
+            Self::ParallelStdio(context) => context.pool.is_none(),
+            #[cfg(feature = "native-z3")]
+            Self::ParallelApi(context) => context.pool.is_none(),
+            _ => true,
+        }
+    }
     fn warnings(&mut self) -> &mut Vec<String> {
         match self {
             Self::Stdio(context) => &mut context.warnings,
@@ -406,6 +427,7 @@ fn start_context<P: silicon::interfaces::decider::prover::Prover>(
     factory: TermFactory,
     options: NativeOptions,
     cancellation: Option<CancellationController>,
+    logging: Option<&RunLogAttachment>,
 ) -> Result<ExecutingContext<P>, FerrumError>
 where
     P::Error: std::fmt::Debug,
@@ -426,6 +448,12 @@ where
         identifiers,
     );
     let mut context = ExecutingContext::new(base, factory, options);
+    if let Some(logging) = logging {
+        logging.attach(
+            &mut context,
+            Rc::new(silicon::logger::records::data::data_record::FullStateRecordFactory),
+        );
+    }
     if let Some(c) = cancellation {
         context.set_cancellation(c);
     }
@@ -662,6 +690,7 @@ struct NativeBackend {
     cancellation: Option<CancellationController>,
     warnings: Arc<Mutex<Vec<String>>>,
     reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
+    logging: Option<RunLogOwner>,
 }
 impl NativeBackend {
     fn new(config: Config) -> Self {
@@ -672,7 +701,44 @@ impl NativeBackend {
             cancellation: None,
             warnings: Arc::new(Mutex::new(Vec::new())),
             reporter: None,
+            logging: None,
         }
+    }
+    /// Reset tears down only solver contexts; the run-owned logger survives.
+    fn stop_context(&mut self) -> Result<(), FerrumError> {
+        if let Some(mut context) = self.context.take() {
+            let result = context.stop();
+            self.warnings
+                .lock()
+                .expect("poisoned warning buffer")
+                .append(context.warnings());
+            if !context.workers_quiesced() {
+                self.context = Some(context);
+            }
+            result?;
+        }
+        Ok(())
+    }
+}
+fn combine_logger_cleanup(
+    primary: Result<(), FerrumError>,
+    cleanup: Result<(), FerrumError>,
+) -> Result<(), FerrumError> {
+    match (primary, cleanup) {
+        (Ok(()), result) | (result, Ok(())) => result,
+        (Err(primary), Err(cleanup)) => Err(FerrumError::Cleanup {
+            primary: Box::new(primary),
+            cleanup: Box::new(cleanup),
+        }),
+    }
+}
+impl Drop for NativeBackend {
+    fn drop(&mut self) {
+        // Standalone paths stop contexts before releasing the run logger. Production
+        // pool Rc clones are confined to the main prover and lexical verification;
+        // neither survives this teardown. Private callers must release any extra
+        // clone and retry stop before dropping the backend.
+        let _ = <Self as SiliconBackend>::stop(self);
     }
 }
 impl SiliconBackend for NativeBackend {
@@ -729,6 +795,7 @@ impl SiliconBackend for NativeBackend {
                         count,
                         make_api_prover,
                         self.cancellation.clone(),
+                        self.logging.as_ref().map(RunLogOwner::attachment),
                     )?))
                 } else {
                     OwnedContext::Api(Box::new(start_context(
@@ -738,6 +805,7 @@ impl SiliconBackend for NativeBackend {
                         factory,
                         options,
                         self.cancellation.clone(),
+                        self.logging.as_ref().map(RunLogOwner::attachment).as_ref(),
                     )?))
                 });
                 return Ok(());
@@ -761,6 +829,7 @@ impl SiliconBackend for NativeBackend {
                 count,
                 make_stdio_prover,
                 self.cancellation.clone(),
+                self.logging.as_ref().map(RunLogOwner::attachment),
             )?))
         } else {
             OwnedContext::Stdio(Box::new(start_context(
@@ -770,26 +839,26 @@ impl SiliconBackend for NativeBackend {
                 factory,
                 options,
                 self.cancellation.clone(),
+                self.logging.as_ref().map(RunLogOwner::attachment).as_ref(),
             )?))
         });
         Ok(())
     }
     fn reset(&mut self) -> Result<(), FerrumError> {
-        // Recreate the owned native context so declarations, path conditions,
-        // counters and source preambles all belong to the new verification run.
-        self.stop()?;
+        self.stop_context()?;
         self.start()
     }
     fn stop(&mut self) -> Result<(), FerrumError> {
-        if let Some(mut context) = self.context.take() {
-            let result = context.stop();
-            self.warnings
-                .lock()
-                .expect("poisoned warning buffer")
-                .append(context.warnings());
-            result?;
+        let primary = self.stop_context();
+        // A still-borrowed pool can own active workers; retain the owner for a later retry.
+        if self.context.is_some() {
+            return primary;
         }
-        Ok(())
+        let cleanup = match self.logging.take() {
+            Some(owner) => owner.close().map_err(execution),
+            None => Ok(()),
+        };
+        combine_logger_cleanup(primary, cleanup)
     }
     fn input_file(&self) -> Option<&str> {
         self.config.frontend.file.as_deref()
@@ -1376,5 +1445,161 @@ mod native_verifier_metadata_tests {
             ]
         );
         assert_eq!(verifier.version(), env!("CARGO_PKG_VERSION"));
+    }
+}
+
+#[cfg(test)]
+mod run_logging_factory_tests {
+    use super::*;
+    use silicon::logger::{
+        log_config::LogConfig,
+        symb_ex_logger::{NativeSymbExLogger, SymbExLog},
+    };
+    use silver::{
+        frontend::frontend::FrontendPhases,
+        reporter::{
+            message::Message,
+            reporter::{NoopReporter, PollingReporter},
+        },
+    };
+
+    #[test]
+    fn logger_cleanup_keeps_primary_and_cleanup_failures() {
+        let primary = FerrumError::Execution("solver stop".into());
+        let cleanup = FerrumError::Execution("logger close".into());
+        assert!(
+            matches!(combine_logger_cleanup(Err(primary), Err(cleanup)), Err(FerrumError::Cleanup { primary, cleanup }) if primary.to_string() == "solver stop" && cleanup.to_string() == "logger close")
+        );
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn run_owned_logger_reaches_main_and_method_workers() {
+        std::thread::Builder::new()
+            .stack_size(VERIFICATION_STACK_SIZE)
+            .spawn(|| {
+                let z3 = std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+                for workers in [1, 2] {
+                    let config = Config::parse(&[
+                        "--ignoreFile".into(),
+                        "--z3Exe".into(),
+                        z3.clone(),
+                        "--numberOfParallelVerifiers".into(),
+                        workers.to_string(),
+                        "injected.vpr".into(),
+                    ])
+                    .unwrap();
+                    let root = Arc::new(NativeSymbExLogger::Enabled(SymbExLog::new(
+                        LogConfig::default(),
+                    )));
+                    // Explicit test formatter: production activation must supply a source-compatible one.
+                    let owner = silicon::logger::run_owner::RunLogOwner::new(
+                        root.clone(),
+                        Some(|value| value.to_string()),
+                        true,
+                    )
+                    .unwrap();
+                    let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+                    let mut backend = NativeBackend::new(config);
+                    backend.logging = Some(owner);
+                    backend.reporter = Some(reporter.clone());
+                    let mut silicon = Silicon::new(backend);
+                    silicon.configure(&[]).unwrap();
+                    silicon.start().unwrap();
+                    let mut phases = SilFrontendPhases::new(
+                        "injected.vpr".into(),
+                        silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                    );
+                    let parsed = phases
+                        .parse("method first() {} method second() {}")
+                        .unwrap();
+                    let checked = phases.analyze(parsed).unwrap();
+                    let program = phases.translate(checked).unwrap();
+                    assert!(matches!(
+                        silicon.verify(&program, &[]).unwrap(),
+                        SiliconOutcome::BackendResult(VerificationResult::Success)
+                    ));
+                    let names: Vec<_> = root
+                        .logs()
+                        .unwrap()
+                        .iter()
+                        .map(|log| log.records().unwrap().len())
+                        .collect();
+                    assert_eq!(
+                        names.len(),
+                        2,
+                        "both methods must contribute to the shared root"
+                    );
+                    assert!(names.iter().all(|count| *count > 0));
+                    let mut trace = None;
+                    let mut terminated = false;
+                    while reporter.has_new_message() {
+                        match reporter.get_new_message().unwrap() {
+                            message @ Message::ExecutionTrace { .. } => {
+                                assert!(!terminated);
+                                trace = Some(message);
+                            }
+                            Message::VerificationTermination => {
+                                assert!(trace.is_some());
+                                terminated = true;
+                            }
+                            _ => {}
+                        }
+                    }
+                    assert!(trace.is_some() && terminated);
+                    struct RejectTrace(std::sync::atomic::AtomicUsize);
+                    impl silver::reporter::reporter::Reporter for RejectTrace {
+                        fn name(&self) -> &str {
+                            "reject-trace"
+                        }
+                        fn report(
+                            &self,
+                            message: Message,
+                        ) -> Result<(), silver::reporter::reporter::ReportError>
+                        {
+                            if matches!(message, Message::ExecutionTrace { .. }) {
+                                Err(silver::reporter::reporter::ReportError::Unsupported(
+                                    "test trace rejection",
+                                ))
+                            } else {
+                                if matches!(message, Message::VerificationTermination) {
+                                    self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                                }
+                                Ok(())
+                            }
+                        }
+                    }
+                    let reject = Arc::new(RejectTrace(std::sync::atomic::AtomicUsize::new(0)));
+                    silicon.backend_mut().reporter = Some(reject.clone());
+                    assert!(silicon.verify(&program, &[]).is_err());
+                    assert_eq!(reject.0.load(std::sync::atomic::Ordering::SeqCst), 0);
+                    if workers == 2 {
+                        let retained_pool = match silicon.backend().context.as_ref().unwrap() {
+                            OwnedContext::ParallelStdio(context) => {
+                                context.pool.as_ref().unwrap().clone()
+                            }
+                            _ => panic!("parallel context expected"),
+                        };
+                        assert!(silicon.stop().is_err());
+                        assert!(
+                            root.logs()
+                                .unwrap()
+                                .iter()
+                                .all(|log| !log.is_closed().unwrap())
+                        );
+                        drop(retained_pool);
+                    }
+                    silicon.stop().unwrap();
+                    silicon.stop().unwrap();
+                    assert!(
+                        root.logs()
+                            .unwrap()
+                            .iter()
+                            .all(|log| log.is_closed().unwrap())
+                    );
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }
