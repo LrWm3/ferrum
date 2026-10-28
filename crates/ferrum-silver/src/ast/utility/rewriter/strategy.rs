@@ -373,7 +373,23 @@ pub fn replace_expressions(
         }
         e.map_expression_children(
             &mut |x| go(x, replacements),
-            &mut |_| Err(ExpressionReplacementError::Extension),
+            &mut |extension| {
+                let failure = std::cell::RefCell::new(None);
+                let mapped = extension.0.map_expressions(&|child| {
+                    go(child, replacements).map_err(|error| {
+                        *failure.borrow_mut() = Some(error);
+                        crate::verifier::verification_result::DiagnosticError::Unsupported(
+                            "extension expression replacement",
+                        )
+                    })
+                });
+                match mapped {
+                    Ok(value) => Ok(value),
+                    Err(_) => Err(failure
+                        .into_inner()
+                        .unwrap_or(ExpressionReplacementError::Extension)),
+                }
+            },
             &mut |field| {
                 let node = Exp::new(ExpKind::FieldAccess(field.clone()), field.meta.clone());
                 let result = go(&node, replacements)?;
@@ -564,5 +580,43 @@ mod expression_replacement_tests {
             replace_expressions(&predicate, &[(access, x)]),
             Err(ExpressionReplacementError::InvalidFieldAccess)
         );
+    }
+}
+
+#[cfg(test)]
+mod extension_replacement_tests {
+    use super::*;
+    use crate::{
+        ast::{
+            ast::Metadata,
+            expression::{Exp, ExpKind, LocalVar},
+            r#type::Type,
+        },
+        plugin::standard::predicateinstance::predicate_instance_ast_extension::PredicateInstance,
+    };
+    #[test]
+    fn structural_replacement_rebuilds_predicate_instance_arguments() {
+        let meta = Metadata::default();
+        let original = Exp::new(
+            ExpKind::LocalVar(LocalVar::new("x".into(), Type::Int, meta.clone())),
+            meta.clone(),
+        );
+        let replacement = Exp::new(ExpKind::IntLit(7.into()), meta.clone());
+        let expression = PredicateInstance {
+            predicate: "p".into(),
+            args: vec![original.clone()],
+            meta,
+        }
+        .expression();
+        let result = replace_expressions(&expression, &[(original, replacement.clone())]).unwrap();
+        let ExpKind::Extension(extension) = result.kind() else {
+            panic!("predicate instance")
+        };
+        let instance = extension
+            .0
+            .as_any()
+            .downcast_ref::<PredicateInstance>()
+            .unwrap();
+        assert!(instance.args[0].same_node(&replacement));
     }
 }

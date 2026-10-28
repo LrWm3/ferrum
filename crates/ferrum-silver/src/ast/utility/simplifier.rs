@@ -116,7 +116,21 @@ pub fn simplify<E>(
         }
         let rebuilt = e.map_expression_children(
             &mut |x| go(x, assume, known),
-            &mut |_| Err(SimplifyError::Extension),
+            &mut |extension| {
+                let failure = std::cell::RefCell::new(None);
+                let mapped = extension.0.map_expressions(&|child| {
+                    go(child, assume, known).map_err(|error| {
+                        *failure.borrow_mut() = Some(error);
+                        crate::verifier::verification_result::DiagnosticError::Unsupported(
+                            "simplifier extension child",
+                        )
+                    })
+                });
+                match mapped {
+                    Ok(value) => Ok(value),
+                    Err(_) => Err(failure.into_inner().unwrap_or(SimplifyError::Extension)),
+                }
+            },
             &mut |v| {
                 let receiver = go(&v.receiver, assume, known)?;
                 Ok(if receiver == v.receiver {
@@ -745,5 +759,41 @@ mod statement_tests {
         let result =
             simplify_statement(&stmt, false, &|_| Ok::<_, std::convert::Infallible>(true)).unwrap();
         assert!(result.same_node(&empty_stmt()));
+    }
+}
+
+#[cfg(test)]
+mod extension_simplification_tests {
+    use super::*;
+    use crate::{
+        ast::ast::Metadata,
+        plugin::standard::predicateinstance::predicate_instance_ast_extension::PredicateInstance,
+    };
+    #[test]
+    fn simplify_descends_into_predicate_instance_arguments() {
+        let meta = Metadata::default();
+        let argument = Exp::new(
+            ExpKind::And(
+                Exp::new(ExpKind::TrueLit, meta.clone()),
+                Exp::new(ExpKind::FalseLit, meta.clone()),
+            ),
+            meta.clone(),
+        );
+        let instance = PredicateInstance {
+            predicate: "p".into(),
+            args: vec![argument],
+            meta,
+        }
+        .expression();
+        let simplified = simplify(&instance, false, &|_| Ok::<_, ()>(true)).unwrap();
+        let ExpKind::Extension(extension) = simplified.kind() else {
+            panic!("predicate instance")
+        };
+        let instance = extension
+            .0
+            .as_any()
+            .downcast_ref::<PredicateInstance>()
+            .unwrap();
+        assert!(matches!(instance.args[0].kind(), ExpKind::FalseLit));
     }
 }

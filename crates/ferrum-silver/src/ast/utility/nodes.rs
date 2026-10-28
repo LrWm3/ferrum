@@ -1169,7 +1169,10 @@ pub fn substitute_domain_node_types(
         },
         true,
         true,
-        true,
+        !matches!(
+            node,
+            Node::DomainFunc(_) | Node::DomainAxiom(_) | Node::Exp(_) | Node::Type(_)
+        ),
         true,
     )
 }
@@ -1351,7 +1354,7 @@ fn map_node_tree_impl(
             let rebuilt = match &current {
                 Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => {
                     let child = self.typ(t)?;
-                    if !self.force_copy && child == **t {
+                    if !self.force_copy && !self.preserve_type_keys && child == **t {
                         return Ok(current);
                     }
                     match &current {
@@ -1363,7 +1366,11 @@ fn map_node_tree_impl(
                 Type::Map(pair) => {
                     let key = self.typ(&pair.0)?;
                     let value = self.typ(&pair.1)?;
-                    if !self.force_copy && key == pair.0 && value == pair.1 {
+                    if !self.force_copy
+                        && !self.preserve_type_keys
+                        && key == pair.0
+                        && value == pair.1
+                    {
                         return Ok(current);
                     }
                     Type::map(key, value)
@@ -1373,7 +1380,12 @@ fn map_node_tree_impl(
                         return Ok(current);
                     }
                     let mut mappings = std::collections::HashMap::new();
-                    for (var, value) in &domain.partial_type_vars {
+                    let source_mappings = if self.preserve_type_keys {
+                        domain.type_vars_map()
+                    } else {
+                        domain.partial_type_vars.clone()
+                    };
+                    for (var, value) in &source_mappings {
                         let var = if self.preserve_type_keys {
                             var.clone()
                         } else {
@@ -1386,7 +1398,10 @@ fn map_node_tree_impl(
                         };
                         mappings.insert(var, self.typ(value)?);
                     }
-                    if !self.force_copy && mappings == domain.partial_type_vars {
+                    if !self.force_copy
+                        && !self.preserve_type_keys
+                        && mappings == domain.partial_type_vars
+                    {
                         return Ok(current);
                     }
                     Type::Domain(DomainType::new(
@@ -1440,11 +1455,19 @@ fn map_node_tree_impl(
                 ));
             };
             let typ = self.typ(&v.typ)?;
-            Ok(if !self.force_copy && typ == v.typ {
-                v
-            } else {
-                v.copy_with(|data| data.typ = typ)
-            })
+            Ok(
+                if !self.force_copy
+                    && if self.preserve_type_keys {
+                        typ.same_node(&v.typ)
+                    } else {
+                        typ == v.typ
+                    }
+                {
+                    v
+                } else {
+                    v.copy_with(|data| data.typ = typ)
+                },
+            )
         }
         fn as_exp(&self, n: Node) -> Result<Exp, DiagnosticError> {
             Ok(match n {
@@ -1465,11 +1488,19 @@ fn map_node_tree_impl(
                 return Err(DiagnosticError::InvalidNode("local declaration backlink"));
             };
             let typ = self.typ(&v.typ)?;
-            Ok(if !self.force_copy && typ == v.typ {
-                v
-            } else {
-                LocalVarDecl::new(v.name.clone(), typ, v.meta.clone())
-            })
+            Ok(
+                if !self.force_copy
+                    && if self.preserve_type_keys {
+                        typ.same_node(&v.typ)
+                    } else {
+                        typ == v.typ
+                    }
+                {
+                    v
+                } else {
+                    LocalVarDecl::new(v.name.clone(), typ, v.meta.clone())
+                },
+            )
         }
         fn trigger_inner(&self, t: &Trigger) -> Result<Trigger, DiagnosticError> {
             let Node::Trigger(current) = self.pre(&Node::Trigger(t.clone()))? else {
@@ -1481,11 +1512,19 @@ fn map_node_tree_impl(
                 .iter()
                 .map(|v| self.exp(v))
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(if !self.force_copy && exps == t.exps {
-                t.clone()
-            } else {
-                Trigger::new(exps, t.meta.clone())
-            })
+            Ok(
+                if !self.force_copy
+                    && if self.preserve_type_keys {
+                        exps.iter().zip(&t.exps).all(|(a, b)| a.same_node(b))
+                    } else {
+                        exps == t.exps
+                    }
+                {
+                    t.clone()
+                } else {
+                    Trigger::new(exps, t.meta.clone())
+                },
+            )
         }
         fn field(&self, f: &FieldAccess) -> Result<FieldAccess, DiagnosticError> {
             let original = Exp::new(ExpKind::FieldAccess(f.clone()), f.meta.clone());
@@ -1515,7 +1554,13 @@ fn map_node_tree_impl(
             let special = match current.kind() {
                 ExpKind::LocalVar(v) => {
                     let typ = self.typ(&v.typ)?;
-                    if !self.force_copy && typ == v.typ {
+                    if !self.force_copy
+                        && if self.preserve_type_keys {
+                            typ.same_node(&v.typ)
+                        } else {
+                            typ == v.typ
+                        }
+                    {
                         return Ok(current);
                     }
                     Some(ExpKind::LocalVar(crate::ast::expression::LocalVar::new(
@@ -1526,28 +1571,52 @@ fn map_node_tree_impl(
                 }
                 ExpKind::Result(t) => {
                     let typ = self.typ(t)?;
-                    if !self.force_copy && typ == *t {
+                    if !self.force_copy
+                        && if self.preserve_type_keys {
+                            typ.same_node(t)
+                        } else {
+                            typ == *t
+                        }
+                    {
                         return Ok(current);
                     }
                     Some(ExpKind::Result(typ))
                 }
                 ExpKind::LocalVarWithVersion(name, t) => {
                     let typ = self.typ(t)?;
-                    if !self.force_copy && typ == *t {
+                    if !self.force_copy
+                        && if self.preserve_type_keys {
+                            typ.same_node(t)
+                        } else {
+                            typ == *t
+                        }
+                    {
                         return Ok(current);
                     }
                     Some(ExpKind::LocalVarWithVersion(name.clone(), typ))
                 }
                 ExpKind::BackendValueLit(value, t) => {
                     let typ = self.typ(t)?;
-                    if !self.force_copy && typ == *t {
+                    if !self.force_copy
+                        && if self.preserve_type_keys {
+                            typ.same_node(t)
+                        } else {
+                            typ == *t
+                        }
+                    {
                         return Ok(current);
                     }
                     Some(ExpKind::BackendValueLit(value.clone(), typ))
                 }
                 ExpKind::EmptySeq(t) | ExpKind::EmptySet(t) | ExpKind::EmptyMultiset(t) => {
                     let typ = self.typ(t)?;
-                    if !self.force_copy && typ == *t {
+                    if !self.force_copy
+                        && if self.preserve_type_keys {
+                            typ.same_node(t)
+                        } else {
+                            typ == *t
+                        }
+                    {
                         return Ok(current);
                     }
                     Some(match current.kind() {
@@ -1559,7 +1628,13 @@ fn map_node_tree_impl(
                 ExpKind::EmptyMap(k, v) => {
                     let nk = self.typ(k)?;
                     let nv = self.typ(v)?;
-                    if !self.force_copy && nk == *k && nv == *v {
+                    if !self.force_copy
+                        && if self.preserve_type_keys {
+                            nk.same_node(k) && nv.same_node(v)
+                        } else {
+                            nk == *k && nv == *v
+                        }
+                    {
                         return Ok(current);
                     }
                     Some(ExpKind::EmptyMap(nk, nv))
@@ -1584,7 +1659,19 @@ fn map_node_tree_impl(
                     } else {
                         substitutions2 = substitutions.clone();
                     }
-                    if !self.force_copy && args2 == *args && substitutions2 == *substitutions {
+                    if !self.force_copy
+                        && if self.preserve_type_keys {
+                            args2.iter().zip(args).all(|(a, b)| a.same_node(b))
+                                && substitutions2.len() == substitutions.len()
+                                && substitutions2.iter().all(|(key, value)| {
+                                    substitutions
+                                        .get(key)
+                                        .is_some_and(|old| value.same_node(old))
+                                })
+                        } else {
+                            args2 == *args && substitutions2 == *substitutions
+                        }
+                    {
                         return Ok(current);
                     }
                     Some(ExpKind::DomainFuncApp(name.clone(), args2, substitutions2))
@@ -1597,7 +1684,13 @@ fn map_node_tree_impl(
                             return Err(DiagnosticError::InvalidNode("field declaration backlink"));
                         }
                     };
-                    if !self.force_copy && receiver == f.receiver && member == f.field {
+                    if !self.force_copy
+                        && if self.preserve_type_keys {
+                            receiver.same_node(&f.receiver) && member.same_node(&f.field)
+                        } else {
+                            receiver == f.receiver && member == f.field
+                        }
+                    {
                         return Ok(current);
                     }
                     Some(ExpKind::FieldAccess(FieldAccess::new(
@@ -1610,7 +1703,13 @@ fn map_node_tree_impl(
                     let nv = self.local(v)?;
                     let value2 = self.exp(value)?;
                     let body2 = self.exp(body)?;
-                    if !self.force_copy && nv == *v && value2 == *value && body2 == *body {
+                    if !self.force_copy
+                        && if self.preserve_type_keys {
+                            nv.same_node(v) && value2.same_node(value) && body2.same_node(body)
+                        } else {
+                            nv == *v && value2 == *value && body2 == *body
+                        }
+                    {
                         return Ok(current);
                     }
                     Some(ExpKind::Let(nv, value2, body2))
@@ -1625,7 +1724,15 @@ fn map_node_tree_impl(
                         .map(|v| self.trigger(v))
                         .collect::<Result<Vec<_>, _>>()?;
                     let nb = self.exp(body)?;
-                    if !self.force_copy && nv == *vars && nt == *triggers && nb == *body {
+                    if !self.force_copy
+                        && if self.preserve_type_keys {
+                            nv.iter().zip(vars).all(|(a, b)| a.same_node(b))
+                                && nt.iter().zip(triggers).all(|(a, b)| a.same_node(b))
+                                && nb.same_node(body)
+                        } else {
+                            nv == *vars && nt == *triggers && nb == *body
+                        }
+                    {
                         return Ok(current);
                     }
                     Some(if matches!(current.kind(), ExpKind::Forall(..)) {
@@ -1641,7 +1748,15 @@ fn map_node_tree_impl(
                         .collect::<Result<Vec<_>, _>>()?;
                     let nr = self.exp(resource)?;
                     let nb = self.exp(body)?;
-                    if !self.force_copy && nv == *vars && nr == *resource && nb == *body {
+                    if !self.force_copy
+                        && if self.preserve_type_keys {
+                            nv.iter().zip(vars).all(|(a, b)| a.same_node(b))
+                                && nr.same_node(resource)
+                                && nb.same_node(body)
+                        } else {
+                            nv == *vars && nr == *resource && nb == *body
+                        }
+                    {
                         return Ok(current);
                     }
                     Some(ExpKind::ForPerm(nv, nr, nb))
@@ -1663,7 +1778,7 @@ fn map_node_tree_impl(
                     return Ok(current);
                 }
             }
-            if self.force_copy {
+            if self.force_copy || self.preserve_type_keys {
                 current.map_expression_children_by_identity(
                     &mut |v| self.exp(v),
                     &mut |extension| extension.0.map_expressions(&|e| self.exp(e)),
@@ -1727,7 +1842,21 @@ fn map_node_tree_impl(
                 .collect::<Result<Vec<_>, _>>()?;
             let typ = self.typ(&f.typ)?;
             Ok(
-                if !self.force_copy && args == f.formal_args && typ == f.typ {
+                if !self.force_copy
+                    && if self.preserve_type_keys {
+                        args.iter().zip(&f.formal_args).all(|(a, b)| match (a, b) {
+                            (AnyLocalVarDecl::Named(a), AnyLocalVarDecl::Named(b)) => {
+                                a.same_node(b)
+                            }
+                            (AnyLocalVarDecl::Unnamed(a), AnyLocalVarDecl::Unnamed(b)) => {
+                                a.same_node(b)
+                            }
+                            _ => false,
+                        }) && typ.same_node(&f.typ)
+                    } else {
+                        args == f.formal_args && typ == f.typ
+                    }
+                {
                     f
                 } else {
                     f.copy_with(|d| {
@@ -1746,15 +1875,22 @@ fn map_node_tree_impl(
                 return Err(DiagnosticError::InvalidNode("domain axiom backlink"));
             };
             let changed = self.exp(a.exp())?;
-            Ok(if !self.force_copy && changed == *a.exp() {
-                a
-            } else {
-                a.copy_with(|kind| match kind {
-                    DomainAxiomKind::Named { exp, .. } | DomainAxiomKind::Anonymous { exp, .. } => {
-                        *exp = changed
+            Ok(
+                if !self.force_copy
+                    && if self.preserve_type_keys {
+                        changed.same_node(a.exp())
+                    } else {
+                        changed == *a.exp()
                     }
-                })
-            })
+                {
+                    a
+                } else {
+                    a.copy_with(|kind| match kind {
+                        DomainAxiomKind::Named { exp, .. }
+                        | DomainAxiomKind::Anonymous { exp, .. } => *exp = changed,
+                    })
+                },
+            )
         }
         fn member_inner(&self, m: &Member) -> Result<Member, DiagnosticError> {
             let Node::Member(m) = self.pre(&Node::Member(m.clone()))? else {
@@ -1795,11 +1931,19 @@ fn map_node_tree_impl(
                 }
                 Member::Field(f) => {
                     let typ = self.typ(&f.typ)?;
-                    Member::Field(if !self.force_copy && typ == f.typ {
-                        f
-                    } else {
-                        f.copy_with(|v| v.typ = typ)
-                    })
+                    Member::Field(
+                        if !self.force_copy
+                            && if self.preserve_type_keys {
+                                typ.same_node(&f.typ)
+                            } else {
+                                typ == f.typ
+                            }
+                        {
+                            f
+                        } else {
+                            f.copy_with(|v| v.typ = typ)
+                        },
+                    )
                 }
                 Member::Function(f) => {
                     let args = f

@@ -680,11 +680,108 @@ mod tests {
         assert_eq!(map.get(&t), Some(&Type::Int));
     }
     #[test]
+    fn domain_substitution_preserves_unchanged_identity_and_rebuilds_source_matches() {
+        use crate::ast::{
+            ast::Metadata,
+            expression::{Exp, LocalVar},
+            program::{DomainAxiom, DomainAxiomKind, DomainFunc, DomainFuncData},
+            utility::nodes::substitute_domain_node_types,
+        };
+        use std::sync::Arc;
+        let meta = Metadata::default();
+        let function = DomainFunc::new(DomainFuncData {
+            name: "f".into(),
+            formal_args: vec![],
+            typ: Type::Int,
+            unique: false,
+            interpretation: None,
+            domain_name: "D".into(),
+            meta: meta.clone(),
+        });
+        let generic = function.copy_with(|f| f.typ = Type::Seq(Arc::new(Type::Int)));
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![], vec![], meta.clone());
+        let Node::DomainFunc(unchanged) = substitute_domain_node_types(
+            &Node::DomainFunc(function.clone()),
+            &HashMap::new(),
+            &program,
+        )
+        .unwrap() else {
+            panic!("function")
+        };
+        assert!(function.same_node(&unchanged));
+        let Node::DomainFunc(rebuilt) = substitute_domain_node_types(
+            &Node::DomainFunc(generic.clone()),
+            &HashMap::new(),
+            &program,
+        )
+        .unwrap() else {
+            panic!("function")
+        };
+        assert!(!generic.same_node(&rebuilt));
+        let truth = Exp::new(ExpKind::TrueLit, meta.clone());
+        let axiom = DomainAxiom::new(DomainAxiomKind::Anonymous {
+            exp: truth.clone(),
+            domain_name: "D".into(),
+            meta: meta.clone(),
+        });
+        let Node::DomainAxiom(same) = substitute_domain_node_types(
+            &Node::DomainAxiom(axiom.clone()),
+            &HashMap::new(),
+            &program,
+        )
+        .unwrap() else {
+            panic!("axiom")
+        };
+        assert!(axiom.same_node(&same));
+        assert!(truth.same_node(same.exp()));
+        let local = Exp::new(
+            ExpKind::LocalVar(LocalVar::new("x".into(), Type::Int, meta.clone())),
+            meta.clone(),
+        );
+        let equality = Exp::new(ExpKind::EqCmp(local.clone(), truth.clone()), meta.clone());
+        let Node::Exp(result) =
+            substitute_domain_node_types(&Node::Exp(equality.clone()), &HashMap::new(), &program)
+                .unwrap()
+        else {
+            panic!("expression")
+        };
+        let ExpKind::EqCmp(new_local, new_truth) = result.kind() else {
+            panic!("equality")
+        };
+        assert!(!equality.same_node(&result));
+        assert!(!local.same_node(new_local));
+        assert!(truth.same_node(new_truth));
+    }
+    #[test]
+    fn domain_substitution_completes_partial_type_maps() {
+        use crate::ast::{ast::Metadata, utility::nodes::substitute_domain_node_types};
+        let t = TypeVar::new("T");
+        let program = Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Metadata::default(),
+        );
+        let typ = Type::Domain(DomainType::new("D", HashMap::new(), vec![t.clone()]));
+        let Node::Type(Type::Domain(mapped)) = substitute_domain_node_types(
+            &Node::Type(typ),
+            &[(t.clone(), Type::Int)].into_iter().collect(),
+            &program,
+        )
+        .unwrap() else {
+            panic!("domain")
+        };
+        assert_eq!(mapped.partial_type_vars.get(&t), Some(&Type::Int));
+    }
+    #[test]
     fn substitution_recomputes_domain_application_return_from_declaration() {
         use crate::ast::{
             ast::Metadata,
-            expression::{Exp, ExpExtra},
-            program::{DomainData, DomainFunc, DomainFuncData},
+            expression::{Exp, ExpExtra, LocalVar},
+            program::{AnyLocalVarDecl, DomainData, DomainFunc, DomainFuncData, LocalVarDecl},
             utility::nodes::substitute_domain_node_types,
         };
         let meta = Metadata::default();
@@ -692,7 +789,11 @@ mod tests {
         let u = TypeVar::new("U");
         let function = DomainFunc::new(DomainFuncData {
             name: "f".into(),
-            formal_args: vec![],
+            formal_args: vec![AnyLocalVarDecl::Named(LocalVarDecl::new(
+                "x".into(),
+                Type::Var(t.clone()),
+                meta.clone(),
+            ))],
             typ: Type::Var(t.clone()),
             unique: false,
             interpretation: None,
@@ -716,10 +817,14 @@ mod tests {
             vec![],
             meta.clone(),
         );
+        let arg = Exp::new(
+            ExpKind::LocalVar(LocalVar::new("x".into(), Type::Int, meta.clone())),
+            meta.clone(),
+        );
         let app = Exp::with_extra(
             ExpKind::DomainFuncApp(
                 "f".into(),
-                vec![],
+                vec![arg.clone()],
                 [(t.clone(), Type::Var(u.clone()))].into_iter().collect(),
             ),
             meta,
@@ -738,9 +843,10 @@ mod tests {
         let Node::Exp(app) = node else {
             panic!("domain application")
         };
-        let ExpKind::DomainFuncApp(_, _, map) = app.kind() else {
+        let ExpKind::DomainFuncApp(_, args, map) = app.kind() else {
             panic!("domain application")
         };
+        assert!(!arg.same_node(&args[0]));
         assert_eq!(map.get(&t), Some(&Type::Int));
         assert_eq!(app.0.extra.typ, Some(Type::Int));
         assert_eq!(app.0.extra.domain_name.as_deref(), Some("D"));
