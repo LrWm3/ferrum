@@ -41,7 +41,9 @@ function protocol, including heap snapshots and function contracts. More-complet
 and on-demand exhale now connect source permission sums and snapshot summaries. Field and predicate
 quantified permissions, ForPerm, heap-dependent triggers and recursive-function
 predicate triggers now connect to the native context. Magic-wand packaging,
-application and applying expressions connect to reserve heaps and snapshots.
+application and applying expressions connect to reserve heaps and snapshots,
+including single-location and general quantified resource transfers during
+packaging.
 Full trigger rewriting and advanced execution or reporting profiles remain
 incomplete; unsupported paths return execution errors.
 Interpreted backend types now preserve source SMT operations, including bitvectors

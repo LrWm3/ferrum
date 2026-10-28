@@ -48,6 +48,38 @@ fn check(source: &str, expected: i32) {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn quantified_wand_transfers_preserve_permissions_and_values() {
+    let source = "field f: Int
+        method m(x: Ref) requires (forall y: Ref :: y == x ==> acc(y.f)) && x.f == 7 {
+            package acc(x.f, 1/2) --* (forall y: Ref :: y == x ==> acc(y.f)) {}
+            apply acc(x.f, 1/2) --* (forall y: Ref :: y == x ==> acc(y.f))
+            assert x.f == 7;
+        }";
+    for mode in ["0", "1", "2"] {
+        for (source, expected) in [
+            (source.to_owned(), 0),
+            (source.replace("assert x.f == 7", "assert x.f == 8"), 1),
+            (
+                source.replace(
+                    "            apply acc",
+                    "            assert acc(x.f, 3/4); apply acc",
+                ),
+                1,
+            ),
+        ] {
+            let output = run(&source, &["--exhaleModeQP", mode]);
+            assert_eq!(
+                output.status.code(),
+                Some(expected),
+                "mode {mode}, source {source}\nstderr: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn parallel_workers_share_preambles_and_report_real_failures() {
     let source = "field value: Int
         predicate P(r: Ref) { acc(r.value) }

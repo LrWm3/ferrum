@@ -51,8 +51,8 @@
 //!
 //! Status: partial; inverse/map data, hint extraction and resource-specific generic/singleton
 //! chunks, inverse generation, summaries, matching, removal and single-location rules implemented.
-//! General quantified consumption has an ordinary-heap path; package transfer and concrete
-//! solver, trigger, property and verifier services remain pending.
+//! General and single-location consumption use ordinary heaps or wand reserve transfer through
+//! native solver services. Debug expression reconstruction and other heap encodings remain partial.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -2617,7 +2617,11 @@ pub trait SingleLocationConsumption<P, D, J, V>:
         &mut self,
         state: crate::state::state::State<P, D, J>,
         resource: &crate::state::terms::ResourceKey,
+        identifier: &crate::state::chunks::ChunkIdentifier,
+        codomain_vars: &[Term],
+        codomain_var_exps: Option<&[LocalVarDecl]>,
         args: &[Term],
+        arg_exps: Option<&[Exp]>,
         permission: &Term,
         permission_exp: Option<&Exp>,
         return_snapshot: bool,
@@ -2721,7 +2725,11 @@ pub fn consume_single_quantified_location<
             return context.consume_single_in_package(
                 state,
                 resource,
+                identifier,
+                codomain_vars,
+                codomain_var_exps,
                 args,
+                arg_exps,
                 permission,
                 permission_exp,
                 return_snapshot,
@@ -3296,6 +3304,12 @@ pub struct GeneralConsumptionPlan<P, D, J> {
     pub formal_vars: Vec<Term>,
     pub formal_var_exps: Option<Vec<LocalVarDecl>>,
     pub qvars: Vec<Term>,
+    /// Source condition after the original inverse substitution, before image guards.
+    pub inverse_condition: Term,
+    pub original_args: Vec<Term>,
+    pub original_condition: Term,
+    pub qid: String,
+    pub explicit_triggers: Option<Vec<crate::state::terms::Trigger>>,
     pub condition: Term,
     pub domain_condition: Term,
     pub trigger_cache: crate::state::snapshot_map_cache::SnapshotMapCache,
@@ -3653,6 +3667,7 @@ pub fn prepare_general_quantified_consumption<
     } else {
         (None, state.sm_cache.clone())
     };
+    let condition_of_inverse = condition.clone();
     let domain_condition = factory.and([
         condition.clone(),
         factory.is_positive_perm(loss.clone()),
@@ -3666,6 +3681,11 @@ pub fn prepare_general_quantified_consumption<
             formal_vars: input.formal_vars,
             formal_var_exps: input.formal_var_exps,
             qvars: input.qvars,
+            inverse_condition: condition_of_inverse,
+            original_args: input.args,
+            original_condition: input.condition,
+            qid: input.qid,
+            explicit_triggers: input.has_explicit_triggers.then_some(input.triggers),
             condition,
             domain_condition,
             trigger_cache,
@@ -3727,6 +3747,7 @@ pub trait GeneralConsumptionExecution<P, D, J, V>:
         &mut self,
         state: crate::state::state::State<P, D, J>,
         resource: &crate::state::terms::ResourceKey,
+        identifier: &crate::state::chunks::ChunkIdentifier,
         plan: &GeneralConsumptionTerms,
         error: &Self::VerificationError,
         return_snapshot: bool,
@@ -3772,6 +3793,12 @@ pub struct GeneralConsumptionTerms {
     pub formal_vars: Vec<Term>,
     pub formal_var_exps: Option<Vec<LocalVarDecl>>,
     pub qvars: Vec<Term>,
+    /// Source condition after the original inverse substitution, before image guards.
+    pub inverse_condition: Term,
+    pub original_args: Vec<Term>,
+    pub original_condition: Term,
+    pub qid: String,
+    pub explicit_triggers: Option<Vec<crate::state::terms::Trigger>>,
     pub condition: Term,
     pub condition_exp: Option<Exp>,
     pub domain_condition: Term,
@@ -3828,6 +3855,11 @@ pub fn execute_general_quantified_consumption<
         formal_vars,
         formal_var_exps,
         qvars,
+        inverse_condition,
+        original_args,
+        original_condition,
+        qid,
+        explicit_triggers,
         condition,
         condition_exp,
         domain_condition,
@@ -3842,6 +3874,11 @@ pub fn execute_general_quantified_consumption<
         formal_vars,
         formal_var_exps,
         qvars,
+        inverse_condition,
+        original_args,
+        original_condition,
+        qid,
+        explicit_triggers,
         condition,
         condition_exp,
         domain_condition,
@@ -3865,6 +3902,7 @@ pub fn execute_general_quantified_consumption<
             return context.consume_general_in_package(
                 state,
                 resource,
+                identifier,
                 &terms,
                 error,
                 return_snapshot,

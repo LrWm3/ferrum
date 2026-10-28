@@ -10679,25 +10679,178 @@ where
     }
     fn consume_single_in_package(
         &mut self,
-        _: State<PD, FD, JoinMode>,
-        _: &ResourceKey,
-        _: &[Term],
-        _: &Term,
-        _: Option<&Exp>,
-        _: bool,
-        _: &Self::VerificationError,
-        _: &mut dyn FnMut(
+        state: State<PD, FD, JoinMode>,
+        resource: &ResourceKey,
+        identifier: &ChunkIdentifier,
+        codomain_vars: &[Term],
+        codomain_var_exps: Option<&[ferrum_silver::ast::program::LocalVarDecl]>,
+        args: &[Term],
+        arg_exps: Option<&[Exp]>,
+        permission: &Term,
+        permission_exp: Option<&Exp>,
+        return_snapshot: bool,
+        error: &Self::VerificationError,
+        continuation: &mut dyn FnMut(
             &mut Self,
             State<PD, FD, JoinMode>,
             Arc<ListBackedHeap>,
             Option<Term>,
         ) -> NativeSingleResult<S::Error>,
     ) -> NativeSingleResult<S::Error> {
-        Err(
-            crate::rules::quantified_chunk_support::SingleConsumptionError::Service(
-                NativeError::Unsupported("quantified consumption inside wand package"),
-            ),
-        )
+        use crate::interfaces::state::chunks::QuantifiedChunk;
+        use crate::rules::consumption_result::ConsumptionResult;
+        use crate::rules::magic_wand_supporter::WandTransferError as WE;
+        use crate::rules::quantified_chunk_support::{self as qp, SingleConsumptionError as SE};
+        let failure = self
+            .single_consumption_failure(&state, error, matches!(resource, ResourceKey::Wand(_)))
+            .map_err(SE::Service)?;
+        let factory = self.factory.clone();
+        let mut callback_error = None;
+        let result = crate::rules::magic_wand_supporter::transfer(
+            &factory,
+            self,
+            state,
+            permission.clone(),
+            permission_exp.cloned(),
+            failure,
+            &[],
+            &mut |ctx, state, heap, needed, needed_exp| {
+                let (relevant, others) = qp::split_quantified_heap(&heap, identifier)
+                    .map_err(|e| NativeError::Chunk(format!("wand quantified split: {e:?}")))?;
+                let candidates = if ctx.disable_quantified_chunk_ordering() {
+                    relevant.clone()
+                } else {
+                    let hints = qp::extract_hints(&factory, None, args)
+                        .map_err(|e| NativeError::Chunk(format!("wand quantified hints: {e:?}")))?;
+                    qp::single_receiver_chunk_order(&factory, ctx, &relevant, args, &hints)
+                        .map_err(|e| NativeError::Chunk(format!("wand quantified order: {e:?}")))?
+                };
+                let condition = factory.and(
+                    codomain_vars
+                        .iter()
+                        .zip(args)
+                        .map(|(v, a)| factory.equals(v.clone(), a.clone())),
+                );
+                if codomain_var_exps.is_some() || arg_exps.is_some() || needed_exp.is_some() {
+                    return Err(NativeError::Unsupported(
+                        "quantified wand transfer debugging",
+                    ));
+                }
+                let disable_triggers = ctx.disable_quantified_triggers();
+                let (removal, mut state, mut remaining, untouched) =
+                    qp::remove_quantified_permissions(
+                        &factory,
+                        ctx,
+                        state,
+                        &candidates,
+                        &relevant,
+                        identifier,
+                        codomain_vars,
+                        None,
+                        condition,
+                        None,
+                        Some(args),
+                        needed.clone(),
+                        None,
+                        disable_triggers,
+                        false,
+                    )
+                    .map_err(|e| NativeError::Chunk(format!("wand quantified removal: {e:?}")))?;
+                remaining.extend(untouched.clone());
+                remaining.extend(others);
+                let mut consumed = relevant;
+                for chunk in untouched {
+                    if let Some(i) = consumed.iter().position(|c| c == &chunk) {
+                        consumed.remove(i);
+                    }
+                }
+                let (definition, cache) = ctx.summarise_consumed_snapshot(
+                    &state,
+                    resource,
+                    codomain_vars,
+                    &consumed,
+                    args,
+                )?;
+                let taken = match &removal {
+                    ConsumptionResult::Complete => needed,
+                    ConsumptionResult::Incomplete { perms_needed, .. } => {
+                        factory.perm_minus(needed, perms_needed.clone())
+                    }
+                };
+                let chunk = qp::singleton_quantified_chunk(
+                    &factory,
+                    resource,
+                    codomain_vars.to_vec(),
+                    None,
+                    args.to_vec(),
+                    None,
+                    taken,
+                    None,
+                    definition.snapshot_map.clone(),
+                    None,
+                    false,
+                )
+                .map_err(|e| NativeError::Chunk(format!("wand quantified singleton: {e:?}")))?;
+                state.function_recorder = state.function_recorder.record_fvf_and_domain(definition);
+                state.sm_cache = cache;
+                Ok((
+                    removal,
+                    state,
+                    Arc::new(ListBackedHeap::from_chunks(remaining)),
+                    Some(chunk),
+                ))
+            },
+            &mut |ctx, state, chunks| {
+                let snapshot = if return_snapshot {
+                    if let Some(chunk) = chunks.last() {
+                        let map = match chunk {
+                            Chunk::QuantifiedField(c) => c.snapshot_map(),
+                            Chunk::QuantifiedPredicate(c) => c.snapshot_map(),
+                            Chunk::QuantifiedMagicWand(c) => c.snapshot_map(),
+                            _ => {
+                                return Err(WE::Service(NativeError::Unsupported(
+                                    "wand transferred non-quantified chunk",
+                                )));
+                            }
+                        };
+                        let lookup = factory.resource_lookup(resource, map.clone(), args.to_vec());
+                        Some(if matches!(resource, ResourceKey::Wand(_)) {
+                            lookup
+                        } else {
+                            factory.sort_wrapper(lookup, Sort::Snap)
+                        })
+                    } else {
+                        let (target, _) = ctx
+                            .base
+                            .decider
+                            .fresh(&factory, "snap", &[], &Sort::Snap)
+                            .map_err(|e| WE::Service(NativeError::Decider(e)))?;
+                        Some(match target {
+                            ApplicationTarget::Function(f) => factory.app(f, vec![]),
+                            ApplicationTarget::Variable(v) => v,
+                        })
+                    }
+                } else {
+                    None
+                };
+                let heap = state.h.clone();
+                match continuation(ctx, state, heap, snapshot) {
+                    Ok(result) => Ok(result),
+                    Err(e) => {
+                        callback_error = Some(e);
+                        Err(WE::Service(NativeError::ContinuationAbort))
+                    }
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| {
+            SE::Service(NativeError::Chunk(format!(
+                "wand quantified transfer: {e:?}"
+            )))
+        })
     }
     fn summarise_consumed_snapshot(
         &mut self,
@@ -11318,23 +11471,265 @@ where
     }
     fn consume_general_in_package(
         &mut self,
-        _: State<PD, FD, JoinMode>,
-        _: &ResourceKey,
-        _: &crate::rules::quantified_chunk_support::GeneralConsumptionTerms,
-        _: &Self::VerificationError,
-        _: bool,
-        _: &mut dyn FnMut(
+        mut state: State<PD, FD, JoinMode>,
+        resource: &ResourceKey,
+        identifier: &ChunkIdentifier,
+        plan: &crate::rules::quantified_chunk_support::GeneralConsumptionTerms,
+        error: &Self::VerificationError,
+        return_snapshot: bool,
+        continuation: &mut dyn FnMut(
             &mut Self,
             State<PD, FD, JoinMode>,
             Arc<ListBackedHeap>,
             Option<Term>,
         ) -> NativeGeneralResult<S::Error>,
     ) -> NativeGeneralResult<S::Error> {
-        Err(
-            crate::rules::quantified_chunk_support::GeneralConsumptionExecutionError::Service(
-                NativeError::Unsupported("general quantified consumption inside wand package"),
-            ),
-        )
+        use crate::interfaces::state::chunks::{GeneralChunk, QuantifiedChunk};
+        use crate::rules::consumption_result::ConsumptionResult;
+        use crate::rules::magic_wand_supporter::WandTransferError as WE;
+        use crate::rules::quantified_chunk_support::{
+            self as qp, GeneralConsumptionExecutionError as GE,
+            GeneralQuantifiedConsumptionPreparation,
+        };
+        if plan.formal_var_exps.is_some() || plan.condition_exp.is_some() || plan.loss_exp.is_some()
+        {
+            return Err(GE::Service(NativeError::Unsupported(
+                "general quantified wand debugging",
+            )));
+        }
+        let failure = self
+            .general_insufficient_permission(&state, error)
+            .map_err(GE::Service)?;
+        let factory = self.factory.clone();
+        let original_arps = state.constrainable_arps.clone();
+        state.sm_cache = plan.trigger_cache.clone();
+        let mut callback_error = None;
+        let result = crate::rules::magic_wand_supporter::transfer(
+            &factory,
+            self,
+            state,
+            plan.loss.clone(),
+            None,
+            failure,
+            &plan.formal_vars,
+            &mut |ctx, state, heap, needed, needed_exp| {
+                if needed_exp.is_some() {
+                    return Err(NativeError::Unsupported(
+                        "general quantified wand debugging",
+                    ));
+                }
+                let (relevant, others) = qp::split_quantified_heap(&heap, identifier)
+                    .map_err(|e| NativeError::Chunk(format!("wand general split: {e:?}")))?;
+                let candidates = if ctx.disable_general_chunk_ordering() {
+                    relevant.clone()
+                } else {
+                    qp::quantified_application_chunk_order(
+                        &factory,
+                        ctx,
+                        &relevant,
+                        &plan.inverse.invertibles,
+                        &plan.qvars,
+                        &plan.hints,
+                    )
+                    .map_err(|e| NativeError::Chunk(format!("wand general order: {e:?}")))?
+                };
+                let disabled = ctx.disable_general_isc_triggers();
+                let (removal, mut state, mut remaining, untouched) =
+                    qp::remove_quantified_permissions(
+                        &factory,
+                        ctx,
+                        state,
+                        &candidates,
+                        &relevant,
+                        identifier,
+                        &plan.formal_vars,
+                        None,
+                        plan.condition.clone(),
+                        None,
+                        None,
+                        needed.clone(),
+                        None,
+                        disabled,
+                        false,
+                    )
+                    .map_err(|e| NativeError::Chunk(format!("wand general removal: {e:?}")))?;
+                remaining.extend(untouched.clone());
+                remaining.extend(others);
+                let mut consumed = relevant;
+                for chunk in untouched {
+                    if let Some(i) = consumed.iter().position(|c| c == &chunk) {
+                        consumed.remove(i);
+                    }
+                }
+                let domain = state.sm_domain_needed.then_some(&plan.domain_condition);
+                let (definition, cache) = ctx.summarise_general_consumed(
+                    &state,
+                    resource,
+                    &plan.formal_vars,
+                    &consumed,
+                    domain,
+                )?;
+                let taken = match &removal {
+                    ConsumptionResult::Complete => needed,
+                    ConsumptionResult::Incomplete { perms_needed, .. } => {
+                        factory.perm_minus(needed, perms_needed.clone())
+                    }
+                };
+                let additional = state
+                    .relevant_quantified_variables_in(&plan.original_args)
+                    .map_err(|e| NativeError::Chunk(format!("wand general variables: {e:?}")))?
+                    .into_iter()
+                    .map(|(v, _)| v)
+                    .collect();
+                let mut state_vars = Vec::new();
+                for (var, _) in &state.quantified_variables {
+                    let mut occurs = plan.original_condition.contains(var).map_err(|e| {
+                        NativeError::Chunk(format!("wand general condition: {e:?}"))
+                    })?;
+                    for arg in &plan.original_args {
+                        occurs |= arg.contains(var).map_err(|e| {
+                            NativeError::Chunk(format!("wand general arguments: {e:?}"))
+                        })?;
+                    }
+                    if occurs {
+                        state_vars.push(var.clone());
+                    }
+                }
+                let inv_cond = factory.and([
+                    plan.inverse_condition.clone(),
+                    factory.is_positive_perm(taken.clone()),
+                ]);
+                let (inverse, images) = qp::fresh_inverse_functions(
+                    &factory,
+                    ctx,
+                    &plan.qvars,
+                    None,
+                    inv_cond,
+                    plan.original_args.clone(),
+                    None,
+                    &plan.formal_vars,
+                    additional,
+                    &state_vars,
+                    plan.explicit_triggers.as_deref(),
+                    &plan.qid,
+                    disabled,
+                )
+                .map_err(|e| NativeError::Chunk(format!("wand general inverse: {e:?}")))?;
+                let mut counts: Vec<(i32, usize)> = Vec::new();
+                for chunk in &consumed {
+                    let tag = match chunk {
+                        Chunk::QuantifiedField(c) => c.tag(),
+                        Chunk::QuantifiedPredicate(c) => c.tag(),
+                        Chunk::QuantifiedMagicWand(c) => c.tag(),
+                        _ => None,
+                    };
+                    if let Some(tag) = tag {
+                        if let Some((_, n)) = counts.iter_mut().find(|(v, _)| *v == tag) {
+                            *n += 1;
+                        } else {
+                            counts.push((tag, 1));
+                        }
+                    }
+                }
+                let tag = counts
+                    .into_iter()
+                    .max_by_key(|(_, n)| *n)
+                    .map(|(tag, _)| tag)
+                    .unwrap_or_else(|| {
+                        let n = ctx.quantified_counter as i32;
+                        ctx.quantified_counter = ctx.quantified_counter.wrapping_add(1);
+                        n
+                    });
+                let chunk = qp::quantified_chunk_from_inverses(
+                    &factory,
+                    resource,
+                    qp::QuantifiedChunkData {
+                        codomain_vars: plan.formal_vars.clone(),
+                        codomain_var_exps: None,
+                        arguments: plan.original_args.clone(),
+                        snapshot_map: definition.snapshot_map.clone(),
+                        condition: plan.inverse_condition.clone(),
+                        condition_exp: None,
+                        permission: taken,
+                        permission_exp: None,
+                        inverses: vec![],
+                        singleton_args: None,
+                        singleton_arg_exps: None,
+                        tag: Some(tag),
+                        hints: vec![],
+                        debugging: false,
+                    },
+                    inverse.clone(),
+                    images,
+                )
+                .map_err(|e| NativeError::Chunk(format!("wand general chunk: {e:?}")))?;
+                let axiom1 = inverse.axiom_invertibles_of_inverses.clone();
+                let substitutions = plan
+                    .formal_vars
+                    .iter()
+                    .cloned()
+                    .zip(plan.original_args.iter().cloned())
+                    .collect();
+                let axiom2 = factory
+                    .replace(&inverse.axiom_inverses_of_invertibles, &substitutions)
+                    .map_err(|e| {
+                        NativeError::Chunk(format!("wand general inverse substitution: {e:?}"))
+                    })?;
+                for axiom in [axiom1, axiom2] {
+                    let precondition = ctx.consume_transform_precondition(&state, &axiom)?;
+                    ctx.consume_assume_terms(&[precondition, axiom])?;
+                }
+                state.sm_cache = cache;
+                state.constrainable_arps = original_arps.clone();
+                Ok((
+                    removal,
+                    state,
+                    Arc::new(ListBackedHeap::from_chunks(remaining)),
+                    Some(chunk),
+                ))
+            },
+            &mut |ctx, state, chunks| {
+                let snapshot = if return_snapshot {
+                    if let Some(chunk) = chunks.last() {
+                        let map = match chunk {
+                            Chunk::QuantifiedField(c) => c.snapshot_map(),
+                            Chunk::QuantifiedPredicate(c) => c.snapshot_map(),
+                            Chunk::QuantifiedMagicWand(c) => c.snapshot_map(),
+                            _ => {
+                                return Err(WE::Service(NativeError::Unsupported(
+                                    "wand transferred non-quantified chunk",
+                                )));
+                            }
+                        };
+                        Some(factory.sort_wrapper(map.clone(), Sort::Snap))
+                    } else {
+                        let (target, _) = ctx
+                            .base
+                            .decider
+                            .fresh(&factory, "snap", &[], &Sort::Snap)
+                            .map_err(|e| WE::Service(NativeError::Decider(e)))?;
+                        Some(match target {
+                            ApplicationTarget::Function(f) => factory.app(f, vec![]),
+                            ApplicationTarget::Variable(v) => v,
+                        })
+                    }
+                } else {
+                    None
+                };
+                let heap = state.h.clone();
+                match continuation(ctx, state, heap, snapshot) {
+                    Ok(result) => Ok(result),
+                    Err(e) => {
+                        callback_error = Some(e);
+                        Err(WE::Service(NativeError::ContinuationAbort))
+                    }
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| GE::Service(NativeError::Chunk(format!("wand general transfer: {e:?}"))))
     }
     fn summarise_general_consumed(
         &mut self,

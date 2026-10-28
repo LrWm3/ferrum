@@ -34,7 +34,12 @@ transports. Independent checks cover 29 positive and negative cases, including
 transferred footprints, consumed wands, nested packaging, conditional resources,
 quantified wands and `old[lhs]` snapshots. The permanent regression checks that
 packaging removes transferred permissions and that application consumes the wand.
-This focused coverage does not establish full source compatibility.
+Quantified field and predicate transfers inside packages now preserve source
+reserve-heap consumption, inverse axioms and snapshot summaries. A frozen 57-case
+matrix across all three quantified exhale modes passes through both transports,
+including split permissions, disjoint values and missing footprints. A permanent
+regression checks transferred ownership and preserved values. This focused
+coverage does not establish full source compatibility.
 More-complete and on-demand exhale (`--exhaleMode 1` or `2`) and CFG joins
 (`--moreJoins 2`) now connect the source summaries, permission consumption and
 branch merging. A frozen suite of 115 cases passed through both solver transports,

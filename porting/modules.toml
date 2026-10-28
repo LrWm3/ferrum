@@ -1745,7 +1745,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/QuantifiedChunkSupport.scala"
 destination = "crates/ferrum-silicon/src/rules/quantified_chunk_support.rs"
 status = "skeleton"
-remaining = ["Inverse axioms, snapshot summaries/caches, matching, permission removal and quantified production/consumption algorithms exist; package transfer and concrete solver/fresh/property services remain."]
+remaining = ["Inverse axioms, snapshot summaries/caches, matching, permission removal and quantified production/consumption connect native solver services and wand reserve transfer. Debug expression reconstruction and alternate heap encodings remain partial."]
 
 [[modules]]
 repository = "silicon"
@@ -2568,7 +2568,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Native context connects source heap, quantified-resource, wand, complete-exhale and CFG execution services, with shared worker analysis and scoped diagnostics. Nested branch parallelism, CFG-only contributor analysis, quantified transfer during packaging and advanced profiles remain incomplete."]
+remaining = ["Native context connects source heap, quantified-resource and wand transfers, complete-exhale and CFG execution, with shared worker analysis and scoped diagnostics. Nested branch parallelism, CFG-only contributor analysis and advanced profiles remain incomplete."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"
