@@ -130,6 +130,15 @@ pub trait MethodVerificationServices<P, D, J, V>: Sized {
         cfg: &SilverCfg,
         continuation: MethodCfgContinuation,
     ) -> Result<VerificationResult<V>, MethodVerificationError<Self::Error>>;
+    /// Optional owned terminal for the concrete method-postcondition caller.
+    fn try_consume_method_posts_owned(
+        &mut self,
+        _state: &State<P, D, J>,
+        _posts: &[Exp],
+        _method: &Method,
+    ) -> Option<Result<VerificationResult<V>, MethodVerificationError<Self::Error>>> {
+        None
+    }
     fn consume_method_posts(
         &mut self,
         state: State<P, D, J>,
@@ -161,6 +170,13 @@ pub fn complete_method_cfg<P, D, J, V, C: MethodVerificationServices<P, D, J, V>
     let state = context
         .prepare_method_post_state(state)
         .map_err(MethodVerificationError::Service)?;
+    if let Some(result) = context.try_consume_method_posts_owned(
+        &state,
+        &continuation.method.posts,
+        &continuation.method,
+    ) {
+        return result;
+    }
     context.consume_method_posts(
         state,
         &continuation.method.posts,

@@ -1634,7 +1634,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Consumer.scala"
 destination = "crates/ferrum-silicon/src/rules/consumer.rs"
 status = "skeleton"
-remaining = ["Owned conditional consumption from direct CFG exhale/ordinary assert carries heap, conjunct and exact retry frames. Method/other callers, returned snapshots, active logging and broader compatibility remain."]
+remaining = ["Owned direct exhale/assert and method-post consumption carry heap, conjunct and retry frames to explicit terminals. Further callers, returned snapshots, active logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1924,7 +1924,7 @@ repository = "silicon"
 upstream = "src/main/scala/supporters/MethodSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/method_supporter.rs"
 status = "skeleton"
-remaining = ["Method analysis, postcondition/body scopes and owned completion are connected; broader diagnostic, logging and source compatibility remain."]
+remaining = ["Owned method CFG/postcondition completion is connected. Contract production, further diagnostic/logging integration and broader source compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2567,7 +2567,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Owned CFG/producer/consumer terminals share solver isolation, error draining and retry boundaries. Method/other caller frames, returned consumption snapshots, public scheduling, debug/reporting and CFG-only contributor analysis remain."]
+remaining = ["Owned CFG/producer/consumer and method-post terminals share solver isolation and retry boundaries. Contract production/further caller frames, returned snapshots, public scheduling, debug/reporting and CFG-only contributor analysis remain."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"

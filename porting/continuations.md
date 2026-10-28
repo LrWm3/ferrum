@@ -47,6 +47,12 @@ original success boundary. Assert completion restores the original heap and
 reserve heaps before resuming the statement tail. Ordinary synchronous retries
 retain their local Boolean and do not allocate a shared signal.
 
+Method postcondition consumption has a separate explicit success terminal. Only
+`complete_method_cfg` selects it; generic postcondition callbacks remain local.
+It preserves per-postcondition error attribution and heap completion without
+running statement cleanup. A fixture whose only conditional is in its ensures
+clause checks real consumer job execution and an else-only permission failure.
+
 ## Solver ownership and restoration
 
 Each solver remains on its owning thread. Jobs carry symbolic state and immutable

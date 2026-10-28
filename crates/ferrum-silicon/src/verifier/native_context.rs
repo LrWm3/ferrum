@@ -3933,10 +3933,17 @@ where
     fn finish_owned_consumption(
         &mut self,
         mut state: State<PD, FD, JoinMode>,
-        completion: &crate::rules::consumer::OwnedConsumptionCompletion,
-        tail: &crate::rules::executor::CfgStatementTail,
+        terminal: &crate::rules::consumer::OwnedConsumptionTerminal,
     ) -> Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>> {
         use crate::rules::executor::ExecutionContext;
+        let (completion, tail) = match terminal {
+            crate::rules::consumer::OwnedConsumptionTerminal::Statement { completion, tail } => {
+                (completion, tail)
+            }
+            crate::rules::consumer::OwnedConsumptionTerminal::MethodSuccess => {
+                return Ok(VerificationResult::success());
+            }
+        };
         if let crate::rules::consumer::OwnedConsumptionCompletion::Assert { heap, reserve } =
             completion
         {
@@ -9603,6 +9610,40 @@ where
                 }
             })
         }
+    }
+    fn try_consume_method_posts_owned(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        posts: &[Exp],
+        method: &Method,
+    ) -> Option<Result<VerificationResult<VerificationError>, MethodVerificationError<Self::Error>>>
+    {
+        use crate::rules::consumer::ConsumptionContext;
+        if !self.supports_owned_consumption(state) {
+            return None;
+        }
+        Some(
+            crate::rules::consumer::consume_many_owned(
+                self,
+                state.clone(),
+                posts,
+                &|exp| {
+                    PartialVerificationError::for_kind(
+                        VerificationErrorKind::PostconditionViolated {
+                            node: exp.clone(),
+                            member: ferrum_silver::ast::program::Member::Method(method.clone()),
+                        },
+                    )
+                },
+                crate::rules::consumer::OwnedConsumptionTerminal::MethodSuccess,
+            )
+            .map_err(|e| match e {
+                ConsumptionError::Context(e) => MethodVerificationError::Service(e),
+                other => {
+                    MethodVerificationError::Service(NativeError::Consumption(format!("{other:?}")))
+                }
+            }),
+        )
     }
     fn consume_method_posts(
         &mut self,

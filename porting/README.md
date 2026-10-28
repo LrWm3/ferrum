@@ -807,3 +807,9 @@ retry keeps its original local Boolean without shared allocation. Actual Z3
 checks cover nested permission branches, assertion heap restoration, missing
 permissions and downstream failure with one and two workers, matching the pinned
 JVM. Method contract and other caller ownership remain separate pending work.
+
+Method postconditions now use an explicit owned success terminal, distinct from
+statement cleanup. The owned entry is selected only by complete_method_cfg and
+preserves per-postcondition error attribution. Actual Z3 checks with one and two
+workers prove conditional ensures jobs execute even with empty bodies and retain
+an else-only missing-permission error, matching the pinned JVM.

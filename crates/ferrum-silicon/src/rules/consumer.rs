@@ -70,6 +70,14 @@ pub enum OwnedConsumptionCompletion {
     },
 }
 #[derive(Clone)]
+pub enum OwnedConsumptionTerminal {
+    Statement {
+        completion: OwnedConsumptionCompletion,
+        tail: crate::rules::executor::CfgStatementTail,
+    },
+    MethodSuccess,
+}
+#[derive(Clone)]
 pub enum OwnedConsumptionFrame<E> {
     Retry(crate::rules::execution_flow_controller::RetryAttempt),
     More {
@@ -78,8 +86,7 @@ pub enum OwnedConsumptionFrame<E> {
     },
     Finish {
         partial: Option<Arc<ListBackedHeap>>,
-        completion: OwnedConsumptionCompletion,
-        tail: crate::rules::executor::CfgStatementTail,
+        terminal: OwnedConsumptionTerminal,
     },
 }
 #[derive(Clone)]
@@ -128,8 +135,7 @@ pub trait ConsumptionContext<P, D, J, V>: Sized {
     fn finish_owned_consumption(
         &mut self,
         _state: State<P, D, J>,
-        _completion: &OwnedConsumptionCompletion,
-        _tail: &crate::rules::executor::CfgStatementTail,
+        _terminal: &OwnedConsumptionTerminal,
     ) -> Result<VerificationResult<V>, ConsumptionError<Self::Error>> {
         Err(ConsumptionError::OwnedSchedulerUnavailable)
     }
@@ -482,14 +488,39 @@ pub(crate) fn consume_all_owned<C, P, D, J: Clone, V>(
 where
     C: ConsumptionContext<P, D, J, V>,
 {
-    let projected = when_exhaling(assertion).map_err(ConsumptionError::Projection)?;
-    let assertions = projected.top_level_conjuncts();
-    let errors = vec![error; assertions.len()];
+    consume_many_owned(
+        context,
+        state,
+        std::slice::from_ref(assertion),
+        &|_| error.clone(),
+        OwnedConsumptionTerminal::Statement {
+            completion,
+            tail: tail.clone(),
+        },
+    )
+}
+pub(crate) fn consume_many_owned<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expressions: &[Exp],
+    error_for: &impl Fn(&Exp) -> C::PartialError,
+    terminal: OwnedConsumptionTerminal,
+) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
+where
+    C: ConsumptionContext<P, D, J, V>,
+{
+    let mut assertions = Vec::new();
+    let mut errors = Vec::new();
+    for expression in expressions {
+        let projected = when_exhaling(expression).map_err(ConsumptionError::Projection)?;
+        let parts = projected.top_level_conjuncts();
+        errors.extend(std::iter::repeat_n(error_for(expression), parts.len()));
+        assertions.extend(parts);
+    }
     let heap = state.h.clone();
     let frames = vec![OwnedConsumptionFrame::Finish {
         partial: state.partially_consumed_heap.clone(),
-        completion,
-        tail: tail.clone(),
+        terminal,
     }];
     consume_owned_conjuncts(context, state, heap, &assertions, &errors, &frames)
 }
@@ -540,14 +571,10 @@ where
         OwnedConsumptionFrame::More { assertions, errors } => {
             consume_owned_conjuncts(context, state, heap, assertions, errors, rest)
         }
-        OwnedConsumptionFrame::Finish {
-            partial,
-            completion,
-            tail,
-        } => {
+        OwnedConsumptionFrame::Finish { partial, terminal } => {
             state.h = heap;
             state.partially_consumed_heap = partial.clone();
-            context.finish_owned_consumption(state, completion, tail)
+            context.finish_owned_consumption(state, terminal)
         }
     }
 }
