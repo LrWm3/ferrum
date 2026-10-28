@@ -401,7 +401,7 @@ mod tests {
     }
 
     #[test]
-    fn false_inhale_is_preserved_unguarded() {
+    fn false_inhale_is_guarded_in_optimized_sequence() {
         use crate::ast::{
             ast::Metadata,
             statement::{Stmt, StmtKind},
@@ -428,8 +428,20 @@ mod tests {
             &mut NameTransformer::default(),
         )
         .unwrap();
+        let StmtKind::Seqn { statements, .. } = product.kind() else {
+            panic!("outer block")
+        };
+        let StmtKind::Seqn {
+            statements: group, ..
+        } = statements[0].kind()
+        else {
+            panic!("optimized group")
+        };
         assert!(
-            matches!(product.kind(), StmtKind::Seqn { statements, .. } if statements.len() == 1 && statements[0].same_node(&original))
+            matches!(group[0].kind(), StmtKind::If { condition, .. } if condition == &inactive)
+        );
+        assert!(
+            matches!(group[1].kind(), StmtKind::If { condition, .. } if condition == &inactive)
         );
     }
 }
@@ -956,10 +968,6 @@ fn sif_assertion_block(
                     },
                     current.metadata().clone(),
                 ));
-            }
-            StmtKind::Inhale(exp) if matches!(exp.kind(), ExpKind::FalseLit) => {
-                flush(&mut normal, &mut primed, &mut result);
-                result.push(current.clone());
             }
             StmtKind::Inhale(exp) | StmtKind::Exhale(exp) => {
                 if !is_directly_unary(exp, &SifConfig::default())

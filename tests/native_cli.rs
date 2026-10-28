@@ -48,6 +48,24 @@ fn check(source: &str, expected: i32) {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn sif_inactive_inhale_false_cannot_hide_a_failed_assertion() {
+    for (guard, expected) in [("false", 1), ("true", 0)] {
+        let source = format!("method m() {{ if ({guard}) {{ inhale false; }} assert false; }}");
+        let output = run(&source, &["--plugin", "viper.silver.plugin.sif.SIFPlugin"]);
+        assert_eq!(
+            output.status.code(),
+            Some(expected),
+            "{source}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if expected == 1 {
+            assert!(String::from_utf8_lossy(&output.stderr).contains("assert.failed"));
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn complete_exhale_and_cfg_joins_preserve_conditional_permissions() {
     let prefix = "field f: Int method m(x: Ref, y: Ref, b: Bool)
         requires acc(x.f, 1/2) && acc(y.f, 1/2) {
