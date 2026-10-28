@@ -432,31 +432,36 @@ remaining = ["Fallible lifecycle, feature registration and result mapping exist;
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/sif/SIFAstExtensions.scala"
 destination = "crates/ferrum-silver/src/plugin/sif/sif_ast_extensions.rs"
-status = "described"
+status = "skeleton"
+remaining = ["SIF node, parser, diagnostic and dependency helpers exist; full product-program transformation and concrete plugin lifecycle integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/sif/SIFError.scala"
 destination = "crates/ferrum-silver/src/plugin/sif/sif_error.rs"
-status = "described"
+status = "skeleton"
+remaining = ["SIF node, parser, diagnostic and dependency helpers exist; full product-program transformation and concrete plugin lifecycle integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/sif/SIFExtendedTransformer.scala"
 destination = "crates/ferrum-silver/src/plugin/sif/sif_extended_transformer.rs"
-status = "described"
+status = "skeleton"
+remaining = ["SIF node, parser, diagnostic and dependency helpers exist; full product-program transformation and concrete plugin lifecycle integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/sif/SIFPAstExtensions.scala"
 destination = "crates/ferrum-silver/src/plugin/sif/sifp_ast_extensions.rs"
-status = "described"
+status = "skeleton"
+remaining = ["SIF node, parser, diagnostic and dependency helpers exist; full product-program transformation and concrete plugin lifecycle integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/sif/SIFPlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/sif/sif_plugin.rs"
-status = "described"
+status = "skeleton"
+remaining = ["SIF node, parser, diagnostic and dependency helpers exist; full product-program transformation and concrete plugin lifecycle integration remain."]
 
 [[modules]]
 repository = "silver"

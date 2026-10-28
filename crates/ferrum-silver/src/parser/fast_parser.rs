@@ -133,6 +133,7 @@ pub enum ParserFeature {
     Refute,
     Unreachable,
     PredicateInstance,
+    Sif,
 }
 
 /// Parse a complete program containing the currently supported declarations.
@@ -401,6 +402,8 @@ struct ExpressionParser<'a> {
 impl ExpressionParser<'_> {
     fn is_keyword(&self, name: &str) -> bool {
         is_keyword(name)
+            || (matches!(name, "low" | "lowEvent" | "rel")
+                && self.features.contains(&ParserFeature::Sif))
             || (name == "refute" && self.features.contains(&ParserFeature::Refute))
             || (name == "unreachable" && self.features.contains(&ParserFeature::Unreachable))
     }
@@ -1672,6 +1675,58 @@ impl ExpressionParser<'_> {
     fn atom(&mut self) -> Result<PExpHandle, SyntaxError> {
         self.trivia()?;
         let start = self.cursor;
+        if self.features.contains(&ParserFeature::Sif) {
+            let end = self.identifier_end(start);
+            let name = &self.source[start..end];
+            if matches!(name, "low" | "lowEvent" | "rel") {
+                self.cursor = end;
+                let kind = if name == "lowEvent" {
+                    crate::plugin::sif::sifp_ast_extensions::PSifKind::LowEvent
+                } else {
+                    self.take("(")?
+                        .ok_or_else(|| self.error("expected '(' after SIF keyword"))?;
+                    let exp = self.expression(0)?;
+                    if name == "low" {
+                        self.take(")")?
+                            .ok_or_else(|| self.error("expected ')' after low expression"))?;
+                        crate::plugin::sif::sifp_ast_extensions::PSifKind::Low(exp)
+                    } else {
+                        self.take(",")?
+                            .ok_or_else(|| self.error("expected ',' in rel expression"))?;
+                        self.trivia()?;
+                        let integer_start = self.cursor;
+                        while self
+                            .source
+                            .as_bytes()
+                            .get(self.cursor)
+                            .is_some_and(|c| c.is_ascii_digit())
+                        {
+                            self.cursor += 1;
+                        }
+                        if self.cursor == integer_start {
+                            return Err(self.error("expected integer rel index"));
+                        }
+                        let integer = self.source[integer_start..self.cursor]
+                            .parse()
+                            .map_err(|_| self.error("invalid rel index"))?;
+                        let index = self.expr_node(
+                            PExpressionKind::IntLit(integer),
+                            self.position(integer_start),
+                            self.position(self.cursor),
+                        );
+                        self.take(")")?
+                            .ok_or_else(|| self.error("expected ')' after rel expression"))?;
+                        crate::plugin::sif::sifp_ast_extensions::PSifKind::Rel { exp, index }
+                    }
+                };
+                let exp = crate::plugin::sif::sifp_ast_extensions::PSifExpression {
+                    kind,
+                    pos: self.span(start, self.cursor),
+                }
+                .expression();
+                return self.suffix(exp);
+            }
+        }
         if self.features.contains(&ParserFeature::PredicateInstance)
             && self.source[start..].starts_with('#')
         {

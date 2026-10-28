@@ -430,7 +430,7 @@ fn visit_names(
             PExpressionKind::Forall(_)
             | PExpressionKind::Exists(_)
             | PExpressionKind::ForPerm { .. } => scope = Some(DeclarationMap::new(false, false)),
-            PExpressionKind::Extension(extension) if !extension.as_any().is::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() => {
+            PExpressionKind::Extension(extension) if !extension.as_any().is::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() && !extension.as_any().is::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() => {
                 return Err(NameAnalysisError::Unsupported("expression extension name analysis"));
             }
             PExpressionKind::Let { .. } => return Err(NameAnalysisError::Unsupported("let name analysis")),
@@ -646,6 +646,7 @@ pub enum TypeCheckError {
     Unsupported(&'static str),
     Undeclared(String),
     AmbiguousIdentifier(String),
+    InvalidSifRelIndex(num_bigint::BigInt),
     Incompatible {
         expression: PNodeHandle,
         actual: PTypeHandle,
@@ -912,6 +913,26 @@ pub fn check_expression(
         PExpressionKind::Size { seq, .. } => {
             check_operator(input, None, vec![seq], expected, false)?
         }
+        PExpressionKind::Extension(extension)
+            if extension
+                .as_any()
+                .is::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() =>
+        {
+            let sif = extension
+                .as_any()
+                .downcast_ref::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>()
+                .expect("checked SIF type");
+            check_sif_extension(input, sif, None, &mut |_, _| {})?;
+            let state = input.node().read().expect("poisoned parse node");
+            let PNodeKind::Expression(expression) = &state.kind else {
+                unreachable!()
+            };
+            (
+                expression.typ.clone(),
+                sif.type_substitutions()
+                    .ok_or(TypeCheckError::Unsupported("SIF substitutions"))?,
+            )
+        }
         PExpressionKind::Extension(extension) => {
             let Some(instance) = extension.as_any().downcast_ref::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() else { return Err(TypeCheckError::Unsupported("expression extension typechecking")); };
             if let Some(message) = instance.check_as_predicate_call(input)? {
@@ -1142,6 +1163,35 @@ mod call_tests {
     }
 }
 
+fn check_sif_extension(
+    input: &PExpHandle,
+    sif: &crate::plugin::sif::sifp_ast_extensions::PSifExpression,
+    expected: Option<&PTypeHandle>,
+    warn: &mut dyn FnMut(&PNodeHandle, &str),
+) -> Result<PTypeHandle, TypeCheckError> {
+    use crate::plugin::sif::sifp_ast_extensions::SifTypeError;
+    let error = sif.typecheck(input, expected, |exp, typ| {
+        check_top_expression(exp, typ, &mut *warn).map(|_| ())
+    })?;
+    match error {
+        None => match &input.node().read().expect("poisoned parse node").kind {
+            PNodeKind::Expression(e) => Ok(e.typ.clone()),
+            _ => Err(TypeCheckError::Unsupported("SIF expression node")),
+        },
+        Some(SifTypeError::Expected { expected, actual }) => Err(TypeCheckError::Incompatible {
+            expression: input.node().clone(),
+            expected,
+            actual,
+        }),
+        Some(SifTypeError::InvalidRelIndex(index)) => {
+            Err(TypeCheckError::InvalidSifRelIndex(index))
+        }
+        Some(SifTypeError::NonLiteralRelIndex) => {
+            Err(TypeCheckError::Unsupported("SIF rel literal index"))
+        }
+    }
+}
+
 /// Resolve a top-level expression's overloads, select the first surviving substitution,
 /// ground remaining free type variables to Int and propagate the substitution down the tree.
 /// The callback receives the source warning for each defaulted type variable.
@@ -1150,6 +1200,21 @@ pub fn check_top_expression(
     expected: Option<&PTypeHandle>,
     mut warn: impl FnMut(&PNodeHandle, &str),
 ) -> Result<PTypeHandle, TypeCheckError> {
+    let extension = match &input.node().read().expect("poisoned parse node").kind {
+        PNodeKind::Expression(e) => match &e.kind {
+            PExpressionKind::Extension(extension) => Some(extension.clone()),
+            _ => None,
+        },
+        _ => None,
+    };
+    if let Some(extension) = extension {
+        if let Some(sif) = extension
+            .as_any()
+            .downcast_ref::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>()
+        {
+            return check_sif_extension(input, sif, expected, &mut warn);
+        }
+    }
     let actual = check_expression(input, None)?;
     let candidates = input
         .type_subs_distinct()

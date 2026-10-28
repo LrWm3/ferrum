@@ -23,4 +23,35 @@
 //! Replace upstream global transformer configuration/error callback with an agreed owned context
 //! without changing configuration behavior.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; SIF parser feature registration and fallible transformer dispatch are
+//! implemented. The concrete extended transformer remains pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2025 ETH Zurich.
+
+use crate::ast::program::Program;
+use crate::parser::fast_parser::ParserFeature;
+use crate::plugin::silver_plugin::{PluginHookError, SilverPlugin};
+
+/// A concrete implementation of the SIF extended transformation must supply
+/// the actual rewrite; no unchanged-program fallback represents a successful transform.
+pub trait SifTransformer: Send {
+    fn transform(
+        &mut self,
+        input: Program,
+        enable_timing: bool,
+    ) -> Result<Program, PluginHookError>;
+}
+pub struct SifPlugin<T: SifTransformer> {
+    pub transformer: T,
+}
+impl<T: SifTransformer> SilverPlugin for SifPlugin<T> {
+    fn parser_features(&self) -> Vec<ParserFeature> {
+        vec![ParserFeature::Sif]
+    }
+    fn before_verify(&mut self, input: Program) -> Result<Program, PluginHookError> {
+        self.transformer.transform(input, false)
+    }
+}

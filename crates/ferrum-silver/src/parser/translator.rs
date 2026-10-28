@@ -175,6 +175,22 @@ fn translate_expression_with_fields(
                 meta.clone(),
             ))
         }
+        PExpressionKind::Extension(extension)
+            if extension
+                .as_any()
+                .is::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() =>
+        {
+            let sif = extension
+                .as_any()
+                .downcast_ref::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>()
+                .expect("checked SIF type");
+            return sif
+                .translate(
+                    |_| meta,
+                    |exp| translate_expression_with_fields(exp, fields),
+                )?
+                .map_err(|_| TranslationError::InvalidType);
+        }
         PExpressionKind::Extension(extension) => {
             let Some(instance) = extension.as_any().downcast_ref::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() else { return Err(TranslationError::Unsupported("expression extension translation")); };
             return instance.translate(
@@ -1147,6 +1163,32 @@ mod program_tests {
     use super::*;
     use crate::parser::fast_parser::parse_program;
     use crate::parser::resolver::{NameAnalyser, check_program_core};
+    #[test]
+    fn sif_low_and_rel_are_parsed_checked_and_translated() {
+        use crate::parser::fast_parser::{ParserFeature, parse_program_with_features};
+        let parsed = parse_program_with_features(
+            "function f(): Bool { low(1) } function g(): Int { rel(1, 0) } function h(): Bool { lowEvent }",
+            "test.vpr",
+            &[ParserFeature::Sif],
+        )
+        .unwrap();
+        super::super::parse_ast::init_properties(parsed.node()).unwrap();
+        assert!(NameAnalyser::default().run(parsed.node()).unwrap());
+        check_program_core(&parsed, &mut |_, _| {}).unwrap();
+        let program = translate_program_core(&parsed).unwrap();
+        assert!(
+            matches!(program.functions[0].body.as_ref().unwrap().kind(), ExpKind::Extension(h) if h.0.as_any().is::<crate::plugin::sif::sif_ast_extensions::SifExpression>())
+        );
+        let invalid = parse_program_with_features(
+            "function f(): Int { rel(1, 2) }",
+            "test.vpr",
+            &[ParserFeature::Sif],
+        )
+        .unwrap();
+        super::super::parse_ast::init_properties(invalid.node()).unwrap();
+        assert!(NameAnalyser::default().run(invalid.node()).unwrap());
+        assert!(check_program_core(&invalid, &mut |_, _| {}).is_err());
+    }
     #[test]
     fn non_generic_domain_function_call_translates_with_owner() {
         let parsed = parse_program(

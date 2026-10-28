@@ -3490,9 +3490,10 @@ impl PExpHandle {
         let expression = self.snapshot();
         match expression.kind.clone() {
             Extension(extension) => {
-                if let Some(instance) = extension.as_any().downcast_ref::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() { instance.force_substitution(substitution) }
+                if let Some(sif) = extension.as_any().downcast_ref::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() { sif.force_substitution(substitution) }
+                else if let Some(instance) = extension.as_any().downcast_ref::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() { instance.force_substitution(substitution) }
                 else { Err(ForceSubstitutionError::ExtensionNotImplemented) }
-            },
+            }
             IntLit(_)
             | ResultLit(_)
             | BoolLit(_)
