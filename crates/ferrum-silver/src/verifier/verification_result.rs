@@ -142,6 +142,7 @@ impl std::fmt::Display for ParseReport {
 /// A backend diagnostic can carry typed node/reason transformations without
 /// requiring the frontend result type to depend on a particular backend.
 pub trait VerificationDiagnostic: std::fmt::Debug + Send + Sync {
+    fn as_any(&self) -> &dyn std::any::Any;
     fn full_id(&self) -> String;
     fn position(&self) -> Position;
     fn readable_message(&self) -> Result<String, DiagnosticError>;
