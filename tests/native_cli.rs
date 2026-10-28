@@ -13,7 +13,7 @@ impl Drop for Input {
         let _ = std::fs::remove_file(&self.0);
     }
 }
-fn check(source: &str, expected: i32) {
+fn run(source: &str, args: &[&str]) -> std::process::Output {
     let solver =
         std::env::var_os("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3 to the Z3 executable");
     let path = std::env::temp_dir().join(format!(
@@ -23,12 +23,16 @@ fn check(source: &str, expected: i32) {
     ));
     let input = Input(path);
     std::fs::write(&input.0, source).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_ferrum"))
+    Command::new(env!("CARGO_BIN_EXE_ferrum"))
         .arg("--z3Exe")
         .arg(solver)
+        .args(args)
         .arg(&input.0)
         .output()
-        .unwrap();
+        .unwrap()
+}
+fn check(source: &str, expected: i32) {
+    let output = run(source, &[]);
     assert_eq!(
         output.status.code(),
         Some(expected),
@@ -39,6 +43,22 @@ fn check(source: &str, expected: i32) {
     if expected == 1 {
         assert!(String::from_utf8_lossy(&output.stderr).contains("assert.failed"));
     }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn final_report_groups_duplicate_branch_failures() {
+    let output = run(
+        "method test(b: Bool) { if (b) { } else { } assert false; }",
+        &["--numberOfErrorsToReport", "0"],
+    );
+    let errors = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{errors}");
+    assert_eq!(errors.matches("assert.failed").count(), 1, "{errors}");
+    assert!(
+        errors.contains("Verification failed with 1 error(s)."),
+        "{errors}"
+    );
 }
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]

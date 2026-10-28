@@ -115,6 +115,26 @@ fn final_result(errors: Vec<AbstractError>) -> VerificationResult {
     }
 }
 
+/// SilFrontend.finish groups failures by the transformed readable message,
+/// retaining the first occurrence and preserving source order.
+fn distinct_failures(result: VerificationResult) -> Result<VerificationResult, FerrumError> {
+    let VerificationResult::Failure(errors) = result else {
+        return Ok(result);
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut distinct = Vec::new();
+    for error in errors {
+        let key = error
+            .transformed_error()
+            .and_then(|error| error.readable_message())
+            .map_err(execution)?;
+        if seen.insert(key) {
+            distinct.push(error);
+        }
+    }
+    Ok(VerificationResult::Failure(distinct))
+}
+
 struct NativeBackend {
     config: Config,
     context: Option<NativeContext>,
@@ -353,7 +373,11 @@ pub fn run_file(config: Config) -> Result<RunReport, FerrumError> {
     let result = phases
         .map_verification(&program, result)
         .map_err(FerrumError::Diagnostics)?;
+    // Source finish transforms before plugins and groups after beforeFinish.
+    // The AST Session entry point deliberately returns the backend result.
+    let result = result.transformed_result().map_err(execution)?;
     let result = phases.plugins.before_finish(result);
+    let result = distinct_failures(result)?;
     Ok(RunReport {
         outcome: RunOutcome::Verified(result),
         warnings,
