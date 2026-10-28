@@ -555,6 +555,76 @@ mod tests {
         phases.check_consistency(program).unwrap();
     }
     #[test]
+    fn quantified_macro_renames_capturing_binders_and_keeps_shadowing() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("define greater(p) forall x: Int :: p > x define same(x) forall x: Int :: x == x method m(x: Int) { assert greater(x); assert same(1); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let rendered = crate::ast::pretty::pretty_printer::pretty(
+            75,
+            &crate::ast::pretty::pretty_printer::show_program(&program).unwrap(),
+        );
+        assert!(rendered.contains("x$0"), "{rendered}");
+        phases.check_consistency(program).unwrap();
+        let parsed = phases
+            .parse(
+                "domain D {} define valid(T) forall v: T :: v == v method m() { assert valid(D); }",
+            )
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+    }
+    #[test]
+    fn macro_identifier_aliases_expand_in_call_positions() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases
+            .parse("function g(x: Int): Int { x + 1 } method m() { define f g assert f(1) == 2; }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        assert!(
+            phases
+                .parse(
+                    "function g(x: Int): Int { x + 1 } method m() { define g 1 assert g(1) == 2; }"
+                )
+                .is_err()
+        );
+    }
+    #[test]
+    fn macro_generated_names_do_not_leak_between_sibling_blocks() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("define add { var x: Int := 1; assert x == 1; } method m() { if (true) { add; } if (true) { add; } }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let rendered = crate::ast::pretty::pretty_printer::pretty(
+            75,
+            &crate::ast::pretty::pretty_printer::show_program(&program).unwrap(),
+        );
+        assert!(!rendered.contains("x$0"), "{rendered}");
+        phases.check_consistency(program).unwrap();
+    }
+    #[test]
+    fn let_macro_preserves_caller_names() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases
+            .parse("define d(a) let x == (a) in x + a method m(x: Int) { assert d(x) == x + x; }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let rendered = crate::ast::pretty::pretty_printer::pretty(
+            75,
+            &crate::ast::pretty::pretty_printer::show_program(&program).unwrap(),
+        );
+        assert!(rendered.contains("x$0"), "{rendered}");
+        phases.check_consistency(program).unwrap();
+    }
+    #[test]
     fn statement_macros_expand_and_splice_without_a_scope() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
@@ -566,11 +636,28 @@ mod tests {
         let analyzed = phases.analyze(parsed).unwrap();
         let program = phases.translate(analyzed).unwrap();
         phases.check_consistency(program).unwrap();
-        assert!(
-            phases
-                .parse("define bad(x) { var y: Int := x; } method m() { bad(1); }")
-                .is_err()
+        let parsed = phases.parse("define bump(v) { var x: Int := v; x := x + 1; assert x > v; } method m() { var x: Int := 2; bump(x); assert x == 2; }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let rendered = crate::ast::pretty::pretty_printer::pretty(
+            75,
+            &crate::ast::pretty::pretty_printer::show_program(&program).unwrap(),
         );
+        assert!(rendered.contains("x$0"), "{rendered}");
+        phases.check_consistency(program).unwrap();
+        let parsed = phases.parse("define count(x) { while (x > 0) invariant x >= 0 { x := x - 1; } } method m() { var n: Int := 1; count(n); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        let parsed = phases.parse("define loopBody { label L invariant true goto L } method m() { loopBody; loopBody; }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let rendered = crate::ast::pretty::pretty_printer::pretty(
+            75,
+            &crate::ast::pretty::pretty_printer::show_program(&program).unwrap(),
+        );
+        assert!(rendered.contains("L$0"), "{rendered}");
+        phases.check_consistency(program).unwrap();
         assert!(
             phases
                 .parse("define a() { a(); } method m() { a(); }")
