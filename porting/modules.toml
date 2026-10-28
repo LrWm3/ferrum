@@ -2578,4 +2578,9 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_preamble.rs"
 status = "skeleton"
-remaining = ["General user-domain/collection assembly and source interpreted backend types provide required snapshot wrappers without redeclaring SMT sorts. Unsupported extension and heap-function domain axioms remain explicit errors; exact unchanged-node substitution identity remains a compatibility gap."]
+remaining = ["General user-domain/collection assembly and source interpreted backend types provide required snapshot wrappers without redeclaring SMT sorts. Unsupported extension and heap-function domain axioms remain explicit errors; full extension substitution compatibility remains to be checked."]
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/decider/native_z3.rs"
+status = "skeleton"
+remaining = ["Optional linked Z3 C API driver and Prover adapter connect context-owned handles, solver scopes, declarations, models, both assertion modes and startup options. Context arguments, dynamic options, invalid-trigger repair, richer reporting and broad parity remain incomplete."]

@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+native-z3 = ["ferrum-silicon/native-z3"]
+
 [workspace]
 members = [".", "crates/ferrum-silver", "crates/ferrum-silicon"]
 resolver = "3"

@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+native-z3 = []
+
 [dependencies]
 serde_json.workspace = true
 regex.workspace = true

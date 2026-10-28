@@ -148,7 +148,7 @@ impl<C: NativeZ3Solver> Z3ApiSession<C> {
         }
         Ok(())
     }
-    fn set_timeout(&mut self, timeout_ms: Option<i32>) -> ApiResult<C, ()> {
+    pub(crate) fn set_timeout(&mut self, timeout_ms: Option<i32>) -> ApiResult<C, ()> {
         let effective = timeout_ms.unwrap_or(self.timeout.default_timeout_ms);
         if self.last_timeout != Some(effective) {
             let resource = !self.timeout.use_time_bounds;

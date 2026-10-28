@@ -3,6 +3,8 @@
 
 pub mod cvc5_prover_std_io;
 pub mod decider;
+#[cfg(feature = "native-z3")]
+pub mod native_z3;
 pub mod package;
 pub mod path_conditions;
 pub mod prover_std_io;

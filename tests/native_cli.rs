@@ -1,5 +1,6 @@
 //! Ferrum native runner regression checks described in PLAN.md.
-//! These checks require a real Z3 process and are run explicitly with FERRUM_TEST_Z3.
+//! These checks require real Z3 and run explicitly with FERRUM_TEST_Z3 for stdio,
+//! or FERRUM_TEST_PROVER=Z3-API and the native-z3 feature for linked Z3 4.16.
 
 use std::{
     path::PathBuf,
@@ -14,8 +15,7 @@ impl Drop for Input {
     }
 }
 fn run(source: &str, args: &[&str]) -> std::process::Output {
-    let solver =
-        std::env::var_os("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3 to the Z3 executable");
+    let prover = std::env::var("FERRUM_TEST_PROVER").unwrap_or_else(|_| "Z3".into());
     let path = std::env::temp_dir().join(format!(
         "ferrum-branch-{}-{}.vpr",
         std::process::id(),
@@ -23,13 +23,14 @@ fn run(source: &str, args: &[&str]) -> std::process::Output {
     ));
     let input = Input(path);
     std::fs::write(&input.0, source).unwrap();
-    Command::new(env!("CARGO_BIN_EXE_ferrum"))
-        .arg("--z3Exe")
-        .arg(solver)
-        .args(args)
-        .arg(&input.0)
-        .output()
-        .unwrap()
+    let mut command = Command::new(env!("CARGO_BIN_EXE_ferrum"));
+    command.arg("--prover").arg(&prover);
+    if prover == "Z3" {
+        command.arg("--z3Exe").arg(
+            std::env::var_os("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3 to the Z3 executable"),
+        );
+    }
+    command.args(args).arg(&input.0).output().unwrap()
 }
 fn check(source: &str, expected: i32) {
     let output = run(source, &[]);
@@ -121,7 +122,10 @@ fn repeated_session_runs_discard_previous_axioms() {
         },
     };
     let mut config = Config::default();
-    config.z3_exe = Some(std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3"));
+    config.prover = std::env::var("FERRUM_TEST_PROVER").unwrap_or_else(|_| "Z3".into());
+    if config.prover == "Z3" {
+        config.z3_exe = Some(std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3"));
+    }
     let mut session = Session::new(config.clone()).unwrap();
     for (source, success) in [
         (

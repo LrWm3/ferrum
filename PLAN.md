@@ -44,6 +44,10 @@ wands and advanced execution or reporting profiles remain incomplete; unsupporte
 paths return execution errors.
 Interpreted backend types now preserve source SMT operations, including bitvectors
 and floating-point values.
+An optional `native-z3` Cargo feature links Z3 4.16 directly and exposes the
+`--prover Z3-API` path through the same native verification context. The default
+build keeps the stdio solver transport. Native API option, trigger-repair and
+reporting compatibility still require completion and comparison.
 Full compatibility and comparative performance remain unmeasured.
 
 ## Upstream baseline and scope

@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 403 mapped and assembly modules. `described` files
+The Cargo workspace now has 404 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
@@ -85,6 +85,39 @@ python3 tools/check_porting.py --complete --upstream
 cargo fmt --all --check
 cargo check --workspace --all-targets --locked
 git diff --check
+```
+
+The optional `native-z3` feature links a native Z3 library without Java or JNI.
+The CLI's `--prover Z3-API` path requires version 4.16.0.0, matching the pinned
+Silicon API backend. Builds without the feature keep using solver subprocesses
+and do not link `libz3`. Supply a matching library at build and run time, for
+example on Linux:
+
+```sh
+Z3_LIB_DIR=/path/to/directory-containing-libz3
+RUSTFLAGS="-L native=$Z3_LIB_DIR" cargo build --features native-z3 --locked
+LD_LIBRARY_PATH="$Z3_LIB_DIR" target/debug/ferrum --prover Z3-API input.vpr
+```
+
+The reviewed Linux library came from the official
+[Z3 4.16.0 release](https://github.com/Z3Prover/z3/releases/tag/z3-4.16.0),
+`z3-4.16.0-x64-glibc-2.39.zip`, with SHA-256
+`7288c49a5bd6dbafd7b0b0d1f65956b91672da24b08f09242919af159be3418e`.
+This archive is platform specific; Ferrum does not download or install it.
+Both assertion modes and startup solver parameters are connected. Full trigger
+repair, context arguments, dynamic options, logging and richer runtime reporting
+are unfinished and return errors where requested. A non-reference-counted Z3
+context retains AST allocations until the context and its last handle are dropped;
+long-lived API contexts can therefore retain more memory than the Java binding.
+
+Run the native runner regressions with `FERRUM_TEST_Z3=/path/to/z3` for stdio, or
+`FERRUM_TEST_PROVER=Z3-API` with the feature and matching library environment:
+
+```sh
+FERRUM_TEST_Z3=/path/to/z3 cargo test --test native_cli -- --ignored
+FERRUM_TEST_PROVER=Z3-API RUSTFLAGS="-L native=$Z3_LIB_DIR" \
+  LD_LIBRARY_PATH="$Z3_LIB_DIR" \
+  cargo test --features native-z3 --test native_cli -- --ignored
 ```
 
 `--upstream` requires the pinned Git objects in the sibling checkouts named in

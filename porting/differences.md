@@ -162,10 +162,16 @@ unsupported paths instead of approximated output.
 
 ## Native API and debugger boundaries
 
-The Z3 API conversion/session port uses typed native context and driver contracts;
-no concrete linked Z3 binding is selected yet. Assertion handling proves a goal
-only on UNSAT and attempts scope restoration on error. It is not an alias for the
-working stdio transport and does not establish native API parity.
+The optional `native-z3` feature implements the Z3 C API contracts directly with
+thread-bound, context-owned handles and kind/context checks before FFI calls.
+The API CLI requires the pinned 4.16.0.0 library instead of attempting execution
+with a mismatched library. Assertion handling proves a goal only on UNSAT and
+attempts scope restoration on error. Structured failure models retain their Z3
+context. Non-reference-counted contexts keep AST allocations until their last
+handle is dropped, a memory-lifetime difference from the Java binding.
+Unknown startup parameters currently produce errors rather than source warnings;
+random seed values use the source range with a native sequence. These choices
+and focused solver checks do not establish complete native API parity.
 
 Debug tokens retain the source ASCII grammar. `debug@` is lexically accepted
 upstream but its split-index construction fails; native construction reports a

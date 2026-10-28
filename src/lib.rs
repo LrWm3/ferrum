@@ -48,7 +48,7 @@ use silicon::{
     state::terms::{TermFactory, TermOptions},
     verifier::{
         base_verifier::BaseVerifier,
-        native_context::{NativeContext, NativeOptions},
+        native_context::{NativeContext, NativeFunctionData, NativeOptions, NativeVerifierContext},
     },
 };
 use silver::{
@@ -141,9 +141,91 @@ fn distinct_failures(result: VerificationResult) -> Result<VerificationResult, F
     Ok(VerificationResult::Failure(distinct))
 }
 
+type ExecutingContext<P> = NativeVerifierContext<
+    P,
+    silicon::supporters::predicate_verification_unit::PredicateData,
+    NativeFunctionData,
+>;
+
+enum OwnedContext {
+    Stdio(Box<NativeContext>),
+    #[cfg(feature = "native-z3")]
+    Api(Box<ExecutingContext<silicon::decider::native_z3::LinkedZ3Prover>>),
+}
+impl OwnedContext {
+    fn verify_program(
+        &mut self,
+        program: &Program,
+        cfgs: &[SilverCfg],
+    ) -> Result<Vec<SiliconResult<VerificationError>>, FerrumError> {
+        match self {
+            Self::Stdio(context) => context.verify_program(program, cfgs).map_err(execution),
+            #[cfg(feature = "native-z3")]
+            Self::Api(context) => context.verify_program(program, cfgs).map_err(execution),
+        }
+    }
+    fn stop(&mut self) -> Result<(), FerrumError> {
+        match self {
+            Self::Stdio(context) => context.stop().map_err(execution),
+            #[cfg(feature = "native-z3")]
+            Self::Api(context) => context.stop().map_err(execution),
+        }
+    }
+    fn warnings(&mut self) -> &mut Vec<String> {
+        match self {
+            Self::Stdio(context) => &mut context.warnings,
+            #[cfg(feature = "native-z3")]
+            Self::Api(context) => &mut context.warnings,
+        }
+    }
+}
+
+fn start_context<P: silicon::interfaces::decider::prover::Prover>(
+    prover: P,
+    identifiers: silicon::state::identifiers::DefaultIdentifierFactory,
+    config: &Config,
+    factory: TermFactory,
+    options: NativeOptions,
+) -> Result<ExecutingContext<P>, FerrumError>
+where
+    P::Error: std::fmt::Debug,
+{
+    let decider = DefaultDecider::new(
+        prover,
+        config.enable_debugging,
+        config.assert_timeout,
+        Some(config.check_timeout),
+        Some(config.push_timeout),
+    );
+    let base = BaseVerifier::new_with_identifiers(
+        "main".into(),
+        decider,
+        factory.clone(),
+        config.mask_heap_mode,
+        config.state_consolidation_mode,
+        identifiers,
+    );
+    let mut context = ExecutingContext::new(base, factory, options);
+    // The API adapter receives typed startup options in its constructor. Stdio
+    // transports receive the same configuration as SMT-LIB settings instead.
+    let settings: Vec<_> = if config.prover == "Z3-API" {
+        Vec::new()
+    } else {
+        config
+            .prover_config_args
+            .iter()
+            .map(|(key, value)| format!("(set-option :{key} {value})"))
+            .collect()
+    };
+    context
+        .start(config.prover_args.as_deref(), &settings)
+        .map_err(execution)?;
+    Ok(context)
+}
+
 struct NativeBackend {
     config: Config,
-    context: Option<NativeContext>,
+    context: Option<OwnedContext>,
     recorded_source: Option<String>,
     warnings: Arc<Mutex<Vec<String>>>,
 }
@@ -177,6 +259,64 @@ impl SiliconBackend for NativeBackend {
             use_old_axiomatization: config.use_old_axiomatization,
             mask_heap_mode: config.mask_heap_mode,
         });
+        if config.prover == "Z3-API" {
+            #[cfg(not(feature = "native-z3"))]
+            return Err(FerrumError::Configuration(
+                "Z3-API requires a build with --features native-z3 and libz3 4.16.0".into(),
+            ));
+            #[cfg(feature = "native-z3")]
+            {
+                use silicon::decider::{
+                    native_z3::{LinkedProverOptions, LinkedZ3, LinkedZ3Prover},
+                    z3_prover_api::ApiTimeoutSettings,
+                };
+                if config.output_prover_log() {
+                    return Err(FerrumError::Configuration(
+                        "Z3-API prover logging is not yet connected".into(),
+                    ));
+                }
+                let version = LinkedZ3::library_version();
+                if version != (4, 16, 0, 0) {
+                    return Err(FerrumError::Configuration(format!(
+                        "Z3-API requires the pinned libz3 4.16.0.0; linked library is {}.{}.{}.{}",
+                        version.0, version.1, version.2, version.3
+                    )));
+                }
+                let prover = LinkedZ3Prover::new(
+                    "main",
+                    factory.clone(),
+                    LinkedProverOptions {
+                        timeout: ApiTimeoutSettings {
+                            default_timeout_ms: config
+                                .prover_timeout()
+                                .map_err(|e| FerrumError::Configuration(e.to_string()))?,
+                            use_time_bounds: config.prover_enable_time_bounds,
+                            resources_per_millisecond: config.z3_resources_per_millisecond,
+                        },
+                        counterexamples: config.frontend.counterexample.is_some(),
+                        report_reason_unknown: config.report_reason_unknown,
+                        debug: config.enable_debugging,
+                        custom_options: config
+                            .prover_config_args
+                            .iter()
+                            .map(|(key, value)| (key.clone(), value.clone()))
+                            .collect(),
+                        disable_nonlinear: config.disable_nl,
+                        soft_assertions: config.assertion_mode
+                            == silicon::config::AssertionMode::SoftConstraints,
+                    },
+                );
+                let identifiers = prover.identifier_factory();
+                self.context = Some(OwnedContext::Api(Box::new(start_context(
+                    prover,
+                    identifiers,
+                    config,
+                    factory,
+                    options,
+                )?)));
+                return Ok(());
+            }
+        }
         let settings = config
             .prover_settings("main")
             .map_err(|e| FerrumError::Configuration(e.to_string()))?;
@@ -205,31 +345,13 @@ impl SiliconBackend for NativeBackend {
             },
         );
         let identifiers = prover.identifier_factory();
-        let decider = DefaultDecider::new(
+        self.context = Some(OwnedContext::Stdio(Box::new(start_context(
             prover,
-            config.enable_debugging,
-            config.assert_timeout,
-            Some(config.check_timeout),
-            Some(config.push_timeout),
-        );
-        let base = BaseVerifier::new_with_identifiers(
-            "main".into(),
-            decider,
-            factory.clone(),
-            config.mask_heap_mode,
-            config.state_consolidation_mode,
             identifiers,
-        );
-        let mut context = NativeContext::new(base, factory, options);
-        let settings: Vec<_> = config
-            .prover_config_args
-            .iter()
-            .map(|(key, value)| format!("(set-option :{key} {value})"))
-            .collect();
-        context
-            .start(config.prover_args.as_deref(), &settings)
-            .map_err(execution)?;
-        self.context = Some(context);
+            config,
+            factory,
+            options,
+        )?)));
         Ok(())
     }
     fn reset(&mut self) -> Result<(), FerrumError> {
@@ -243,8 +365,8 @@ impl SiliconBackend for NativeBackend {
             self.warnings
                 .lock()
                 .expect("poisoned warning buffer")
-                .append(&mut context.warnings);
-            context.stop().map_err(execution)?;
+                .append(context.warnings());
+            context.stop()?;
         }
         Ok(())
     }
@@ -275,8 +397,8 @@ impl SiliconBackend for NativeBackend {
         self.warnings
             .lock()
             .expect("poisoned warning buffer")
-            .append(&mut context.warnings);
-        let results: Vec<SiliconResult<VerificationError>> = results.map_err(execution)?;
+            .append(context.warnings());
+        let results: Vec<SiliconResult<VerificationError>> = results?;
         // Main verification already flattens each member's predecessor results.
         // Silicon.runVerifier selects only failures and sorts on transformed position.
         let mut errors = Vec::new();
