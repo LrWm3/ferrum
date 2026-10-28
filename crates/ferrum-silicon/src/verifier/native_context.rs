@@ -70,6 +70,7 @@ pub struct NativeOptions {
     pub enable_simplified_unfolds: bool,
     pub conditionalize_permissions: bool,
     pub print_translated_program: bool,
+    pub cfg_output_directory: Option<std::path::PathBuf>,
     pub mask_heap_mode: bool,
     pub simplify_on_consume: bool,
     pub set_axiomatization_file: Option<std::path::PathBuf>,
@@ -125,7 +126,6 @@ impl NativeOptions {
             || config.parallelize_branches
             || config.frontend.ide_mode_advanced
             || config.generate_block_messages
-            || config.print_method_cf_gs
         {
             return Err(NativeError::Unsupported(
                 "requested verifier configuration is not connected",
@@ -176,6 +176,9 @@ impl NativeOptions {
             enable_simplified_unfolds: config.enable_simplified_unfolds,
             conditionalize_permissions: config.conditionalize_permissions,
             print_translated_program: config.print_translated_program,
+            cfg_output_directory: config
+                .print_method_cf_gs
+                .then(|| config.temp_directory.clone().into()),
             mask_heap_mode: config.mask_heap_mode,
             simplify_on_consume: config.simplify_on_consume,
             set_axiomatization_file: config.set_axiomatization_file.as_ref().map(Into::into),
@@ -631,6 +634,21 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             &mut service,
         )
         .map_err(|e| NativeError::Chunk(format!("mask havoc: {e:?}")))
+    }
+    /// Write the source CFG dump at the method/standalone verification hook.
+    fn write_cfg_output(
+        &self,
+        filename: &str,
+        cfg: &SilverCfg,
+    ) -> Result<(), NativeError<S::Error>> {
+        let Some(directory) = &self.options.cfg_output_directory else {
+            return Ok(());
+        };
+        let dot = cfg
+            .to_dot()
+            .map_err(|error| NativeError::Diagnostic(format!("CFG rendering: {error:?}")))?;
+        crate::common::io::package::to_file(&dot, directory.join(filename))
+            .map_err(|error| NativeError::Diagnostic(format!("CFG output: {error}")))
     }
     /// Set the reporter used for source-ordered quantifier preprocessing events.
     pub fn set_preprocessing_reporter(
@@ -7911,7 +7929,7 @@ where
         Ok(state)
     }
     fn output_method_cfg(&mut self, method: &Method, cfg: &SilverCfg) -> Result<(), Self::Error> {
-        Ok(())
+        self.write_cfg_output(&format!("{}.dot", method.name), cfg)
     }
     fn reset_method_error_count(&mut self) {
         self.base.errors_reported.store(0, Ordering::SeqCst)
@@ -15303,8 +15321,8 @@ where
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
         Ok(Arc::new(self.native_empty_heap(&state.program, true)?))
     }
-    fn output_cfg(&mut self, _: &SilverCfg) -> Result<(), Self::Error> {
-        Ok(())
+    fn output_cfg(&mut self, cfg: &SilverCfg) -> Result<(), Self::Error> {
+        self.write_cfg_output(&format!("CFG{}.dot", cfg.output_id()), cfg)
     }
     fn cfg_locally(
         &mut self,

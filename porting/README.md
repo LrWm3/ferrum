@@ -335,3 +335,11 @@ functions/macros, solver options and error counts on another verifier, and resto
 the caller after a cooperative join. A two-solver check covers replay and returned
 declarations. This does not enable `--parallelizeBranches`: owned continuations,
 cooperative scheduling, branch-report ordering and cancellation integration remain.
+
+`--printMethodCFGs` now writes source DOT graphs for selected methods and standalone
+CFGs under `--tempDirectory`, at the source verification hooks. Rendering retains
+block identities and insertion order; unsupported AST printing and native I/O
+failures return errors. Cloned CFG handles share their output filename identity.
+A selected conditional-method dump matched the pinned JVM output byte for byte.
+Focused checks cover method filtering, output errors and standalone CFG dumps
+with one/two workers.

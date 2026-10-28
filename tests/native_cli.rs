@@ -48,6 +48,54 @@ fn check(source: &str, expected: i32) {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn method_cfg_output_obeys_selection_and_propagates_io_failures() {
+    let directory = std::env::temp_dir().join(format!(
+        "ferrum-cfg-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let source = "method selected(x: Int) { if (x > 0) { assert x >= 0; } } method skipped() {}";
+    let output = run(
+        source,
+        &[
+            "--printMethodCFGs",
+            "--tempDirectory",
+            directory.to_str().unwrap(),
+            "--includeMethods",
+            "selected",
+            "--numberOfParallelVerifiers",
+            "2",
+        ],
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let dot = std::fs::read_to_string(directory.join("selected.dot")).unwrap();
+    assert!(dot.starts_with("digraph {\n"));
+    assert!(dot.contains("assert x \\>= 0"));
+    assert!(dot.contains("x \\> 0"));
+    assert!(!directory.join("skipped.dot").exists());
+    std::fs::remove_dir_all(&directory).unwrap();
+
+    std::fs::write(&directory, "parent is a file").unwrap();
+    let output = run(
+        "method m() {}",
+        &[
+            "--printMethodCFGs",
+            "--tempDirectory",
+            directory.to_str().unwrap(),
+        ],
+    );
+    std::fs::remove_file(&directory).unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("CFG output"));
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn parallel_counterexamples_retain_variable_and_heap_values() {
     let source = "field f: Int
         method m(x: Int, r: Ref) requires x == 3 && acc(r.f) && r.f == 1 {

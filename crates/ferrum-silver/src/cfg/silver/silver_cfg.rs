@@ -18,7 +18,10 @@ use crate::cfg::{
     edge::{Edge, Kind},
 };
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+static NEXT_OUTPUT_ID: AtomicU64 = AtomicU64::new(0);
 
 pub type SilverBlock = Block<Stmt, Exp>;
 pub type SilverEdge = Edge<Stmt, Exp>;
@@ -27,6 +30,7 @@ pub type SilverEdge = Edge<Stmt, Exp>;
 pub struct SilverCfg(Arc<SilverCfgData>);
 #[derive(Debug)]
 struct SilverCfgData {
+    output_id: u64,
     graph: Cfg<Stmt, Exp>,
     written_cache: Mutex<HashMap<SilverBlock, Vec<LocalVar>>>,
     join_cache: Mutex<Option<HashMap<SilverBlock, SilverBlock>>>,
@@ -54,6 +58,7 @@ impl SilverCfg {
     }
     pub fn from_cfg(graph: Cfg<Stmt, Exp>) -> Self {
         Self(Arc::new(SilverCfgData {
+            output_id: NEXT_OUTPUT_ID.fetch_add(1, Ordering::Relaxed),
             graph,
             written_cache: Mutex::new(HashMap::new()),
             join_cache: Mutex::new(None),
@@ -62,6 +67,18 @@ impl SilverCfg {
     /// Identity of the source CFG instance, independent of structural equality.
     pub fn same_node(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
+    }
+    /// Process-local identity for CFG output filenames; cloned handles share it.
+    /// This replaces the source JVM identity hash, not a persistent identifier.
+    pub fn output_id(&self) -> u64 {
+        self.0.output_id
+    }
+    pub fn to_dot(&self) -> Result<String, crate::ast::pretty::pretty_printer::PrintError> {
+        use crate::ast::{pretty::pretty_printer, utility::nodes::Node};
+        self.graph().try_to_dot_with(
+            |statement| pretty_printer::pretty_node(&Node::Stmt(statement.clone())),
+            pretty_printer::expression_to_string,
+        )
     }
     pub fn graph(&self) -> &Cfg<Stmt, Exp> {
         &self.0.graph
@@ -182,8 +199,10 @@ mod identity_tests {
         let cfg = SilverCfg::new(vec![entry.clone()], vec![], entry, None);
         let cloned = cfg.clone();
         assert!(cfg.same_node(&cloned));
+        assert_eq!(cfg.output_id(), cloned.output_id());
         let copied = cfg.copy_with(None, None, None, None);
         assert!(!cfg.same_node(&copied));
+        assert_ne!(cfg.output_id(), copied.output_id());
         assert_eq!(cfg.graph().entry(), copied.graph().entry());
     }
 }

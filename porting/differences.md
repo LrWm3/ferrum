@@ -283,3 +283,12 @@ solver emission. Pinned Silicon's domain translator supplies a Unit snapshot eve
 when mask function symbols have a different state-argument signature, causing an
 unknown-precondition-function solver error on the same inputs. Ferrum preserves
 the unsupported combination with an earlier diagnostic.
+
+## CFG output filenames and failures
+
+Standalone graph dumps use `CFG<n>.dot` with a process-local numeric identity
+shared by clones of a SilverCfg. This replaces the JVM's System.identityHashCode;
+filenames are not persistent graph identifiers. Method dumps retain `<name>.dot`.
+The source DOT structure, block IDs, iteration order and escaping remain intact.
+Native rendering and file-write errors propagate instead of being suppressed by
+Java PrintWriter, consistent with the native I/O difference above.

@@ -1,6 +1,7 @@
 //! Immutable generic CFG and its cached adjacency indexes.
 //! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/cfg/Cfg.scala
-//! Status: implemented; concrete Silver CFG integration remains pending.
+//! Status: source CFG operations and fallible DOT rendering connect to Silver and native verification.
+//! Broad source compatibility remains unproved.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -181,6 +182,21 @@ impl<S, E> Cfg<S, E> {
 }
 impl<S: Display, E: Display> Cfg<S, E> {
     pub fn to_dot(&self) -> String {
+        self.try_to_dot_with(
+            |s| Ok::<_, std::convert::Infallible>(s.to_string()),
+            |e| Ok::<_, std::convert::Infallible>(e.to_string()),
+        )
+        .unwrap_or_else(|never| match never {})
+    }
+}
+impl<S, E> Cfg<S, E> {
+    /// Render the source DOT structure without changing block identities. Native AST
+    /// printers may fail on an unsupported extension, so their errors remain visible.
+    pub fn try_to_dot_with<X>(
+        &self,
+        mut statement: impl FnMut(&S) -> Result<String, X>,
+        mut expression: impl FnMut(&E) -> Result<String, X>,
+    ) -> Result<String, X> {
         fn escape(s: String) -> String {
             s.replace('<', "\\<")
                 .replace('>', "\\>")
@@ -194,16 +210,16 @@ impl<S: Display, E: Display> Cfg<S, E> {
                     block,
                     statements
                         .iter()
-                        .map(|x| escape(x.to_string()))
-                        .collect::<Vec<_>>()
+                        .map(|x| statement(x).map(escape))
+                        .collect::<Result<Vec<_>, _>>()?
                         .join("|")
                 ),
                 BlockKind::Precondition(es) | BlockKind::Postcondition(es) => format!(
                     "{}|{}",
                     block,
                     es.iter()
-                        .map(|x| escape(x.to_string()))
-                        .collect::<Vec<_>>()
+                        .map(|x| expression(x).map(escape))
+                        .collect::<Result<Vec<_>, _>>()?
                         .join("|")
                 ),
                 BlockKind::LoopHead {
@@ -215,13 +231,13 @@ impl<S: Display, E: Display> Cfg<S, E> {
                     block,
                     invariants
                         .iter()
-                        .map(|x| format!("invariant {}", escape(x.to_string())))
-                        .collect::<Vec<_>>()
+                        .map(|x| expression(x).map(|text| format!("invariant {}", escape(text))))
+                        .collect::<Result<Vec<_>, _>>()?
                         .join("|"),
                     statements
                         .iter()
-                        .map(|x| escape(x.to_string()))
-                        .collect::<Vec<_>>()
+                        .map(|x| statement(x).map(escape))
+                        .collect::<Result<Vec<_>, _>>()?
                         .join("|")
                 ),
             };
@@ -248,8 +264,8 @@ impl<S: Display, E: Display> Cfg<S, E> {
             let label = match edge {
                 Edge::Unconditional { .. } => suffix.map(str::to_owned),
                 Edge::Conditional { condition, .. } => Some(match suffix {
-                    Some(s) => format!("{} {}", escape(condition.to_string()), s),
-                    None => escape(condition.to_string()),
+                    Some(s) => format!("{} {}", escape(expression(condition)?), s),
+                    None => escape(expression(condition)?),
                 }),
             };
             output.push_str(&format!(
@@ -262,6 +278,6 @@ impl<S: Display, E: Display> Cfg<S, E> {
             ));
         }
         output.push_str("}\n");
-        output
+        Ok(output)
     }
 }
