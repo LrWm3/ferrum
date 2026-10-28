@@ -693,3 +693,10 @@ including the source open scope on read-only early return. Complementary CFG
 edges also retain the source conditional record without an invented close.
 Active rule/supporter record sites have now been audited against the pinned
 source; public profile setup and parallel branch log transfer remain incomplete.
+
+Fresh native locals now retain parser type handles and construct versioned
+debug expressions when the decider debug setting is explicitly injected.
+Statement/loop and method locals share the source conversion, including typed
+domain-function argument metadata and Unknown fallback when metadata lacks a
+source type. Malformed domain argument nodes fail explicitly. Public debug
+configuration remains gated while other expression families are incomplete.

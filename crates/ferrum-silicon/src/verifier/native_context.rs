@@ -4819,6 +4819,82 @@ where
     }
 }
 
+impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    /// Source Decider.fresh(AbstractLocalVar): preserve parser type and versioned AST.
+    fn fresh_debuggable_local(
+        &mut self,
+        variable: &LocalVar,
+    ) -> Result<StoreValue, NativeError<S::Error>> {
+        use ferrum_silver::parser::parse_ast::{PNodeKind, PTypeHandle, PTypeKind};
+        let sort = self
+            .base
+            .symbol_converter
+            .to_sort(&variable.typ)
+            .map_err(NativeError::Sort)?;
+        let debug = self.base.decider.debug_mode;
+        let debug_type = if debug {
+            let unknown = || {
+                PTypeHandle::new(
+                    PTypeKind::Unknown,
+                    (
+                        ferrum_silver::ast::position::Position::NoPosition,
+                        ferrum_silver::ast::position::Position::NoPosition,
+                    ),
+                )
+            };
+            let source = variable
+                .meta
+                .info
+                .find(&|info| matches!(info, ferrum_silver::ast::ast::Info::SourcePNode(_)));
+            let typ = if let Some(ferrum_silver::ast::ast::Info::SourcePNode(node)) = source {
+                let node = node
+                    .read()
+                    .map_err(|_| NativeError::Unsupported("poisoned debug source node"))?;
+                match &node.kind {
+                    PNodeKind::Expression(expression) => expression.typ.clone(),
+                    PNodeKind::Declaration(declaration) => declaration.typ.clone(),
+                    PNodeKind::DomainFunctionArg { children } => {
+                        let child = children.last().cloned().ok_or(NativeError::Unsupported(
+                            "domain argument missing parser type",
+                        ))?;
+                        PTypeHandle::from_node(child)
+                            .map_err(|_| NativeError::Unsupported("domain argument parser type"))?
+                    }
+                    _ => unknown(),
+                }
+            } else {
+                unknown()
+            };
+            Some(typ)
+        } else {
+            None
+        };
+        let term = self
+            .base
+            .decider
+            .fresh_variable(&self.factory, &variable.name, &sort, false, debug_type)
+            .map_err(NativeError::Decider)?;
+        let expression = if debug {
+            let crate::state::terms::TermKind::Var(var) = term.kind() else {
+                return Err(NativeError::Unsupported("debug fresh variable term"));
+            };
+            let name = var.id.name();
+            let simplified = crate::utils::ast::simplify_variable_name(&name)
+                .map_err(NativeError::Unsupported)?;
+            Some(Exp::new(
+                ExpKind::LocalVarWithVersion(simplified.into(), variable.typ.clone()),
+                variable.meta.clone(),
+            ))
+        } else {
+            None
+        };
+        Ok((term, expression))
+    }
+}
+
 impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
 where
     S::Error: std::fmt::Debug,
@@ -6698,19 +6774,7 @@ where
         Ok(state)
     }
     fn fresh_local(&mut self, variable: &LocalVar) -> Result<StoreValue, Self::Error> {
-        {
-            let sort = self
-                .base
-                .symbol_converter
-                .to_sort(&variable.typ)
-                .map_err(NativeError::Sort)?;
-            let term = self
-                .base
-                .decider
-                .fresh_variable(&self.factory, &variable.name, &sort, false, None)
-                .map_err(NativeError::Decider)?;
-            Ok((term, None))
-        }
+        self.fresh_debuggable_local(variable)
     }
     fn evaluate_assignment(
         &mut self,
@@ -8728,19 +8792,7 @@ where
         &mut self,
         formal: &LocalVarDecl,
     ) -> Result<(Term, Option<Exp>), Self::Error> {
-        {
-            let sort = self
-                .base
-                .symbol_converter
-                .to_sort(&formal.typ)
-                .map_err(NativeError::Sort)?;
-            let term = self
-                .base
-                .decider
-                .fresh_variable(&self.factory, &formal.name, &sort, false, None)
-                .map_err(NativeError::Decider)?;
-            Ok((term, None))
-        }
+        self.fresh_debuggable_local(&formal.local_var())
     }
     fn empty_method_heap(
         &mut self,
@@ -18191,6 +18243,130 @@ mod owned_branch_worker_tests {
             &config,
         );
         worker.start().unwrap();
+        use ferrum_silver::parser::parse_ast::{
+            PExpHandle, PExpression, PExpressionKind, PTypeHandle, PTypeKind,
+        };
+        let span = (
+            ferrum_silver::ast::position::Position::NoPosition,
+            ferrum_silver::ast::position::Position::NoPosition,
+        );
+        let parsed = PExpression::from_kind(PExpressionKind::IntLit(3.into()));
+        let parsed_type = parsed.typ.clone();
+        let source = PExpHandle::new(parsed, span);
+        let mut meta = ferrum_silver::ast::ast::Metadata::default();
+        meta.info = ferrum_silver::ast::ast::Info::SourcePNode(source.node().clone());
+        let local = LocalVar::new(
+            "debug_local".into(),
+            ferrum_silver::ast::r#type::Type::Int,
+            meta,
+        );
+        worker.context.base.decider.debug_mode = true;
+        let (term, expression) = worker.context.fresh_local(&local).unwrap();
+        let crate::state::terms::TermKind::Var(var) = term.kind() else {
+            panic!("expected variable");
+        };
+        let name = var.id.name();
+        let recorded = worker
+            .context
+            .base
+            .decider
+            .debug_variable_types
+            .get(&name)
+            .unwrap();
+        assert!(Arc::ptr_eq(recorded.node(), parsed_type.node()));
+        let expression = expression.unwrap();
+        let ExpKind::LocalVarWithVersion(versioned, typ) = expression.kind() else {
+            panic!("expected versioned local");
+        };
+        assert_eq!(
+            versioned,
+            crate::utils::ast::simplify_variable_name(&name).unwrap()
+        );
+        assert_eq!(typ, &local.typ);
+        assert!(
+            matches!(&expression.metadata().info, ferrum_silver::ast::ast::Info::SourcePNode(node) if Arc::ptr_eq(node, source.node()))
+        );
+        let domain_type = PTypeHandle::new(
+            PTypeKind::Unknown,
+            (
+                ferrum_silver::ast::position::Position::NoPosition,
+                ferrum_silver::ast::position::Position::NoPosition,
+            ),
+        );
+        let domain_arg = ferrum_silver::parser::parse_ast::PDomainFunctionArg::new(
+            None,
+            None,
+            domain_type.clone(),
+            (
+                ferrum_silver::ast::position::Position::NoPosition,
+                ferrum_silver::ast::position::Position::NoPosition,
+            ),
+        );
+        let mut domain_meta = ferrum_silver::ast::ast::Metadata::default();
+        domain_meta.info = ferrum_silver::ast::ast::Info::SourcePNode(domain_arg.node().clone());
+        let domain_local = LocalVar::new(
+            "domain_formal".into(),
+            ferrum_silver::ast::r#type::Type::Int,
+            domain_meta,
+        );
+        let (domain_term, _) = worker.context.fresh_local(&domain_local).unwrap();
+        let crate::state::terms::TermKind::Var(domain_var) = domain_term.kind() else {
+            panic!("expected domain variable");
+        };
+        assert!(Arc::ptr_eq(
+            worker
+                .context
+                .base
+                .decider
+                .debug_variable_types
+                .get(&domain_var.id.name())
+                .unwrap()
+                .node(),
+            domain_type.node()
+        ));
+        let unknown = LocalVar::new(
+            "fallback".into(),
+            ferrum_silver::ast::r#type::Type::Int,
+            Default::default(),
+        );
+        let (term, _) = worker.context.fresh_local(&unknown).unwrap();
+        let crate::state::terms::TermKind::Var(var) = term.kind() else {
+            panic!("expected variable");
+        };
+        assert!(matches!(
+            worker
+                .context
+                .base
+                .decider
+                .debug_variable_types
+                .get(&var.id.name())
+                .unwrap()
+                .kind(),
+            PTypeKind::Unknown
+        ));
+        let formal = LocalVarDecl::new("formal".into(), local.typ.clone(), local.meta.clone());
+        let (formal_term, formal_exp) = worker.context.fresh_method_local(&formal).unwrap();
+        let crate::state::terms::TermKind::Var(formal_var) = formal_term.kind() else {
+            panic!("expected formal variable");
+        };
+        assert!(Arc::ptr_eq(
+            worker
+                .context
+                .base
+                .decider
+                .debug_variable_types
+                .get(&formal_var.id.name())
+                .unwrap()
+                .node(),
+            parsed_type.node()
+        ));
+        assert!(matches!(
+            formal_exp.unwrap().kind(),
+            ExpKind::LocalVarWithVersion(..)
+        ));
+        worker.context.base.decider.debug_mode = false;
+        assert!(worker.context.fresh_local(&unknown).unwrap().1.is_none());
+
         let program = ferrum_silver::ast::program::Program::new(
             vec![],
             vec![],
