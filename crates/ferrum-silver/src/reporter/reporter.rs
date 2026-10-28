@@ -360,6 +360,14 @@ fn render_chosen_triggers(
         render(old)?
     ))
 }
+/// Formatting a trace value can fail when its native record or term has no source renderer.
+fn render_trace_value(value: &dyn super::message::TraceValue) -> Result<String, ReportError> {
+    use std::fmt::Write as _;
+    let mut rendered = String::new();
+    write!(&mut rendered, "{value}")
+        .map_err(|_| ReportError::Unsupported("execution trace value rendering"))?;
+    Ok(rendered)
+}
 fn render_fallback(message: &Message) -> Result<String, ReportError> {
     match message {
         Message::Statistics {
@@ -426,22 +434,18 @@ fn render_fallback(message: &Message) -> Result<String, ReportError> {
             axioms,
             function_post_axioms,
         } => {
-            let render_list = |values: &[Arc<dyn super::message::TraceValue>]| {
+            let render_list = |values: &[Arc<dyn super::message::TraceValue>], separator: &str| {
                 values
                     .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                    .map(|value| render_trace_value(value.as_ref()))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(|values| values.join(separator))
             };
-            let members = member_traces
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
             Ok(format!(
-                "symbolic_execution_logger_report(\n  members=[{members}],\n  axioms=List({})\n  functionPostAxioms=List({})\n)",
-                render_list(axioms),
-                render_list(function_post_axioms)
+                "symbolic_execution_logger_report(\n  members=[{}],\n  axioms=List({})\n  functionPostAxioms=List({})\n)",
+                render_list(member_traces, ",")?,
+                render_list(axioms, ", ")?,
+                render_list(function_post_axioms, ", ")?
             ))
         }
         _ => Err(ReportError::Unsupported("source message string rendering")),
@@ -1005,15 +1009,15 @@ impl<W: Write + Send> Reporter for StdIoReporter<W> {
                 writeln!(writer, "Execution trace for the last run:")?;
                 writeln!(writer, "  Members:")?;
                 for value in member_traces {
-                    writeln!(writer, "    {value}")?;
+                    writeln!(writer, "    {}", render_trace_value(value.as_ref())?)?;
                 }
                 writeln!(writer, "  Axioms:")?;
                 for value in axioms {
-                    writeln!(writer, "    {value}")?;
+                    writeln!(writer, "    {}", render_trace_value(value.as_ref())?)?;
                 }
                 writeln!(writer, "  FunctionPostAxioms:")?;
                 for value in function_post_axioms {
-                    writeln!(writer, "    {value}")?;
+                    writeln!(writer, "    {}", render_trace_value(value.as_ref())?)?;
                 }
             }
             Message::WarningsDuringParsing { warnings } => {
@@ -1236,6 +1240,30 @@ mod tests {
             Err(ReportError::Io(_))
         ));
         assert_eq!(reporter.counter(), 0);
+    }
+    #[test]
+    fn execution_trace_renderer_failure_is_reported_without_panicking() {
+        #[derive(Debug)]
+        struct BadTrace;
+        impl std::fmt::Display for BadTrace {
+            fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                Err(std::fmt::Error)
+            }
+        }
+        let message = Message::ExecutionTrace {
+            member_traces: vec![Arc::new(BadTrace)],
+            axioms: vec![],
+            function_post_axioms: vec![],
+        };
+        assert!(matches!(
+            message.render_source(),
+            Err(ReportError::Unsupported("execution trace value rendering"))
+        ));
+        let reporter = StdIoReporter::new(Vec::new(), false);
+        assert!(matches!(
+            reporter.report(message),
+            Err(ReportError::Unsupported("execution trace value rendering"))
+        ));
     }
     #[test]
     fn polling_passthrough_can_reenter_report_and_queue_access() {

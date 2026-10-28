@@ -659,3 +659,10 @@ end after normal results, including fatal verification results; service errors
 retain the source open-scope behavior. Conditional-edge records enclose Out-edge
 heap restoration and close in the branch continuation. Parallel logging and
 public profile activation remain pending.
+
+Native execution-trace assembly retains ordered member log handles and actual
+caller-supplied domain/postcondition terms. Rendering is deferred until the
+receiving reporter renders the message, so retained logs preserve subsequent
+record updates. Unsupported native record/term rendering returns a reporting
+error instead of panicking. Top-level axiom collection and runtime activation
+remain separate integration steps.
