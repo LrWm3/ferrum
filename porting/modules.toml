@@ -2568,7 +2568,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Native user-domain and interpreted backend sorts are connected. Quantified assertion evaluation, singleton and general production/consumption services are translated but execution remains gated pending contributor preambles, automatic triggers, access services and real solver validation. Wands, full joins, complete exhale, parallelism and advanced reporting remain incomplete."]
+remaining = ["Field/predicate quantified resources, heap-dependent quantifiers, current permission, field reads/writes and ForPerm connect to source snapshots/contributors/trigger services. Function QP contracts and recursive-function predicate triggers are connected. Full arithmetic/let trigger rewriting, wands, full joins, parallelism and advanced reporting remain incomplete."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"

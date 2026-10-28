@@ -83,6 +83,18 @@ pub struct HeapAccessReplacingTranslator<'a, D, S: HeapExpressionServices> {
     pub check_inner_contexts: bool,
 }
 impl<D: Clone, S: HeapExpressionServices> HeapAccessReplacingTranslator<'_, D, S> {
+    /// Resolve a recorded resource location for a function predicate trigger.
+    pub fn resolve_location<R>(
+        &mut self,
+        translator: &ExpressionTranslator<'_, R>,
+        expression: &Exp,
+        sort: Sort,
+    ) -> Result<Term, ExpressionTranslationError<S::Error>>
+    where
+        R: Fn(&Sort) -> Result<String, S::Error>,
+    {
+        self.resolve(translator, expression, sort, false)
+    }
     fn resolve<R>(
         &mut self,
         translator: &ExpressionTranslator<'_, R>,

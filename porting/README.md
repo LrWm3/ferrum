@@ -18,9 +18,14 @@ Impure branch joins preserve conditional ownership and consumed snapshots in
 focused positive and negative checks. Pure and heap-dependent functions now run
 the source contract/body phases and use recorded snapshots for their axioms.
 Interpreted backend types, including bitvectors and floating-point values, now
-reach their source SMT operations and snapshot wrappers. Recursive calls under
-predicate unfoldings, quantified resources, wands, complete exhale and advanced
-reporting remain incomplete. No comparative speed improvement has been established.
+reach their source SMT operations and snapshot wrappers. Field and predicate
+quantified permissions, ForPerm, heap-dependent triggers and recursive-function
+predicate triggers now reach the native solver. Independent checks cover 27
+quantified-resource cases, including fractional ownership, consumed permissions,
+disjoint snapshots and failing assertions; 21 function cases and four existing
+native runner regressions also pass. Full trigger rewriting, wands, complete
+exhale and advanced reporting remain incomplete. No comparative speed improvement
+has been established.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and

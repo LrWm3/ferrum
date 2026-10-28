@@ -47,6 +47,34 @@ fn check(source: &str, expected: i32) {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn quantified_permissions_preserve_frames_and_consumption() {
+    let prefix = "field value: Int
+        method test(r: Ref, s: Ref)
+            requires r != null && s != null && r != s
+            requires forall x: Ref :: x != null ==> acc(x.value)
+        { r.value := 1; s.value := 2;";
+    check(
+        &format!("{prefix} assert r.value == 1 && s.value == 2; }}"),
+        0,
+    );
+    check(&format!("{prefix} assert r.value == s.value; }}"), 1);
+    check(
+        &format!(
+            "{prefix} exhale forall x: Ref :: x != null ==> acc(x.value); assert acc(r.value); }}"
+        ),
+        1,
+    );
+    check(
+        "field value: Int
+        method test(r: Ref) requires r != null
+            requires forall x: Ref :: x != null ==> acc(x.value, 1/2)
+        { assert acc(r.value); }",
+        1,
+    );
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn final_report_groups_duplicate_branch_failures() {
     let output = run(
         "method test(b: Bool) { if (b) { } else { } assert false; }",

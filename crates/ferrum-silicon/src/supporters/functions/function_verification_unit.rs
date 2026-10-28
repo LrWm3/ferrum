@@ -35,8 +35,7 @@
 //!
 //! Status: partial; source function analysis, ordering, declaration, axiom replay, reset and
 //! both verification phases are implemented. The native context connects solver, evaluator,
-//! producer, consumer and scopes; recursive predicate triggers and quantified precondition
-//! trigger rewriting still report unsupported errors.
+//! producer, consumer, scopes and recursive predicate triggers.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this

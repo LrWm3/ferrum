@@ -62,6 +62,14 @@ impl DefaultSymbolConverter {
         self.embedding = Some(resolver);
         self
     }
+    /// Add an embedding case without discarding a caller's existing resolver.
+    pub fn with_embedding_override(mut self, resolver: Arc<EmbeddingResolver>) -> Self {
+        let previous = self.embedding.take();
+        self.embedding = Some(Arc::new(move |value| {
+            resolver(value).or_else(|| previous.as_ref().and_then(|f| f(value)))
+        }));
+        self
+    }
     /// Source BuiltinDomainAwareSymbolConverter overrides one domain name per contributor.
     pub fn with_builtin_domain(mut self, name: impl Into<String>, kind: BuiltinDomainSort) -> Self {
         self.builtin_domain = Some((name.into(), kind));

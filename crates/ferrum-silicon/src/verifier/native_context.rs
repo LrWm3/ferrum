@@ -9,8 +9,8 @@
 //! https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/verifier/BaseVerifier.scala
 //! Status: native execution connects the prover, basic heap and predicate operations,
 //! function phases and calls, branching, loop invariants, method calls, collection and
-//! domain preambles. Quantified-resource services are partially connected but remain gated;
-//! unsupported execution modes and resource rules return explicit errors.
+//! domain preambles and field/predicate quantified resources. Advanced trigger rewrites,
+//! wand execution and other unsupported modes return errors.
 
 use crate::interfaces::decider::prover::ProverLike;
 use crate::rules::chunk_supporter::ChunkExecutionError;
@@ -232,6 +232,7 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     function_units: Vec<ferrum_silver::ast::program::Function>,
     failed_functions: std::collections::HashSet<String>,
     quantified_counter: u64,
+    heap_supporter_counter: u64,
     _state_types: PhantomData<(PD, FD)>,
 }
 impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
@@ -251,6 +252,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             function_units: Vec::new(),
             failed_functions: Default::default(),
             quantified_counter: 0,
+            heap_supporter_counter: 0,
             _state_types: PhantomData,
         }
     }
@@ -490,11 +492,8 @@ where
         &mut self,
         state: &State<PD, FD, JoinMode>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
-        if state.exhale_ext {
-            Err(NativeError::Unsupported("wand evaluation heap"))
-        } else {
-            Ok(state.h.clone())
-        }
+        crate::rules::magic_wand_supporter::evaluation_heap(self, state)
+            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))
     }
     fn record_possible_trigger(
         &mut self,
@@ -1367,28 +1366,38 @@ where
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
         use ferrum_silver::ast::{
             expression::ExpKind,
-            utility::nodes::{Node, subnodes},
+            utility::nodes::{Node, map_node_tree},
         };
-        fn contains_forall(node: &Node) -> Result<bool, String> {
-            if matches!(node, Node::Exp(exp) if matches!(exp.kind(), ExpKind::Forall(..))) {
-                return Ok(true);
-            }
-            for child in subnodes(node).map_err(|e| format!("{e:?}"))? {
-                if contains_forall(&child)? {
-                    return Ok(true);
-                }
-            }
-            Ok(false)
-        }
-        for precondition in preconditions {
-            if contains_forall(&Node::Exp(precondition.clone()))
-                .map_err(|e| EvaluationError::Context(NativeError::BranchTraversal(e)))?
-            {
-                return Err(EvaluationError::Context(NativeError::Unsupported(
-                    "removing triggers from function preconditions",
-                )));
-            }
-        }
+        let preconditions = preconditions
+            .iter()
+            .map(|precondition| {
+                let transformed = map_node_tree(&Node::Exp(precondition.clone()), &|node| {
+                    if let Node::Exp(exp) = node {
+                        if let ExpKind::Forall(vars, triggers, body) = exp.kind() {
+                            if !triggers.is_empty() {
+                                return Ok(Node::Exp(Exp::with_extra(
+                                    ExpKind::Forall(vars.clone(), vec![], body.clone()),
+                                    exp.metadata().clone(),
+                                    exp.0.extra.clone(),
+                                )));
+                            }
+                        }
+                    }
+                    Ok(node.clone())
+                })
+                .map_err(|e| {
+                    EvaluationError::Context(NativeError::Diagnostic(format!(
+                        "function precondition trigger rewriting: {e:?}"
+                    )))
+                })?;
+                let Node::Exp(exp) = transformed else {
+                    return Err(EvaluationError::Context(NativeError::Unsupported(
+                        "function precondition rewrite result",
+                    )));
+                };
+                Ok(exp)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let substitutions: Vec<_> = function
             .formal_args
             .iter()
@@ -1416,7 +1425,7 @@ where
         let result = crate::rules::consumer::consume_all(
             self,
             state,
-            preconditions,
+            &preconditions,
             true,
             &|_| partial.clone(),
             &mut |ctx, state, snapshot| match continuation(ctx, state, snapshot) {
@@ -1467,7 +1476,17 @@ where
         &mut self,
         declaration: &ferrum_silver::ast::program::LocalVarDecl,
     ) -> Result<(Term, Option<Exp>), Self::Error> {
-        Err(NativeError::Unsupported("fresh_for_perm"))
+        let sort = self
+            .base
+            .symbol_converter
+            .to_sort(&declaration.typ)
+            .map_err(NativeError::Sort)?;
+        let term = self
+            .base
+            .decider
+            .fresh_variable(&self.factory, &declaration.name, &sort, false, None)
+            .map_err(NativeError::Decider)?;
+        Ok((term, None))
     }
     fn for_perm_conditions(
         &mut self,
@@ -1477,7 +1496,138 @@ where
         args: &[Term],
         debug_args: Option<&[Exp]>,
     ) -> Result<Vec<ForPermCondition>, Self::Error> {
-        Err(NativeError::Unsupported("for_perm_conditions"))
+        use crate::interfaces::state::chunks::{GeneralChunk, QuantifiedChunk};
+        use crate::state::{
+            heap::Heap,
+            store::{MapBackedStore, Store},
+        };
+        use ferrum_silver::ast::{expression::LocalVar, r#type::Type};
+        let factory = self.factory.clone();
+        let name = |text: &str| {
+            Exp::new(
+                ExpKind::LocalVar(LocalVar::new(text.into(), Type::Bool, Default::default())),
+                Default::default(),
+            )
+        };
+        let source = native_quantified_source(resource);
+        if state
+            .is_quantified_resource(&source)
+            .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?
+        {
+            let mut out = Vec::new();
+            for chunk in native_quantified_chunks(&state.h, resource) {
+                let (vars, permission, map, value) = match &chunk {
+                    Chunk::QuantifiedField(c) => (
+                        c.quantified_vars(&factory),
+                        c.permission(&factory),
+                        c.snapshot_map().clone(),
+                        c.value_at(&factory, args),
+                    ),
+                    Chunk::QuantifiedPredicate(c) => (
+                        c.quantified_vars(&factory),
+                        c.permission(&factory),
+                        c.snapshot_map().clone(),
+                        c.value_at(&factory, args),
+                    ),
+                    Chunk::QuantifiedMagicWand(c) => (
+                        c.quantified_vars(&factory),
+                        c.permission(&factory),
+                        c.snapshot_map().clone(),
+                        c.value_at(&factory, args),
+                    ),
+                    _ => return Err(NativeError::Unsupported("forperm quantified chunk")),
+                };
+                if vars.len() != args.len() {
+                    return Err(NativeError::Unsupported("forperm resource arity"));
+                }
+                let substitutions = vars.into_iter().zip(args.iter().cloned()).collect();
+                let permission = factory
+                    .replace(&permission, &substitutions)
+                    .map_err(|e| NativeError::Chunk(format!("forperm permission: {e:?}")))?;
+                let condition = factory.and([
+                    factory.resource_trigger(resource, map, args.to_vec()),
+                    factory.is_positive_perm(permission),
+                ]);
+                out.push(ForPermCondition {
+                    condition,
+                    original: name("chunk has non-zero permission"),
+                    rewritten: None,
+                    variables: variables.iter().map(|(term, _)| term.clone()).collect(),
+                    definitions: MapBackedStore::new(),
+                    triggers: vec![crate::state::terms::Trigger { terms: vec![value] }],
+                });
+            }
+            return Ok(out);
+        }
+        let mut out = Vec::new();
+        for chunk in state.h.values() {
+            let Chunk::Basic(chunk) = chunk else { continue };
+            let same = match resource {
+                ResourceKey::Field(field) => {
+                    chunk.id_ref().0 == field.name
+                        && chunk.resource_id() == crate::resources::resources::ResourceId::Field
+                }
+                ResourceKey::Predicate(predicate) => {
+                    chunk.id_ref().0 == predicate.name
+                        && chunk.resource_id() == crate::resources::resources::ResourceId::Predicate
+                }
+                ResourceKey::Wand(_) => false,
+            };
+            if !same {
+                continue;
+            }
+            if args.len() != chunk.args_ref().len() {
+                return Err(NativeError::Unsupported("forperm resource arity"));
+            }
+            let pairs: Vec<_> = args
+                .iter()
+                .cloned()
+                .zip(chunk.args_ref().iter().cloned())
+                .collect();
+            let mut substitutions = std::collections::HashMap::new();
+            let mut bindings = Vec::new();
+            let mut chosen = Vec::new();
+            for (variable, _) in variables {
+                let pair = pairs.iter().find(|(arg, _)| arg == variable).ok_or(
+                    NativeError::Unsupported("forperm variable is not a direct resource argument"),
+                )?;
+                let value = &pair.1;
+                chosen.push(pair.clone());
+                let local = state
+                    .g
+                    .values()
+                    .iter()
+                    .find(|(_, (term, _))| term == variable)
+                    .map(|(local, _)| local.clone())
+                    .ok_or(NativeError::Unsupported("forperm bound local"))?;
+                substitutions.insert(variable.clone(), value.clone());
+                bindings.push((local, (value.clone(), None)));
+            }
+            let mut equalities = Vec::new();
+            for (arg, value) in pairs {
+                if chosen.contains(&(arg.clone(), value.clone())) {
+                    continue;
+                }
+                equalities.push(
+                    factory.equals(
+                        factory
+                            .replace(&arg, &substitutions)
+                            .map_err(|e| NativeError::Chunk(format!("forperm argument: {e:?}")))?,
+                        value,
+                    ),
+                );
+            }
+            equalities.push(factory.is_positive_perm(chunk.permission(&factory)));
+            out.push(ForPermCondition {
+                condition: factory.and(equalities),
+                original: name("chunk matches forperm pattern and has positive permission"),
+                rewritten: None,
+                variables: vec![],
+                definitions: MapBackedStore::from_bindings(bindings),
+                triggers: vec![],
+            });
+        }
+        Ok(out)
     }
     fn evaluate_special(
         &mut self,
@@ -2357,10 +2507,51 @@ where
         debug_args: Option<&[Exp]>,
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
         if state.heap_dependent_triggers.is_empty() {
-            Ok(state)
-        } else {
-            Err(NativeError::Unsupported("resource trigger summaries"))
+            return Ok(state);
         }
+        let resource = match assertion.kind() {
+            ExpKind::FieldAccessPredicate(access, _) => {
+                ResourceKey::Field(Arc::new(access.field.clone()))
+            }
+            ExpKind::FieldAccess(access) => ResourceKey::Field(Arc::new(access.field.clone())),
+            ExpKind::PredicateAccessPredicate(access) => ResourceKey::Predicate(Arc::new(
+                state
+                    .program
+                    .find_predicate(&access.location.predicate_name)
+                    .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?
+                    .clone(),
+            )),
+            ExpKind::PredicateAccess(access) => ResourceKey::Predicate(Arc::new(
+                state
+                    .program
+                    .find_predicate(&access.predicate_name)
+                    .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?
+                    .clone(),
+            )),
+            ExpKind::MagicWand(..) => ResourceKey::Wand(
+                crate::state::chunks::MagicWandIdentifier::new(assertion.clone(), &state.program)
+                    .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?,
+            ),
+            _ => return Err(NativeError::Unsupported("resource trigger access shape")),
+        };
+        if !state.heap_dependent_triggers.contains(&resource) {
+            return Ok(state);
+        }
+        let source = native_quantified_source(&resource);
+        let formals = state
+            .formal_arg_vars(&source, &self.base.symbol_converter, &self.factory)
+            .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+        let chunks = native_quantified_chunks(&state.h, &resource);
+        let (definition, cache) = crate::rules::quantified_chunk_support::GeneralConsumptionExecution::summarise_general_consumed(self, &state, &resource, &formals, &chunks, None)?;
+        self.assume_term(&self.factory.resource_trigger(
+            &resource,
+            definition.snapshot_map.clone(),
+            args.to_vec(),
+        ))?;
+        let mut state = state;
+        state.sm_cache = cache;
+        state.function_recorder = state.function_recorder.record_fvf_and_domain(definition);
+        Ok(state)
     }
     fn consume_single(
         &mut self,
@@ -2425,11 +2616,8 @@ where
         &mut self,
         state: &State<PD, FD, JoinMode>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
-        if state.exhale_ext {
-            Err(NativeError::Unsupported("wand evaluation heap"))
-        } else {
-            Ok(state.h.clone())
-        }
+        crate::rules::magic_wand_supporter::evaluation_heap(self, state)
+            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))
     }
     fn retry_pure(
         &mut self,
@@ -3279,9 +3467,15 @@ where
         {
             Ok(state)
         } else {
-            Err(NativeError::Unsupported(
-                "quantified field permission bounds",
-            ))
+            let factory = self.factory.clone();
+            crate::rules::state_consolidator::assume_quantified_field_bounds(
+                &factory,
+                self,
+                state,
+                heaps,
+                &factory.predef_receiver_var(),
+            )
+            .map_err(|e| NativeError::Consolidation(format!("quantified field bounds: {e:?}")))
         }
     }
     fn assume_more_complete_field_bounds(
@@ -3728,7 +3922,32 @@ where
         args: &[Term],
         debug_args: Option<&[Exp]>,
     ) -> Result<(State<PD, FD, JoinMode>, Term), Self::Error> {
-        Err(NativeError::Unsupported("quantified_current_permission"))
+        let source = native_quantified_source(resource);
+        let formals = state
+            .formal_arg_vars(&source, &self.base.symbol_converter, &self.factory)
+            .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+        let chunks = native_quantified_chunks(heap, resource);
+        let factory = self.factory.clone();
+        let trigger = state.heap_dependent_triggers.contains(resource);
+        let (state, snapshot, permission) =
+            crate::rules::quantified_chunk_support::heap_summarising_maps(
+                &factory, self, state, resource, source, &formals, &chunks, None, None, trigger,
+                false, false, false,
+            )
+            .map_err(|e| NativeError::Chunk(format!("quantified current permission: {e:?}")))?;
+        if trigger {
+            self.assume_term(&factory.resource_trigger(
+                resource,
+                snapshot.snapshot_map,
+                args.to_vec(),
+            ))?;
+        }
+        let amount =
+            factory.resource_permission_lookup(resource, permission.permission_map, args.to_vec());
+        if matches!(resource, ResourceKey::Field(_)) {
+            self.assume_term(&factory.perm_at_most(amount.clone(), factory.full_perm()))?;
+        }
+        Ok((state, amount))
     }
     fn quantified_field_access(
         &mut self,
@@ -3747,9 +3966,176 @@ where
             ChunkExecutionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ChunkExecutionError<Self::Error>> {
-        Err(ChunkExecutionError::Context(NativeError::Unsupported(
-            "quantified_field_access",
-        )))
+        use crate::interfaces::state::chunks::{GeneralChunk, QuantifiedChunk};
+        use crate::state::snapshot_map_cache::{CacheKey, QuantifiedBasicChunk};
+        let ResourceKey::Field(field) = resource else {
+            return Err(ChunkExecutionError::Context(NativeError::Unsupported(
+                "quantified non-field access",
+            )));
+        };
+        let factory = self.factory.clone();
+        let chunks = native_quantified_chunks(&state.h, resource);
+        let key = CacheKey {
+            resource: native_quantified_source(resource),
+            relevant_chunks: chunks
+                .iter()
+                .map(|chunk| match chunk {
+                    Chunk::QuantifiedField(c) => QuantifiedBasicChunk::Field(c.clone()),
+                    _ => unreachable!(),
+                })
+                .collect(),
+        };
+        let cached = state
+            .sm_cache
+            .get(&key, None)
+            .map(|(definition, total)| (definition.clone(), total.clone()));
+        let trigger = state.heap_dependent_triggers.contains(resource);
+        let (mut state, map, total, cached_definition) = if let Some((definition, total)) = cached {
+            for term in &definition.value_definitions {
+                self.assume_term(term)
+                    .map_err(ChunkExecutionError::Context)?;
+            }
+            let total = factory
+                .replace(
+                    &total,
+                    &std::collections::HashMap::from([(
+                        factory.predef_receiver_var(),
+                        receiver.clone(),
+                    )]),
+                )
+                .map_err(|e| {
+                    ChunkExecutionError::Context(NativeError::Chunk(format!(
+                        "field permission replacement: {e:?}"
+                    )))
+                })?;
+            (
+                state,
+                definition.snapshot_map.clone(),
+                total,
+                Some(definition),
+            )
+        } else if let [Chunk::QuantifiedField(chunk)] = chunks.as_slice() {
+            let substitutions = chunk
+                .quantified_vars(&factory)
+                .into_iter()
+                .zip([receiver.clone()])
+                .collect();
+            let total = factory
+                .replace(&chunk.permission(&factory), &substitutions)
+                .map_err(|e| {
+                    ChunkExecutionError::Context(NativeError::Chunk(format!(
+                        "field permission replacement: {e:?}"
+                    )))
+                })?;
+            (state, chunk.fvf_ref().clone(), total, None)
+        } else {
+            let (state, definition, permission) =
+                crate::rules::quantified_chunk_support::heap_summarising_maps(
+                    &factory,
+                    self,
+                    state,
+                    resource,
+                    native_quantified_source(resource),
+                    &[factory.predef_receiver_var()],
+                    &chunks,
+                    None,
+                    None,
+                    trigger,
+                    false,
+                    false,
+                    false,
+                )
+                .map_err(|e| {
+                    ChunkExecutionError::Context(NativeError::Chunk(format!(
+                        "field snapshot summary: {e:?}"
+                    )))
+                })?;
+            let total = factory.resource_permission_lookup(
+                resource,
+                permission.permission_map,
+                vec![receiver.clone()],
+            );
+            (state, definition.snapshot_map, total, None)
+        };
+        if trigger {
+            self.assume_term(&factory.resource_trigger(
+                resource,
+                map.clone(),
+                vec![receiver.clone()],
+            ))
+            .map_err(ChunkExecutionError::Context)?;
+        }
+        let goal = if state.trigger_exp {
+            factory.boolean(true)
+        } else if cached_definition.is_some()
+            || matches!(
+                receiver.kind(),
+                crate::state::terms::TermKind::Var(_) | crate::state::terms::TermKind::Null
+            )
+        {
+            factory.is_positive_perm(total)
+        } else {
+            let args: Vec<_> = state
+                .all_relevant_quantified_variables()
+                .into_iter()
+                .map(|(term, _)| term)
+                .collect();
+            let sorts: Vec<_> = args.iter().map(|term| term.sort().clone()).collect();
+            let (target, _) = self
+                .base
+                .decider
+                .fresh(&factory, "rcvr", &sorts, receiver.sort())
+                .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?;
+            let fresh = match &target {
+                ApplicationTarget::Function(fun) => factory.app(fun.clone(), args),
+                ApplicationTarget::Variable(var) if args.is_empty() => var.clone(),
+                _ => {
+                    return Err(ChunkExecutionError::Context(NativeError::Unsupported(
+                        "quantified receiver symbol",
+                    )));
+                }
+            };
+            state.function_recorder = state.function_recorder.record_fresh_snapshot(target);
+            factory.implies(
+                factory.builtin_equals(fresh, receiver.clone()),
+                factory.is_positive_perm(total),
+            )
+        };
+        if !state.trigger_exp
+            && !self
+                .base
+                .decider
+                .check(&goal, self.base.decider.assert_timeout)
+                .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?
+        {
+            let failure =
+                error
+                    .clone()
+                    .ok_or(ChunkExecutionError::Context(NativeError::Unsupported(
+                        "field access failure context",
+                    )))?;
+            return self
+                .failure_full(failure, state.retry_level)
+                .map_err(ChunkExecutionError::Context);
+        }
+        let value = factory.lookup(field.name.clone(), map.clone(), receiver.clone());
+        state.function_recorder = state.function_recorder.record_location_snapshot(
+            field_access.clone(),
+            self.base.decider.pcs.recorded().branch_conditions(),
+            value.clone(),
+        );
+        if let Some(definition) = cached_definition {
+            if !state.trigger_exp {
+                state.function_recorder = state.function_recorder.record_fvf_and_domain(definition);
+            }
+        }
+        if trigger && state.record_possible_triggers && !state.trigger_exp {
+            state.possible_triggers.insert(
+                field_access.clone(),
+                factory.resource_trigger(resource, map, vec![receiver.clone()]),
+            );
+        }
+        continuation(self, state, value)
     }
     fn assign_quantified_field(
         &mut self,
@@ -3768,9 +4154,195 @@ where
             ChunkExecutionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ChunkExecutionError<Self::Error>> {
-        Err(ChunkExecutionError::Context(NativeError::Unsupported(
-            "assign_quantified_field",
-        )))
+        use crate::interfaces::state::chunks::GeneralChunk;
+        use crate::rules::consumption_result::ConsumptionResult;
+        use crate::rules::quantified_chunk_support as qp;
+        let ResourceKey::Field(field) = resource else {
+            return Err(ChunkExecutionError::Context(NativeError::Unsupported(
+                "quantified non-field assignment",
+            )));
+        };
+        let factory = self.factory.clone();
+        let identifier = ChunkIdentifier::Basic(crate::state::chunks::BasicChunkIdentifier(
+            field.name.clone(),
+        ));
+        let mut action = |ctx: &mut Self,
+                          mut state: State<PD, FD, JoinMode>,
+                          done: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Arc<ListBackedHeap>,
+            Option<Term>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ChunkExecutionError<Self::Error>,
+        >| {
+            let (relevant, others) =
+                qp::split_quantified_heap(&state.h, &identifier).map_err(|e| {
+                    ChunkExecutionError::Context(NativeError::Chunk(format!(
+                        "field assignment split: {e:?}"
+                    )))
+                })?;
+            let hints =
+                qp::extract_hints(&factory, None, std::slice::from_ref(receiver)).map_err(|e| {
+                    ChunkExecutionError::Context(NativeError::Chunk(format!(
+                        "field assignment hints: {e:?}"
+                    )))
+                })?;
+            let candidates = qp::single_receiver_chunk_order(
+                &factory,
+                ctx,
+                &relevant,
+                std::slice::from_ref(receiver),
+                &hints,
+            )
+            .map_err(|e| {
+                ChunkExecutionError::Context(NativeError::Chunk(format!(
+                    "field assignment ordering: {e:?}"
+                )))
+            })?;
+            if state.heap_dependent_triggers.contains(resource) {
+                let (definition, cache) =
+                    qp::GeneralConsumptionExecution::summarise_general_consumed(
+                        ctx,
+                        &state,
+                        resource,
+                        &[factory.predef_receiver_var()],
+                        &relevant,
+                        None,
+                    )
+                    .map_err(ChunkExecutionError::Context)?;
+                ctx.assume_term(&factory.resource_trigger(
+                    resource,
+                    definition.snapshot_map.clone(),
+                    vec![receiver.clone()],
+                ))
+                .map_err(ChunkExecutionError::Context)?;
+                state.sm_cache = cache;
+                state.function_recorder = state.function_recorder.record_fvf_and_domain(definition);
+            }
+            ctx.base.decider.clear_model();
+            let codomain = factory.predef_receiver_var();
+            let condition = factory.equals(codomain.clone(), receiver.clone());
+            let (outcome, mut state, mut remaining, untouched) = qp::remove_quantified_permissions(
+                &factory,
+                ctx,
+                state,
+                &candidates,
+                &relevant,
+                &identifier,
+                std::slice::from_ref(&codomain),
+                None,
+                condition,
+                None,
+                Some(std::slice::from_ref(receiver)),
+                factory.full_perm(),
+                None,
+                false,
+                false,
+            )
+            .map_err(|e| {
+                ChunkExecutionError::Context(NativeError::Chunk(format!(
+                    "field assignment removal: {e:?}"
+                )))
+            })?;
+            if !matches!(outcome, ConsumptionResult::Complete) {
+                let failure =
+                    error
+                        .clone()
+                        .ok_or(ChunkExecutionError::Context(NativeError::Unsupported(
+                            "field assignment failure context",
+                        )))?;
+                return ctx
+                    .failure_full(failure, state.retry_level)
+                    .map_err(ChunkExecutionError::Context);
+            }
+            let mut consumed = relevant;
+            for chunk in &untouched {
+                if let Some(index) = consumed.iter().position(|c| c == chunk) {
+                    consumed.remove(index);
+                }
+            }
+            let mut counts = Vec::<(i32, usize)>::new();
+            for chunk in &consumed {
+                if let Chunk::QuantifiedField(c) = chunk {
+                    if let Some(tag) = c.tag() {
+                        if let Some((_, count)) =
+                            counts.iter_mut().find(|(candidate, _)| *candidate == tag)
+                        {
+                            *count += 1;
+                        } else {
+                            counts.push((tag, 1));
+                        }
+                    }
+                }
+            }
+            let tag = counts
+                .into_iter()
+                .max_by_key(|(_, count)| *count)
+                .map(|(tag, _)| tag)
+                .unwrap_or_else(|| {
+                    let id = ctx.heap_supporter_counter as i32;
+                    ctx.heap_supporter_counter = ctx.heap_supporter_counter.wrapping_add(1);
+                    id
+                });
+            remaining.extend(untouched);
+            remaining.extend(others);
+            let (map, definition) = qp::singleton_snapshot_map(
+                &factory,
+                ctx,
+                &state,
+                resource,
+                std::slice::from_ref(receiver),
+                value.clone(),
+            )
+            .map_err(|e| {
+                ChunkExecutionError::Context(NativeError::Chunk(format!(
+                    "field assignment snapshot: {e:?}"
+                )))
+            })?;
+            ctx.base
+                .decider
+                .assume([(definition, None)], false, true)
+                .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?;
+            let chunk = qp::singleton_quantified_chunk(
+                &factory,
+                resource,
+                vec![codomain],
+                None,
+                vec![receiver.clone()],
+                None,
+                factory.full_perm(),
+                None,
+                map.clone(),
+                Some(tag),
+                false,
+            )
+            .map_err(|e| {
+                ChunkExecutionError::Context(NativeError::Chunk(format!(
+                    "field assignment chunk: {e:?}"
+                )))
+            })?;
+            if state.heap_dependent_triggers.contains(resource) {
+                ctx.assume_term(&factory.resource_trigger(resource, map, vec![receiver.clone()]))
+                    .map_err(ChunkExecutionError::Context)?;
+            }
+            state.h = Arc::new(ListBackedHeap::from_chunks(remaining).with_chunk(chunk));
+            let heap = state.h.clone();
+            done(ctx, state, heap, None)
+        };
+        if self.options.exhale_mode_qp == crate::config::ExhaleMode::MoreComplete {
+            action(self, state, &mut |ctx, state, _, _| {
+                continuation(ctx, state)
+            })
+        } else {
+            crate::rules::chunk_supporter::ChunkExecutionContext::retry_chunk(
+                self,
+                state,
+                &mut action,
+                &mut |ctx, state, _, _| continuation(ctx, state),
+            )
+        }
     }
     fn record_assignment_heap(
         &mut self,
@@ -3847,31 +4419,22 @@ where
         &mut self,
         state: &State<PD, FD, JoinMode>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
-        if state.exhale_ext {
-            Err(NativeError::Unsupported("wand execution heap"))
-        } else {
-            Ok(state.h.clone())
-        }
+        crate::rules::magic_wand_supporter::execution_heap(state)
+            .ok_or(NativeError::Unsupported("missing wand execution reserve"))
     }
     fn move_to_reserve_heap(
         &mut self,
         state: State<PD, FD, JoinMode>,
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
-        if state.exhale_ext {
-            Err(NativeError::Unsupported("wand reserve heap"))
-        } else {
-            Ok(state)
-        }
+        crate::rules::magic_wand_supporter::move_to_reserve_heap(self, state)
+            .map_err(|e| NativeError::Execution(format!("wand reserve heap: {e:?}")))
     }
     fn evaluation_heap(
         &mut self,
         state: &State<PD, FD, JoinMode>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
-        if state.exhale_ext {
-            Err(NativeError::Unsupported("wand evaluation heap"))
-        } else {
-            Ok(state.h.clone())
-        }
+        crate::rules::magic_wand_supporter::evaluation_heap(self, state)
+            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))
     }
     fn record_label(
         &mut self,
@@ -5594,6 +6157,8 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         }
         let general = use_general_preamble(program, &self.base.symbol_converter, &self.factory)
             .map_err(NativeError::Preamble)?;
+        let has_quantified = crate::verifier::native_preamble::uses_quantified_resource(program)
+            .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
         let (has_sequence, has_set, has_map, has_multiset) = if general {
             (false, false, false, false)
         } else {
@@ -5607,7 +6172,7 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
                 "collections combined with user domains",
             ));
         }
-        if !general && (has_sequence || has_set || has_map || has_multiset) {
+        if !general && (has_sequence || has_set || has_map || has_multiset || has_quantified) {
             crate::verifier::native_preamble::analyze_collections(
                 program,
                 &self.base.symbol_converter,
@@ -5642,15 +6207,7 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
             if matches!(node, Node::Type(typ) if matches!(typ,Type::Extension(_))) {
                 return Err("collection or domain preamble analysis");
             }
-            if let Node::Exp(exp) = node {
-                if matches!(exp.kind(), ExpKind::Forall(..) | ExpKind::Exists(..))
-                    && ferrum_silver::ast::utility::expressions::is_heap_dependent(exp, program)
-                        .map_err(|_| "quantifier heap dependency")?
-                {
-                    return Err("heap-dependent quantifier");
-                }
-            }
-            if matches!(node,Node::Exp(exp) if matches!(exp.kind(),ExpKind::ForPerm(..) | ExpKind::MagicWand(..) | ExpKind::Extension(_)))
+            if matches!(node,Node::Exp(exp) if matches!(exp.kind(),ExpKind::MagicWand(..) | ExpKind::Extension(_)))
             {
                 return Err("quantifier, wand or extension preamble analysis");
             }
@@ -5718,19 +6275,23 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         } else {
             let (has_sequence, has_set, has_map, has_multiset) =
                 collection_program(program).map_err(NativeError::Preamble)?;
-            let collections = if has_sequence || has_set || has_map || has_multiset {
-                Some(
-                    crate::verifier::native_preamble::analyze_collections(
-                        program,
-                        &self.base.symbol_converter,
-                        &self.factory,
-                        self.factory.options().use_old_axiomatization,
+            let has_quantified =
+                crate::verifier::native_preamble::uses_quantified_resource(program)
+                    .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+            let collections =
+                if has_sequence || has_set || has_map || has_multiset || has_quantified {
+                    Some(
+                        crate::verifier::native_preamble::analyze_collections(
+                            program,
+                            &self.base.symbol_converter,
+                            &self.factory,
+                            self.factory.options().use_old_axiomatization,
+                        )
+                        .map_err(|e| NativeError::Preamble(format!("{e:?}")))?,
                     )
-                    .map_err(|e| NativeError::Preamble(format!("{e:?}")))?,
-                )
-            } else {
-                None
-            };
+                } else {
+                    None
+                };
             let domain_preamble =
                 native_domain_preamble(program, &self.base.symbol_converter, &self.factory)
                     .map_err(NativeError::Preamble)?;
@@ -5772,8 +6333,46 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         .map_err(NativeError::Sort)?;
         use crate::interfaces::{decider::prover::TextEmitter, preamble::PreambleReader};
         let reader = crate::decider::smt_lib2_preamble_reader::SmtLib2PreambleReader::default();
+        let has_quantified = crate::verifier::native_preamble::uses_quantified_resource(program)
+            .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        let mut field_maps = crate::supporters::qps::field_value_functions_contributor::FieldValueFunctionsContributor::default();
+        let mut predicate_maps = crate::supporters::qps::predicate_and_wand_snap_functions_contributor::PredicateAndWandSnapFunctionsContributor::default();
+        if has_quantified {
+            field_maps
+                .analyze(
+                    program,
+                    &self.base.symbol_converter,
+                    &mut self.base.term_converter,
+                    &reader,
+                    false,
+                    |sort| Ok::<_, String>(sort.to_string()),
+                )
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+            predicate_maps
+                .analyze(
+                    program,
+                    &self.predicate_snapshots,
+                    &mut self.base.term_converter,
+                    &reader,
+                    false,
+                    |sort| Ok::<_, String>(sort.to_string()),
+                    |wand| {
+                        ferrum_silver::ast::pretty::pretty_printer::pretty_expression(wand)
+                            .map_err(|e| format!("{e:?}"))
+                    },
+                )
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+            field_maps
+                .declare_sorts(&self.factory, &mut self.base.decider.prover)
+                .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+            predicate_maps
+                .declare_sorts(&self.factory, &mut self.base.decider.prover)
+                .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+        }
         let mut wrapper_sorts = vec![Sort::Int, Sort::Bool, Sort::Ref, Sort::Perm];
         wrapper_sorts.extend(contributed_sorts);
+        wrapper_sorts.extend(field_maps.sorts.iter().cloned());
+        wrapper_sorts.extend(predicate_maps.sorts.iter().cloned());
         for sort in wrapper_sorts {
             for (from, to) in [(sort.clone(), Sort::Snap), (Sort::Snap, sort.clone())] {
                 let decl = self.factory.sort_wrapper_decl(from, to);
@@ -5801,6 +6400,15 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
                 .decider
                 .prover
                 .emit_all(&commands)
+                .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+        }
+        for blocks in [
+            &field_maps.function_blocks,
+            &predicate_maps.function_blocks,
+            &field_maps.axiom_blocks,
+            &predicate_maps.axiom_blocks,
+        ] {
+            crate::supporters::qps::field_value_functions_contributor::FieldValueFunctionsContributor::emit_blocks(blocks, &mut self.base.decider.prover)
                 .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
         }
         crate::supporters::predicate_verification_unit::declare_predicate_triggers(
@@ -5837,6 +6445,7 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         self.function_fresh_variables.clear();
         self.failed_functions.clear();
         self.quantified_counter = 0;
+        self.heap_supporter_counter = 0;
         Ok(NativeAnalysis {
             functions: std::cell::RefCell::new(functions),
             function_handles,
@@ -6816,7 +7425,28 @@ where
         Ok(())
     }
     fn handles_resource_trigger(&self, state: &State<PD, FD, JoinMode>, expression: &Exp) -> bool {
-        false
+        match expression.kind() {
+            ExpKind::FieldAccess(access) => state
+                .heap_dependent_triggers
+                .contains(&ResourceKey::Field(Arc::new(access.field.clone()))),
+            ExpKind::PredicateAccess(access) => state
+                .program
+                .find_predicate_optionally(&access.predicate_name)
+                .is_some_and(|predicate| {
+                    state
+                        .heap_dependent_triggers
+                        .contains(&ResourceKey::Predicate(Arc::new(predicate.clone())))
+                }),
+            ExpKind::MagicWand(..) => {
+                crate::state::chunks::MagicWandIdentifier::new(expression.clone(), &state.program)
+                    .is_ok_and(|wand| {
+                        state
+                            .heap_dependent_triggers
+                            .contains(&ResourceKey::Wand(wand))
+                    })
+            }
+            _ => false,
+        }
     }
     fn resource_trigger_variants(
         &mut self,
@@ -6832,7 +7462,76 @@ where
         ),
         Self::Error,
     > {
-        Err(NativeError::Unsupported("heap resource trigger"))
+        use crate::rules::quantified_chunk_support::GeneralConsumptionExecution;
+        let (resource, args) = match expression.kind() {
+            ExpKind::FieldAccess(access) => (
+                ResourceKey::Field(Arc::new(access.field.clone())),
+                vec![access.receiver.clone()],
+            ),
+            ExpKind::PredicateAccess(access) => (
+                ResourceKey::Predicate(Arc::new(
+                    state
+                        .program
+                        .find_predicate(&access.predicate_name)
+                        .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?
+                        .clone(),
+                )),
+                access.args.clone(),
+            ),
+            ExpKind::MagicWand(..) => (
+                ResourceKey::Wand(
+                    crate::state::chunks::MagicWandIdentifier::new(
+                        expression.clone(),
+                        &state.program,
+                    )
+                    .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?,
+                ),
+                expression
+                    .magic_wand_subexpressions(&state.program)
+                    .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?,
+            ),
+            _ => return Err(NativeError::Unsupported("heap trigger resource shape")),
+        };
+        let factory = self.factory.clone();
+        let source = native_quantified_source(&resource);
+        let formals = state
+            .formal_arg_vars(&source, &self.base.symbol_converter, &factory)
+            .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+        let chunks = native_quantified_chunks(&state.h, &resource);
+        let (definition, cache) = GeneralConsumptionExecution::summarise_general_consumed(
+            self, &state, &resource, &formals, &chunks, None,
+        )?;
+        let mut result_state = state.clone();
+        result_state.sm_cache = cache;
+        let mut trigger_state = result_state.clone();
+        trigger_state.trigger_exp = true;
+        let mut evaluated = None;
+        let result = crate::rules::evaluator::evaluate_all(
+            self,
+            trigger_state,
+            &args,
+            &|_| error.clone(),
+            &mut |_, _, terms, _| {
+                evaluated = Some(terms);
+                Ok(VerificationResult::success())
+            },
+        )
+        .map_err(|e| NativeError::Evaluation(format!("heap trigger arguments: {e:?}")))?;
+        if result.is_fatal() {
+            return Err(NativeError::Unsupported(
+                "heap trigger argument verification failure",
+            ));
+        }
+        let terms = evaluated.ok_or(NativeError::Unsupported(
+            "unreachable heap trigger arguments",
+        ))?;
+        let trigger = factory.resource_trigger(&resource, definition.snapshot_map.clone(), terms);
+        Ok((
+            state,
+            definition.value_definitions.clone(),
+            vec![vec![trigger]],
+            vec![definition],
+        ))
     }
     fn assume_heap_trigger_axioms(
         &mut self,
@@ -7072,10 +7771,12 @@ fn use_general_preamble(
         });
     let collection = collection_program(program);
     let legacy = native_domain_preamble(program, converter, factory);
+    let quantified = crate::verifier::native_preamble::uses_quantified_resource(program)
+        .map_err(|e| format!("{e:?}"))?;
     if let Ok((seq, set, map, multiset)) = collection
         && legacy.is_ok()
         && !backend
-        && (!(seq || set || map || multiset) || program.domains.is_empty())
+        && (!(seq || set || map || multiset || quantified) || program.domains.is_empty())
     {
         return Ok(false);
     }
@@ -8001,22 +8702,111 @@ where
                 &data.program_function,
             )
             .map_err(|e| NativeError::Execution(format!("recursive function analysis: {e:?}")))?;
-        if calls.iter().any(|(_, unfoldings)| !unfoldings.is_empty()) {
-            return Err(NativeError::Unsupported(
-                "recursive function predicate triggers",
-            ));
-        }
         let factory = self.factory.clone();
         let (_, body) = self.translate_function_terms(data, true)?;
+        let mut predicate_triggers = crate::state::package::OrderedMap::<String, Term>::default();
+        if body.is_some() {
+            use crate::supporters::{
+                expression_translator::ExpressionTranslator,
+                functions::heap_access_replacing_expression_translator::HeapAccessReplacingTranslator,
+            };
+            let converter = self.base.symbol_converter.clone();
+            let translator = ExpressionTranslator::new(&factory, &converter, |sort: &Sort| {
+                Ok::<_, Self::Error>(sort.to_string())
+            });
+            let ignored: Vec<_> = data
+                .formal_args
+                .iter()
+                .map(|(local, _)| local.expression().clone())
+                .collect();
+            let prior = self.failed_functions.contains(&data.program_function.name);
+            let mut replacing = HeapAccessReplacingTranslator {
+                program: &data.program,
+                data,
+                services: self,
+                failed: false,
+                prior_verification_failures: prior,
+                ignore_access_predicates: false,
+                context: vec![],
+                check_inner_contexts: false,
+            };
+            for (_, unfoldings) in calls {
+                let Some(unfolding) = unfoldings.first() else {
+                    continue;
+                };
+                let ExpKind::Unfolding(access, _) = unfolding.kind() else {
+                    return Err(NativeError::Unsupported("recursive unfolding shape"));
+                };
+                let ExpKind::PredicateAccessPredicate(access) = access.kind() else {
+                    return Err(NativeError::Unsupported("recursive predicate access"));
+                };
+                let location = &access.location;
+                let mut allowed = true;
+                for arg in &location.args {
+                    if !ferrum_silver::ast::utility::expressions::free_variables(arg, &ignored)
+                        .map_err(|e| {
+                            NativeError::Diagnostic(format!(
+                                "recursive trigger free variables: {e:?}"
+                            ))
+                        })?
+                        .is_empty()
+                    {
+                        allowed = false;
+                        break;
+                    }
+                }
+                if !allowed {
+                    continue;
+                }
+                let predicate = data
+                    .program
+                    .find_predicate(&location.predicate_name)
+                    .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+                let predicate_data =
+                    crate::supporters::predicate_verification_unit::PredicateData::new(
+                        predicate.clone(),
+                        &converter,
+                        &factory,
+                        Sort::Snap,
+                    )
+                    .map_err(NativeError::Sort)?;
+                let location_exp = Exp::new(
+                    ExpKind::PredicateAccess(location.clone()),
+                    location.meta.clone(),
+                );
+                let snapshot = replacing
+                    .resolve_location(&translator, &location_exp, Sort::Snap)
+                    .map_err(|e| {
+                        NativeError::Execution(format!("recursive predicate snapshot: {e:?}"))
+                    })?;
+                let args = replacing
+                    .translate_preconditions(&translator, &location.args)
+                    .map_err(|e| {
+                        NativeError::Execution(format!("recursive predicate arguments: {e:?}"))
+                    })?;
+                let terms = std::iter::once(snapshot).chain(args).collect();
+                predicate_triggers.insert(
+                    predicate.name.clone(),
+                    factory.app(predicate_data.trigger_function, terms),
+                );
+            }
+        }
         let nested: Vec<_> = data
             .nested_definitional_axioms()
             .map_err(|e| NativeError::Execution(format!("function nested axioms: {e:?}")))?
             .into_iter()
             .collect();
         let definition = data
-            .definitional_axiom(&factory, body.clone(), &nested, &[], |term| {
-                Ok::<_, Self::Error>(term)
-            })
+            .definitional_axiom(
+                &factory,
+                body.clone(),
+                &nested,
+                &predicate_triggers
+                    .iter()
+                    .map(|(_, value)| value.clone())
+                    .collect::<Vec<_>>(),
+                |term| Ok::<_, Self::Error>(term),
+            )
             .map_err(|e| NativeError::Execution(format!("function definition: {e:?}")))?;
         let propagation = data
             .body_precondition_axioms(
@@ -8565,10 +9355,43 @@ where
             declaration,
         ))
     }
-    fn auto_trigger_permission_constraint(&mut self, _: Term) -> Result<Term, Self::Error> {
-        Err(NativeError::Unsupported(
-            "quantified permission automatic triggers",
-        ))
+    fn auto_trigger_permission_constraint(
+        &mut self,
+        quantifier: Term,
+    ) -> Result<Term, Self::Error> {
+        let crate::state::terms::TermKind::Quantification {
+            quantifier: kind,
+            vars,
+            body,
+            triggers,
+            name,
+            is_global,
+            weight,
+        } = quantifier.kind()
+        else {
+            return Err(NativeError::Unsupported(
+                "permission trigger quantifier shape",
+            ));
+        };
+        if !triggers.is_empty() {
+            return Ok(quantifier);
+        }
+        let generated = self
+            .base
+            .trigger_generator
+            .generate_simple_group(&self.factory, vars, std::slice::from_ref(body))
+            .map_err(|e| NativeError::Chunk(format!("permission trigger generation: {e:?}")))?;
+        self.factory
+            .quantification(
+                *kind,
+                vars.clone(),
+                body.clone(),
+                generated,
+                name.clone(),
+                *is_global,
+                *weight,
+            )
+            .map_err(|e| NativeError::Chunk(format!("permission trigger quantifier: {e:?}")))
     }
     fn assume_permission_constraint(
         &mut self,
@@ -8909,14 +9732,22 @@ where
         &mut self,
         variables: &[Term],
         body: Term,
-        _: &[Term],
+        candidate_terms: &[Term],
         explicit_triggers: Option<&[crate::state::terms::Trigger]>,
         name: &str,
         global: bool,
     ) -> Result<Term, Self::Error> {
-        let triggers = explicit_triggers.ok_or(NativeError::Unsupported(
-            "automatic inverse-function triggers",
-        ))?;
+        let generated;
+        let triggers = if let Some(triggers) = explicit_triggers {
+            triggers
+        } else {
+            generated = self
+                .base
+                .trigger_generator
+                .generate_simple_group(&self.factory, variables, candidate_terms)
+                .map_err(|e| NativeError::Chunk(format!("inverse trigger generation: {e:?}")))?;
+            &generated
+        };
         self.factory
             .quantification(
                 crate::state::terms::Quantifier::Forall,
@@ -8985,7 +9816,16 @@ where
     ) -> Result<VerificationResult<VerificationError>, Self::Error> {
         let reason = match reason {
             crate::rules::quantified_chunk_support::QuantifiedProductionFailure::NegativePermission => ErrorReason::NegativePermission(error.permission.clone()),
-            crate::rules::quantified_chunk_support::QuantifiedProductionFailure::NotInjective => ErrorReason::QPAssertionNotInjective(ferrum_silver::ast::utility::nodes::Node::Exp(error.access.clone())),
+            crate::rules::quantified_chunk_support::QuantifiedProductionFailure::NotInjective => {
+                use ferrum_silver::ast::utility::nodes::Node;
+                let node = match error.access.kind() {
+                    ExpKind::FieldAccessPredicate(access, _) => Node::FieldAccess(access.clone()),
+                    ExpKind::PredicateAccessPredicate(access) => Node::PredicateAccess(access.location.clone()),
+                    ExpKind::MagicWand(..) => Node::Exp(error.access.clone()),
+                    _ => return Err(NativeError::Unsupported("quantified injectivity error location")),
+                };
+                ErrorReason::QPAssertionNotInjective(node)
+            }
         };
         self.failure(&error.partial, reason, state.retry_level)
     }
@@ -9083,9 +9923,9 @@ where
         &mut self,
         state: &State<PD, FD, JoinMode>,
         resource: &ResourceKey,
-        _: &ListBackedHeap,
-        _: &crate::rules::quantified_chunk_support::InverseFunctions,
-        _: &Term,
+        heap: &ListBackedHeap,
+        inverse: &crate::rules::quantified_chunk_support::InverseFunctions,
+        condition: &Term,
     ) -> Result<
         Option<(
             crate::rules::quantified_chunk_support::SnapshotMapDefinition,
@@ -9093,12 +9933,17 @@ where
         )>,
         Self::Error,
     > {
-        if state.heap_dependent_triggers.contains(resource) {
-            return Err(NativeError::Unsupported(
-                "general quantified production resource trigger",
-            ));
+        if !state.heap_dependent_triggers.contains(resource) {
+            return Ok(None);
         }
-        Ok(None)
+        let source = native_quantified_source(resource);
+        let formals = state
+            .formal_arg_vars(&source, &self.base.symbol_converter, &self.factory)
+            .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+        let chunks = native_quantified_chunks(heap, resource);
+        let (definition, cache) = crate::rules::quantified_chunk_support::GeneralConsumptionExecution::summarise_general_consumed(self, state, resource, &formals, &chunks, None)?;
+        self.assume_native_inverse_trigger(resource, &formals, condition, inverse, &definition)?;
+        Ok(Some((definition, cache)))
     }
     fn next_production_tag(&mut self) -> i32 {
         let id = self.quantified_counter as i32;
@@ -9158,9 +10003,9 @@ where
     fn consume_trigger_summary(
         &mut self,
         state: &State<PD, FD, JoinMode>,
-        _: &ListBackedHeap,
+        heap: &ListBackedHeap,
         resource: &ResourceKey,
-        _: &[Term],
+        formals: &[Term],
         _: &ChunkIdentifier,
     ) -> Result<
         Option<(
@@ -9169,25 +10014,23 @@ where
         )>,
         Self::Error,
     > {
-        if state.heap_dependent_triggers.contains(resource) {
-            return Err(NativeError::Unsupported(
-                "general quantified consumption resource trigger",
-            ));
+        if !state.heap_dependent_triggers.contains(resource) {
+            return Ok(None);
         }
-        Ok(None)
+        let chunks = native_quantified_chunks(heap, resource);
+        let summary = crate::rules::quantified_chunk_support::GeneralConsumptionExecution::summarise_general_consumed(self, state, resource, formals, &chunks, None)?;
+        Ok(Some(summary))
     }
     fn consume_assume_inverse_trigger(
         &mut self,
         _: &State<PD, FD, JoinMode>,
-        _: &ResourceKey,
-        _: &[Term],
-        _: &Term,
-        _: &crate::rules::quantified_chunk_support::InverseFunctions,
-        _: &crate::rules::quantified_chunk_support::SnapshotMapDefinition,
+        resource: &ResourceKey,
+        formals: &[Term],
+        condition: &Term,
+        inverse: &crate::rules::quantified_chunk_support::InverseFunctions,
+        definition: &crate::rules::quantified_chunk_support::SnapshotMapDefinition,
     ) -> Result<(), Self::Error> {
-        Err(NativeError::Unsupported(
-            "general quantified inverse trigger",
-        ))
+        self.assume_native_inverse_trigger(resource, formals, condition, inverse, definition)
     }
     fn consumption_unsafe_wildcard(&self) -> bool {
         self.options.unsafe_wildcard_optimization
@@ -9406,5 +10249,167 @@ where
     }
     fn debug_general_consumption(&self) -> bool {
         false
+    }
+}
+
+fn native_quantified_source(
+    resource: &ResourceKey,
+) -> crate::rules::quantified_chunk_support::SnapshotResource {
+    use crate::rules::quantified_chunk_support::SnapshotResource;
+    match resource {
+        ResourceKey::Field(f) => SnapshotResource::Field(f.clone()),
+        ResourceKey::Predicate(p) => SnapshotResource::Predicate(p.clone()),
+        ResourceKey::Wand(w) => SnapshotResource::Wand(w.ghost_free_wand.clone()),
+    }
+}
+fn native_quantified_chunks(heap: &ListBackedHeap, resource: &ResourceKey) -> Vec<Chunk> {
+    use crate::state::heap::Heap;
+    heap.values()
+        .iter()
+        .filter(|chunk| match (resource, chunk) {
+            (ResourceKey::Field(f), Chunk::QuantifiedField(c)) => c.id_ref().0 == f.name,
+            (ResourceKey::Predicate(p), Chunk::QuantifiedPredicate(c)) => c.id_ref().0 == p.name,
+            (ResourceKey::Wand(w), Chunk::QuantifiedMagicWand(c)) => c.id_ref() == w,
+            _ => false,
+        })
+        .cloned()
+        .collect()
+}
+
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::state_consolidator::QuantifiedFieldBoundServices<PD, FD, JoinMode>
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn summarise_bound_maps(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        field: &ferrum_silver::ast::program::Field,
+        receiver: &Term,
+        chunks: &[crate::state::chunks::QuantifiedFieldChunk],
+    ) -> Result<
+        (
+            State<PD, FD, JoinMode>,
+            crate::rules::quantified_chunk_support::SnapshotMapDefinition,
+            crate::rules::quantified_chunk_support::PermMapDefinition,
+        ),
+        Self::Error,
+    > {
+        let resource = ResourceKey::Field(Arc::new(field.clone()));
+        let source = native_quantified_source(&resource);
+        let chunks: Vec<_> = chunks.iter().cloned().map(Chunk::QuantifiedField).collect();
+        let trigger = state.heap_dependent_triggers.contains(&resource);
+        let factory = self.factory.clone();
+        crate::rules::quantified_chunk_support::heap_summarising_maps(
+            &factory,
+            self,
+            state,
+            &resource,
+            source,
+            std::slice::from_ref(receiver),
+            &chunks,
+            None,
+            None,
+            trigger,
+            false,
+            false,
+            false,
+        )
+        .map_err(|e| NativeError::Consolidation(format!("quantified bound summaries: {e:?}")))
+    }
+    fn assume_quantified_field_bound(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        _: &ferrum_silver::ast::program::Field,
+        _: Option<&crate::state::chunks::QuantifiedFieldChunk>,
+        _: &Term,
+        goal: &Term,
+    ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
+        self.assume_term(goal)?;
+        Ok(state)
+    }
+}
+
+impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn assume_native_inverse_trigger(
+        &mut self,
+        resource: &ResourceKey,
+        formals: &[Term],
+        condition: &Term,
+        inverse: &crate::rules::quantified_chunk_support::InverseFunctions,
+        definition: &crate::rules::quantified_chunk_support::SnapshotMapDefinition,
+    ) -> Result<(), NativeError<S::Error>> {
+        let substitutions = inverse.qvars_to_inverses_of(&self.factory, formals);
+        let condition = self
+            .factory
+            .replace(condition, &substitutions.iter().cloned().collect())
+            .map_err(|e| NativeError::Chunk(format!("inverse trigger substitution: {e:?}")))?;
+        let trigger = self.factory.resource_trigger(
+            resource,
+            definition.snapshot_map.clone(),
+            formals.to_vec(),
+        );
+        let patterns = substitutions.into_iter().map(|(_, term)| term).collect();
+        let axiom = self
+            .factory
+            .quantification(
+                crate::state::terms::Quantifier::Forall,
+                formals.to_vec(),
+                self.factory.implies(condition, trigger),
+                vec![crate::state::terms::Trigger { terms: patterns }],
+                TermFactory::forall_default_name(),
+                false,
+                None,
+            )
+            .map_err(|e| NativeError::Chunk(format!("inverse trigger quantifier: {e:?}")))?;
+        self.assume_term(&axiom)
+    }
+}
+
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::magic_wand_supporter::WandReserveHeapServices<PD, FD, JoinMode>
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn merge_evaluation_reserves(
+        &mut self,
+        _: &State<PD, FD, JoinMode>,
+        used: &ListBackedHeap,
+        operations: &ListBackedHeap,
+        lhs: &ListBackedHeap,
+    ) -> Result<ListBackedHeap, Self::Error> {
+        Ok(used.with_heap(operations).with_heap(lhs))
+    }
+    fn empty_wand_heap(
+        &mut self,
+        _: &State<PD, FD, JoinMode>,
+    ) -> Result<ListBackedHeap, Self::Error> {
+        Ok(ListBackedHeap::new())
+    }
+    fn merge_wand_operations(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        operations: &ListBackedHeap,
+        new_heap: &ListBackedHeap,
+    ) -> Result<(FunctionRecorder<FD>, ListBackedHeap), Self::Error> {
+        let factory = self.factory.clone();
+        let choice = self.consolidation_choice(state)?;
+        crate::rules::state_consolidator::merge_heaps(
+            &factory,
+            self,
+            state,
+            state.function_recorder.clone(),
+            operations,
+            new_heap,
+            choice,
+        )
+        .map_err(|e| NativeError::Consolidation(format!("wand operations heap: {e:?}")))
     }
 }

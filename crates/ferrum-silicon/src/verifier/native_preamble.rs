@@ -998,6 +998,83 @@ fn analyze_sequences_inner(
 }
 
 /// Parsed builtin set source, instantiated and translated before solver emission.
+/// Source ViperEmbedding(sorts.Snap), used only to instantiate Set[Snap] axioms.
+#[derive(Clone, Debug)]
+struct SnapEmbedding;
+impl ferrum_silver::ast::r#type::ExtensionType for SnapEmbedding {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn equals(&self, other: &dyn ferrum_silver::ast::r#type::ExtensionType) -> bool {
+        other.as_any().is::<Self>()
+    }
+    fn hash_value(&self) -> u64 {
+        0x534e4150
+    }
+    fn substitute(
+        &self,
+        _: &ferrum_silver::ast::r#type::TypeSubstitution,
+    ) -> std::sync::Arc<dyn ferrum_silver::ast::r#type::ExtensionType> {
+        std::sync::Arc::new(Self)
+    }
+    fn is_concrete(&self) -> bool {
+        true
+    }
+}
+
+/// Source DefaultSetsContributor condition for quantified-resource set instances.
+pub fn uses_quantified_resource(
+    program: &Program,
+) -> Result<bool, NativePreambleError<std::convert::Infallible>> {
+    use ferrum_silver::ast::{expression::ExpKind, utility::nodes::subnodes};
+    fn contains_resource(
+        node: &Node,
+    ) -> Result<bool, NativePreambleError<std::convert::Infallible>> {
+        if matches!(node, Node::FieldAccess(_) | Node::PredicateAccess(_))
+            || matches!(node, Node::Exp(e) if matches!(e.kind(), ExpKind::FieldAccess(_) | ExpKind::PredicateAccess(_) | ExpKind::MagicWand(..)))
+        {
+            return Ok(true);
+        }
+        for child in
+            subnodes(node).map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?
+        {
+            if contains_resource(&child)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+    fn walk(node: &Node) -> Result<bool, NativePreambleError<std::convert::Infallible>> {
+        if let Node::Exp(exp) = node {
+            match exp.kind() {
+                ExpKind::Forall(_, triggers, _) | ExpKind::Exists(_, triggers, _) => {
+                    for trigger in triggers {
+                        for e in &trigger.exps {
+                            if contains_resource(&Node::Exp(e.clone()))? {
+                                return Ok(true);
+                            }
+                        }
+                    }
+                    if !exp.is_pure() {
+                        return Ok(true);
+                    }
+                }
+                ExpKind::ForPerm(..) if !exp.is_pure() => return Ok(true),
+                _ => {}
+            }
+        }
+        for child in
+            subnodes(node).map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?
+        {
+            if walk(&child)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+    walk(&Node::Program(program.clone()))
+}
+
 /// Collection analysis is intentionally separate from the checked user-domain profile.
 pub struct NativeSetPreamble {
     contributor: crate::supporters::builtin_domains_contributor::BuiltinDomainsContributor,
@@ -1152,6 +1229,21 @@ fn analyze_sets_inner(
             }
         }
     }
+    let needs_quantified_sets = uses_quantified_resource(program)?;
+    if needs_quantified_sets {
+        for field in &program.fields {
+            if !(supported_element(&field.typ)
+                || mixed && mixed_collection_type(&field.typ, closed_ground.is_some()))
+            {
+                return Err(NativePreambleError::Unsupported(
+                    "quantified field set element",
+                ));
+            }
+            instances.insert(field.typ.clone());
+        }
+        instances.insert(Type::Ref);
+        instances.insert(Type::Extension(std::sync::Arc::new(SnapEmbedding)));
+    }
     let mut contributor = BuiltinDomainsContributor::default();
     if instances.is_empty() {
         return Ok(NativeSetPreamble { contributor });
@@ -1183,6 +1275,12 @@ fn analyze_sets_inner(
     }
     let builtin_converter = converter
         .clone()
+        .with_embedding_override(std::sync::Arc::new(|value| {
+            value
+                .as_any()
+                .is::<SnapEmbedding>()
+                .then_some(crate::state::terms::Sort::Snap)
+        }))
         .with_builtin_domain(sets::SOURCE_DOMAIN_NAME, BuiltinDomainSort::Set);
     let mut instances = instances.into_iter().collect::<Vec<_>>();
     fn nesting(typ: &Type) -> usize {
@@ -2469,6 +2567,119 @@ mod multiset_tests {
                 SymbolConversionError::MissingSmtlibName
             ))
         ));
+    }
+    #[test]
+    fn quantified_resource_adds_source_set_instances() {
+        use ferrum_silver::ast::{
+            expression::{Exp, ExpKind, FieldAccess, LocalVar},
+            program::{Field, FieldData},
+        };
+        let meta = Metadata::default();
+        let field = Field::new(FieldData {
+            name: "f".into(),
+            typ: Type::Int,
+            meta: meta.clone(),
+        });
+        let decl = LocalVarDecl::new("r".into(), Type::Ref, meta.clone());
+        let receiver = Exp::new(
+            ExpKind::LocalVar(LocalVar::new("r".into(), Type::Ref, meta.clone())),
+            meta.clone(),
+        );
+        let access = Exp::new(
+            ExpKind::FieldAccessPredicate(
+                FieldAccess::new(receiver, field.clone(), meta.clone()),
+                None,
+            ),
+            meta.clone(),
+        );
+        let quantifier = Exp::new(ExpKind::Forall(vec![decl], vec![], access), meta.clone());
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![],
+            formal_returns: vec![],
+            pres: vec![quantifier],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(
+            vec![],
+            vec![field],
+            vec![],
+            vec![],
+            vec![method],
+            vec![],
+            meta,
+        );
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        assert!(uses_quantified_resource(&program).unwrap());
+        let data = analyze_collections(&program, &converter, &factory, false).unwrap();
+        for element in [Sort::Int, Sort::Ref, Sort::Snap] {
+            assert!(
+                data.sets
+                    .sorts()
+                    .any(|s| *s == Sort::Set(Box::new(element.clone())))
+            );
+        }
+        let mut smt =
+            crate::decider::term_to_smt_lib2_converter::TermToSmtLib2Converter::new(factory);
+        for axiom in &data.sets.contributor.axioms {
+            smt.convert_term(axiom).unwrap();
+        }
+    }
+    #[test]
+    fn resource_in_pure_quantifier_trigger_enables_quantified_sets() {
+        use ferrum_silver::ast::{
+            expression::{Exp, ExpKind, FieldAccess, LocalVar, Trigger},
+            program::{Field, FieldData},
+        };
+        let meta = Metadata::default();
+        let field = Field::new(FieldData {
+            name: "f".into(),
+            typ: Type::Bool,
+            meta: meta.clone(),
+        });
+        let decl = LocalVarDecl::new("r".into(), Type::Ref, meta.clone());
+        let receiver = Exp::new(
+            ExpKind::LocalVar(LocalVar::new("r".into(), Type::Ref, meta.clone())),
+            meta.clone(),
+        );
+        let access = Exp::new(
+            ExpKind::FieldAccess(FieldAccess::new(receiver, field.clone(), meta.clone())),
+            meta.clone(),
+        );
+        let quantified = Exp::new(
+            ExpKind::Exists(
+                vec![decl],
+                vec![Trigger::new(vec![access], meta.clone())],
+                Exp::new(ExpKind::TrueLit, meta.clone()),
+            ),
+            meta.clone(),
+        );
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![],
+            formal_returns: vec![],
+            pres: vec![quantified],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(
+            vec![],
+            vec![field],
+            vec![],
+            vec![],
+            vec![method],
+            vec![],
+            meta,
+        );
+        assert!(uses_quantified_resource(&program).unwrap());
     }
     #[test]
     fn general_preamble_collects_interpreted_sorts_and_sequence_instances() {

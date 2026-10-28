@@ -37,9 +37,11 @@ smoke coverage. Heap-independent quantifiers, generic domain axioms and nested
 Seq/Set/Multiset/Map instances now reach the solver. Source ground-instance
 closure handles recursive domain dependencies and ADTs mixed with collections.
 The native context also connects impure branch joins and the two-phase function
-protocol, including heap snapshots and function contracts. Recursive functions
-under predicate unfoldings, quantified resources, wands and advanced execution or
-reporting profiles remain incomplete; unsupported paths return execution errors.
+protocol, including heap snapshots and function contracts. Field and predicate
+quantified permissions, ForPerm, heap-dependent triggers and recursive-function
+predicate triggers now connect to the native context. Full trigger rewriting,
+wands and advanced execution or reporting profiles remain incomplete; unsupported
+paths return execution errors.
 Interpreted backend types now preserve source SMT operations, including bitvectors
 and floating-point values.
 Full compatibility and comparative performance remain unmeasured.

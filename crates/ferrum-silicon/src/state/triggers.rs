@@ -27,8 +27,10 @@
 //! Open decisions:
 //! Generic trigger extension points and counter ownership.
 //!
-//! Status: partial; trigger classification, overrides and argument reconstruction implemented.
-//! Generic trigger search, axiom rewriting and quantification assembly remain pending.
+//! Status: partial; trigger classification, overrides, reconstruction and source generic
+//! trigger search for terms that need no axiom rewrite are implemented. Search involving
+//! forbidden arithmetic, let binding or fresh rewrite variables returns an explicit error;
+//! the full axiom rewriter and quantification assembly remain pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -62,7 +64,7 @@ impl TriggerGenerator {
             TermKind::App {
                 applicable: ApplicationTarget::Variable(_),
                 ..
-            } => true,
+            } => false,
             TermKind::CustomEquals(..)
             | TermKind::PermMin(..)
             | TermKind::SeqRanged(..)
@@ -256,5 +258,128 @@ where
         } else {
             None
         }
+    }
+}
+
+/// Source generic trigger search for terms that need neither forbidden-expression
+/// replacement nor arithmetic axiom rewriting. Those cases remain explicit errors.
+#[derive(Debug)]
+pub enum NativeTriggerSearchError {
+    Traversal(UnsupportedSubterms),
+    Transform(UnsupportedTriggerTransform),
+    Trigger(TriggerError),
+    RequiresAxiomRewrite,
+    UnsupportedLet,
+}
+struct NativeTriggerAdapter<'a> {
+    factory: &'a TermFactory,
+    generator: &'a TriggerGenerator,
+}
+impl ferrum_silver::ast::utility::generic_trigger_generator::TriggerAdapter
+    for NativeTriggerAdapter<'_>
+{
+    type Node = Term;
+    type Exp = Term;
+    type Var = Term;
+    type Error = NativeTriggerSearchError;
+    fn root(&self, exp: &Term) -> Term {
+        exp.clone()
+    }
+    fn children(&self, node: &Term) -> Result<Vec<Term>, Self::Error> {
+        node.subterms().map_err(NativeTriggerSearchError::Traversal)
+    }
+    fn expression(&self, node: &Term) -> Option<Term> {
+        Some(node.clone())
+    }
+    fn quantified_vars(&self, node: &Term) -> Option<Vec<Term>> {
+        match node.kind() {
+            TermKind::Quantification { vars, .. } => Some(vars.clone()),
+            _ => None,
+        }
+    }
+    fn possible_trigger(&self, exp: &Term) -> Result<bool, Self::Error> {
+        Ok(self.generator.is_possible_trigger(exp))
+    }
+    fn arguments(&self, exp: &Term) -> Result<Vec<Term>, Self::Error> {
+        exp.subterms().map_err(NativeTriggerSearchError::Traversal)
+    }
+    fn with_arguments(&self, exp: &Term, args: Vec<Term>) -> Result<Term, Self::Error> {
+        TriggerGenerator::with_args(self.factory, exp, &args)
+            .map_err(NativeTriggerSearchError::Trigger)
+    }
+    fn variables_in(&self, exp: &Term) -> Result<Vec<Term>, Self::Error> {
+        exp.deep_collect(&mut |term| matches!(term.kind(), TermKind::Var(_)).then(|| term.clone()))
+            .map_err(NativeTriggerSearchError::Traversal)
+    }
+    fn rewrite_forbidden(&mut self, exp: &Term) -> Result<(Term, Vec<Term>), Self::Error> {
+        let forbidden = exp
+            .find(&mut |term| {
+                (self.generator.is_forbidden(term)
+                    || matches!(term.kind(), TermKind::Plus(..) | TermKind::Minus(..)))
+                .then_some(())
+            })
+            .map_err(NativeTriggerSearchError::Traversal)?
+            .is_some();
+        if forbidden {
+            return Err(NativeTriggerSearchError::RequiresAxiomRewrite);
+        }
+        Ok((exp.clone(), vec![]))
+    }
+    fn additional_relevant(
+        &self,
+        node: &Term,
+        _: &[Term],
+        _: &[Term],
+    ) -> Result<Vec<Term>, Self::Error> {
+        if matches!(node.kind(), TermKind::Let(..)) {
+            return Err(NativeTriggerSearchError::UnsupportedLet);
+        }
+        Ok(vec![])
+    }
+    fn modify(
+        &self,
+        _: &Term,
+        _: &[Term],
+        _: &[Vec<ferrum_silver::ast::utility::generic_trigger_generator::Candidate<Term, Term>>],
+    ) -> Result<
+        Option<Vec<ferrum_silver::ast::utility::generic_trigger_generator::Candidate<Term, Term>>>,
+        Self::Error,
+    > {
+        Ok(None)
+    }
+    fn has_subnode(&self, parent: &Term, child: &Term) -> Result<bool, Self::Error> {
+        parent
+            .has_subterm(child)
+            .map_err(NativeTriggerSearchError::Traversal)
+    }
+}
+impl TriggerGenerator {
+    /// Try each search term in source order and return its first nonempty trigger group.
+    pub fn generate_simple_group(
+        &self,
+        factory: &TermFactory,
+        variables: &[Term],
+        search: &[Term],
+    ) -> Result<Vec<crate::state::terms::Trigger>, NativeTriggerSearchError> {
+        use ferrum_silver::ast::utility::generic_trigger_generator::generate_trigger_set_groups;
+        let mut adapter = NativeTriggerAdapter {
+            factory,
+            generator: self,
+        };
+        for term in search {
+            if let Some((sets, extra)) = generate_trigger_set_groups(&mut adapter, variables, term)?
+                .into_iter()
+                .next()
+            {
+                if !extra.is_empty() {
+                    return Err(NativeTriggerSearchError::RequiresAxiomRewrite);
+                }
+                return Ok(sets
+                    .into_iter()
+                    .map(|set| crate::state::terms::Trigger { terms: set.exps })
+                    .collect());
+            }
+        }
+        Ok(vec![])
     }
 }
