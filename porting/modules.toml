@@ -1641,7 +1641,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Executor.scala"
 destination = "crates/ferrum-silicon/src/rules/executor.rs"
 status = "skeleton"
-remaining = ["Statement, call, CFG and loop-phase algorithms exist; wand/extension dispatch and concrete verifier contexts remain."]
+remaining = ["Native source discovery, template emission and rule dispatch exist; concrete solver, diagnostics, recursive translator and verifier integration remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1737,7 +1737,8 @@ remaining = ["Heap consolidation and ordinary/quantified merge algorithms exist;
 repository = "silicon"
 upstream = "src/main/scala/rules/SymbolicExecutionRules.scala"
 destination = "crates/ferrum-silicon/src/rules/symbolic_execution_rules.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native source discovery, template emission and rule dispatch exist; concrete solver, diagnostics, recursive translator and verifier integration remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1971,25 +1972,29 @@ remaining = ["Source function encoding, analysis and verification algorithms exi
 repository = "silicon"
 upstream = "src/main/scala/supporters/qps/FieldValueFunctionsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/qps/field_value_functions_contributor.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native source discovery, template emission and rule dispatch exist; concrete solver, diagnostics, recursive translator and verifier integration remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/qps/MaskHeapFunctionsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/qps/mask_heap_functions_contributor.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native source discovery, template emission and rule dispatch exist; concrete solver, diagnostics, recursive translator and verifier integration remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/qps/PredicateAndWandSnapFunctionsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/qps/predicate_and_wand_snap_functions_contributor.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native source discovery, template emission and rule dispatch exist; concrete solver, diagnostics, recursive translator and verifier integration remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/qps/PredicateSnapGenerator.scala"
 destination = "crates/ferrum-silicon/src/supporters/qps/predicate_snap_generator.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native source discovery, template emission and rule dispatch exist; concrete solver, diagnostics, recursive translator and verifier integration remain."]
 
 [[modules]]
 repository = "silicon"

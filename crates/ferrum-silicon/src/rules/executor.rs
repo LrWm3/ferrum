@@ -565,6 +565,30 @@ where
                 finish(context, state)
             })
         }
+        StmtKind::Extension(extension)
+            if extension
+                .0
+                .as_any()
+                .is::<crate::extensions::try_block_stmt::TryBlock>() =>
+        {
+            let body = &extension
+                .0
+                .as_any()
+                .downcast_ref::<crate::extensions::try_block_stmt::TryBlock>()
+                .expect("checked extension type")
+                .body;
+            let original = state.clone();
+            let mut body_succeeded = false;
+            let body_result = execute(context, state, body, &mut |context, state| {
+                body_succeeded = true;
+                finish(context, state)
+            })?;
+            if body_succeeded {
+                Ok(body_result)
+            } else {
+                finish(context, original)
+            }
+        }
         _ => context.execute_special(state, statement, &mut finish),
     }
 }
