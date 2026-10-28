@@ -2058,7 +2058,16 @@ pub fn assert_quantified_read_permission<S: QuantifiedReadPermissionSolver>(
     }
 }
 
-pub trait QuantifiedRemovalServices: QuantifiedReadPermissionSolver {
+pub trait QuantifiedRemovalServices<P, D, J>: QuantifiedReadPermissionSolver {
+    fn open_removal_scope(
+        &mut self,
+        _state: &crate::state::state::State<P, D, J>,
+    ) -> Result<Option<i32>, Self::Error> {
+        Ok(None)
+    }
+    fn close_removal_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
+        Ok(())
+    }
     fn check_removal_goal(&mut self, goal: &Term, timeout_ms: i32) -> Result<bool, Self::Error>;
     fn removal_check_timeout(&self) -> i32;
     fn removal_split_timeout(&self) -> i32;
@@ -2101,7 +2110,7 @@ pub fn remove_quantified_permissions<
     P,
     D: Clone,
     J: Clone + PartialEq,
-    S: QuantifiedRemovalServices,
+    S: QuantifiedRemovalServices<P, D, J>,
 >(
     factory: &TermFactory,
     services: &mut S,
@@ -2163,6 +2172,9 @@ pub fn remove_quantified_permissions<
             _ => unreachable!(),
         }
     }
+    let scope = services
+        .open_removal_scope(&state)
+        .map_err(QuantifiedRemovalError::Service)?;
     for chunk in original_chunks {
         if data(factory, chunk).is_none_or(|(id, _, _)| &id != resource_id) {
             return Err(QuantifiedRemovalError::InvalidChunk);
@@ -2395,6 +2407,9 @@ pub fn remove_quantified_permissions<
     {
         result = ConsumptionResult::Complete;
     }
+    services
+        .close_removal_scope(scope)
+        .map_err(QuantifiedRemovalError::Service)?;
     Ok((result, state, remaining, untouched))
 }
 
@@ -2568,7 +2583,7 @@ pub fn quantified_application_chunk_order<S: QuantifiedChunkSolver>(
 }
 
 pub trait SingleLocationConsumption<P, D, J, V>:
-    QuantifiedRemovalServices
+    QuantifiedRemovalServices<P, D, J>
     + QuantifiedChunkSolver<Error = <Self as QuantifiedReadPermissionSolver>::Error>
 {
     type VerificationError;
@@ -3699,7 +3714,7 @@ pub fn prepare_general_quantified_consumption<
 }
 
 pub trait GeneralConsumptionExecution<P, D, J, V>:
-    QuantifiedRemovalServices
+    QuantifiedRemovalServices<P, D, J>
     + QuantifiedChunkSolver<Error = <Self as QuantifiedReadPermissionSolver>::Error>
 {
     type VerificationError;

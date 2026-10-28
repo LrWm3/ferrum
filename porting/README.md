@@ -687,3 +687,9 @@ run-owned root and an owner-local record factory; missing or mismatched setup
 fails before execution. The default parallel factory still lacks this setup,
 so public trace profiles remain gated. Repeated native runs currently report
 only current-run postconditions, unlike the pinned source reset behavior.
+
+Quantified permission removal now emits its source full-state comment scope,
+including the source open scope on read-only early return. Complementary CFG
+edges also retain the source conditional record without an invented close.
+Active rule/supporter record sites have now been audited against the pinned
+source; public profile setup and parallel branch log transfer remain incomplete.

@@ -601,7 +601,7 @@ fn joining_scope_captures_initial_state_and_closes_only_after_success() {
             .is_some_and(|c| c.ref_id == joining.header.id())
     }));
     let result = worker.context.join_function_application(
-        state,
+        state.clone(),
         &function,
         &[],
         None,
@@ -626,6 +626,36 @@ fn joining_scope_captures_initial_state_and_closes_only_after_success() {
         r.as_any()
             .downcast_ref::<CloseScopeRecord>()
             .is_some_and(|c| c.ref_id == joins[1].header.id())
+    }));
+    let mut read_state = state;
+    read_state.assert_read_access_only = true;
+    let id = ferrum_silicon::state::chunks::ChunkIdentifier::Basic(
+        ferrum_silicon::state::chunks::BasicChunkIdentifier("f".into()),
+    );
+    ferrum_silicon::rules::quantified_chunk_support::remove_quantified_permissions(
+        &factory,
+        &mut worker.context,
+        read_state,
+        &[],
+        &[],
+        &id,
+        &[],
+        None,
+        factory.boolean(false),
+        None,
+        None,
+        factory.no_perm(),
+        None,
+        false,
+        false,
+    )
+    .unwrap();
+    let records = log.records().unwrap();
+    let removal = records.iter().find(|r| r.as_any().downcast_ref::<ferrum_silicon::logger::records::data::comment_record::CommentRecord<NativeBranchState>>().is_some_and(|c| c.comment.as_deref() == Some("removePermissions"))).unwrap();
+    assert!(!records.iter().any(|r| {
+        r.as_any()
+            .downcast_ref::<CloseScopeRecord>()
+            .is_some_and(|c| c.ref_id == removal.id())
     }));
     worker.context.base.decider.stop().unwrap();
 }

@@ -14432,11 +14432,39 @@ where
         self.base.decider.assert_timeout.unwrap_or(0)
     }
 }
-impl<S: Prover, PD, FD> crate::rules::quantified_chunk_support::QuantifiedRemovalServices
+impl<S: Prover, PD, FD>
+    crate::rules::quantified_chunk_support::QuantifiedRemovalServices<PD, FD, JoinMode>
     for NativeVerifierContext<S, PD, FD>
 where
     S::Error: std::fmt::Debug,
 {
+    fn open_removal_scope(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+    ) -> Result<Option<i32>, Self::Error> {
+        let Some(log) = &self.member_log else {
+            return Ok(None);
+        };
+        if log.when_enabled(|| ()).is_none() {
+            return Ok(None);
+        }
+        let factory = self
+            .record_factory
+            .as_ref()
+            .ok_or(NativeError::Unsupported(
+                "active symbolic logger requires record factory",
+            ))?;
+        let record = factory.comment("removePermissions", Some(state), &self.base.decider.pcs);
+        let renderer = crate::logger::state_reporting::NativeStateRecordRenderer {
+            factory: &self.factory,
+        };
+        log.open_scope(record, &renderer)
+            .map(Some)
+            .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
+    }
+    fn close_removal_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_logged_scope(id)
+    }
     fn check_removal_goal(&mut self, goal: &Term, timeout_ms: i32) -> Result<bool, Self::Error> {
         self.base
             .decider

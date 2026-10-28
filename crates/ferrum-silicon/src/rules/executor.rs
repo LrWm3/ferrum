@@ -1314,6 +1314,10 @@ where
         if context.parallelize_cfg_branches()
             && matches!(second.kind(),ExpKind::Not(exp) if exp == first)
         {
+            // Source opens this record without a matching close in the complementary-edge path.
+            let _scope = context
+                .open_conditional_edge_scope(&state, first)
+                .map_err(ExecutionError::Context)?;
             return context.evaluate_edge(
                 state,
                 first,
