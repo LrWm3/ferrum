@@ -1498,6 +1498,8 @@ pub struct PStatement {
 }
 #[derive(Clone, Debug)]
 pub enum PStatementKind {
+    /// A method-local macro definition, removed during macro expansion.
+    MacroDefinition(PMemberHandle),
     Extension(Arc<dyn PExtender>),
     Annotated {
         annotation: PAnnotation,
@@ -2389,6 +2391,7 @@ fn statement_subnodes(kind: PStatementKind) -> Vec<PNodeHandle> {
     macro_rules! add { ($($item:expr),* $(,)?) => {{ $( nodes.extend($item.graph_nodes()); )* }}; }
     match kind {
         Extension(extension) => nodes.extend(extension.subnodes()),
+        MacroDefinition(member) => add!(member),
         Annotated { annotation, stmt } => add!(annotation, stmt),
         Seqn { statements, .. } | MacroSeqn { statements } => add!(statements),
         Fold { keyword, exp }

@@ -1132,6 +1132,21 @@ impl ExpressionParser<'_> {
         }
         let end = self.identifier_end(start);
         let name = &self.source[start..end];
+        if name == "define" {
+            let member = self.member()?;
+            let pos = member
+                .node()
+                .read()
+                .expect("poisoned parse node")
+                .pos
+                .clone();
+            return Ok(PStmtHandle::new(
+                PStatement {
+                    kind: PStatementKind::MacroDefinition(member),
+                },
+                pos,
+            ));
+        }
         let block_factory = self.features.iter().find_map(|feature| match feature {
             ParserFeature::StatementBlock { keyword, factory } if *keyword == name => {
                 Some(*factory)

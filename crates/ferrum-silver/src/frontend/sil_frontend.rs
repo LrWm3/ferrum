@@ -546,6 +546,70 @@ impl FrontendPhases for SilFrontendPhases {
 mod tests {
     use super::*;
     #[test]
+    fn macros_expand_permissions_and_collection_expressions() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("field f: Int define owns(v) acc(v.f) define pair(x) Seq(x, x) method m(r: Ref) requires owns(r) { var s: Seq[Int] := pair(2); assert |s| == 2; }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+    }
+    #[test]
+    fn statement_macros_expand_and_splice_without_a_scope() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("define check(x) { assert x > 0; assert x != 2; } method m() { check(1); define local(y) { check(y); } local(3); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        let parsed = phases.parse("define update(x) { if (x > 0) { x := x + 1; } else { x := 0; } } method m() { var n: Int := 1; update(n); assert n == 2; }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        assert!(
+            phases
+                .parse("define bad(x) { var y: Int := x; } method m() { bad(1); }")
+                .is_err()
+        );
+        assert!(
+            phases
+                .parse("define a() { a(); } method m() { a(); }")
+                .is_err()
+        );
+    }
+    #[test]
+    fn local_expression_macros_are_method_scoped_and_override_globals() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("define value 1 method m() { assert value == 2; if (true) { define value 2 } } method n() { assert value == 1; }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        assert!(
+            phases
+                .parse("method m() { define a(x) a(x) assert a(1) == 1; }")
+                .is_err()
+        );
+        assert!(
+            phases
+                .parse("domain D {} method m() { define D 1 var x: D; }")
+                .is_err()
+        );
+    }
+    #[test]
+    fn macro_unused_parameter_warning_is_preserved() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        phases
+            .parse("define first(x, y) x method m() { assert first(1, 2) == 1; }")
+            .unwrap();
+        assert!(phases.parsing_warnings.iter().any(|report| {
+            report
+                .readable_message()
+                .contains("parameters were defined but not used: y")
+        }));
+    }
+    #[test]
     fn bundled_adt_derives_import_reaches_encoding() {
         let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
         let mut phases = SilFrontendPhases::new(

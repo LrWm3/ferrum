@@ -27,8 +27,10 @@
 //! Agree on parse node identity, parent context and reconstruction with parse_ast and rewriter.
 //!
 //! Status: partial; global binder-free expression macros support declaration parsing, cycle/arity
-//! checks, graph duplication and parameter substitution. Statement/local macros, hygienic binder
-//! rewriting, token-wrapper position adaptation and unused-parameter warnings remain pending.
+//! checks, graph duplication, parameter substitution and unused-parameter warnings. Method-local
+//! macros use method-wide, local-first lookup; declaration-free statement bodies are spliced
+//! without a scope. Type macros, hygienic binder rewriting, other statement products and
+//! token-wrapper position adaptation remain pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -210,7 +212,53 @@ mod tests {
 #[derive(Clone)]
 struct ExpressionMacro {
     parameters: Option<Vec<String>>,
-    body: PExpHandle,
+    body: super::parse_ast::PDefineBody,
+}
+
+fn copy_expression_group(
+    group: &super::parse_ast::PExpGroup,
+    replacements: &HashMap<String, PExpHandle>,
+) -> Result<super::parse_ast::PExpGroup, MacroError> {
+    use super::parse_ast_keyword::{PGrouped, PReserved};
+    Ok(PGrouped::new(
+        PReserved::new(*group.left().value(), group.left().position().clone()),
+        copy_expression(group.inner(), replacements)?,
+        PReserved::new(*group.right().value(), group.right().position().clone()),
+        group.position().clone(),
+    ))
+}
+fn copy_expression_arguments(
+    group: &super::parse_ast::PExpArguments,
+    replacements: &HashMap<String, PExpHandle>,
+) -> Result<super::parse_ast::PExpArguments, MacroError> {
+    use super::parse_ast_keyword::{PDelimited, PGrouped, PReserved};
+    let old = group.inner();
+    let first = old
+        .first
+        .as_ref()
+        .map(|e| copy_expression(e, replacements))
+        .transpose()?;
+    let rest = old
+        .inner
+        .iter()
+        .map(|(comma, e)| {
+            Ok((
+                PReserved::new(*comma.value(), comma.position().clone()),
+                copy_expression(e, replacements)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, MacroError>>()?;
+    let end = old
+        .end
+        .as_ref()
+        .map(|comma| PReserved::new(*comma.value(), comma.position().clone()));
+    let args = PDelimited::new(first, rest, end, old.position().clone());
+    Ok(PGrouped::new(
+        PReserved::new(*group.left().value(), group.left().position().clone()),
+        args,
+        PReserved::new(*group.right().value(), group.right().position().clone()),
+        group.position().clone(),
+    ))
 }
 
 /// Duplicate the binder-free expression subset without sharing mutable parse nodes.
@@ -268,6 +316,16 @@ fn copy_expression(
         copy.assign_use = id.assign_use;
         Ok(PNode::new(PNodeKind::IdnRef(copy), n.pos.clone()))
     };
+    macro_rules! token {
+        ($value:expr) => {
+            PReserved::new(*$value.value(), $value.position().clone())
+        };
+    }
+    macro_rules! copied {
+        ($value:expr) => {
+            copy_expression(&$value, replacements)?
+        };
+    }
     let kind = match expression.kind {
         E::IdnUse { idnref } => {
             let name = match &idnref.read().expect("poisoned parse node").kind {
@@ -304,6 +362,226 @@ fn copy_expression(
             left: copy_expression(&left, replacements)?,
             op: PReserved::new(op.value().clone(), op.position().clone()),
             right: copy_expression(&right, replacements)?,
+        },
+        E::MagicWandExp { left, wand, right } => E::MagicWandExp {
+            left: copied!(left),
+            wand: token!(wand),
+            right: copied!(right),
+        },
+        E::InhaleExhale {
+            left,
+            inhale,
+            comma,
+            exhale,
+            right,
+        } => E::InhaleExhale {
+            left: token!(left),
+            inhale: copied!(inhale),
+            comma: token!(comma),
+            exhale: copied!(exhale),
+            right: token!(right),
+        },
+        E::Unfolding {
+            unfolding,
+            acc,
+            in_token,
+            exp,
+        } => E::Unfolding {
+            unfolding: token!(unfolding),
+            acc: copied!(acc),
+            in_token: token!(in_token),
+            exp: copied!(exp),
+        },
+        E::Applying {
+            applying,
+            wand,
+            in_token,
+            exp,
+        } => E::Applying {
+            applying: token!(applying),
+            wand: copied!(wand),
+            in_token: token!(in_token),
+            exp: copied!(exp),
+        },
+        E::Asserting {
+            asserting,
+            assertion,
+            in_token,
+            exp,
+        } => E::Asserting {
+            asserting: token!(asserting),
+            assertion: copied!(assertion),
+            in_token: token!(in_token),
+            exp: copied!(exp),
+        },
+        E::RangeSeq {
+            left,
+            low,
+            dots,
+            high,
+            right,
+        } => E::RangeSeq {
+            left: token!(left),
+            low: copied!(low),
+            dots: token!(dots),
+            high: copied!(high),
+            right: token!(right),
+        },
+        E::Lookup {
+            base,
+            left,
+            index,
+            right,
+        } => E::Lookup {
+            base: copied!(base),
+            left: token!(left),
+            index: copied!(index),
+            right: token!(right),
+        },
+        E::SeqSlice {
+            seq,
+            left,
+            start,
+            dots,
+            end,
+            right,
+        } => E::SeqSlice {
+            seq: copied!(seq),
+            left: token!(left),
+            start: start
+                .as_ref()
+                .map(|e| copy_expression(e, replacements))
+                .transpose()?,
+            dots: token!(dots),
+            end: end
+                .as_ref()
+                .map(|e| copy_expression(e, replacements))
+                .transpose()?,
+            right: token!(right),
+        },
+        E::Update {
+            base,
+            left,
+            key,
+            assign,
+            value,
+            right,
+        } => E::Update {
+            base: copied!(base),
+            left: token!(left),
+            key: copied!(key),
+            assign: token!(assign),
+            value: copied!(value),
+            right: token!(right),
+        },
+        E::Size { left, seq, right } => E::Size {
+            left: token!(left),
+            seq: copied!(seq),
+            right: token!(right),
+        },
+        E::Maplet { key, assign, value } => E::Maplet {
+            key: copied!(key),
+            assign: token!(assign),
+            value: copied!(value),
+        },
+        E::CurrentPerm { op, resource } => E::CurrentPerm {
+            op: token!(op),
+            resource: copy_expression_group(&resource, replacements)?,
+        },
+        E::OldExp { op, label, exp } => {
+            let label = label
+                .as_ref()
+                .map(|group| {
+                    let value = match group.inner() {
+                        super::parse_ast::POldLabel::Lhs(token) => {
+                            super::parse_ast::POldLabel::Lhs(token!(token))
+                        }
+                        super::parse_ast::POldLabel::Label(reference) => {
+                            super::parse_ast::POldLabel::Label(copy_ref(reference)?)
+                        }
+                    };
+                    Ok(PGrouped::new(
+                        token!(group.left()),
+                        value,
+                        token!(group.right()),
+                        group.position().clone(),
+                    ))
+                })
+                .transpose()?;
+            E::OldExp {
+                op: token!(op),
+                label,
+                exp: copy_expression_group(&exp, replacements)?,
+            }
+        }
+        E::MapDomain { keyword, base } => E::MapDomain {
+            keyword: token!(keyword),
+            base: copy_expression_group(&base, replacements)?,
+        },
+        E::MapRange { keyword, base } => E::MapRange {
+            keyword: token!(keyword),
+            base: copy_expression_group(&base, replacements)?,
+        },
+        E::AccPred { op, amount } => {
+            let pair = amount.inner();
+            let first = copy_expression(pair.first(), replacements)?;
+            let second = pair
+                .second()
+                .map(|(comma, exp)| Ok((token!(comma), copy_expression(exp, replacements)?)))
+                .transpose()?;
+            let pair =
+                super::parse_ast::PMaybePairArgument::new(first, second, pair.position().clone());
+            E::AccPred {
+                op: token!(op),
+                amount: PGrouped::new(
+                    token!(amount.left()),
+                    pair,
+                    token!(amount.right()),
+                    amount.position().clone(),
+                ),
+            }
+        }
+        E::ExplicitSeq(collection)
+        | E::ExplicitSet(collection)
+        | E::ExplicitMultiset(collection) => {
+            let op = *collection.op().value();
+            let collection = super::parse_ast::PExplicitCollection::new(
+                token!(collection.op()),
+                copy_expression_arguments(collection.call_args(), replacements)?,
+            );
+            match op {
+                super::parse_ast_keyword::PKwOp::Seq => E::ExplicitSeq(collection),
+                super::parse_ast_keyword::PKwOp::Set => E::ExplicitSet(collection),
+                _ => E::ExplicitMultiset(collection),
+            }
+        }
+        E::ExplicitMap(collection) => E::ExplicitMap(super::parse_ast::PExplicitMap {
+            op: token!(collection.op),
+            call_args: copy_expression_arguments(&collection.call_args, replacements)?,
+        }),
+        E::EmptySeq(collection) | E::EmptySet(collection) | E::EmptyMultiset(collection)
+            if collection.annotated_type.is_none() =>
+        {
+            let op = *collection.op.value();
+            let collection = super::parse_ast::PEmptyCollection {
+                op: token!(collection.op),
+                annotated_type: None,
+                call_args: copy_expression_arguments(&collection.call_args, replacements)?,
+            };
+            match op {
+                super::parse_ast_keyword::PKwOp::Seq => E::EmptySeq(collection),
+                super::parse_ast_keyword::PKwOp::Set => E::EmptySet(collection),
+                _ => E::EmptyMultiset(collection),
+            }
+        }
+        E::EmptyMap {
+            op,
+            annotated_type: None,
+            call_args,
+        } => E::EmptyMap {
+            op: token!(op),
+            annotated_type: None,
+            call_args: copy_expression_arguments(&call_args, replacements)?,
         },
         E::CondExp {
             cond,
@@ -388,8 +666,148 @@ fn copy_expression(
     Ok(PExpHandle::new(PExpression::from_kind(kind), pos))
 }
 
-/// Expand global binder-free expression macros before name analysis. Definitions with
-/// statement bodies and expression families needing binder hygiene fail explicitly when used.
+/// Reconstruct statement macro bodies only for products without declarations or binders.
+/// Declaration-bearing forms require hygienic renaming and are rejected until available.
+fn copy_macro_statement(
+    input: &super::parse_ast::PStmtHandle,
+    replacements: &HashMap<String, PExpHandle>,
+    root: bool,
+) -> Result<super::parse_ast::PStmtHandle, MacroError> {
+    use super::parse_ast::{PStatement, PStatementKind as S, PStmtHandle};
+    use super::parse_ast_keyword::{ND, PDelimited, PGrouped, PReserved};
+    let (kind, pos) = {
+        let node = input.node().read().expect("poisoned parse node");
+        let PNodeKind::Statement(stmt) = &node.kind else {
+            return Err(MacroError {
+                message: "macro statement expected".into(),
+                pos: node.pos.clone(),
+            });
+        };
+        (stmt.kind.clone(), node.pos.clone())
+    };
+    macro_rules! token {
+        ($t:expr) => {
+            PReserved::new(*$t.value(), $t.position().clone())
+        };
+    }
+    let kind = match kind {
+        S::Seqn { statements, .. } => {
+            let old = statements.inner();
+            let items = old
+                .to_seq()
+                .into_iter()
+                .map(|stmt| copy_macro_statement(stmt, replacements, false))
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut values = items.into_iter();
+            let first = values.next();
+            let inner = old
+                .inner
+                .iter()
+                .map(|(delimiter, _)| {
+                    let delimiter = ND(delimiter.0.as_ref().map(|t| token!(t)));
+                    (delimiter, values.next().expect("matched statement count"))
+                })
+                .collect();
+            let end = old
+                .end
+                .as_ref()
+                .map(|d| ND(d.0.as_ref().map(|t| token!(t))));
+            let list = PDelimited::new(first, inner, end, old.position().clone());
+            let block = PGrouped::new(
+                token!(statements.left()),
+                list,
+                token!(statements.right()),
+                statements.position().clone(),
+            );
+            if root {
+                S::MacroSeqn { statements: block }
+            } else {
+                S::Seqn {
+                    statements: block,
+                    scope_id: super::parse_ast::fresh_scope_id(),
+                }
+            }
+        }
+        S::Assert { keyword, exp } => S::Assert {
+            keyword: token!(keyword),
+            exp: copy_expression(&exp, replacements)?,
+        },
+        S::Assume { keyword, exp } => S::Assume {
+            keyword: token!(keyword),
+            exp: copy_expression(&exp, replacements)?,
+        },
+        S::Inhale { keyword, exp } => S::Inhale {
+            keyword: token!(keyword),
+            exp: copy_expression(&exp, replacements)?,
+        },
+        S::Exhale { keyword, exp } => S::Exhale {
+            keyword: token!(keyword),
+            exp: copy_expression(&exp, replacements)?,
+        },
+        S::Fold { keyword, exp } => S::Fold {
+            keyword: token!(keyword),
+            exp: copy_expression(&exp, replacements)?,
+        },
+        S::Unfold { keyword, exp } => S::Unfold {
+            keyword: token!(keyword),
+            exp: copy_expression(&exp, replacements)?,
+        },
+        S::ApplyWand { keyword, exp } => S::ApplyWand {
+            keyword: token!(keyword),
+            exp: copy_expression(&exp, replacements)?,
+        },
+        S::Assign { targets, op, rhs } => {
+            let first = targets
+                .first
+                .as_ref()
+                .map(|e| copy_expression(e, replacements))
+                .transpose()?;
+            let inner = targets
+                .inner
+                .iter()
+                .map(|(delimiter, exp)| {
+                    Ok((token!(delimiter), copy_expression(exp, replacements)?))
+                })
+                .collect::<Result<Vec<_>, MacroError>>()?;
+            let end = targets.end.as_ref().map(|delimiter| token!(delimiter));
+            S::Assign {
+                targets: PDelimited::new(first, inner, end, targets.position().clone()),
+                op: op.as_ref().map(|t| token!(t)),
+                rhs: copy_expression(&rhs, replacements)?,
+            }
+        }
+        S::If {
+            keyword,
+            cond,
+            thn,
+            els,
+        } => S::If {
+            keyword: token!(keyword),
+            cond: copy_expression_group(&cond, replacements)?,
+            thn: copy_macro_statement(&thn, replacements, false)?,
+            els: els
+                .as_ref()
+                .map(|stmt| copy_macro_statement(stmt, replacements, false))
+                .transpose()?,
+        },
+        S::Else { keyword, els } => S::Else {
+            keyword: token!(keyword),
+            els: copy_macro_statement(&els, replacements, false)?,
+        },
+        S::Skip => S::Skip,
+        _ => {
+            return Err(MacroError {
+                message: "statement macro body requires unsupported reconstruction or hygiene"
+                    .into(),
+                pos,
+            });
+        }
+    };
+    Ok(PStmtHandle::new(PStatement { kind }, pos))
+}
+
+/// Expand supported global and method-local macros before name analysis. Products requiring
+/// hygienic reconstruction fail explicitly when used.
 pub fn expand_global_expression_macros(
     program: &super::parse_ast::PProgramHandle,
 ) -> Result<(), MacroError> {
@@ -401,8 +819,59 @@ pub fn expand_global_expression_macros(
             pos: (report.pos().clone(), report.pos().clone()),
         });
     }
-    let mut definitions = HashMap::new();
-    for member in program.all_members() {
+    fn free_names(
+        node: &PNodeHandle,
+        bound: &HashSet<String>,
+        free: &mut HashSet<String>,
+    ) -> Result<(), MacroError> {
+        let (kind, pos) = {
+            let node = node.read().expect("poisoned parse node");
+            (node.kind.clone(), node.pos.clone())
+        };
+        let mut inner_bound = bound.clone();
+        if let PNodeKind::Expression(expression) = &kind {
+            let vars = match &expression.kind {
+                PExpressionKind::Forall(q) | PExpressionKind::Exists(q) => Some(&q.vars),
+                PExpressionKind::ForPerm { vars, .. } => Some(vars),
+                _ => None,
+            };
+            if let Some(vars) = vars {
+                for var in vars.to_seq() {
+                    let kind = var.node().read().expect("poisoned parse node").kind.clone();
+                    if let PNodeKind::Declaration(declaration) = kind {
+                        if let PNodeKind::IdnDef(id) =
+                            &declaration.idndef.read().expect("poisoned parse node").kind
+                        {
+                            inner_bound.insert(id.name.clone());
+                        }
+                    }
+                }
+            }
+        }
+        if let PNodeKind::IdnRef(id) = kind {
+            if !inner_bound.contains(&id.name) {
+                free.insert(id.name);
+            }
+        }
+        for child in subnodes(node).map_err(|e| MacroError {
+            message: format!("macro free-variable traversal: {e:?}"),
+            pos: pos.clone(),
+        })? {
+            free_names(&child, &inner_bound, free)?;
+        }
+        Ok(())
+    }
+    fn register(
+        member: PMemberHandle,
+        definitions: &mut HashMap<String, ExpressionMacro>,
+        warnings: &mut Vec<crate::verifier::verification_result::ParseReport>,
+        keep_first: bool,
+    ) -> Result<(), MacroError> {
+        let error_position = member
+            .node()
+            .read()
+            .expect("poisoned parse node")
+            .error_position();
         let kind = member
             .node()
             .read()
@@ -456,25 +925,41 @@ pub fn expand_global_expression_macros(
                             .collect::<Result<Vec<_>, _>>()
                     })
                     .transpose()?;
-                if let PDefineBody::Expression(body) = body.body() {
-                    definitions.insert(
-                        name,
-                        ExpressionMacro {
-                            parameters,
-                            body: body.clone(),
-                        },
-                    );
-                } else {
-                    return Err(MacroError {
-                        message: "statement macro expansion is not implemented".into(),
-                        pos: idndef.read().expect("poisoned parse node").pos.clone(),
-                    });
+                {
+                    let mut free = HashSet::new();
+                    let body_node = match body.body() {
+                        PDefineBody::Expression(e) => e.node(),
+                        PDefineBody::Statement(s) => s.node(),
+                    };
+                    free_names(body_node, &HashSet::new(), &mut free)?;
+                    let unused: HashSet<_> = parameters
+                        .as_ref()
+                        .into_iter()
+                        .flatten()
+                        .filter(|param| !free.contains(*param))
+                        .cloned()
+                        .collect();
+                    if !unused.is_empty() {
+                        warnings.push(crate::verifier::verification_result::ParseReport::Warning(crate::verifier::verification_result::ParseWarning::new(format!("in macro `{name}`, the following parameters were defined but not used: {}", unused.into_iter().collect::<Vec<_>>().join(", ")), error_position)));
+                    }
+                    let definition = ExpressionMacro {
+                        parameters,
+                        body: body.body().clone(),
+                    };
+                    if keep_first {
+                        definitions.entry(name).or_insert(definition);
+                    } else {
+                        definitions.insert(name, definition);
+                    }
                 }
             }
         }
+        Ok(())
     }
-    if definitions.is_empty() {
-        return Ok(());
+    let mut definitions = HashMap::new();
+    let mut warnings = Vec::new();
+    for member in program.all_members() {
+        register(member, &mut definitions, &mut warnings, false)?;
     }
     fn adapt_position(
         node: &PNodeHandle,
@@ -493,6 +978,7 @@ pub fn expand_global_expression_macros(
         node: &PNodeHandle,
         definitions: &HashMap<String, ExpressionMacro>,
         stack: &mut Vec<String>,
+        warnings: &mut Vec<crate::verifier::verification_result::ParseReport>,
     ) -> Result<(), MacroError> {
         let (kind, pos) = {
             let node = node.read().expect("poisoned parse node");
@@ -506,6 +992,193 @@ pub fn expand_global_expression_macros(
             })
         ) {
             return Ok(());
+        }
+        if matches!(
+            &kind,
+            PNodeKind::Member(super::parse_ast::PMember {
+                kind: PMemberKind::Method { .. },
+                ..
+            })
+        ) {
+            fn collect_local(
+                node: &PNodeHandle,
+                inside_wand: bool,
+                definitions: &mut HashMap<String, ExpressionMacro>,
+                warnings: &mut Vec<crate::verifier::verification_result::ParseReport>,
+            ) -> Result<(), MacroError> {
+                let (kind, pos) = {
+                    let node = node.read().expect("poisoned parse node");
+                    (node.kind.clone(), node.pos.clone())
+                };
+                if let PNodeKind::Statement(super::parse_ast::PStatement {
+                    kind: super::parse_ast::PStatementKind::MacroDefinition(member),
+                }) = &kind
+                {
+                    if inside_wand {
+                        return Err(MacroError {
+                            message: "macros cannot be defined inside magic wands proof scripts"
+                                .into(),
+                            pos,
+                        });
+                    }
+                    register(member.clone(), definitions, warnings, true)?;
+                    node.write().expect("poisoned parse node").kind =
+                        PNodeKind::Statement(super::parse_ast::PStatement {
+                            kind: super::parse_ast::PStatementKind::Skip,
+                        });
+                    return Ok(());
+                }
+                let inside_wand = inside_wand
+                    || matches!(
+                        kind,
+                        PNodeKind::Statement(super::parse_ast::PStatement {
+                            kind: super::parse_ast::PStatementKind::PackageWand { .. }
+                        })
+                    );
+                for child in subnodes(node).map_err(|e| MacroError {
+                    message: format!("macro traversal: {e:?}"),
+                    pos: pos.clone(),
+                })? {
+                    collect_local(&child, inside_wand, definitions, warnings)?;
+                }
+                Ok(())
+            }
+            let mut locals = HashMap::new();
+            collect_local(node, false, &mut locals, warnings)?;
+            for (name, definition) in definitions {
+                locals
+                    .entry(name.clone())
+                    .or_insert_with(|| definition.clone());
+            }
+            for child in subnodes(node).map_err(|e| MacroError {
+                message: format!("macro traversal: {e:?}"),
+                pos: pos.clone(),
+            })? {
+                walk(&child, &locals, stack, warnings)?;
+            }
+            return Ok(());
+        }
+        if let PNodeKind::Statement(super::parse_ast::PStatement {
+            kind:
+                super::parse_ast::PStatementKind::Assign {
+                    targets,
+                    op: None,
+                    rhs,
+                },
+        }) = &kind
+        {
+            if targets.is_empty() {
+                let rhs_kind = rhs.node().read().expect("poisoned parse node").kind.clone();
+                let use_call = match rhs_kind {
+                    PNodeKind::Expression(super::parse_ast::PExpression {
+                        kind: PExpressionKind::IdnUse { idnref },
+                        ..
+                    }) => Some((idnref, None)),
+                    PNodeKind::Expression(super::parse_ast::PExpression {
+                        kind:
+                            PExpressionKind::Call {
+                                idnref,
+                                call_args,
+                                type_annotated: None,
+                                ..
+                            },
+                        ..
+                    }) => Some((
+                        idnref,
+                        Some(
+                            call_args
+                                .inner()
+                                .to_seq()
+                                .into_iter()
+                                .cloned()
+                                .collect::<Vec<_>>(),
+                        ),
+                    )),
+                    _ => None,
+                };
+                if let Some((reference, args)) = use_call {
+                    let name = match &reference.read().expect("poisoned parse node").kind {
+                        PNodeKind::IdnRef(id) => id.name.clone(),
+                        _ => {
+                            return Err(MacroError {
+                                message: "macro identifier expected".into(),
+                                pos,
+                            });
+                        }
+                    };
+                    if let Some(def) = definitions
+                        .get(&name)
+                        .filter(|d| args.is_none() || d.parameters.is_some())
+                    {
+                        if stack.contains(&name) {
+                            return Err(MacroError {
+                                message: format!("recursive macro `{name}`"),
+                                pos,
+                            });
+                        }
+                        if args.is_some() != def.parameters.is_some()
+                            || args.as_ref().map(Vec::len) != def.parameters.as_ref().map(Vec::len)
+                        {
+                            return Err(MacroError {
+                                message: format!("wrong number of arguments to macro `{name}`"),
+                                pos,
+                            });
+                        }
+                        let PDefineBody::Statement(body) = &def.body else {
+                            return Err(MacroError {
+                                message: format!(
+                                    "expression macro `{name}` cannot be used as a statement"
+                                ),
+                                pos,
+                            });
+                        };
+                        let replacements = map_parameters_to_arguments(
+                            def.parameters.as_deref().unwrap_or_default(),
+                            args.as_deref().unwrap_or_default(),
+                        );
+                        let copy = copy_macro_statement(body, &replacements, true)?;
+                        adapt_position(copy.node(), &pos)?;
+                        stack.push(name);
+                        walk(copy.node(), definitions, stack, warnings)?;
+                        stack.pop();
+                        node.write().expect("poisoned parse node").kind = copy
+                            .node()
+                            .read()
+                            .expect("poisoned parse node")
+                            .kind
+                            .clone();
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        if let PNodeKind::Type(super::parse_ast::PTypeKind::Domain {
+            domain, args: None, ..
+        }) = &kind
+        {
+            let name = match &domain.read().expect("poisoned parse node").kind {
+                PNodeKind::IdnRef(id) => id.name.clone(),
+                _ => {
+                    return Err(MacroError {
+                        message: "macro type identifier expected".into(),
+                        pos,
+                    });
+                }
+            };
+            if let Some(definition) = definitions.get(&name) {
+                if definition.parameters.is_some() {
+                    return Err(MacroError {
+                        message: format!(
+                            "macro `{name}` is defined with parameters but referenced without arguments"
+                        ),
+                        pos,
+                    });
+                }
+                return Err(MacroError {
+                    message: format!("macro `{name}` does not have a type body"),
+                    pos,
+                });
+            }
         }
         let invocation = match &kind {
             PNodeKind::Expression(expression) => match &expression.kind {
@@ -581,10 +1254,16 @@ pub fn expand_global_expression_macros(
                 });
             }
             let replacements = map_parameters_to_arguments(params, &args);
-            let copy = copy_expression(&def.body, &replacements)?;
+            let PDefineBody::Expression(body) = &def.body else {
+                return Err(MacroError {
+                    message: format!("statement macro `{name}` cannot be used as an expression"),
+                    pos,
+                });
+            };
+            let copy = copy_expression(body, &replacements)?;
             adapt_position(copy.node(), &pos)?;
             stack.push(name);
-            walk(copy.node(), definitions, stack)?;
+            walk(copy.node(), definitions, stack, warnings)?;
             stack.pop();
             let replacement = copy
                 .node()
@@ -599,9 +1278,81 @@ pub fn expand_global_expression_macros(
             message: format!("macro traversal: {e:?}"),
             pos: pos.clone(),
         })? {
-            walk(&child, definitions, stack)?;
+            walk(&child, definitions, stack, warnings)?;
+        }
+        // Source linearization splices macro sequences into their containing block without
+        // introducing a lexical scope; the macro's own delimiters are retained.
+        let current = node.read().expect("poisoned parse node").kind.clone();
+        if let PNodeKind::Statement(super::parse_ast::PStatement {
+            kind: statement_kind,
+        }) = current
+        {
+            use super::parse_ast::PStatementKind as S;
+            let (block, scope) = match statement_kind {
+                S::Seqn {
+                    statements,
+                    scope_id,
+                } => (statements, Some(scope_id)),
+                S::MacroSeqn { statements } => (statements, None),
+                _ => return Ok(()),
+            };
+            let mut pairs = Vec::new();
+            let old = block.inner();
+            if old.to_seq().len() != old.delimiters().count() {
+                return Err(MacroError {
+                    message: "macro block delimiter is missing".into(),
+                    pos,
+                });
+            }
+            for (stmt, delimiter) in old.to_seq().into_iter().zip(old.delimiters()) {
+                let child = stmt
+                    .node()
+                    .read()
+                    .expect("poisoned parse node")
+                    .kind
+                    .clone();
+                if let PNodeKind::Statement(super::parse_ast::PStatement {
+                    kind: S::MacroSeqn { statements },
+                }) = child
+                {
+                    let list = statements.inner();
+                    if list.to_seq().len() != list.delimiters().count() {
+                        return Err(MacroError {
+                            message: "macro block delimiter is missing".into(),
+                            pos,
+                        });
+                    }
+                    pairs.extend(
+                        list.to_seq()
+                            .into_iter()
+                            .cloned()
+                            .zip(list.delimiters().cloned()),
+                    );
+                } else {
+                    pairs.push((stmt.clone(), delimiter.clone()));
+                }
+            }
+            let list =
+                super::parse_ast_keyword::PDelimited::from_pairs(pairs, old.position().clone());
+            let block = block.clone().update(list);
+            let kind = if let Some(scope_id) = scope {
+                S::Seqn {
+                    statements: block,
+                    scope_id,
+                }
+            } else {
+                S::MacroSeqn { statements: block }
+            };
+            node.write().expect("poisoned parse node").kind =
+                PNodeKind::Statement(super::parse_ast::PStatement { kind });
         }
         Ok(())
     }
-    walk(program.node(), &definitions, &mut Vec::new())
+    walk(program.node(), &definitions, &mut Vec::new(), &mut warnings)?;
+    if let PNodeKind::Program(program) =
+        &mut program.node().write().expect("poisoned parse node").kind
+    {
+        program.local_errors.extend(warnings);
+    }
+    Ok(())
 }
