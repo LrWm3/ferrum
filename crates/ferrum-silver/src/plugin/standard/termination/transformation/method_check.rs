@@ -289,11 +289,33 @@ impl MethodCheck {
                     )
                 }
             }
-            StmtKind::Extension(extension) if extension.0.as_any().is::<crate::plugin::standard::refute::refute_ast_extension::Refute>() || extension.0.as_any().is::<crate::plugin::standard::smoke::unreachable_ast_extension::Unreachable>() => original.clone(),
-            StmtKind::Extension(_) => {
-                return Err(MethodCheckError(
-                    "unsupported method statement extension".into(),
-                ));
+            StmtKind::Extension(extension) => {
+                use crate::verifier::verification_result::DiagnosticError;
+                use std::cell::RefCell;
+                let state = RefCell::new((&mut *self, &mut *manager, &mut *nested_required));
+                let failure = RefCell::new(None);
+                let mapped = extension.0.map_statements(&|child| {
+                    let mut state = state.borrow_mut();
+                    let (checker, manager, nested) = &mut *state;
+                    checker
+                        .rewrite_stmt(manager, child, spec, recursive, nested)
+                        .map_err(|error| {
+                            *failure.borrow_mut() = Some(error);
+                            DiagnosticError::Unsupported("termination method statement rewrite")
+                        })
+                });
+                if let Some(error) = failure.into_inner() {
+                    return Err(error);
+                }
+                match mapped.map_err(|e| {
+                    MethodCheckError(format!("termination extension traversal: {e:?}"))
+                })? {
+                    Some(mapped) if mapped == *extension => original.clone(),
+                    Some(mapped) => {
+                        Stmt::new(StmtKind::Extension(mapped), original.metadata().clone())
+                    }
+                    None => original.clone(),
+                }
             }
             _ => original.clone(),
         };

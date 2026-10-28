@@ -109,6 +109,19 @@ impl crate::verifier::verification_error::ErrorNodeRenderer for NativeErrorRende
 pub fn standard_plugin_manager(
     config: &crate::frontend::sil_front_end_config::SilFrontendConfig,
 ) -> Result<SilverPluginManager, crate::plugin::silver_plugin_manager::PluginResolutionError> {
+    standard_plugin_manager_with_resolver(config, |_| Ok(None))
+}
+
+/// Resolve additional native plugins in the same configured order as built-in plugins.
+pub fn standard_plugin_manager_with_resolver(
+    config: &crate::frontend::sil_front_end_config::SilFrontendConfig,
+    mut extra: impl FnMut(
+        &str,
+    ) -> Result<
+        Option<Box<dyn crate::plugin::silver_plugin::SilverPlugin>>,
+        crate::plugin::silver_plugin_manager::PluginResolutionError,
+    >,
+) -> Result<SilverPluginManager, crate::plugin::silver_plugin_manager::PluginResolutionError> {
     use crate::plugin::silver_plugin::SilverPlugin;
     use crate::plugin::silver_plugin_manager::PluginResolutionError;
     use crate::plugin::standard::{
@@ -153,7 +166,7 @@ pub fn standard_plugin_manager(
                     transformer: crate::plugin::sif::sif_extended_transformer::NativeSifTransformer,
                 })
             }
-            _ => return Err(PluginResolutionError::NotFound(name)),
+            _ => extra(&name)?.ok_or(PluginResolutionError::NotFound(name))?,
         };
         plugins.push(plugin);
     }
@@ -551,6 +564,26 @@ impl FrontendPhases for SilFrontendPhases {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn external_plugin_resolver_is_called_for_unknown_names_in_order() {
+        let mut config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        config.plugin =
+            Some("native.one:viper.silver.plugin.standard.arp.ARPPlugin:native.two".into());
+        let mut seen = Vec::new();
+        let manager = standard_plugin_manager_with_resolver(&config, |name| {
+            seen.push(name.to_owned());
+            Ok(Some(Box::new(
+                crate::plugin::standard::arp::arp_plugin::ArpPlugin,
+            )))
+        })
+        .unwrap();
+        assert_eq!(seen, ["native.one", "native.two"]);
+        assert_eq!(
+            manager.plugins.len(),
+            configured_plugin_names(&config).len()
+        );
+        assert!(standard_plugin_manager(&config).is_err());
+    }
     #[test]
     fn macros_expand_permissions_and_collection_expressions() {
         let mut phases =

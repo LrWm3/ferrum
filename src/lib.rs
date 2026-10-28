@@ -59,7 +59,7 @@ use silver::{
     cfg::silver::silver_cfg::SilverCfg,
     frontend::{
         frontend::FrontendPhases,
-        sil_frontend::{SilFrontendPhases, standard_plugin_manager},
+        sil_frontend::{SilFrontendPhases, standard_plugin_manager_with_resolver},
     },
     verifier::{
         verification_error::{
@@ -497,8 +497,16 @@ pub fn run_file(config: Config) -> Result<RunReport, FerrumError> {
         .as_deref()
         .ok_or_else(|| FerrumError::Configuration("Missing input file".into()))?;
     let source = std::fs::read_to_string(file).map_err(FerrumError::Input)?;
-    let plugins = standard_plugin_manager(&config.frontend)
-        .map_err(|e| FerrumError::Configuration(e.to_string()))?;
+    let plugins = standard_plugin_manager_with_resolver(&config.frontend, |name| {
+        Ok(match name {
+            "viper.silicon.extensions.TryBlockParserPlugin" => Some(Box::new(
+                silicon::extensions::try_block_parser_plugin::TryBlockParserPlugin,
+            )
+                as Box<dyn silver::plugin::silver_plugin::SilverPlugin>),
+            _ => None,
+        })
+    })
+    .map_err(|e| FerrumError::Configuration(e.to_string()))?;
     let mut phases = SilFrontendPhases::new(file.into(), plugins);
     phases.configure_consistency(&config.frontend);
     let parsed = phases.parse(&source).map_err(FerrumError::Diagnostics)?;

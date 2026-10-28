@@ -247,34 +247,51 @@ pub fn lower_predicate_instances(
             _ => Error::Reconstruction,
         })
     };
-    let rewrite_statement = |handle: &crate::ast::statement::ExtensionStmtHandle,
-                             map: &dyn Fn(&Exp) -> Result<Exp, Error>|
-     -> Result<crate::ast::statement::ExtensionStmtHandle, Error> {
-        if let Some(refute) = handle
-            .0
-            .as_any()
-            .downcast_ref::<crate::plugin::standard::refute::refute_ast_extension::Refute>(
-        ) {
-            let expression = map(&refute.exp)?;
-            if expression == refute.exp {
-                return Ok(handle.clone());
-            }
-            return Ok(crate::ast::statement::ExtensionStmtHandle(Arc::new(
-                crate::plugin::standard::refute::refute_ast_extension::Refute::new(
-                    expression,
-                    refute.meta.clone(),
-                ),
-            )));
+    fn rewrite_statement(
+        handle: &crate::ast::statement::ExtensionStmtHandle,
+        map: &dyn Fn(&Exp) -> Result<Exp, Error>,
+    ) -> Result<crate::ast::statement::ExtensionStmtHandle, Error> {
+        use crate::verifier::verification_result::DiagnosticError;
+        let failure = std::cell::RefCell::new(None);
+        let with_expressions = handle.0.map_expressions(&|exp| {
+            map(exp).map_err(|e| {
+                *failure.borrow_mut() = Some(e);
+                DiagnosticError::Unsupported("predicate instance expression rewrite")
+            })
+        });
+        if let Some(error) = failure.borrow_mut().take() {
+            return Err(error);
         }
-        if handle
-            .0
-            .as_any()
-            .is::<crate::plugin::standard::smoke::unreachable_ast_extension::Unreachable>()
-        {
-            return Ok(handle.clone());
+        let with_expressions = with_expressions.map_err(|_| Error::UnsupportedExtension)?;
+        let with_statements =
+            with_expressions
+                .0
+                .map_statements(&|stmt| match map_expression_roots_with_extensions(
+                    &Node::Stmt(stmt.clone()),
+                    map,
+                    &rewrite_statement,
+                ) {
+                    Ok(Node::Stmt(mapped)) => Ok(mapped),
+                    Ok(_) => Err(DiagnosticError::InvalidNode("statement")),
+                    Err(e) => {
+                        *failure.borrow_mut() = Some(e);
+                        Err(DiagnosticError::Unsupported(
+                            "predicate instance statement rewrite",
+                        ))
+                    }
+                });
+        if let Some(error) = failure.into_inner() {
+            return Err(error);
         }
-        Err(Error::UnsupportedExtension)
-    };
+        let mapped = with_statements
+            .map_err(|_| Error::UnsupportedExtension)?
+            .unwrap_or(with_expressions);
+        Ok(if mapped == *handle {
+            handle.clone()
+        } else {
+            mapped
+        })
+    }
     let Node::Program(rewritten) = map_expression_roots_with_extensions(
         &Node::Program(program.clone()),
         &mapper,

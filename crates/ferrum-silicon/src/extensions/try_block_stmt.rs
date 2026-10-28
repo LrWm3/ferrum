@@ -226,14 +226,18 @@ mod reconstruction_tests {
     fn frontend_rewrites_assume_inside_try_block() {
         use crate::extensions::try_block_parser_plugin::TryBlockParserPlugin;
         use ferrum_silver::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
-        use ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager;
-        let plugins = SilverPluginManager::new(vec![Box::new(TryBlockParserPlugin)]);
+        let config = ferrum_silver::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut plugins =
+            ferrum_silver::frontend::sil_frontend::standard_plugin_manager(&config).unwrap();
+        plugins.plugins.push(Box::new(TryBlockParserPlugin));
         let mut phases = SilFrontendPhases::new(std::path::PathBuf::from("test.vpr"), plugins);
-        let parsed = phases.parse("method m() { try { assume true; } }").unwrap();
+        let parsed = phases
+            .parse("method n() {} method m() { try { assume true; n(); } }")
+            .unwrap();
         let analyzed = phases.analyze(parsed).unwrap();
         let program = phases.translate(analyzed).unwrap();
-        let StmtKind::Seqn { statements, .. } = program.methods[0].body.as_ref().unwrap().kind()
-        else {
+        let method = program.methods.iter().find(|m| m.name == "m").unwrap();
+        let StmtKind::Seqn { statements, .. } = method.body.as_ref().unwrap().kind() else {
             panic!("method block")
         };
         let StmtKind::Extension(extension) = statements[0].kind() else {
@@ -248,7 +252,27 @@ mod reconstruction_tests {
             }
         }
         assert!(has_inhale(&block.body));
-        phases.check_consistency(program).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+    }
+    #[test]
+    fn smoke_preparation_handles_nested_try_block() {
+        use crate::extensions::try_block_parser_plugin::TryBlockParserPlugin;
+        use ferrum_silver::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
+        let mut config =
+            ferrum_silver::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        config.enable_smoke_detection = true;
+        let mut plugins =
+            ferrum_silver::frontend::sil_frontend::standard_plugin_manager(&config).unwrap();
+        plugins.plugins.push(Box::new(TryBlockParserPlugin));
+        let mut phases = SilFrontendPhases::new(std::path::PathBuf::from("test.vpr"), plugins);
+        let parsed = phases
+            .parse("method n() {} method m() { try { assume true; n(); } }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
     }
     #[test]
     fn node_mapper_rewrites_assume_inside_try_block() {

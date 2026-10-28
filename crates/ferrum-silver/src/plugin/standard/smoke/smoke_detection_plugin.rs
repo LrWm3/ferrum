@@ -330,7 +330,27 @@ pub fn instrument_body(body: &Stmt, counter: &mut i32) -> Result<Stmt, &'static 
             {
                 return Ok(stmt.clone());
             }
-            StmtKind::Extension(_) => return Err("unsupported extension statement traversal"),
+            StmtKind::Extension(extension) => {
+                use crate::verifier::verification_result::DiagnosticError;
+                let counter = std::cell::RefCell::new(counter);
+                let failure = std::cell::RefCell::new(None);
+                let mapped = extension.0.map_statements(&|child| {
+                    visit(child, &mut counter.borrow_mut()).map_err(|error| {
+                        *failure.borrow_mut() = Some(error);
+                        DiagnosticError::Unsupported("smoke statement rewrite")
+                    })
+                });
+                if let Some(error) = failure.into_inner() {
+                    return Err(error);
+                }
+                return match mapped.map_err(|_| "unsupported extension statement traversal")? {
+                    Some(mapped) if mapped != *extension => Ok(Stmt::new(
+                        StmtKind::Extension(mapped),
+                        stmt.metadata().clone(),
+                    )),
+                    _ => Ok(stmt.clone()),
+                };
+            }
             _ => return Ok(stmt.clone()),
         };
         let m = if matches!(stmt.kind(), StmtKind::If { .. } | StmtKind::While { .. }) {
@@ -382,7 +402,26 @@ pub fn instrument_program(
                 }
                 return Ok(stmt.clone());
             }
-            StmtKind::Extension(_) => return Err("unsupported extension statement traversal"),
+            StmtKind::Extension(extension) => {
+                use crate::verifier::verification_result::DiagnosticError;
+                let failure = std::cell::RefCell::new(None);
+                let mapped = extension.0.map_statements(&|child| {
+                    remove(child, keep, seen).map_err(|error| {
+                        *failure.borrow_mut() = Some(error);
+                        DiagnosticError::Unsupported("smoke statement removal")
+                    })
+                });
+                if let Some(error) = failure.into_inner() {
+                    return Err(error);
+                }
+                return match mapped.map_err(|_| "unsupported extension statement traversal")? {
+                    Some(mapped) if mapped != *extension => Ok(Stmt::new(
+                        StmtKind::Extension(mapped),
+                        stmt.metadata().clone(),
+                    )),
+                    _ => Ok(stmt.clone()),
+                };
+            }
             StmtKind::Seqn {
                 statements,
                 declarations,

@@ -316,7 +316,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/SilFrontend.scala"
 destination = "crates/ferrum-silver/src/frontend/sil_frontend.rs"
 status = "skeleton"
-remaining = ["Source expression macros, annotations and ADT derives reach checked frontend translation; remaining grammar, macro hygiene/local and statement forms, extension and diagnostic compatibility require completion."]
+remaining = ["Configured native plugin resolution preserves source order and opt-in backend plugins. Source grammar, macro hygiene and diagnostic compatibility still require completion and broader checks."]
 
 [[modules]]
 repository = "silver"
@@ -1216,14 +1216,14 @@ repository = "silicon"
 upstream = "src/main/scala/extensions/TryBlockParserPlugin.scala"
 destination = "crates/ferrum-silicon/src/extensions/try_block_parser_plugin.rs"
 status = "skeleton"
-remaining = ["Typed statement-block registration and checked try-block translation exist; full parser coverage, extension reconstruction and backend integration remain."]
+remaining = ["Configured opt-in plugin resolves through the root frontend and reaches native TryBlock execution. Broader syntax and plugin interaction compatibility remains."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/extensions/TryBlockStmt.scala"
 destination = "crates/ferrum-silicon/src/extensions/try_block_stmt.rs"
 status = "skeleton"
-remaining = ["Typed statement-block registration and checked try-block translation exist; full parser coverage, extension reconstruction and backend integration remain."]
+remaining = ["Typed TryBlock traversal connects standard plugin passes and native executor fallback; focused CLI and nested-plugin checks pass. Broader source compatibility and interactions with advanced plugins remain."]
 
 [[modules]]
 repository = "silicon"

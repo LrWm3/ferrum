@@ -101,15 +101,32 @@ pub fn lower_refute(refute: &Refute, number: usize) -> Stmt {
     )
 }
 
-/// Rewrite refutes in a method body in source traversal order. Extension statements
-/// other than Refute need their own reconstruction adapter before they can be traversed.
+/// Rewrite refutes in a method body in source traversal order using typed extension hooks.
 pub fn lower_method_body(body: &Stmt) -> Result<Stmt, &'static str> {
     fn visit(stmt: &Stmt, count: &mut usize) -> Result<Stmt, &'static str> {
         use crate::ast::utility::nodes::Node;
         let kind = match stmt.kind() {
             StmtKind::Extension(extension) => {
                 let Some(refute) = extension.0.as_any().downcast_ref::<Refute>() else {
-                    return Err("unsupported extension statement traversal");
+                    use crate::verifier::verification_result::DiagnosticError;
+                    let count = std::cell::RefCell::new(count);
+                    let failure = std::cell::RefCell::new(None);
+                    let mapped = extension.0.map_statements(&|child| {
+                        visit(child, &mut count.borrow_mut()).map_err(|e| {
+                            *failure.borrow_mut() = Some(e);
+                            DiagnosticError::Unsupported("refute statement rewrite")
+                        })
+                    });
+                    if let Some(error) = failure.into_inner() {
+                        return Err(error);
+                    }
+                    return match mapped.map_err(|_| "unsupported extension statement traversal")? {
+                        Some(mapped) if mapped != *extension => Ok(Stmt::new(
+                            StmtKind::Extension(mapped),
+                            stmt.metadata().clone(),
+                        )),
+                        _ => Ok(stmt.clone()),
+                    };
                 };
                 *count += 1;
                 let replacement = lower_refute(refute, *count);

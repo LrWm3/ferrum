@@ -48,6 +48,35 @@ fn check(source: &str, expected: i32) {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn try_plugin_preserves_fallback_and_later_failures() {
+    let plugin = ["--plugin", "viper.silicon.extensions.TryBlockParserPlugin"];
+    for (source, expected) in [
+        ("method m() { try { assert false; } assert true; }", 0),
+        ("method m() { try { assert false; } assert false; }", 1),
+        (
+            "method n() {} method m() { try { assume true; n(); } assert false; }",
+            1,
+        ),
+        (
+            "field f: Int method m(x: Ref) requires acc(x.f) && x.f == 7 { try { exhale acc(x.f); assert false; } assert x.f == 7; }",
+            0,
+        ),
+    ] {
+        let output = run(source, &plugin);
+        assert_eq!(
+            output.status.code(),
+            Some(expected),
+            "{source}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if expected == 1 {
+            assert!(String::from_utf8_lossy(&output.stderr).contains("assert.failed"));
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn wand_packaging_transfers_permissions_and_application_consumes_the_wand() {
     let prefix = "field first: Int field second: Int
         method test(r: Ref)
