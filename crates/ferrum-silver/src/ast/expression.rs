@@ -188,6 +188,10 @@ pub trait ExtensionExp: Debug + Send + Sync {
         )
     }
 
+    /// Scala 2.13 source product hash, used for nested-predicate names.
+    fn scala_hash(&self) -> Result<i32, super::utility::expressions::ScalaHashError> {
+        Err(super::utility::expressions::ScalaHashError::ExtensionExpression)
+    }
     fn as_any(&self) -> &dyn Any;
     fn equals(&self, other: &dyn ExtensionExp) -> bool;
     fn typ(&self) -> Type;

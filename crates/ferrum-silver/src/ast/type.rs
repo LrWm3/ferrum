@@ -78,6 +78,10 @@ pub trait ExtensionType: fmt::Debug + Send + Sync {
         )
     }
 
+    /// Scala 2.13 source product hash, used for nested-predicate names.
+    fn scala_hash(&self) -> Result<i32, super::utility::expressions::ScalaHashError> {
+        Err(super::utility::expressions::ScalaHashError::ExtensionType)
+    }
     fn as_any(&self) -> &dyn Any;
     fn equals(&self, other: &dyn ExtensionType) -> bool;
     /// Equal extension values must return the same hash.

@@ -1369,3 +1369,518 @@ pub fn instantiate_abstract_variables(
     )
     .map_err(InstantiateError::Sanitizer)
 }
+
+/// Scala 2.13.18-compatible hashing for source AST case classes and sequences.
+/// The source algorithm is MurmurHash3 from Scala's Apache-2.0 library:
+/// https://github.com/scala/scala/blob/v2.13.18/src/library/scala/util/hashing/MurmurHash3.scala
+/// Plugin-provided nodes fail explicitly until their source hash is supplied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScalaHashError {
+    ExtensionType,
+    ExtensionExpression,
+}
+pub fn scala_string_hash(s: &str) -> i32 {
+    s.encode_utf16()
+        .fold(0_i32, |h, c| h.wrapping_mul(31).wrapping_add(i32::from(c)))
+}
+fn scala_mix_last(hash: i32, data: i32) -> i32 {
+    let k = data
+        .wrapping_mul(0xcc9e2d51_u32 as i32)
+        .rotate_left(15)
+        .wrapping_mul(0x1b873593);
+    hash ^ k
+}
+fn scala_mix(hash: i32, data: i32) -> i32 {
+    scala_mix_last(hash, data)
+        .rotate_left(13)
+        .wrapping_mul(5)
+        .wrapping_add(0xe6546b64_u32 as i32)
+}
+fn scala_avalanche(mut h: i32) -> i32 {
+    h ^= ((h as u32) >> 16) as i32;
+    h = h.wrapping_mul(0x85ebca6b_u32 as i32);
+    h ^= ((h as u32) >> 13) as i32;
+    h = h.wrapping_mul(0xc2b2ae35_u32 as i32);
+    h ^= ((h as u32) >> 16) as i32;
+    h
+}
+fn scala_finish(hash: i32, length: usize) -> i32 {
+    scala_avalanche(hash ^ (length as i32))
+}
+pub fn scala_product(name: &str, fields: &[i32]) -> i32 {
+    if fields.is_empty() {
+        return scala_string_hash(name);
+    }
+    let mut h = scala_mix(0xcafebabe_u32 as i32, scala_string_hash(name));
+    for f in fields {
+        h = scala_mix(h, *f);
+    }
+    scala_finish(h, fields.len())
+}
+pub fn scala_ordered_hash(values: &[i32]) -> i32 {
+    let seed = scala_string_hash("Seq");
+    if values.is_empty() {
+        return scala_finish(seed, 0);
+    }
+    if values.len() == 1 {
+        return scala_finish(scala_mix(seed, values[0]), 1);
+    }
+    let initial = values[0];
+    let first = scala_mix(seed, initial);
+    let difference = values[1].wrapping_sub(initial);
+    if values
+        .windows(2)
+        .all(|w| w[1].wrapping_sub(w[0]) == difference)
+        && (values.len() == 2 || difference != 0)
+    {
+        return scala_avalanche(scala_mix(
+            scala_mix(first, difference),
+            *values.last().unwrap(),
+        ));
+    }
+    let mut h = seed;
+    for value in values {
+        h = scala_mix(h, *value)
+    }
+    scala_finish(h, values.len())
+}
+fn scala_unordered_hash(seed: i32, values: impl IntoIterator<Item = i32>) -> i32 {
+    let (mut a, mut b, mut c, mut n) = (0_i32, 0_i32, 1_i32, 0_usize);
+    for h in values {
+        a = a.wrapping_add(h);
+        b ^= h;
+        c = c.wrapping_mul(h | 1);
+        n += 1;
+    }
+    scala_finish(scala_mix_last(scala_mix(scala_mix(seed, a), b), c), n)
+}
+pub fn scala_map_hash(entries: impl IntoIterator<Item = (i32, i32)>) -> i32 {
+    scala_unordered_hash(
+        scala_string_hash("Map"),
+        entries
+            .into_iter()
+            .map(|(a, b)| scala_product("Tuple2", &[a, b])),
+    )
+}
+fn scala_bigint_hash(n: &num_bigint::BigInt) -> i32 {
+    use num_traits::ToPrimitive;
+    if let Some(n) = n.to_i64() {
+        if let Ok(v) = i32::try_from(n) {
+            v
+        } else {
+            ((n as u64) ^ ((n as u64) >> 32)) as i32
+        }
+    } else {
+        let (sign, digits) = n.to_u32_digits();
+        let mut hash = 0_i32;
+        for word in digits.iter().rev() {
+            hash = hash.wrapping_mul(31).wrapping_add(*word as i32);
+        }
+        if sign == num_bigint::Sign::Minus {
+            hash.wrapping_neg()
+        } else {
+            hash
+        }
+    }
+}
+pub fn scala_type_hash(t: &crate::ast::r#type::Type) -> Result<i32, ScalaHashError> {
+    use crate::ast::r#type::Type;
+    Ok(match t {
+        Type::Int => scala_string_hash("Int"),
+        Type::Bool => scala_string_hash("Bool"),
+        Type::Ref => scala_string_hash("Ref"),
+        Type::Perm => scala_string_hash("Perm"),
+        Type::InternalType => scala_string_hash("InternalType"),
+        Type::Wand => scala_string_hash("Wand"),
+        Type::Var(v) => scala_product("TypeVar", &[scala_string_hash(&v.name)]),
+        Type::Seq(t) => scala_product("SeqType", &[scala_type_hash(t)?]),
+        Type::Set(t) => scala_product("SetType", &[scala_type_hash(t)?]),
+        Type::Multiset(t) => scala_product("MultisetType", &[scala_type_hash(t)?]),
+        Type::Map(pair) => scala_product(
+            "MapType",
+            &[scala_type_hash(&pair.0)?, scala_type_hash(&pair.1)?],
+        ),
+        Type::Domain(d) => {
+            let values = d
+                .partial_type_vars
+                .iter()
+                .map(|(k, v)| {
+                    Ok((
+                        scala_product("TypeVar", &[scala_string_hash(&k.name)]),
+                        scala_type_hash(v)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, ScalaHashError>>()?;
+            scala_product(
+                "DomainType",
+                &[scala_string_hash(&d.domain_name), scala_map_hash(values)],
+            )
+        }
+        Type::Backend(b) => scala_product(
+            "BackendType",
+            &[
+                scala_string_hash(&b.viper_name),
+                scala_map_hash(
+                    b.interpretations
+                        .iter()
+                        .map(|(k, v)| (scala_string_hash(k), scala_string_hash(v))),
+                ),
+            ],
+        ),
+        Type::Extension(extension) => extension.scala_hash()?,
+    })
+}
+fn scala_local_decl_hash(v: &crate::ast::program::LocalVarDecl) -> Result<i32, ScalaHashError> {
+    Ok(scala_product(
+        "LocalVarDecl",
+        &[scala_string_hash(&v.name), scala_type_hash(&v.typ)?],
+    ))
+}
+fn scala_exp_option_hash(e: Option<&Exp>) -> Result<i32, ScalaHashError> {
+    match e {
+        Some(e) => Ok(scala_product("Some", &[scala_expression_hash(e)?])),
+        None => Ok(scala_string_hash("None")),
+    }
+}
+fn scala_exp_vec_hash(values: &[Exp]) -> Result<i32, ScalaHashError> {
+    Ok(scala_ordered_hash(
+        &values
+            .iter()
+            .map(scala_expression_hash)
+            .collect::<Result<Vec<_>, _>>()?,
+    ))
+}
+fn scala_pred_access_hash(
+    p: &crate::ast::expression::PredicateAccess,
+) -> Result<i32, ScalaHashError> {
+    Ok(scala_product(
+        "PredicateAccess",
+        &[
+            scala_exp_vec_hash(&p.args)?,
+            scala_string_hash(&p.predicate_name),
+        ],
+    ))
+}
+fn scala_field_access_hash(f: &crate::ast::expression::FieldAccess) -> Result<i32, ScalaHashError> {
+    let field = scala_product(
+        "Field",
+        &[
+            scala_string_hash(&f.field.name),
+            scala_type_hash(&f.field.typ)?,
+        ],
+    );
+    Ok(scala_product(
+        "FieldAccess",
+        &[scala_expression_hash(&f.receiver)?, field],
+    ))
+}
+/// Exact source case-class hash for built-in expressions; metadata and extra
+/// constructor lists are intentionally excluded, matching Scala product equality.
+pub fn scala_expression_hash(expression: &Exp) -> Result<i32, ScalaHashError> {
+    use crate::ast::expression::ExpKind::*;
+    macro_rules! binary {
+        ($name:expr,$a:expr,$b:expr) => {
+            scala_product(
+                $name,
+                &[scala_expression_hash($a)?, scala_expression_hash($b)?],
+            )
+        };
+    }
+    macro_rules! unary {
+        ($name:expr,$a:expr) => {
+            scala_product($name, &[scala_expression_hash($a)?])
+        };
+    }
+    Ok(match expression.kind() {
+        IntLit(v) => scala_product("IntLit", &[scala_bigint_hash(v)]),
+        TrueLit => scala_product("TrueLit", &[]),
+        FalseLit => scala_product("FalseLit", &[]),
+        NullLit => scala_product("NullLit", &[]),
+        RefLit(v) => scala_product("RefLit", &[scala_string_hash(v)]),
+        BackendValueLit(v, t) => scala_product(
+            "BackendValueLit",
+            &[scala_string_hash(v), scala_type_hash(t)?],
+        ),
+        LocalVar(v) => scala_product(
+            "LocalVar",
+            &[scala_string_hash(&v.name), scala_type_hash(&v.typ)?],
+        ),
+        LocalVarWithVersion(n, t) => scala_product(
+            "LocalVarWithVersion",
+            &[scala_string_hash(n), scala_type_hash(t)?],
+        ),
+        Result(t) => scala_product("Result", &[scala_type_hash(t)?]),
+        WildcardPerm => scala_product("WildcardPerm", &[]),
+        FullPerm => scala_product("FullPerm", &[]),
+        NoPerm => scala_product("NoPerm", &[]),
+        EpsilonPerm => scala_product("EpsilonPerm", &[]),
+        FieldAccess(f) => scala_field_access_hash(f)?,
+        PredicateAccess(p) => scala_pred_access_hash(p)?,
+        FieldAccessPredicate(f, p) => scala_product(
+            "FieldAccessPredicate",
+            &[
+                scala_field_access_hash(f)?,
+                scala_exp_option_hash(p.as_ref())?,
+            ],
+        ),
+        PredicateAccessPredicate(p) => scala_product(
+            "PredicateAccessPredicate",
+            &[
+                scala_pred_access_hash(&p.location)?,
+                scala_exp_option_hash(p.permission.as_ref())?,
+            ],
+        ),
+        FuncApp(n, args) => scala_product(
+            "FuncApp",
+            &[scala_string_hash(n), scala_exp_vec_hash(args)?],
+        ),
+        BackendFuncApp(n, args) => scala_product(
+            "BackendFuncApp",
+            &[scala_string_hash(n), scala_exp_vec_hash(args)?],
+        ),
+        DomainFuncApp(n, args, types) => {
+            let map = types
+                .iter()
+                .map(|(k, v)| {
+                    Ok((
+                        scala_product("TypeVar", &[scala_string_hash(&k.name)]),
+                        scala_type_hash(v)?,
+                    ))
+                })
+                .collect::<std::result::Result<Vec<_>, ScalaHashError>>()?;
+            scala_product(
+                "DomainFuncApp",
+                &[
+                    scala_string_hash(n),
+                    scala_exp_vec_hash(args)?,
+                    scala_map_hash(map),
+                ],
+            )
+        }
+        LabelledOld(v, label) => scala_product(
+            "LabelledOld",
+            &[scala_expression_hash(v)?, scala_string_hash(label)],
+        ),
+        DebugLabelledOld(v, label) => scala_product(
+            "DebugLabelledOld",
+            &[scala_expression_hash(v)?, scala_string_hash(label)],
+        ),
+        Let(v, a, b) => scala_product(
+            "Let",
+            &[
+                scala_local_decl_hash(v)?,
+                scala_expression_hash(a)?,
+                scala_expression_hash(b)?,
+            ],
+        ),
+        Forall(vars, triggers, body) | Exists(vars, triggers, body) => {
+            let vars = scala_ordered_hash(
+                &vars
+                    .iter()
+                    .map(scala_local_decl_hash)
+                    .collect::<std::result::Result<Vec<_>, _>>()?,
+            );
+            let triggers = scala_ordered_hash(
+                &triggers
+                    .iter()
+                    .map(|t| Ok(scala_product("Trigger", &[scala_exp_vec_hash(&t.exps)?])))
+                    .collect::<std::result::Result<Vec<_>, ScalaHashError>>()?,
+            );
+            scala_product(
+                if matches!(expression.kind(), Forall(..)) {
+                    "Forall"
+                } else {
+                    "Exists"
+                },
+                &[vars, triggers, scala_expression_hash(body)?],
+            )
+        }
+        ForPerm(vars, resource, body) => scala_product(
+            "ForPerm",
+            &[
+                scala_ordered_hash(
+                    &vars
+                        .iter()
+                        .map(scala_local_decl_hash)
+                        .collect::<std::result::Result<Vec<_>, _>>()?,
+                ),
+                scala_expression_hash(resource)?,
+                scala_expression_hash(body)?,
+            ],
+        ),
+        EmptySeq(t) => scala_product("EmptySeq", &[scala_type_hash(t)?]),
+        EmptySet(t) => scala_product("EmptySet", &[scala_type_hash(t)?]),
+        EmptyMultiset(t) => scala_product("EmptyMultiset", &[scala_type_hash(t)?]),
+        EmptyMap(k, v) => scala_product("EmptyMap", &[scala_type_hash(k)?, scala_type_hash(v)?]),
+        ExplicitSeq(v) => scala_product("ExplicitSeq", &[scala_exp_vec_hash(v)?]),
+        ExplicitSet(v) => scala_product("ExplicitSet", &[scala_exp_vec_hash(v)?]),
+        ExplicitMultiset(v) => scala_product("ExplicitMultiset", &[scala_exp_vec_hash(v)?]),
+        ExplicitMap(v) => scala_product("ExplicitMap", &[scala_exp_vec_hash(v)?]),
+        CondExp(a, b, c) => scala_product(
+            "CondExp",
+            &[
+                scala_expression_hash(a)?,
+                scala_expression_hash(b)?,
+                scala_expression_hash(c)?,
+            ],
+        ),
+        SeqUpdate(a, b, c) => scala_product(
+            "SeqUpdate",
+            &[
+                scala_expression_hash(a)?,
+                scala_expression_hash(b)?,
+                scala_expression_hash(c)?,
+            ],
+        ),
+        MapUpdate(a, b, c) => scala_product(
+            "MapUpdate",
+            &[
+                scala_expression_hash(a)?,
+                scala_expression_hash(b)?,
+                scala_expression_hash(c)?,
+            ],
+        ),
+        Minus(a) => unary!("Minus", a),
+        Not(a) => unary!("Not", a),
+        CurrentPerm(a) => unary!("CurrentPerm", a),
+        PermMinus(a) => unary!("PermMinus", a),
+        Old(a) => unary!("Old", a),
+        SeqLength(a) => unary!("SeqLength", a),
+        AnySetCardinality(a) => unary!("AnySetCardinality", a),
+        MapCardinality(a) => unary!("MapCardinality", a),
+        MapDomain(a) => unary!("MapDomain", a),
+        MapRange(a) => unary!("MapRange", a),
+        Add(a, b) => binary!("Add", a, b),
+        Sub(a, b) => binary!("Sub", a, b),
+        Mul(a, b) => binary!("Mul", a, b),
+        Div(a, b) => binary!("Div", a, b),
+        Mod(a, b) => binary!("Mod", a, b),
+        LtCmp(a, b) => binary!("LtCmp", a, b),
+        LeCmp(a, b) => binary!("LeCmp", a, b),
+        GtCmp(a, b) => binary!("GtCmp", a, b),
+        GeCmp(a, b) => binary!("GeCmp", a, b),
+        EqCmp(a, b) => binary!("EqCmp", a, b),
+        NeCmp(a, b) => binary!("NeCmp", a, b),
+        Or(a, b) => binary!("Or", a, b),
+        And(a, b) => binary!("And", a, b),
+        Implies(a, b) => binary!("Implies", a, b),
+        MagicWand(a, b) => binary!("MagicWand", a, b),
+        InhaleExhaleExp(a, b) => binary!("InhaleExhaleExp", a, b),
+        FractionalPerm(a, b) => binary!("FractionalPerm", a, b),
+        PermDiv(a, b) => binary!("PermDiv", a, b),
+        PermPermDiv(a, b) => binary!("PermPermDiv", a, b),
+        PermAdd(a, b) => binary!("PermAdd", a, b),
+        PermSub(a, b) => binary!("PermSub", a, b),
+        PermMul(a, b) => binary!("PermMul", a, b),
+        IntPermMul(a, b) => binary!("IntPermMul", a, b),
+        DebugPermMin(a, b) => binary!("DebugPermMin", a, b),
+        PermLtCmp(a, b) => binary!("PermLtCmp", a, b),
+        PermLeCmp(a, b) => binary!("PermLeCmp", a, b),
+        PermGtCmp(a, b) => binary!("PermGtCmp", a, b),
+        PermGeCmp(a, b) => binary!("PermGeCmp", a, b),
+        Unfolding(a, b) => binary!("Unfolding", a, b),
+        Applying(a, b) => binary!("Applying", a, b),
+        Asserting(a, b) => binary!("Asserting", a, b),
+        RangeSeq(a, b) => binary!("RangeSeq", a, b),
+        SeqAppend(a, b) => binary!("SeqAppend", a, b),
+        SeqIndex(a, b) => binary!("SeqIndex", a, b),
+        SeqTake(a, b) => binary!("SeqTake", a, b),
+        SeqDrop(a, b) => binary!("SeqDrop", a, b),
+        SeqContains(a, b) => binary!("SeqContains", a, b),
+        AnySetUnion(a, b) => binary!("AnySetUnion", a, b),
+        AnySetIntersection(a, b) => binary!("AnySetIntersection", a, b),
+        AnySetSubset(a, b) => binary!("AnySetSubset", a, b),
+        AnySetMinus(a, b) => binary!("AnySetMinus", a, b),
+        AnySetContains(a, b) => binary!("AnySetContains", a, b),
+        Maplet(a, b) => binary!("Maplet", a, b),
+        MapLookup(a, b) => binary!("MapLookup", a, b),
+        MapContains(a, b) => binary!("MapContains", a, b),
+        Extension(extension) => extension.0.scala_hash()?,
+    })
+}
+/// Hash of Scala `Seq[Exp]`, including its range-compatible optimization.
+pub fn scala_expression_sequence_hash(expressions: &[Exp]) -> Result<i32, ScalaHashError> {
+    scala_exp_vec_hash(expressions)
+}
+
+#[cfg(test)]
+mod scala_hash_tests {
+    use super::*;
+    use crate::ast::{
+        ast::Metadata,
+        expression::{ExpKind, LocalVar},
+        r#type::Type,
+    };
+    #[test]
+    fn matches_scala_hashes_for_heap_quantifiers_and_domain_maps() {
+        use crate::ast::{
+            expression::{FieldAccess, Trigger},
+            program::{Field, FieldData, LocalVarDecl},
+            r#type::{DomainType, TypeVar},
+        };
+        let m = Metadata::default();
+        let local = LocalVar::new("x".into(), Type::Ref, m.clone());
+        let x = Exp::new(ExpKind::LocalVar(local), m.clone());
+        let field = Field::new(FieldData {
+            name: "f".into(),
+            typ: Type::Int,
+            meta: m.clone(),
+        });
+        let access = FieldAccess::new(x, field, m.clone());
+        let fa = Exp::new(ExpKind::FieldAccess(access.clone()), m.clone());
+        let acc = Exp::new(ExpKind::FieldAccessPredicate(access, None), m.clone());
+        let var = LocalVarDecl::new("x".into(), Type::Ref, m.clone());
+        let trigger = Trigger::new(vec![fa.clone()], m.clone());
+        let q = Exp::new(
+            ExpKind::Forall(
+                vec![var],
+                vec![trigger],
+                Exp::new(ExpKind::TrueLit, m.clone()),
+            ),
+            m,
+        );
+        let t = TypeVar::new("T");
+        let domain = Type::Domain(DomainType::new(
+            "D",
+            std::collections::HashMap::from([(t.clone(), Type::Int)]),
+            vec![t],
+        ));
+        assert_eq!(scala_expression_hash(&fa).unwrap(), -1936298814);
+        assert_eq!(scala_expression_hash(&acc).unwrap(), 2124658277);
+        assert_eq!(scala_expression_hash(&q).unwrap(), -1022590158);
+        assert_eq!(scala_type_hash(&domain).unwrap(), -681385795);
+        assert_eq!(
+            scala_expression_sequence_hash(&[fa, acc, q]).unwrap(),
+            1168839398
+        );
+    }
+    #[test]
+    fn matches_scala_2_13_case_class_and_sequence_hashes() {
+        let m = Metadata::default();
+        let x = Exp::new(
+            ExpKind::LocalVar(LocalVar::new("x".into(), Type::Int, m.clone())),
+            m.clone(),
+        );
+        let r = Exp::new(
+            ExpKind::LocalVar(LocalVar::new("r".into(), Type::Ref, m.clone())),
+            m.clone(),
+        );
+        let one = Exp::new(ExpKind::IntLit(1.into()), m.clone());
+        let two = Exp::new(ExpKind::IntLit(2.into()), m.clone());
+        let three = Exp::new(ExpKind::IntLit(3.into()), m.clone());
+        let add = Exp::new(ExpKind::Add(one, two), m);
+        assert_eq!(scala_expression_hash(&x).unwrap(), 1694950351);
+        assert_eq!(scala_expression_hash(&r).unwrap(), 364531718);
+        assert_eq!(scala_expression_hash(&three).unwrap(), 1281121765);
+        assert_eq!(scala_expression_hash(&add).unwrap(), -1865742097);
+        assert_eq!(
+            scala_expression_sequence_hash(&[x.clone()]).unwrap(),
+            1917010212
+        );
+        assert_eq!(
+            scala_expression_sequence_hash(&[x, r]).unwrap(),
+            -2006093345
+        );
+        assert_eq!(scala_expression_sequence_hash(&[]).unwrap(), 473519988);
+    }
+}
