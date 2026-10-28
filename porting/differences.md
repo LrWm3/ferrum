@@ -194,10 +194,14 @@ arithmetic uses such as `lowEvent + 1` during native type checking.
 ## Native execution assembly
 
 The first concrete runtime composes the translated rule algorithms in one owned
-worker and solver. The source default uses a separate preamble verifier and a
-worker pool; native parallel scheduling remains pending. Repeated public session
-runs recreate the owned context and replay source preambles, rather than retain
-a process across resets. Unsupported semantics and requested runtime policies
+worker and solver by default. Explicit `--numberOfParallelVerifiers N` with
+`N > 1` uses a separate main prover and a native worker pool; the source default
+selects a pool based on available processors. Worker solvers are constructed and
+destroyed on their owner threads. Repeated public session runs recreate the
+main context and pool and replay source preambles, rather than retain processes
+across resets. Submitted tasks are drained on an execution error so warning and
+scope delivery finishes before returning; dropping a pool cancels queued tasks
+and waits for active calls. Active solver interruption is not connected yet. Unsupported semantics and requested runtime policies
 return explicit errors. Native CLI exit codes distinguish success (0), failed
 proof obligations (1), and input/configuration/execution errors (2).
 

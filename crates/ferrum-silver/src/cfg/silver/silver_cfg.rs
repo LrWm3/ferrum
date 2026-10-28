@@ -1,6 +1,7 @@
 //! Silver-specialized control-flow graph analyses.
 //! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/cfg/silver/SilverCfg.scala
-//! Status: implemented and connected to CFG generation; verifier integration remains pending.
+//! Status: shared CFG identity, analyses and generation connect to native verification.
+//! CFG-only contributor analysis and broader source compatibility remain incomplete.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -17,12 +18,15 @@ use crate::cfg::{
     edge::{Edge, Kind},
 };
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 pub type SilverBlock = Block<Stmt, Exp>;
 pub type SilverEdge = Edge<Stmt, Exp>;
+/// Shared source CFG identity; cloned handles retain graph and lazy caches.
+#[derive(Clone, Debug)]
+pub struct SilverCfg(Arc<SilverCfgData>);
 #[derive(Debug)]
-pub struct SilverCfg {
+struct SilverCfgData {
     graph: Cfg<Stmt, Exp>,
     written_cache: Mutex<HashMap<SilverBlock, Vec<LocalVar>>>,
     join_cache: Mutex<Option<HashMap<SilverBlock, SilverBlock>>>,
@@ -49,14 +53,18 @@ impl SilverCfg {
         Self::from_cfg(Cfg::new(blocks, edges, entry, exit))
     }
     pub fn from_cfg(graph: Cfg<Stmt, Exp>) -> Self {
-        Self {
+        Self(Arc::new(SilverCfgData {
             graph,
             written_cache: Mutex::new(HashMap::new()),
             join_cache: Mutex::new(None),
-        }
+        }))
+    }
+    /// Identity of the source CFG instance, independent of structural equality.
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
     }
     pub fn graph(&self) -> &Cfg<Stmt, Exp> {
-        &self.graph
+        &self.0.graph
     }
     pub fn copy_with(
         &self,
@@ -65,14 +73,19 @@ impl SilverCfg {
         entry: Option<SilverBlock>,
         exit: Option<Option<SilverBlock>>,
     ) -> Self {
-        self.graph
+        self.0
+            .graph
             .copy_with(blocks, edges, entry, exit, Self::from_cfg)
     }
     pub fn written_vars(&self, head: &SilverBlock) -> Result<Vec<LocalVar>, SilverCfgError> {
         if !matches!(head.kind(), BlockKind::LoopHead { .. }) {
             return Err(SilverCfgError::NotLoopHead);
         }
-        let mut cache = self.written_cache.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = self
+            .0
+            .written_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(result) = cache.get(head) {
             return Ok(result.clone());
         }
@@ -89,7 +102,7 @@ impl SilverCfg {
                     }
                 }
             }
-            for edge in self.graph.out_edges(&block) {
+            for edge in self.0.graph.out_edges(&block) {
                 let next_depth = match edge.kind() {
                     Kind::In => depth + 1,
                     Kind::Out => depth - 1,
@@ -105,7 +118,7 @@ impl SilverCfg {
         Ok(result)
     }
     pub fn join_points(&self) -> Result<HashMap<SilverBlock, SilverBlock>, SilverCfgError> {
-        let mut cache = self.join_cache.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = self.0.join_cache.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(map) = cache.as_ref() {
             return Ok(map.clone());
         }
@@ -147,8 +160,8 @@ impl SilverCfg {
             Ok((None, map))
         }
         let (join, map) = find(
-            &self.graph,
-            vec![self.graph.entry().clone()],
+            &self.0.graph,
+            vec![self.0.graph.entry().clone()],
             HashSet::new(),
             HashSet::new(),
         )?;
@@ -157,5 +170,20 @@ impl SilverCfg {
         }
         *cache = Some(map.clone());
         Ok(map)
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+    #[test]
+    fn cfg_clone_shares_identity_but_copy_is_fresh() {
+        let entry = SilverBlock::statement(vec![]);
+        let cfg = SilverCfg::new(vec![entry.clone()], vec![], entry, None);
+        let cloned = cfg.clone();
+        assert!(cfg.same_node(&cloned));
+        let copied = cfg.copy_with(None, None, None, None);
+        assert!(!cfg.same_node(&copied));
+        assert_eq!(cfg.graph().entry(), copied.graph().entry());
     }
 }

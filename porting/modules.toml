@@ -2037,7 +2037,7 @@ repository = "silicon"
 upstream = "src/main/scala/verifier/VerificationPoolManager.scala"
 destination = "crates/ferrum-silicon/src/verifier/verification_pool_manager.rs"
 status = "skeleton"
-remaining = ["Owned native worker components, lifecycle and prover broadcasts exist; concrete execution services, verification units and scheduling remain."]
+remaining = ["Thread-owned solvers, ordered preamble broadcast, function/predicate analysis, method/CFG scheduling, source-order results, scoped reporting, warning delivery and task draining are connected. Active query cancellation, timeout orchestration and nested branch parallelism remain incomplete."]
 
 [[modules]]
 repository = "silicon"
@@ -2568,7 +2568,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Native source context connects quantified resources, havoc, wands, complete and on-demand exhale, and CFG joins. Shared worker analysis and ordered post-verification preamble seams exist; parallelism and advanced reporting/configurations remain gated or incomplete. Broader compatibility is pending."]
+remaining = ["Native context connects source heap, quantified-resource, wand, complete-exhale and CFG execution services, with shared worker analysis and scoped diagnostics. Nested branch parallelism, CFG-only contributor analysis, quantified transfer during packaging and advanced profiles remain incomplete."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"

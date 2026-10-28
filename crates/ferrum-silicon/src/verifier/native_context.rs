@@ -121,8 +121,6 @@ impl NativeOptions {
             || config.enable_branchcondition_reporting
             || config.alternative_function_verification_order
             || config.report_state_after.is_some()
-            || (config.is_supplied("numberOfParallelVerifiers")
-                && config.number_of_parallel_verifiers != 1)
         {
             return Err(NativeError::Unsupported(
                 "requested timeout, logging, solver, worker, cache or encoding policy is not connected",
@@ -6931,9 +6929,84 @@ where
             &local,
             ferrum_silver::ast::program::Member::Method(method.clone()),
         )?;
-        crate::supporters::method_supporter::verify_method(self, state, method)
+        let results = crate::supporters::method_supporter::verify_method(self, state, method)
             .map(flatten_results)
-            .map_err(|e| NativeError::Execution(format!("worker method verification: {e:?}")))
+            .map_err(|e| NativeError::Execution(format!("worker method verification: {e:?}")))?;
+        Ok(results)
+    }
+
+    /// Verify an externally supplied CFG on an initialized worker solver.
+    pub fn verify_worker_cfg(
+        &mut self,
+        analysis: &NativeWorkerAnalysis,
+        cfg: &SilverCfg,
+    ) -> Result<Vec<VerificationResult<VerificationError>>, NativeError<S::Error>> {
+        self.active_program = Some(analysis.program.clone());
+        self.function_handles = analysis.function_handles.clone();
+        self.function_heights = analysis.function_heights.clone();
+        self.function_fresh_variables = analysis.function_fresh_variables.clone();
+        self.failed_functions = analysis.failed_functions.clone();
+        self.predicate_snapshots.snap_map = analysis.snapshot_sorts.clone();
+        self.predicate_snapshots.formal_var_map = analysis.snapshot_formals.clone();
+        let mut unit = crate::supporters::functions::function_verification_unit::FunctionVerificationUnit::default();
+        unit.program = Some(analysis.program.clone());
+        unit.data = analysis.function_owners.clone();
+        let local = NativeAnalysis {
+            functions: std::cell::RefCell::new(unit),
+            function_handles: analysis.function_handles.clone(),
+            predicates: analysis.predicates.clone(),
+            snapshot_sorts: analysis.snapshot_sorts.clone(),
+            snapshot_formals: analysis.snapshot_formals.clone(),
+        };
+        let state = self.initial_cfg_state(&analysis.program, &local);
+        crate::supporters::cfg_supporter::verify_cfg(self, state, Arc::new(cfg.clone()))
+            .map(flatten_results)
+            .map_err(|e| NativeError::Execution(format!("worker CFG verification: {e:?}")))
+    }
+
+    /// Verify a function before reporting and scope assignment in a pool orchestrator.
+    pub fn verify_function_unscoped(
+        &mut self,
+        program: &ferrum_silver::ast::program::Program,
+        analysis: &NativeAnalysis,
+        function: &ferrum_silver::ast::program::Function,
+    ) -> Result<Vec<VerificationResult<VerificationError>>, NativeError<S::Error>> {
+        let state = self.initial_state(
+            program,
+            analysis,
+            ferrum_silver::ast::program::Member::Function(function.clone()),
+        )?;
+        let factory = self.factory.clone();
+        analysis
+            .functions
+            .borrow_mut()
+            .verify(&factory, self, state, function)
+            .map(flatten_results)
+            .map_err(|e| NativeError::Execution(format!("function verification: {e:?}")))
+    }
+    /// Verify a predicate before reporting and scope assignment in a pool orchestrator.
+    pub fn verify_predicate_unscoped(
+        &mut self,
+        program: &ferrum_silver::ast::program::Program,
+        analysis: &NativeAnalysis,
+        predicate: &Predicate,
+    ) -> Result<Vec<VerificationResult<VerificationError>>, NativeError<S::Error>> {
+        let data = analysis
+            .predicates
+            .get(&predicate.name)
+            .ok_or(NativeError::Unsupported("predicate analysis data"))?
+            .clone();
+        let state = self.initial_state(
+            program,
+            analysis,
+            ferrum_silver::ast::program::Member::Predicate(predicate.clone()),
+        )?;
+        let factory = self.factory.clone();
+        crate::supporters::predicate_verification_unit::verify_predicate(
+            &factory, self, state, &data,
+        )
+        .map(flatten_results)
+        .map_err(|e| NativeError::Execution(format!("{e:?}")))
     }
 
     /// Execute the actual main-verifier orchestration with one owned solver.
@@ -6944,10 +7017,32 @@ where
         program: &ferrum_silver::ast::program::Program,
         cfgs: &[SilverCfg],
     ) -> Result<Vec<VerificationResult<VerificationError>>, NativeError<S::Error>> {
-        if !cfgs.is_empty() {
-            return Err(NativeError::Unsupported("standalone CFG verification"));
-        }
         crate::verifier::default_main_verifier::verify(self, program, cfgs, None)
+    }
+    fn initial_cfg_state(
+        &self,
+        program: &ferrum_silver::ast::program::Program,
+        analysis: &NativeAnalysis,
+    ) -> NativeState {
+        let mut state = State::new(
+            program.clone(),
+            analysis.predicates.clone(),
+            analysis.function_handles.clone(),
+            self.options.join_mode,
+            &self.factory,
+            false,
+            self.options.respect_function_pre_permission_amounts,
+        );
+        state.qp_fields = program.fields.clone();
+        state.qp_predicates = program.predicates.clone();
+        state.predicate_snap_map = analysis.snapshot_sorts.clone();
+        state.predicate_formal_var_map = analysis.snapshot_formals.clone();
+        state.more_complete_exhale =
+            self.options.exhale_mode == crate::config::ExhaleMode::MoreComplete;
+        state.more_complete_exhale_qp =
+            self.options.exhale_mode_qp == crate::config::ExhaleMode::MoreComplete;
+        state.parallelize_branches = true;
+        state
     }
     fn initial_state(
         &mut self,
@@ -7413,17 +7508,12 @@ where
         program: &ferrum_silver::ast::program::Program,
         analysis: &NativeAnalysis,
     ) -> Result<Vec<Self::Result>, Self::Error> {
-        let state = self.initial_state(
-            program,
-            analysis,
-            ferrum_silver::ast::program::Member::Function(unit.clone()),
-        )?;
-        let factory = self.factory.clone();
-        analysis
-            .functions
-            .borrow_mut()
-            .verify(&factory, self, state, &unit)
-            .map_err(|e| NativeError::Execution(format!("function verification: {e:?}")))
+        let results = self.verify_function_unscoped(program, analysis, &unit)?;
+        set_member_scope(
+            &results,
+            ferrum_silver::ast::program::Member::Function(unit),
+        );
+        Ok(results)
     }
     fn verify_predicate(
         &mut self,
@@ -7431,22 +7521,12 @@ where
         program: &ferrum_silver::ast::program::Program,
         analysis: &NativeAnalysis,
     ) -> Result<Vec<Self::Result>, Self::Error> {
-        let data = analysis
-            .predicates
-            .get(&unit.name)
-            .ok_or(NativeError::Unsupported("predicate analysis data"))?
-            .clone();
-        let state = self.initial_state(
-            program,
-            analysis,
+        let results = self.verify_predicate_unscoped(program, analysis, &unit)?;
+        set_member_scope(
+            &results,
             ferrum_silver::ast::program::Member::Predicate(unit),
-        )?;
-        let f = self.factory.clone();
-        let result = crate::supporters::predicate_verification_unit::verify_predicate(
-            &f, self, state, &data,
-        )
-        .map_err(|e| NativeError::Execution(format!("{e:?}")))?;
-        Ok(flatten_results(result))
+        );
+        Ok(results)
     }
     fn stop_main_prover(&mut self) -> Result<(), Self::Error> {
         Ok(())
@@ -7489,16 +7569,23 @@ where
             analysis,
             ferrum_silver::ast::program::Member::Method(method.clone()),
         )?;
-        crate::supporters::method_supporter::verify_method(self, state, method)
-            .map_err(|e| NativeError::Execution(format!("{e:?}")))
+        let results = crate::supporters::method_supporter::verify_method(self, state, method)
+            .map_err(|e| NativeError::Execution(format!("{e:?}")))?;
+        set_member_scope(
+            &results,
+            ferrum_silver::ast::program::Member::Method(method.clone()),
+        );
+        Ok(results)
     }
     fn queue_cfg(
         &mut self,
-        _: &SilverCfg,
-        _: &ferrum_silver::ast::program::Program,
-        _: &NativeAnalysis,
+        cfg: &SilverCfg,
+        program: &ferrum_silver::ast::program::Program,
+        analysis: &NativeAnalysis,
     ) -> Result<Self::Task, Self::Error> {
-        Err(NativeError::Unsupported("standalone CFG verification"))
+        let state = self.initial_cfg_state(program, analysis);
+        crate::supporters::cfg_supporter::verify_cfg(self, state, Arc::new(cfg.clone()))
+            .map_err(|e| NativeError::Execution(format!("CFG verification: {e:?}")))
     }
     fn await_task(&mut self, task: Self::Task) -> Result<Vec<Self::Result>, Self::Error> {
         Ok(flatten_results(task))
@@ -7508,6 +7595,21 @@ where
     }
     fn run_optional_debugger(&mut self, _: &[Self::Result]) -> Result<(), Self::Error> {
         Ok(())
+    }
+}
+fn set_member_scope(
+    results: &[VerificationResult<VerificationError>],
+    member: ferrum_silver::ast::program::Member,
+) {
+    let scope = Arc::new(member);
+    for result in results {
+        for item in std::iter::once(result.clone()).chain(result.previous()) {
+            item.with_kind(|kind| {
+                if let crate::interfaces::verification::ResultKind::Failure(error) = kind {
+                    error.set_scope(Some(scope.clone()));
+                }
+            });
+        }
     }
 }
 fn flatten_results(
@@ -12686,8 +12788,133 @@ where
 #[cfg(test)]
 mod worker_analysis_contract_tests {
     #[test]
+    fn member_scope_is_set_on_failure_and_history() {
+        use crate::interfaces::verification::VerificationResult;
+        use ferrum_silver::ast::{
+            ast::Metadata,
+            expression::{Exp, ExpKind},
+            program::{Field, FieldData, Member},
+            statement::{Stmt, StmtKind},
+            r#type::Type,
+        };
+        use ferrum_silver::verifier::verification_error::{
+            ErrorReason, VerificationError, VerificationErrorKind,
+        };
+        let meta = Metadata::default();
+        let expression = Exp::new(ExpKind::FalseLit, meta.clone());
+        let stmt = Stmt::new(StmtKind::Assert(expression.clone()), meta.clone());
+        let first = VerificationResult::failure(
+            VerificationError::new(
+                VerificationErrorKind::AssertFailed(stmt.clone()),
+                ErrorReason::AssertionFalse(expression.clone()),
+            ),
+            true,
+        );
+        let second = VerificationResult::failure(
+            VerificationError::new(
+                VerificationErrorKind::AssertFailed(stmt),
+                ErrorReason::AssertionFalse(expression),
+            ),
+            true,
+        );
+        let joined = first.clone().combine(|| second.clone(), false);
+        let member = Member::Field(Field::new(FieldData {
+            name: "scope".into(),
+            typ: Type::Int,
+            meta,
+        }));
+        super::set_member_scope(&[joined], member.clone());
+        for result in [first, second] {
+            result.with_kind(|kind| match kind {
+                crate::interfaces::verification::ResultKind::Failure(error) => {
+                    assert_eq!(error.scope().as_deref(), Some(&member))
+                }
+                _ => panic!("expected failure"),
+            });
+        }
+    }
+    #[test]
     fn worker_analysis_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<super::NativeWorkerAnalysis>();
+    }
+}
+
+impl<S: Prover, PD, FD: Clone>
+    crate::supporters::cfg_supporter::CfgVerificationServices<PD, FD, JoinMode, VerificationError>
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn empty_cfg_heap(
+        &mut self,
+        _: &State<PD, FD, JoinMode>,
+    ) -> Result<Arc<ListBackedHeap>, Self::Error> {
+        Ok(Arc::new(ListBackedHeap::new()))
+    }
+    fn output_cfg(&mut self, _: &SilverCfg) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn cfg_locally(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        action: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::supporters::cfg_supporter::CfgVerificationError<Self::Error>,
+        >,
+    ) -> Result<
+        VerificationResult<VerificationError>,
+        crate::supporters::cfg_supporter::CfgVerificationError<Self::Error>,
+    > {
+        use crate::supporters::cfg_supporter::CfgVerificationError as CE;
+        self.base
+            .decider
+            .push_scope()
+            .map_err(|e| CE::Service(NativeError::Decider(e)))?;
+        let result = action(self, state);
+        let cleanup = self.base.decider.pop_scope();
+        match (result, cleanup) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(e), Ok(())) => Err(e),
+            (Ok(_), Err(e)) => Err(CE::Service(NativeError::Decider(e))),
+            (Err(e), Err(cleanup)) => Err(CE::Service(NativeError::Cleanup(format!(
+                "{e:?}; cleanup: {cleanup:?}"
+            )))),
+        }
+    }
+    fn execute_cfg(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        cfg: &SilverCfg,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::supporters::cfg_supporter::CfgVerificationError<Self::Error>,
+        >,
+    ) -> Result<
+        VerificationResult<VerificationError>,
+        crate::supporters::cfg_supporter::CfgVerificationError<Self::Error>,
+    > {
+        use crate::supporters::cfg_supporter::CfgVerificationError as CE;
+        let mut callback_error = None;
+        let result = crate::rules::executor::execute_cfg(self, state, cfg, &mut |ctx, state| {
+            match continuation(ctx, state) {
+                Ok(value) => Ok(value),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ExecutionError::Context(NativeError::ContinuationAbort))
+                }
+            }
+        });
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| CE::Service(NativeError::Execution(format!("CFG execution: {e:?}"))))
     }
 }

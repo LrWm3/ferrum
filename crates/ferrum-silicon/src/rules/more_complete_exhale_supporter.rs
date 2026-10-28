@@ -34,7 +34,7 @@
 //! Summarising cache identity, fresh symbols and continuation context.
 //!
 //! Status: tagged snapshot data and symbolic permission summation live here; native context
-//! implements lookup, snapshot summaries and consumption. Mode admission remains gated.
+//! implements lookup, snapshot summaries and consumption for the native execution profile.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this

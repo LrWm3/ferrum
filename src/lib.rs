@@ -37,6 +37,10 @@ pub use ferrum_silicon as silicon;
 /// Shared language infrastructure for callers constructing a Silver program.
 pub use ferrum_silver as silver;
 
+use silicon::verifier::verification_pool_manager::{
+    BroadcastingProver, NativeMethodWorker, ThreadVerificationPool, native_method_worker,
+    verify_native_parallel_with_reporting,
+};
 use silicon::{
     config::Config,
     decider::{
@@ -68,6 +72,7 @@ use silver::{
         verification_result::{AbstractError, VerificationResult},
     },
 };
+use std::{cell::RefCell, rc::Rc};
 use std::{
     path::Path,
     sync::{Arc, Mutex},
@@ -147,35 +152,207 @@ type ExecutingContext<P> = NativeVerifierContext<
     NativeFunctionData,
 >;
 
+type WorkerPool<P> = ThreadVerificationPool<NativeMethodWorker<P>>;
+type ParallelMain<P> = ExecutingContext<BroadcastingProver<P, NativeMethodWorker<P>>>;
+type SharedWarnings = Arc<Mutex<Vec<String>>>;
+type ProverFactory<P> =
+    fn(
+        &str,
+        &Config,
+        TermFactory,
+        SharedWarnings,
+    ) -> Result<(P, silicon::state::identifiers::DefaultIdentifierFactory), FerrumError>;
+
+struct ParallelContext<P>
+where
+    P: silicon::interfaces::decider::prover::Prover + 'static,
+    P::Error: Send + std::fmt::Debug + 'static,
+{
+    context: Option<ParallelMain<P>>,
+    pool: Option<Rc<RefCell<WorkerPool<P>>>>,
+    warning_sink: SharedWarnings,
+    warnings: Vec<String>,
+}
+impl<P> ParallelContext<P>
+where
+    P: silicon::interfaces::decider::prover::Prover + 'static,
+    P::Error: Send + std::fmt::Debug + 'static,
+{
+    fn start(
+        main: P,
+        identifiers: silicon::state::identifiers::DefaultIdentifierFactory,
+        config: &Config,
+        factory: TermFactory,
+        options: NativeOptions,
+        warning_sink: SharedWarnings,
+        count: usize,
+        make_prover: ProverFactory<P>,
+    ) -> Result<Self, FerrumError> {
+        let worker_config = config.clone();
+        let worker_factory = factory.clone();
+        let worker_options = options.clone();
+        let worker_warnings = warning_sink.clone();
+        let pool = ThreadVerificationPool::start(count, move |index| {
+            let id = format!("worker-{index}");
+            let (prover, identifiers) = make_prover(
+                &id,
+                &worker_config,
+                worker_factory.clone(),
+                worker_warnings.clone(),
+            )
+            .map_err(|error| {
+                silicon::verifier::native_context::NativeError::Execution(error.to_string())
+            })?;
+            Ok(native_method_worker(
+                id,
+                prover,
+                identifiers,
+                worker_factory.clone(),
+                worker_options.clone(),
+                &worker_config,
+            ))
+        })
+        .map_err(execution)?;
+        let pool = Rc::new(RefCell::new(pool));
+        let context = start_context(
+            BroadcastingProver::new(main, pool.clone()),
+            identifiers,
+            config,
+            factory,
+            options,
+        );
+        match context {
+            Ok(context) => Ok(Self {
+                context: Some(context),
+                pool: Some(pool),
+                warning_sink,
+                warnings: Vec::new(),
+            }),
+            Err(primary) => {
+                let cleanup = Rc::try_unwrap(pool)
+                    .map_err(|_| {
+                        FerrumError::Execution(
+                            "Worker pool is still borrowed after startup failure".into(),
+                        )
+                    })?
+                    .into_inner()
+                    .shutdown()
+                    .map_err(execution);
+                match cleanup {
+                    Ok(()) => Err(primary),
+                    Err(cleanup) => Err(FerrumError::Cleanup {
+                        primary: Box::new(primary),
+                        cleanup: Box::new(cleanup),
+                    }),
+                }
+            }
+        }
+    }
+    fn verify_program(
+        &mut self,
+        program: &Program,
+        cfgs: &[SilverCfg],
+        file: Option<&str>,
+    ) -> Result<Vec<SiliconResult<VerificationError>>, FerrumError> {
+        let context = self
+            .context
+            .as_mut()
+            .ok_or_else(|| FerrumError::Execution("Parallel verifier has stopped".into()))?;
+        let result = verify_native_parallel_with_reporting(
+            context,
+            program,
+            cfgs,
+            file,
+            None,
+            Some(self.warning_sink.clone()),
+        )
+        .map_err(execution);
+        self.warnings.append(&mut context.warnings);
+        result
+    }
+    fn stop(&mut self) -> Result<(), FerrumError> {
+        let mut context = self.context.take();
+        let main = match context.as_mut() {
+            Some(context) => {
+                let result = context.stop().map_err(execution);
+                self.warnings.append(&mut context.warnings);
+                result
+            }
+            None => Ok(()),
+        };
+        drop(context);
+        let workers = match self.pool.take() {
+            Some(pool) => Rc::try_unwrap(pool)
+                .map_err(|_| {
+                    FerrumError::Execution("Worker pool is still borrowed during shutdown".into())
+                })?
+                .into_inner()
+                .shutdown()
+                .map_err(execution),
+            None => Ok(()),
+        };
+        match (main, workers) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+            (Err(primary), Err(cleanup)) => Err(FerrumError::Cleanup {
+                primary: Box::new(primary),
+                cleanup: Box::new(cleanup),
+            }),
+        }
+    }
+}
+impl<P> Drop for ParallelContext<P>
+where
+    P: silicon::interfaces::decider::prover::Prover + 'static,
+    P::Error: Send + std::fmt::Debug + 'static,
+{
+    fn drop(&mut self) {
+        let _ = self.stop();
+    }
+}
+
 enum OwnedContext {
     Stdio(Box<NativeContext>),
+    ParallelStdio(Box<ParallelContext<ProverStdIo>>),
     #[cfg(feature = "native-z3")]
     Api(Box<ExecutingContext<silicon::decider::native_z3::LinkedZ3Prover>>),
+    #[cfg(feature = "native-z3")]
+    ParallelApi(Box<ParallelContext<silicon::decider::native_z3::LinkedZ3Prover>>),
 }
 impl OwnedContext {
     fn verify_program(
         &mut self,
         program: &Program,
         cfgs: &[SilverCfg],
+        file: Option<&str>,
     ) -> Result<Vec<SiliconResult<VerificationError>>, FerrumError> {
         match self {
             Self::Stdio(context) => context.verify_program(program, cfgs).map_err(execution),
+            Self::ParallelStdio(context) => context.verify_program(program, cfgs, file),
             #[cfg(feature = "native-z3")]
             Self::Api(context) => context.verify_program(program, cfgs).map_err(execution),
+            #[cfg(feature = "native-z3")]
+            Self::ParallelApi(context) => context.verify_program(program, cfgs, file),
         }
     }
     fn stop(&mut self) -> Result<(), FerrumError> {
         match self {
             Self::Stdio(context) => context.stop().map_err(execution),
+            Self::ParallelStdio(context) => context.stop(),
             #[cfg(feature = "native-z3")]
             Self::Api(context) => context.stop().map_err(execution),
+            #[cfg(feature = "native-z3")]
+            Self::ParallelApi(context) => context.stop(),
         }
     }
     fn warnings(&mut self) -> &mut Vec<String> {
         match self {
             Self::Stdio(context) => &mut context.warnings,
+            Self::ParallelStdio(context) => &mut context.warnings,
             #[cfg(feature = "native-z3")]
             Self::Api(context) => &mut context.warnings,
+            #[cfg(feature = "native-z3")]
+            Self::ParallelApi(context) => &mut context.warnings,
         }
     }
 }
@@ -223,6 +400,107 @@ where
     Ok(context)
 }
 
+fn make_stdio_prover(
+    id: &str,
+    config: &Config,
+    factory: TermFactory,
+    warning_sink: SharedWarnings,
+) -> Result<
+    (
+        ProverStdIo,
+        silicon::state::identifiers::DefaultIdentifierFactory,
+    ),
+    FerrumError,
+> {
+    let settings = config
+        .prover_settings(id)
+        .map_err(|e| FerrumError::Configuration(e.to_string()))?;
+    let profile = match config.prover.as_str() {
+        "Z3" => silicon::decider::z3_prover_std_io::profile(),
+        "cvc5" => silicon::decider::cvc5_prover_std_io::profile(),
+        name => {
+            return Err(FerrumError::Configuration(format!(
+                "Unsupported native solver transport {name}"
+            )));
+        }
+    };
+    let warnings = warning_sink;
+    let prover = ProverStdIo::new(id.into(), settings, profile, factory, move |event| {
+        if let ProverEvent::Warning(warning) = event {
+            warnings
+                .lock()
+                .expect("poisoned warning buffer")
+                .push(warning);
+        }
+    });
+    let identifiers = prover.identifier_factory();
+    Ok((prover, identifiers))
+}
+
+#[cfg(feature = "native-z3")]
+fn make_api_prover(
+    id: &str,
+    config: &Config,
+    factory: TermFactory,
+    warning_sink: SharedWarnings,
+) -> Result<
+    (
+        silicon::decider::native_z3::LinkedZ3Prover,
+        silicon::state::identifiers::DefaultIdentifierFactory,
+    ),
+    FerrumError,
+> {
+    use silicon::decider::{
+        native_z3::{LinkedProverOptions, LinkedZ3, LinkedZ3Prover},
+        z3_prover_api::ApiTimeoutSettings,
+    };
+    if config.output_prover_log() {
+        return Err(FerrumError::Configuration(
+            "Z3-API prover logging is not yet connected".into(),
+        ));
+    }
+    let version = LinkedZ3::library_version();
+    if version != (4, 16, 0, 0) {
+        return Err(FerrumError::Configuration(format!(
+            "Z3-API requires the pinned libz3 4.16.0.0; linked library is {}.{}.{}.{}",
+            version.0, version.1, version.2, version.3
+        )));
+    }
+    let mut prover = LinkedZ3Prover::new(
+        id,
+        factory,
+        LinkedProverOptions {
+            timeout: ApiTimeoutSettings {
+                default_timeout_ms: config
+                    .prover_timeout()
+                    .map_err(|e| FerrumError::Configuration(e.to_string()))?,
+                use_time_bounds: config.prover_enable_time_bounds,
+                resources_per_millisecond: config.z3_resources_per_millisecond,
+            },
+            counterexamples: config.frontend.counterexample.is_some(),
+            report_reason_unknown: config.report_reason_unknown,
+            debug: config.enable_debugging,
+            custom_options: config
+                .prover_config_args
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+            disable_nonlinear: config.disable_nl,
+            soft_assertions: config.assertion_mode
+                == silicon::config::AssertionMode::SoftConstraints,
+        },
+    );
+    let warnings = warning_sink;
+    prover.set_warning_reporter(move |warning| {
+        warnings
+            .lock()
+            .expect("poisoned warning buffer")
+            .push(warning.to_owned());
+    });
+    let identifiers = prover.identifier_factory();
+    Ok((prover, identifiers))
+}
+
 struct NativeBackend {
     config: Config,
     context: Option<OwnedContext>,
@@ -259,6 +537,14 @@ impl SiliconBackend for NativeBackend {
             use_old_axiomatization: config.use_old_axiomatization,
             mask_heap_mode: config.mask_heap_mode,
         });
+        // Preserve the initial native single-worker default; explicit source configuration
+        // selects the now-connected worker pool.
+        let count = if config.is_supplied("numberOfParallelVerifiers") {
+            usize::try_from(config.number_of_parallel_verifiers)
+                .map_err(|_| FerrumError::Configuration("Invalid worker count".into()))?
+        } else {
+            1
+        };
         if config.prover == "Z3-API" {
             #[cfg(not(feature = "native-z3"))]
             return Err(FerrumError::Configuration(
@@ -266,99 +552,53 @@ impl SiliconBackend for NativeBackend {
             ));
             #[cfg(feature = "native-z3")]
             {
-                use silicon::decider::{
-                    native_z3::{LinkedProverOptions, LinkedZ3, LinkedZ3Prover},
-                    z3_prover_api::ApiTimeoutSettings,
-                };
-                if config.output_prover_log() {
-                    return Err(FerrumError::Configuration(
-                        "Z3-API prover logging is not yet connected".into(),
-                    ));
-                }
-                let version = LinkedZ3::library_version();
-                if version != (4, 16, 0, 0) {
-                    return Err(FerrumError::Configuration(format!(
-                        "Z3-API requires the pinned libz3 4.16.0.0; linked library is {}.{}.{}.{}",
-                        version.0, version.1, version.2, version.3
-                    )));
-                }
-                let mut prover = LinkedZ3Prover::new(
-                    "main",
-                    factory.clone(),
-                    LinkedProverOptions {
-                        timeout: ApiTimeoutSettings {
-                            default_timeout_ms: config
-                                .prover_timeout()
-                                .map_err(|e| FerrumError::Configuration(e.to_string()))?,
-                            use_time_bounds: config.prover_enable_time_bounds,
-                            resources_per_millisecond: config.z3_resources_per_millisecond,
-                        },
-                        counterexamples: config.frontend.counterexample.is_some(),
-                        report_reason_unknown: config.report_reason_unknown,
-                        debug: config.enable_debugging,
-                        custom_options: config
-                            .prover_config_args
-                            .iter()
-                            .map(|(key, value)| (key.clone(), value.clone()))
-                            .collect(),
-                        disable_nonlinear: config.disable_nl,
-                        soft_assertions: config.assertion_mode
-                            == silicon::config::AssertionMode::SoftConstraints,
-                    },
-                );
-                let warnings = self.warnings.clone();
-                prover.set_warning_reporter(move |warning| {
-                    warnings
-                        .lock()
-                        .expect("poisoned warning buffer")
-                        .push(warning.to_owned());
+                let (prover, identifiers) =
+                    make_api_prover("main", config, factory.clone(), self.warnings.clone())?;
+                self.context = Some(if count > 1 {
+                    OwnedContext::ParallelApi(Box::new(ParallelContext::start(
+                        prover,
+                        identifiers,
+                        config,
+                        factory,
+                        options,
+                        self.warnings.clone(),
+                        count,
+                        make_api_prover,
+                    )?))
+                } else {
+                    OwnedContext::Api(Box::new(start_context(
+                        prover,
+                        identifiers,
+                        config,
+                        factory,
+                        options,
+                    )?))
                 });
-                let identifiers = prover.identifier_factory();
-                self.context = Some(OwnedContext::Api(Box::new(start_context(
-                    prover,
-                    identifiers,
-                    config,
-                    factory,
-                    options,
-                )?)));
                 return Ok(());
             }
         }
-        let settings = config
-            .prover_settings("main")
-            .map_err(|e| FerrumError::Configuration(e.to_string()))?;
-        let profile = match config.prover.as_str() {
-            "Z3" => silicon::decider::z3_prover_std_io::profile(),
-            "cvc5" => silicon::decider::cvc5_prover_std_io::profile(),
-            name => {
-                return Err(FerrumError::Configuration(format!(
-                    "Unsupported native solver transport {name}"
-                )));
-            }
-        };
-        let warnings = self.warnings.clone();
-        let prover = ProverStdIo::new(
-            "main".into(),
-            settings,
-            profile,
-            factory.clone(),
-            move |event| {
-                if let ProverEvent::Warning(warning) = event {
-                    warnings
-                        .lock()
-                        .expect("poisoned warning buffer")
-                        .push(warning);
-                }
-            },
-        );
-        let identifiers = prover.identifier_factory();
-        self.context = Some(OwnedContext::Stdio(Box::new(start_context(
-            prover,
-            identifiers,
-            config,
-            factory,
-            options,
-        )?)));
+        let (prover, identifiers) =
+            make_stdio_prover("main", config, factory.clone(), self.warnings.clone())?;
+        self.context = Some(if count > 1 {
+            OwnedContext::ParallelStdio(Box::new(ParallelContext::start(
+                prover,
+                identifiers,
+                config,
+                factory,
+                options,
+                self.warnings.clone(),
+                count,
+                make_stdio_prover,
+            )?))
+        } else {
+            OwnedContext::Stdio(Box::new(start_context(
+                prover,
+                identifiers,
+                config,
+                factory,
+                options,
+            )?))
+        });
         Ok(())
     }
     fn reset(&mut self) -> Result<(), FerrumError> {
@@ -369,11 +609,12 @@ impl SiliconBackend for NativeBackend {
     }
     fn stop(&mut self) -> Result<(), FerrumError> {
         if let Some(mut context) = self.context.take() {
+            let result = context.stop();
             self.warnings
                 .lock()
                 .expect("poisoned warning buffer")
                 .append(context.warnings());
-            context.stop()?;
+            result?;
         }
         Ok(())
     }
@@ -394,13 +635,13 @@ impl SiliconBackend for NativeBackend {
         &mut self,
         program: &Program,
         cfgs: &[SilverCfg],
-        _file: Option<&str>,
+        file: Option<&str>,
     ) -> Result<VerificationResult, FerrumError> {
         let context = self
             .context
             .as_mut()
             .ok_or_else(|| FerrumError::Execution("Native solver has not been started".into()))?;
-        let results = context.verify_program(program, cfgs);
+        let results = context.verify_program(program, cfgs, file);
         self.warnings
             .lock()
             .expect("poisoned warning buffer")

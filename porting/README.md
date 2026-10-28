@@ -40,8 +40,17 @@ More-complete and on-demand exhale (`--exhaleMode 1` or `2`) and CFG joins
 branch merging. A frozen suite of 115 cases passed through both solver transports,
 covering aliases, missing/zero/fractional ownership, functions, predicates with
 collection arguments, conditional heaps, loops and wand combinations. Nine
-permanent native CLI regressions also pass. Parallel execution and advanced
-configuration profiles still require integration.
+permanent native CLI regressions also pass. An explicit `--numberOfParallelVerifiers N` now selects a pool for `N > 1`;
+the native default remains one worker. Functions and predicates are verified once,
+then source-ordered preambles and retained axioms reach thread-owned solvers.
+Methods and supported standalone CFGs are dispatched to workers and results are
+collected in source order. Warnings are drained before returning, including when
+a worker fails; each repeated Session run recreates its main solver and pool.
+Two-worker checks cover 68 function/domain/quantified-resource cases, real failing
+methods, warning delivery and repeated-run axiom isolation. Nested branch
+parallelism, active-query cancellation and advanced profiles remain incomplete;
+standalone CFG-only contributor analysis has upstream TODOs. No parallel speedup
+has been measured against upstream.
 
 The opt-in SIF plugin now connects paired domain/permission values, relational
 predicate helpers, optimized loops and AST return/termination control. Source

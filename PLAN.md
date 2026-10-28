@@ -51,6 +51,11 @@ An optional `native-z3` Cargo feature links Z3 4.16 directly and exposes the
 build keeps the stdio solver transport. Source invalid-trigger retry now retains
 assumptions and restores assertion scopes. Native API option and reporting
 compatibility still require completion and comparison.
+Explicit multiworker configuration now runs source function/predicate phases once
+and dispatches methods or supported standalone CFGs to thread-owned solvers with
+ordered preamble broadcast, result collection and warning delivery. The default
+native profile remains single-worker; nested branch parallelism, cancellation
+and advanced reporting/configuration profiles still require integration.
 Full compatibility and comparative performance remain unmeasured.
 
 ## Upstream baseline and scope

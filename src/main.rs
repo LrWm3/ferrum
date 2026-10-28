@@ -55,7 +55,7 @@ fn main() -> std::process::ExitCode {
     };
     if config.frontend.print_help {
         println!(
-            "Ferrum native Viper port\nUsage: ferrum [options] <file.vpr>\n\n  --parseOnly                 Parse source without verification\n  --z3Exe <path>              Select the Z3 executable\n  --prover <Z3|cvc5|Z3-API>   Select solver (API needs native-z3 feature)\n  --assertTimeout <ms>        Limit each assertion query\n  --proverEnableTimeBounds    Use time bounds instead of resource bounds\n  --numberOfErrorsToReport N  Error limit per member (0: unlimited)\n  --disableDefaultPlugins    Disable default source transformations\n\nPort in progress; unconnected features return an explicit error."
+            "Ferrum native Viper port\nUsage: ferrum [options] <file.vpr>\n\n  --parseOnly                 Parse source without verification\n  --z3Exe <path>              Select the Z3 executable\n  --prover <Z3|cvc5|Z3-API>   Select solver (API needs native-z3 feature)\n  --assertTimeout <ms>        Limit each assertion query\n  --proverEnableTimeBounds    Use time bounds instead of resource bounds\n  --numberOfErrorsToReport N  Error limit per member (0: unlimited)\n  --numberOfParallelVerifiers N  Verify members with N workers\n  --disableDefaultPlugins    Disable default source transformations\n\nPort in progress; unconnected features return an explicit error."
         );
         return std::process::ExitCode::SUCCESS;
     }

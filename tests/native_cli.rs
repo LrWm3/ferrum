@@ -48,6 +48,38 @@ fn check(source: &str, expected: i32) {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn parallel_workers_share_preambles_and_report_real_failures() {
+    let source = "field value: Int
+        predicate P(r: Ref) { acc(r.value) }
+        function inc(x: Int): Int { x + 1 }
+        method first() { assert inc(1) == 2; }
+        method second(r: Ref) requires acc(r.value) && r.value == 7 {
+            fold acc(P(r)); unfold acc(P(r)); assert r.value == 7;
+        }
+        method third() { assert |Seq(1, 2)| == 2; }
+        method last() { assert inc(2) == 3; }";
+    for (source, expected) in [
+        (source.to_owned(), 0),
+        (source.replace("inc(2) == 3", "inc(2) == 4"), 1),
+    ] {
+        let output = run(
+            &source,
+            &["--numberOfParallelVerifiers", "2", "--no-timing"],
+        );
+        let errors = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(expected), "{errors}");
+        if expected == 1 {
+            assert!(
+                errors.contains("Verification failed with 1 error(s)."),
+                "{errors}"
+            );
+            assert_eq!(errors.matches("assert.failed").count(), 1, "{errors}");
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn sif_loops_and_dependent_predicates_preserve_relational_obligations() {
     let predicate = "field f: Int
         predicate Q(r: Ref) { acc(r.f) && low(r.f) }
@@ -291,39 +323,47 @@ fn repeated_session_runs_discard_previous_axioms() {
             verifier::verification_result::VerificationResult,
         },
     };
-    let mut config = Config::default();
-    config.prover = std::env::var("FERRUM_TEST_PROVER").unwrap_or_else(|_| "Z3".into());
-    if config.prover == "Z3" {
-        config.z3_exe = Some(std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3"));
+    for count in [1, 2] {
+        let mut config = Config::parse(&[
+            "--numberOfParallelVerifiers".into(),
+            count.to_string(),
+            "--ignoreFile".into(),
+            "session.vpr".into(),
+        ])
+        .unwrap();
+        config.prover = std::env::var("FERRUM_TEST_PROVER").unwrap_or_else(|_| "Z3".into());
+        if config.prover == "Z3" {
+            config.z3_exe = Some(std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3"));
+        }
+        let mut session = Session::new(config.clone()).unwrap();
+        for (source, success) in [
+            (
+                "domain D { function value(): Int axiom fixed { value() == 1 } } method test() { assert value() == 1; }",
+                true,
+            ),
+            (
+                "domain D { function value(): Int } method test() { assert value() == 1; }",
+                false,
+            ),
+            ("method test() { assert true; }", true),
+        ] {
+            let plugins = standard_plugin_manager(&config.frontend).unwrap();
+            let mut frontend = SilFrontendPhases::new("session.vpr".into(), plugins);
+            frontend.configure_consistency(&config.frontend);
+            let parsed = frontend.parse(source).unwrap();
+            let analyzed = frontend.analyze(parsed).unwrap();
+            let translated = frontend.translate(analyzed).unwrap();
+            let program = frontend.check_consistency(translated).unwrap();
+            let program = frontend.prepare_verification(program).unwrap();
+            let result = session.verify(&program, &[]).unwrap();
+            assert_eq!(
+                matches!(result, VerificationResult::Success),
+                success,
+                "{source}"
+            );
+        }
+        session.stop().unwrap();
     }
-    let mut session = Session::new(config.clone()).unwrap();
-    for (source, success) in [
-        (
-            "domain D { function value(): Int axiom fixed { value() == 1 } } method test() { assert value() == 1; }",
-            true,
-        ),
-        (
-            "domain D { function value(): Int } method test() { assert value() == 1; }",
-            false,
-        ),
-        ("method test() { assert true; }", true),
-    ] {
-        let plugins = standard_plugin_manager(&config.frontend).unwrap();
-        let mut frontend = SilFrontendPhases::new("session.vpr".into(), plugins);
-        frontend.configure_consistency(&config.frontend);
-        let parsed = frontend.parse(source).unwrap();
-        let analyzed = frontend.analyze(parsed).unwrap();
-        let translated = frontend.translate(analyzed).unwrap();
-        let program = frontend.check_consistency(translated).unwrap();
-        let program = frontend.prepare_verification(program).unwrap();
-        let result = session.verify(&program, &[]).unwrap();
-        assert_eq!(
-            matches!(result, VerificationResult::Success),
-            success,
-            "{source}"
-        );
-    }
-    session.stop().unwrap();
 }
 
 #[test]
