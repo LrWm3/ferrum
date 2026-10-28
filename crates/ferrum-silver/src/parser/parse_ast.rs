@@ -1068,7 +1068,7 @@ pub type PExpArguments = super::parse_ast_keyword::PGrouped<
 pub enum PExpressionKind {
     Extension(Arc<dyn PExtender>),
     AnnotatedExp {
-        annotation: PNodeHandle,
+        annotation: PAnnotation,
         expression: PExpHandle,
     },
     IdnUse {
@@ -1500,7 +1500,7 @@ pub struct PStatement {
 pub enum PStatementKind {
     Extension(Arc<dyn PExtender>),
     Annotated {
-        annotation: PNodeHandle,
+        annotation: PAnnotation,
         stmt: PStmtHandle,
     },
     Seqn {

@@ -316,7 +316,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/SilFrontend.scala"
 destination = "crates/ferrum-silver/src/frontend/sil_frontend.rs"
 status = "skeleton"
-remaining = ["Core heap/predicate/wand syntax, allocation, field call targets and function result expressions reach checked translation; remaining grammar, extensions, diagnostic compatibility and backend integration require completion."]
+remaining = ["Source expression macros, annotations and ADT derives reach checked frontend translation; remaining grammar, macro hygiene/local and statement forms, extension and diagnostic compatibility require completion."]
 
 [[modules]]
 repository = "silver"
@@ -357,21 +357,21 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/FastParser.scala"
 destination = "crates/ferrum-silver/src/parser/fast_parser.rs"
 status = "skeleton"
-remaining = ["Core heap/predicate/wand syntax, allocation, field call targets and function result expressions reach checked translation; remaining grammar, extensions, diagnostic compatibility and backend integration require completion."]
+remaining = ["Source expression macros, annotations and ADT derives reach checked frontend translation; remaining grammar, macro hygiene/local and statement forms, extension and diagnostic compatibility require completion."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/MacroExpander.scala"
 destination = "crates/ferrum-silver/src/parser/macro_expander.rs"
 status = "skeleton"
-remaining = ["Core program grammar, recursive imports and non-generic domain calls exist; macros, generic/interpreted domains, full extension grammar, recovery and complete semantic checks remain."]
+remaining = ["Global binder-free expression macros copy occurrences, substitute expression/identifier arguments and adapt node callsite positions; local/statement/type forms, binder hygiene, token-wrapper positions and unused-parameter warnings remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ParseAst.scala"
 destination = "crates/ferrum-silver/src/parser/parse_ast.rs"
 status = "skeleton"
-remaining = ["Typed parse records and logical ND delimiter metadata exist; full identity/mutation/rewriter and grammar integration remain."]
+remaining = ["Source expression macros, annotations and ADT derives reach checked frontend translation; remaining grammar, macro hygiene/local and statement forms, extension and diagnostic compatibility require completion."]
 
 [[modules]]
 repository = "silver"
@@ -392,14 +392,14 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/Resolver.scala"
 destination = "crates/ferrum-silver/src/parser/resolver.rs"
 status = "skeleton"
-remaining = ["Core heap/predicate/wand syntax, allocation, field call targets and function result expressions reach checked translation; remaining grammar, extensions, diagnostic compatibility and backend integration require completion."]
+remaining = ["Source expression macros, annotations and ADT derives reach checked frontend translation; remaining grammar, macro hygiene/local and statement forms, extension and diagnostic compatibility require completion."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/Translator.scala"
 destination = "crates/ferrum-silver/src/parser/translator.rs"
 status = "skeleton"
-remaining = ["Core heap/predicate/wand syntax, allocation, field call targets and function result expressions reach checked translation; remaining grammar, extensions, diagnostic compatibility and backend integration require completion."]
+remaining = ["Source expression macros, annotations and ADT derives reach checked frontend translation; remaining grammar, macro hygiene/local and statement forms, extension and diagnostic compatibility require completion."]
 
 [[modules]]
 repository = "silver"
@@ -483,7 +483,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/adt/AdtPlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/adt/adt_plugin.rs"
 status = "skeleton"
-remaining = ["Typed ADT lowering and bottom-up reconstruction exist; source ADT parsing/pre-resolution and full extension reconstruction remain."]
+remaining = ["Source expression macros, annotations and ADT derives reach checked frontend translation; remaining grammar, macro hygiene/local and statement forms, extension and diagnostic compatibility require completion."]
 
 [[modules]]
 repository = "silver"

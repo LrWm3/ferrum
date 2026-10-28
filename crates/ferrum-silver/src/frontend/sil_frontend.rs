@@ -257,6 +257,14 @@ impl FrontendPhases for SilFrontendPhases {
                 error.position,
             )))]
         })?;
+        crate::parser::macro_expander::expand_global_expression_macros(&program).map_err(
+            |error| {
+                vec![AbstractError::Parse(ParseReport::Error(ParseError::new(
+                    error.message,
+                    error.pos.0,
+                )))]
+            },
+        )?;
         self.parsing_warnings.extend(
             program
                 .errors()
@@ -537,6 +545,137 @@ impl FrontendPhases for SilFrontendPhases {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bundled_adt_derives_import_reaches_encoding() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases.parse("import <adt/derives.vpr> adt Box[T] { Boxed(value: T) } derives { contains } method m() { assert contains(1, Boxed(1)); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+        let parsed = phases
+            .parse(
+                "import <adt/derives.vpr> adt A { C(x: Int) } derives { contains without missing }",
+            )
+            .unwrap();
+        assert!(phases.analyze(parsed).is_err());
+    }
+    #[test]
+    fn expression_and_statement_annotations_retain_metadata() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases
+            .parse("method m() { @s(\"stmt\") assert @e(\"outer\") @e(\"inner\") (true); }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let body = program.methods[0].body.as_ref().unwrap();
+        let crate::ast::statement::StmtKind::Seqn { statements, .. } = body.kind() else {
+            panic!("expected block")
+        };
+        let stmt = &statements[0];
+        let crate::ast::statement::StmtKind::Assert(exp) = stmt.kind() else {
+            panic!("expected assertion")
+        };
+        let crate::ast::ast::Info::Annotation(stmt_info) = stmt
+            .metadata()
+            .info
+            .find(&|info| matches!(info, crate::ast::ast::Info::Annotation(_)))
+            .unwrap()
+        else {
+            unreachable!()
+        };
+        assert_eq!(stmt_info["s"], ["stmt"]);
+        let crate::ast::ast::Info::Annotation(exp_info) = exp
+            .metadata()
+            .info
+            .find(&|info| matches!(info, crate::ast::ast::Info::Annotation(_)))
+            .unwrap()
+        else {
+            unreachable!()
+        };
+        assert_eq!(exp_info["e"], ["outer", "inner"]);
+        phases.check_consistency(program).unwrap();
+    }
+    #[test]
+    fn member_annotations_are_preserved_in_source_order() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases
+            .parse(
+                "@note(\"a\", \"b\") @note(\"c\") method m() {} @tag() adt A { @ctor(\"x\") C() }",
+            )
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let info = program.methods[0]
+            .meta
+            .info
+            .find(&|info| matches!(info, crate::ast::ast::Info::Annotation(_)))
+            .unwrap();
+        let crate::ast::ast::Info::Annotation(values) = info else {
+            unreachable!()
+        };
+        assert_eq!(values["note"], ["a", "b", "c"]);
+        let adt = program.extensions[0]
+            .0
+            .as_any()
+            .downcast_ref::<crate::plugin::standard::adt::adt_ast_extension::Adt>()
+            .unwrap();
+        assert!(
+            adt.constructors[0]
+                .meta
+                .info
+                .find(&|info| matches!(info, crate::ast::ast::Info::Annotation(_)))
+                .is_some()
+        );
+    }
+    #[test]
+    fn expression_macros_expand_each_argument_occurrence_and_detect_recursion() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases
+            .parse("define twice(x) x + x method m(y: Int) { assert twice(y + 1) == 2 * (y + 1); }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        assert!(
+            phases
+                .parse("define a(x) b(x) define b(x) a(x) method m() { assert a(1) == 1; }")
+                .is_err()
+        );
+        assert!(
+            phases
+                .parse("define a(x) x method m() { assert a(1, 2) == 1; }")
+                .is_err()
+        );
+        assert!(
+            phases
+                .parse("define a(x) x method m(a: Int) { assert a > 0; }")
+                .is_err()
+        );
+        let parsed = phases.parse("field g: Int define get(f) x.f method m(x: Ref) requires acc(x.g) { assert get(g) == x.g; }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        let parsed = phases.parse("define invoke(f, x) f(x) function inc(x: Int): Int { x + 1 } method m() { assert invoke(inc, 1) == inc(1); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        assert!(
+            phases
+                .parse("define get(f) x.f method m(x: Ref) { assert get(1) == 0; }")
+                .is_err()
+        );
+    }
     #[test]
     fn forperm_resource_and_binder_reach_verification_preparation() {
         let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");

@@ -27,7 +27,7 @@
 //!
 //! Status: partial; ADT declaration grammar, derives-import tracking, termination configuration and
 //! AST encoding hook are implemented. ADT declaration/type analysis and constructor/destructor/
-//! discriminator dispatch are active; declaration annotations, full grammar formatting metadata
+//! discriminator dispatch and declaration annotations are active; full grammar formatting metadata
 //! and some extension corner cases remain incomplete.
 
 // This Source Code Form is subject to the terms of the Mozilla Public

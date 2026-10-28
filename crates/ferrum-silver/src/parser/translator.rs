@@ -252,11 +252,28 @@ fn translate_expression_with_fields(
     input: &PExpHandle,
     fields: Option<&std::collections::HashMap<String, crate::ast::program::Field>>,
 ) -> Result<Exp, TranslationError> {
-    let expression = match &input.node().read().expect("poisoned parse node").kind {
-        PNodeKind::Expression(e) => e.clone(),
-        _ => return Err(TranslationError::Unsupported("not an expression")),
+    let mut current = input.clone();
+    let mut annotations = Vec::new();
+    let expression = loop {
+        let snapshot = match &current.node().read().expect("poisoned parse node").kind {
+            PNodeKind::Expression(e) => e.clone(),
+            _ => return Err(TranslationError::Unsupported("not an expression")),
+        };
+        if let PExpressionKind::AnnotatedExp {
+            annotation,
+            expression,
+        } = &snapshot.kind
+        {
+            annotations.push(annotation.clone());
+            current = expression.clone();
+        } else {
+            break snapshot;
+        }
     };
-    let meta = metadata(input.node())?;
+    let mut meta = metadata(input.node())?;
+    if !annotations.is_empty() {
+        meta.info = Info::pair(meta.info, annotation_info(&annotations));
+    }
     let kind = match expression.kind {
         PExpressionKind::IntLit(value) => ExpKind::IntLit(value),
         PExpressionKind::BoolLit(token) => match token.value() {
@@ -959,11 +976,24 @@ fn translate_statement_with_fields(
     use super::parse_ast::PStatementKind;
     use crate::ast::program::{Declaration, LocalVarDecl};
     use crate::ast::statement::{Stmt, StmtKind};
-    let statement = match &input.node().read().expect("poisoned parse node").kind {
-        PNodeKind::Statement(statement) => statement.clone(),
-        _ => return Err(TranslationError::Unsupported("statement node")),
+    let mut current = input.clone();
+    let mut annotations = Vec::new();
+    let statement = loop {
+        let snapshot = match &current.node().read().expect("poisoned parse node").kind {
+            PNodeKind::Statement(statement) => statement.clone(),
+            _ => return Err(TranslationError::Unsupported("statement node")),
+        };
+        if let PStatementKind::Annotated { annotation, stmt } = &snapshot.kind {
+            annotations.push(annotation.clone());
+            current = stmt.clone();
+        } else {
+            break snapshot;
+        }
     };
-    let meta = metadata(input.node())?;
+    let mut meta = metadata(input.node())?;
+    if !annotations.is_empty() {
+        meta.info = Info::pair(meta.info, annotation_info(&annotations));
+    }
     if let PStatementKind::Assign { targets, rhs, .. } = &statement.kind {
         let rhs_kind = match &rhs.node().read().expect("poisoned parse node").kind {
             PNodeKind::Expression(e) => e.kind.clone(),
@@ -1184,7 +1214,7 @@ fn translate_statement_with_fields(
             }
         }
         PStatementKind::Vars { init: Some(_), .. } => {
-            let generated = input
+            let generated = current
                 .vars_assign()
                 .map_err(TranslationError::Unsupported)?
                 .ok_or(TranslationError::Unsupported(
@@ -1748,7 +1778,7 @@ pub fn translate_program_core(
                     meta: member_meta,
                 }));
             }
-            PMemberKind::Import { .. } => {}
+            PMemberKind::Import { .. } | PMemberKind::Define { .. } => {}
             _ => {
                 return Err(TranslationError::Unsupported(
                     "domain, macro or extension member",

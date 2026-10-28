@@ -435,6 +435,15 @@ fn visit_names(
     messages: &mut Vec<FastMessage>,
 ) -> Result<(), NameAnalysisError> {
     let kind = node.read().expect("poisoned parse node").kind.clone();
+    if matches!(
+        &kind,
+        PNodeKind::Member(PMember {
+            kind: PMemberKind::Define { .. },
+            ..
+        })
+    ) {
+        return Ok(());
+    }
     let mut scope = None;
     match &kind {
         PNodeKind::Declaration(declaration) => {
@@ -798,6 +807,11 @@ pub fn check_expression(
         _ => return Err(TypeCheckError::Unsupported("not an expression")),
     };
     let (typ, substitutions) = match expression.kind {
+        PExpressionKind::AnnotatedExp { expression, .. } => {
+            let typ = check_expression(&expression, expected)?;
+            let substitutions = expression.type_subs_distinct().ok_or(TypeCheckError::Unsupported("annotated expression substitutions"))?;
+            (typ, substitutions)
+        }
         PExpressionKind::IntLit(_)
         | PExpressionKind::BoolLit(_)
         | PExpressionKind::NullLit(_)
@@ -1902,7 +1916,7 @@ pub fn check_program_core(
             _ => return Err(TypeCheckError::Unsupported("program member")),
         };
         match member.kind {
-            PMemberKind::Import { .. } => {}
+            PMemberKind::Import { .. } | PMemberKind::Define { .. } => {}
             PMemberKind::Extension(extension)
                 if extension
                     .as_any()
@@ -2021,7 +2035,9 @@ pub fn check_program_core(
             _ => return Err(TypeCheckError::Unsupported("program member")),
         };
         match member.kind {
-            PMemberKind::Fields { .. } | PMemberKind::Import { .. } => {}
+            PMemberKind::Fields { .. }
+            | PMemberKind::Import { .. }
+            | PMemberKind::Define { .. } => {}
             PMemberKind::Extension(extension)
                 if extension
                     .as_any()
@@ -2267,6 +2283,7 @@ pub fn check_statement_core(
         }
     }
     match kind {
+        S::Annotated { stmt, .. } => check_statement_core(&stmt, &mut *warn)?,
         S::Seqn { statements, .. } => {
             for statement in statements.inner().to_seq() {
                 check_statement_core(statement, &mut *warn)?;

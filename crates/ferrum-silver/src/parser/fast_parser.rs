@@ -743,6 +743,100 @@ impl ExpressionParser<'_> {
             self.span(start, self.cursor),
         ))
     }
+    fn annotations(&mut self) -> Result<Vec<super::parse_ast::PAnnotation>, SyntaxError> {
+        let mut result = Vec::new();
+        loop {
+            self.trivia()?;
+            if !self.source[self.cursor..].starts_with('@') {
+                break;
+            }
+            let start = self.cursor;
+            self.cursor += 1;
+            let at = PReserved::new(PSym::At, self.span(start, self.cursor));
+            let key_start = self.cursor;
+            let Some(first) = self.source.as_bytes().get(self.cursor).copied() else {
+                return Err(self.error("expected annotation name"));
+            };
+            if !(first.is_ascii_alphabetic() || first == b'_' || first == b'$') {
+                return Err(self.error("expected annotation name"));
+            }
+            self.cursor += 1;
+            while self
+                .source
+                .as_bytes()
+                .get(self.cursor)
+                .is_some_and(|b| b.is_ascii_alphanumeric() || matches!(*b, b'_' | b'$' | b'.'))
+            {
+                self.cursor += 1;
+            }
+            let key = super::parse_ast::PRawString::new(
+                self.source[key_start..self.cursor].into(),
+                self.span(key_start, self.cursor),
+            );
+            let left = self
+                .take("(")?
+                .ok_or_else(|| self.error("expected '(' after annotation name"))?;
+            let group_start = left.0.clone();
+            self.trivia()?;
+            let list_start = self.position(self.cursor);
+            let mut values = Vec::new();
+            if !self.source[self.cursor..].starts_with(')') {
+                loop {
+                    self.trivia()?;
+                    let quote = self.cursor;
+                    if !self.source[quote..].starts_with('"') {
+                        return Err(self.error("expected annotation string"));
+                    }
+                    self.cursor += 1;
+                    let raw_start = self.cursor;
+                    let length = self.source[raw_start..]
+                        .find('"')
+                        .ok_or_else(|| self.error("unterminated annotation string"))?;
+                    self.cursor += length;
+                    let raw = super::parse_ast::PRawString::new(
+                        self.source[raw_start..self.cursor].into(),
+                        self.span(raw_start, self.cursor),
+                    );
+                    let right_at = self.cursor;
+                    self.cursor += 1;
+                    let pos = self.span(quote, self.cursor);
+                    let string = super::parse_ast::PStringLiteral::new(
+                        PGrouped::new(
+                            PReserved::new(PSym::Quote, self.span(quote, quote + 1)),
+                            raw,
+                            PReserved::new(PSym::Quote, self.span(right_at, self.cursor)),
+                            pos.clone(),
+                        ),
+                        pos,
+                    );
+                    let comma = self.take(",")?.map(|p| PReserved::new(PSym::Comma, p));
+                    let more = comma.is_some();
+                    values.push((string, comma));
+                    if !more {
+                        break;
+                    }
+                }
+            }
+            let list = comma_pairs(values, (list_start, self.position(self.cursor)));
+            let right = self
+                .take(")")?
+                .ok_or_else(|| self.error("expected ')' after annotation values"))?;
+            let end = right.1.clone();
+            let values = PGrouped::new(
+                PReserved::new(PSym::LParen, left),
+                list,
+                PReserved::new(PSym::RParen, right),
+                (group_start, end),
+            );
+            result.push(super::parse_ast::PAnnotation::new(
+                at,
+                key,
+                values,
+                self.span(start, self.cursor),
+            ));
+        }
+        Ok(result)
+    }
     fn binding(&mut self, kind: PDeclarationKind) -> Result<PDeclarationHandle, SyntaxError> {
         let idndef = self.identifier_definition()?;
         let start = idndef.read().expect("poisoned parse node").pos.0.clone();
@@ -1010,6 +1104,27 @@ impl ExpressionParser<'_> {
     fn statement(&mut self) -> Result<PStmtHandle, SyntaxError> {
         self.trivia()?;
         let start = self.cursor;
+        if self.source[start..].starts_with('@') {
+            let annotations = self.annotations()?;
+            let mut stmt = self.statement()?;
+            for annotation in annotations.into_iter().rev() {
+                let begin = annotation.position().0.clone();
+                let end = stmt
+                    .node()
+                    .read()
+                    .expect("poisoned parse node")
+                    .pos
+                    .1
+                    .clone();
+                stmt = PStmtHandle::new(
+                    PStatement {
+                        kind: PStatementKind::Annotated { annotation, stmt },
+                    },
+                    (begin, end),
+                );
+            }
+            return Ok(stmt);
+        }
         if self.source[start..].starts_with('{') {
             return self
                 .statement_block()?
@@ -1313,14 +1428,64 @@ impl ExpressionParser<'_> {
     fn member(&mut self) -> Result<PMemberHandle, SyntaxError> {
         self.trivia()?;
         let start = self.cursor;
-        let end = self.identifier_end(start);
-        if end == start {
+        let annotations = self.annotations()?;
+        self.trivia()?;
+        let keyword_start = self.cursor;
+        let end = self.identifier_end(keyword_start);
+        if end == keyword_start {
             return Err(self.error("expected declaration"));
         }
-        let name = &self.source[start..end];
+        let name = &self.source[keyword_start..end];
         self.cursor = end;
-        let keyword_span = self.span(start, end);
+        let keyword_span = self.span(keyword_start, end);
         let kind = match name {
+            "define" => {
+                let keyword = PReserved::new(PKw::Define, keyword_span);
+                let idndef = self.identifier_definition()?;
+                let parameters = if let Some(left) = self.take("(")? {
+                    let begin = left.0.clone();
+                    self.trivia()?;
+                    let list_begin = self.position(self.cursor);
+                    let mut params = Vec::new();
+                    if !self.source[self.cursor..].starts_with(')') {
+                        loop {
+                            let id = self.identifier_definition()?;
+                            let pos = id.read().expect("poisoned parse node").pos.clone();
+                            let param = super::parse_ast::define_param(id, pos);
+                            let comma = self.take(",")?.map(|p| PReserved::new(PSym::Comma, p));
+                            let more = comma.is_some();
+                            params.push((param, comma));
+                            if !more {
+                                break;
+                            }
+                        }
+                    }
+                    let list = comma_pairs(params, (list_begin, self.position(self.cursor)));
+                    let right = self
+                        .take(")")?
+                        .ok_or_else(|| self.error("expected ')' after macro parameters"))?;
+                    let end = right.1.clone();
+                    Some(PGrouped::new(
+                        PReserved::new(PSym::LParen, left),
+                        list,
+                        PReserved::new(PSym::RParen, right),
+                        (begin, end),
+                    ))
+                } else {
+                    None
+                };
+                let body = if let Some(stmt) = self.statement_block()? {
+                    super::parse_ast::PDefineBody::Statement(stmt)
+                } else {
+                    super::parse_ast::PDefineBody::Expression(self.expression(0)?)
+                };
+                PMemberKind::Define {
+                    keyword,
+                    idndef,
+                    parameters,
+                    body: super::parse_ast::PDefineInner::new(body),
+                }
+            }
             "adt" if self.features.contains(&ParserFeature::Adt) => {
                 use crate::plugin::standard::adt::adt_past_extension::{
                     PAdt, PAdtConstructor, PAdtDerivingInfo, adt_keyword,
@@ -1353,12 +1518,13 @@ impl ExpressionParser<'_> {
                         break;
                     }
                     let begin = self.cursor;
+                    let annotations = self.annotations()?;
                     let idndef = self.identifier_definition()?;
                     let args = self.formal_args(PDeclarationKind::AdtField)?;
                     let pos = self.span(begin, self.cursor);
                     constructors.push(PNode::new(
                         PNodeKind::Extension(Arc::new(PAdtConstructor {
-                            annotations: vec![],
+                            annotations,
                             idndef,
                             args,
                             pos: pos.clone(),
@@ -1527,6 +1693,9 @@ impl ExpressionParser<'_> {
                     if self.source[self.cursor..].starts_with('}') {
                         break;
                     }
+                    let member_start = self.cursor;
+                    let annotations = self.annotations()?;
+                    self.trivia()?;
                     let start = self.cursor;
                     let end = self.identifier_end(start);
                     if start == end {
@@ -1563,7 +1732,7 @@ impl ExpressionParser<'_> {
                             .braced_expression()?
                             .ok_or_else(|| self.error("expected axiom body"))?;
                         super::parse_ast::PDomainMember::Axiom {
-                            annotations: vec![],
+                            annotations,
                             keyword,
                             idndef: name,
                             exp,
@@ -1626,7 +1795,7 @@ impl ExpressionParser<'_> {
                             .ok_or_else(|| self.error("expected domain function result type"))?;
                         let result_type = self.typ()?;
                         super::parse_ast::PDomainMember::Function {
-                            annotations: vec![],
+                            annotations,
                             unique,
                             keyword,
                             idndef,
@@ -1641,7 +1810,7 @@ impl ExpressionParser<'_> {
                     };
                     let member = super::parse_ast::PDomainMemberHandle::new(
                         kind,
-                        self.span(start, self.cursor),
+                        self.span(member_start, self.cursor),
                     );
                     let semi = self.take(";")?.map(|p| PReserved::new(PSym::Semi, p));
                     members.push((member, ND(semi)));
@@ -1771,7 +1940,7 @@ impl ExpressionParser<'_> {
             }
         };
         Ok(PMemberHandle::new(
-            PMember::new(Vec::new(), kind),
+            PMember::new(annotations, kind),
             self.span(start, self.cursor),
         ))
     }
@@ -1963,6 +2132,29 @@ impl ExpressionParser<'_> {
     fn atom(&mut self) -> Result<PExpHandle, SyntaxError> {
         self.trivia()?;
         let start = self.cursor;
+        if self.source[start..].starts_with('@') {
+            let annotations = self.annotations()?;
+            let mut expression = self.atom()?;
+            for annotation in annotations.into_iter().rev() {
+                let begin = annotation.position().0.clone();
+                let end = expression
+                    .node()
+                    .read()
+                    .expect("poisoned parse node")
+                    .pos
+                    .1
+                    .clone();
+                expression = self.expr_node(
+                    PExpressionKind::AnnotatedExp {
+                        annotation,
+                        expression,
+                    },
+                    begin,
+                    end,
+                );
+            }
+            return Ok(expression);
+        }
         if self.features.contains(&ParserFeature::Arp)
             && self.identifier_end(start) == start + 2
             && self.source[start..].starts_with("rd")

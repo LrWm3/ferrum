@@ -26,8 +26,9 @@
 //! Open decisions:
 //! Agree on parse node identity, parent context and reconstruction with parse_ast and rewriter.
 //!
-//! Status: partial; ordered lookup, argument mapping and fresh-name allocation implemented.
-//! Cyclic checking, graph duplication, substitution and complete expansion remain pending.
+//! Status: partial; global binder-free expression macros support declaration parsing, cycle/arity
+//! checks, graph duplication and parameter substitution. Statement/local macros, hygienic binder
+//! rewriting, token-wrapper position adaptation and unused-parameter warnings remain pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -204,4 +205,403 @@ mod tests {
         assert_eq!(fresh.fresh("x", &scope), "x$1");
         assert_eq!(fresh.fresh("x", &scope), "x$2");
     }
+}
+
+#[derive(Clone)]
+struct ExpressionMacro {
+    parameters: Option<Vec<String>>,
+    body: PExpHandle,
+}
+
+/// Duplicate the binder-free expression subset without sharing mutable parse nodes.
+/// Other expression forms fail explicitly until the full hygienic rewriter is available.
+fn copy_expression(
+    input: &PExpHandle,
+    replacements: &HashMap<String, PExpHandle>,
+) -> Result<PExpHandle, MacroError> {
+    use super::parse_ast::{PExpression, PExpressionKind as E, PIdnRef, PNode};
+    use super::parse_ast_keyword::{PDelimited, PGrouped, PReserved};
+    let (expression, pos) = {
+        let node = input.node().read().expect("poisoned parse node");
+        match &node.kind {
+            PNodeKind::Expression(expression) => (expression.clone(), node.pos.clone()),
+            _ => {
+                return Err(MacroError {
+                    message: "macro expression node expected".into(),
+                    pos: node.pos.clone(),
+                });
+            }
+        }
+    };
+    let copy_ref = |node: &super::parse_ast::PNodeHandle| -> Result<_, MacroError> {
+        let n = node.read().expect("poisoned parse node");
+        let PNodeKind::IdnRef(id) = &n.kind else {
+            return Err(MacroError {
+                message: "macro identifier expected".into(),
+                pos: n.pos.clone(),
+            });
+        };
+        let name = if let Some(replacement) = replacements.get(&id.name) {
+            let replacement = replacement.node().read().expect("poisoned parse node");
+            let PNodeKind::Expression(super::parse_ast::PExpression {
+                kind: E::IdnUse { idnref },
+                ..
+            }) = &replacement.kind
+            else {
+                return Err(MacroError {
+                    message: "macro expansion requires an identifier in this position".into(),
+                    pos: replacement.pos.clone(),
+                });
+            };
+            let reference = idnref.read().expect("poisoned parse node");
+            let PNodeKind::IdnRef(reference) = &reference.kind else {
+                return Err(MacroError {
+                    message: "macro identifier expected".into(),
+                    pos: replacement.pos.clone(),
+                });
+            };
+            reference.name.clone()
+        } else {
+            id.name.clone()
+        };
+        let mut copy = PIdnRef::with_class(name, id.declaration_class);
+        copy.assign_use = id.assign_use;
+        Ok(PNode::new(PNodeKind::IdnRef(copy), n.pos.clone()))
+    };
+    let kind = match expression.kind {
+        E::IdnUse { idnref } => {
+            let name = match &idnref.read().expect("poisoned parse node").kind {
+                PNodeKind::IdnRef(id) => id.name.clone(),
+                _ => {
+                    return Err(MacroError {
+                        message: "macro identifier expected".into(),
+                        pos,
+                    });
+                }
+            };
+            if let Some(replacement) = replacements.get(&name) {
+                return copy_expression(replacement, &HashMap::new());
+            }
+            E::IdnUse {
+                idnref: copy_ref(&idnref)?,
+            }
+        }
+        E::IntLit(value) => E::IntLit(value),
+        E::BoolLit(token) => E::BoolLit(PReserved::new(*token.value(), token.position().clone())),
+        E::NullLit(token) => E::NullLit(PReserved::new(*token.value(), token.position().clone())),
+        E::NoPerm(token) => E::NoPerm(PReserved::new(*token.value(), token.position().clone())),
+        E::FullPerm(token) => E::FullPerm(PReserved::new(*token.value(), token.position().clone())),
+        E::Wildcard(token) => E::Wildcard(PReserved::new(*token.value(), token.position().clone())),
+        E::Epsilon(token) => E::Epsilon(PReserved::new(*token.value(), token.position().clone())),
+        E::ResultLit(token) => {
+            E::ResultLit(PReserved::new(*token.value(), token.position().clone()))
+        }
+        E::UnExp { op, exp } => E::UnExp {
+            op: PReserved::new(*op.value(), op.position().clone()),
+            exp: copy_expression(&exp, replacements)?,
+        },
+        E::BinExp { left, op, right } => E::BinExp {
+            left: copy_expression(&left, replacements)?,
+            op: PReserved::new(op.value().clone(), op.position().clone()),
+            right: copy_expression(&right, replacements)?,
+        },
+        E::CondExp {
+            cond,
+            question,
+            thn,
+            colon,
+            els,
+        } => E::CondExp {
+            cond: copy_expression(&cond, replacements)?,
+            question: PReserved::new(*question.value(), question.position().clone()),
+            thn: copy_expression(&thn, replacements)?,
+            colon: PReserved::new(*colon.value(), colon.position().clone()),
+            els: copy_expression(&els, replacements)?,
+        },
+        E::FieldAccess {
+            receiver,
+            dot,
+            idnref,
+            ..
+        } => E::FieldAccess {
+            receiver: copy_expression(&receiver, replacements)?,
+            dot: PReserved::new(*dot.value(), dot.position().clone()),
+            idnref: copy_ref(&idnref)?,
+            adt_type_renaming: None,
+            adt_substitution: None,
+        },
+        E::Call {
+            idnref,
+            call_args,
+            type_annotated: None,
+            ..
+        } => {
+            let old = call_args.inner();
+            let first = old
+                .first
+                .as_ref()
+                .map(|e| copy_expression(e, replacements))
+                .transpose()?;
+            let rest = old
+                .inner
+                .iter()
+                .map(|(comma, e)| {
+                    Ok((
+                        PReserved::new(*comma.value(), comma.position().clone()),
+                        copy_expression(e, replacements)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, MacroError>>()?;
+            let end = old
+                .end
+                .as_ref()
+                .map(|comma| PReserved::new(*comma.value(), comma.position().clone()));
+            let args = PDelimited::new(first, rest, end, old.position().clone());
+            let args = PGrouped::new(
+                PReserved::new(
+                    *call_args.left().value(),
+                    call_args.left().position().clone(),
+                ),
+                args,
+                PReserved::new(
+                    *call_args.right().value(),
+                    call_args.right().position().clone(),
+                ),
+                call_args.position().clone(),
+            );
+            E::Call {
+                idnref: copy_ref(&idnref)?,
+                call_args: args,
+                type_annotated: None,
+                extra_local_type_variables: vec![],
+                domain_type_renaming: None,
+                domain_substitution: None,
+            }
+        }
+        _ => {
+            return Err(MacroError {
+                message: "unsupported macro expression requiring hygienic reconstruction".into(),
+                pos,
+            });
+        }
+    };
+    Ok(PExpHandle::new(PExpression::from_kind(kind), pos))
+}
+
+/// Expand global binder-free expression macros before name analysis. Definitions with
+/// statement bodies and expression families needing binder hygiene fail explicitly when used.
+pub fn expand_global_expression_macros(
+    program: &super::parse_ast::PProgramHandle,
+) -> Result<(), MacroError> {
+    use super::parse_ast::{PDefineBody, PExpressionKind, PNodeHandle, subnodes};
+    let reports = validate_global_names(program);
+    if let Some(report) = reports.first() {
+        return Err(MacroError {
+            message: report.readable_message(),
+            pos: (report.pos().clone(), report.pos().clone()),
+        });
+    }
+    let mut definitions = HashMap::new();
+    for member in program.all_members() {
+        let kind = member
+            .node()
+            .read()
+            .expect("poisoned parse node")
+            .kind
+            .clone();
+        if let PNodeKind::Member(member) = kind {
+            if let PMemberKind::Define {
+                idndef,
+                parameters,
+                body,
+                ..
+            } = member.kind
+            {
+                let name = match &idndef.read().expect("poisoned parse node").kind {
+                    PNodeKind::IdnDef(id) => id.name.clone(),
+                    _ => {
+                        return Err(MacroError {
+                            message: "macro name expected".into(),
+                            pos: idndef.read().expect("poisoned parse node").pos.clone(),
+                        });
+                    }
+                };
+                let parameters = parameters
+                    .map(|p| {
+                        p.inner()
+                            .to_seq()
+                            .into_iter()
+                            .map(
+                                |node| match &node.read().expect("poisoned parse node").kind {
+                                    PNodeKind::DefineParam { children } => {
+                                        match &children[0].read().expect("poisoned parse node").kind
+                                        {
+                                            PNodeKind::IdnDef(id) => Ok(id.name.clone()),
+                                            _ => Err(MacroError {
+                                                message: "macro parameter name expected".into(),
+                                                pos: node
+                                                    .read()
+                                                    .expect("poisoned parse node")
+                                                    .pos
+                                                    .clone(),
+                                            }),
+                                        }
+                                    }
+                                    _ => Err(MacroError {
+                                        message: "macro parameter expected".into(),
+                                        pos: node.read().expect("poisoned parse node").pos.clone(),
+                                    }),
+                                },
+                            )
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .transpose()?;
+                if let PDefineBody::Expression(body) = body.body() {
+                    definitions.insert(
+                        name,
+                        ExpressionMacro {
+                            parameters,
+                            body: body.clone(),
+                        },
+                    );
+                } else {
+                    return Err(MacroError {
+                        message: "statement macro expansion is not implemented".into(),
+                        pos: idndef.read().expect("poisoned parse node").pos.clone(),
+                    });
+                }
+            }
+        }
+    }
+    if definitions.is_empty() {
+        return Ok(());
+    }
+    fn adapt_position(
+        node: &PNodeHandle,
+        pos: &super::parse_ast_keyword::Span,
+    ) -> Result<(), MacroError> {
+        for child in subnodes(node).map_err(|e| MacroError {
+            message: format!("macro position traversal: {e:?}"),
+            pos: pos.clone(),
+        })? {
+            adapt_position(&child, pos)?;
+        }
+        node.write().expect("poisoned parse node").pos = pos.clone();
+        Ok(())
+    }
+    fn walk(
+        node: &PNodeHandle,
+        definitions: &HashMap<String, ExpressionMacro>,
+        stack: &mut Vec<String>,
+    ) -> Result<(), MacroError> {
+        let (kind, pos) = {
+            let node = node.read().expect("poisoned parse node");
+            (node.kind.clone(), node.pos.clone())
+        };
+        if matches!(
+            &kind,
+            PNodeKind::Member(super::parse_ast::PMember {
+                kind: PMemberKind::Define { .. },
+                ..
+            })
+        ) {
+            return Ok(());
+        }
+        let invocation = match &kind {
+            PNodeKind::Expression(expression) => match &expression.kind {
+                PExpressionKind::Call {
+                    idnref,
+                    call_args,
+                    type_annotated: None,
+                    ..
+                } => {
+                    let name = match &idnref.read().expect("poisoned parse node").kind {
+                        PNodeKind::IdnRef(id) => id.name.clone(),
+                        _ => {
+                            return Err(MacroError {
+                                message: "macro call identifier expected".into(),
+                                pos,
+                            });
+                        }
+                    };
+                    definitions.get(&name).and_then(|def| {
+                        def.parameters.as_ref().map(|_| {
+                            (
+                                name,
+                                call_args
+                                    .inner()
+                                    .to_seq()
+                                    .into_iter()
+                                    .cloned()
+                                    .collect::<Vec<_>>(),
+                            )
+                        })
+                    })
+                }
+                PExpressionKind::IdnUse { idnref } => {
+                    let name = match &idnref.read().expect("poisoned parse node").kind {
+                        PNodeKind::IdnRef(id) => id.name.clone(),
+                        _ => {
+                            return Err(MacroError {
+                                message: "macro identifier expected".into(),
+                                pos,
+                            });
+                        }
+                    };
+                    match definitions.get(&name) {
+                        Some(def) if def.parameters.is_some() => {
+                            return Err(MacroError {
+                                message: format!(
+                                    "macro `{name}` is defined with parameters but referenced without arguments"
+                                ),
+                                pos,
+                            });
+                        }
+                        Some(_) => Some((name, Vec::new())),
+                        None => None,
+                    }
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some((name, args)) = invocation {
+            if stack.contains(&name) {
+                return Err(MacroError {
+                    message: format!("recursive macro `{name}`"),
+                    pos,
+                });
+            }
+            let def = &definitions[&name];
+            let params = def.parameters.as_deref().unwrap_or_default();
+            if params.len() != args.len() {
+                return Err(MacroError {
+                    message: format!("wrong number of arguments to macro `{name}`"),
+                    pos,
+                });
+            }
+            let replacements = map_parameters_to_arguments(params, &args);
+            let copy = copy_expression(&def.body, &replacements)?;
+            adapt_position(copy.node(), &pos)?;
+            stack.push(name);
+            walk(copy.node(), definitions, stack)?;
+            stack.pop();
+            let replacement = copy
+                .node()
+                .read()
+                .expect("poisoned parse node")
+                .kind
+                .clone();
+            node.write().expect("poisoned parse node").kind = replacement;
+            return Ok(());
+        }
+        for child in subnodes(node).map_err(|e| MacroError {
+            message: format!("macro traversal: {e:?}"),
+            pos: pos.clone(),
+        })? {
+            walk(&child, definitions, stack)?;
+        }
+        Ok(())
+    }
+    walk(program.node(), &definitions, &mut Vec::new())
 }
