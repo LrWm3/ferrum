@@ -720,211 +720,211 @@ status = "described"
 repository = "silver"
 upstream = "src/test/scala/ASTTransformationTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/ast_transformation_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/AnnotationBasedTestSuite.scala"
 destination = "crates/ferrum-silver/tests/upstream/annotation_based_test_suite.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/AnnotationBasedTestSuiteTest.scala"
 destination = "crates/ferrum-silver/tests/upstream/annotation_based_test_suite_test.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/AstAnnotationTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/ast_annotation_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/AstPositionsTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/ast_positions_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/CfgTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/cfg_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/ChopperTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/chopper_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/ConsistencyTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/consistency_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/CounterexampleVariablesTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/counterexample_variables_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/DomainInstanceTest.scala"
 destination = "crates/ferrum-silver/tests/upstream/domain_instance_test.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/EntityHashTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/entity_hash_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/ExpectedCounterexampleAnnotation.scala"
 destination = "crates/ferrum-silver/tests/upstream/expected_counterexample_annotation.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/FeatureCombinationsTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/feature_combinations_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/IOTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/io_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/MethodDependencyTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/method_dependency_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/NameGeneratorTest.scala"
 destination = "crates/ferrum-silver/tests/upstream/name_generator_test.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/ParseTreeTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/parse_tree_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/PluginTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/plugin_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/PrettyPrinterTest.scala"
 destination = "crates/ferrum-silver/tests/upstream/pretty_printer_test.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/ReformatterTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/reformatter_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/RegexTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/regex_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/ResourceBasedTestSuite.scala"
 destination = "crates/ferrum-silver/tests/upstream/resource_based_test_suite.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/RewriteWithCycles.scala"
 destination = "crates/ferrum-silver/tests/upstream/rewrite_with_cycles.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/RewriterTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/rewriter_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/SemanticAnalysisTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/semantic_analysis_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/SilSuite.scala"
 destination = "crates/ferrum-silver/tests/upstream/sil_suite.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/SimplifierTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/simplifier_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/SingleFileSilSuite.scala"
 destination = "crates/ferrum-silver/tests/upstream/single_file_sil_suite.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/StatisticalTestSuite.scala"
 destination = "crates/ferrum-silver/tests/upstream/statistical_test_suite.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/TestAnnotationParser.scala"
 destination = "crates/ferrum-silver/tests/upstream/test_annotation_parser.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/TestAnnotations.scala"
 destination = "crates/ferrum-silver/tests/upstream/test_annotations.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/TestErrors.scala"
 destination = "crates/ferrum-silver/tests/upstream/test_errors.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/TestHelpers.scala"
 destination = "crates/ferrum-silver/tests/upstream/test_helpers.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/TestInput.scala"
 destination = "crates/ferrum-silver/tests/upstream/test_input.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/test/scala/UtilityTests.scala"
 destination = "crates/ferrum-silver/tests/upstream/utility_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
