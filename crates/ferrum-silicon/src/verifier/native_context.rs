@@ -295,6 +295,7 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub warnings: Vec<String>,
     /// Owner-local symbolic logger and record constructor. Both are inactive until
     /// the verification lifecycle explicitly installs a member log.
+    pub(crate) logging_root: Option<Arc<crate::logger::symb_ex_logger::NativeSymbExLogger>>,
     pub(crate) member_log: Option<Arc<crate::logger::symb_ex_logger::MemberSymbExLog>>,
     pub(crate) record_factory: Option<
         std::rc::Rc<
@@ -338,6 +339,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             factory,
             options,
             warnings: Vec::new(),
+            logging_root: None,
             member_log: None,
             record_factory: None,
             quantifier_trigger_events: Vec::new(),
@@ -377,6 +379,53 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
     ) {
         self.member_log = member;
         self.record_factory = factory;
+    }
+    /// Install a run-owned root; callers must also supply its full-state factory.
+    /// The public logging profiles stay gated until all event producers are wired.
+    pub fn set_logging_root(
+        &mut self,
+        root: Option<Arc<crate::logger::symb_ex_logger::NativeSymbExLogger>>,
+        factory: Option<
+            std::rc::Rc<
+                dyn crate::logger::records::data::data_record::NativeRecordFactory<PD, FD, JoinMode>,
+            >,
+        >,
+    ) {
+        self.logging_root = root;
+        self.member_log = None;
+        self.record_factory = factory;
+    }
+    fn open_member_log(
+        &mut self,
+        member: ferrum_silver::ast::program::Member,
+    ) -> Result<(), NativeError<S::Error>> {
+        let Some(root) = &self.logging_root else {
+            return Ok(());
+        };
+        if matches!(
+            root.as_ref(),
+            crate::logger::symb_ex_logger::NativeSymbExLogger::Enabled(_)
+        ) && self.record_factory.is_none()
+        {
+            return Err(NativeError::Unsupported(
+                "active symbolic logger requires record factory",
+            ));
+        }
+        let renderer = crate::logger::state_reporting::NativeStateRecordRenderer {
+            factory: &self.factory,
+        };
+        self.member_log = Some(
+            root.open_member_scope(member, &self.base.decider.pcs, &renderer)
+                .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))?,
+        );
+        Ok(())
+    }
+    fn close_member_log(&self) -> Result<(), NativeError<S::Error>> {
+        if let Some(log) = &self.member_log {
+            log.close_member_scope()
+                .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))?;
+        }
+        Ok(())
     }
     fn open_logged_scope(
         &self,
@@ -7918,10 +7967,10 @@ where
             .map_err(NativeError::Decider)
     }
     fn open_method_log(&mut self, method: &Method) -> Result<(), Self::Error> {
-        Ok(())
+        self.open_member_log(ferrum_silver::ast::program::Member::Method(method.clone()))
     }
     fn close_method_log(&mut self) -> Result<(), Self::Error> {
-        Ok(())
+        self.close_member_log()
     }
     fn warn_ignored_loop_labels(
         &mut self,
@@ -8160,10 +8209,12 @@ where
 {
     type Error = NativeError<S::Error>;
     fn open_predicate_verification(&mut self, predicate: &Predicate) -> Result<(), Self::Error> {
-        Ok(())
+        self.open_member_log(ferrum_silver::ast::program::Member::Predicate(
+            predicate.clone(),
+        ))
     }
     fn close_predicate_verification(&mut self) -> Result<(), Self::Error> {
-        Ok(())
+        self.close_member_log()
     }
     fn fresh_predicate_snapshot(&mut self) -> Result<Term, Self::Error> {
         self.base
@@ -11800,8 +11851,14 @@ where
             .decider
             .set_options(options)
             .map_err(NativeError::Decider)?;
+        self.open_member_log(ferrum_silver::ast::program::Member::Function(
+            function.clone(),
+        ))?;
         self.active_function_snapshot = Some(data.phase_snapshot());
         Ok(())
+    }
+    fn complete_function_log(&mut self) -> Result<(), Self::Error> {
+        self.close_member_log()
     }
     fn end_function(&mut self) -> Result<(), Self::Error> {
         self.active_function_snapshot = None;

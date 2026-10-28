@@ -147,3 +147,91 @@ fn context_scope_hooks_capture_full_state_and_reject_missing_factory() {
         None
     );
 }
+
+#[test]
+fn member_lifecycle_opens_and_closes_the_run_log() {
+    use ferrum_silicon::supporters::{
+        method_supporter::MethodVerificationServices,
+        predicate_verification_unit::PredicateVerificationServices,
+    };
+    use ferrum_silver::{
+        ast::program::{Method, MethodData},
+        reporter::reporter::NoopReporter,
+    };
+    let config = Config::default();
+    let factory = TermFactory::new(TermOptions {
+        use_flyweight: false,
+        use_old_axiomatization: false,
+        mask_heap_mode: false,
+    });
+    let prover = z3_prover_std_io::new(
+        "test".into(),
+        z3_prover_std_io::settings("z3".into()),
+        factory.clone(),
+        |_| {},
+    );
+    let ids = prover.identifier_factory();
+    let mut worker = native_method_worker(
+        "test".into(),
+        prover,
+        ids,
+        factory.clone(),
+        NativeOptions::from_config(&config).unwrap(),
+        &config,
+    );
+    let root = Arc::new(NativeSymbExLogger::Enabled(SymbExLog::new(
+        LogConfig::default(),
+    )));
+    worker.context.set_logging_root(Some(root.clone()), None);
+    let predicate = Predicate::new(PredicateData {
+        name: "p".into(),
+        formal_args: vec![],
+        body: None,
+        meta: Default::default(),
+    });
+    assert!(matches!(
+        worker.context.open_predicate_verification(&predicate),
+        Err(NativeError::Unsupported(
+            "active symbolic logger requires record factory"
+        ))
+    ));
+    assert!(root.logs().unwrap().is_empty());
+    worker
+        .context
+        .set_logging_root(Some(root.clone()), Some(Rc::new(FullStateRecordFactory)));
+    worker
+        .context
+        .open_predicate_verification(&predicate)
+        .unwrap();
+    let logs = root.logs().unwrap();
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].records().unwrap().len(), 2);
+    worker.context.close_predicate_verification().unwrap();
+    assert_eq!(logs[0].records().unwrap().len(), 3);
+    let method = Method::new(MethodData {
+        name: "m".into(),
+        formal_args: vec![],
+        formal_returns: vec![],
+        pres: vec![],
+        posts: vec![],
+        body: None,
+        meta: Default::default(),
+    });
+    worker.context.open_method_log(&method).unwrap();
+    worker.context.close_method_log().unwrap();
+    assert_eq!(root.logs().unwrap().len(), 2);
+    root.close().unwrap();
+    let disabled = Arc::new(
+        NativeSymbExLogger::of_config(&config, Arc::new(NoopReporter), factory, |_| {}, |_| {})
+            .unwrap(),
+    );
+    worker
+        .context
+        .set_logging_root(Some(disabled.clone()), None);
+    worker
+        .context
+        .open_predicate_verification(&predicate)
+        .unwrap();
+    worker.context.close_predicate_verification().unwrap();
+    assert!(disabled.logs().unwrap().is_empty());
+}

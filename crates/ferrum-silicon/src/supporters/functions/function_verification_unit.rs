@@ -274,6 +274,11 @@ pub trait FunctionVerificationServices<P, D, J, V> {
         data: &FunctionData<D>,
     ) -> Result<(), Self::Error>;
     fn end_function(&mut self) -> Result<(), Self::Error>;
+    /// Close the source member scope only when verification and option cleanup succeed.
+    fn complete_function_log(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     /// Produce preconditions with ?s, capture every path, then produce postconditions
     /// using fresh snapshots; return every resulting function recorder.
     fn check_function_specifications(
@@ -470,7 +475,12 @@ impl<D: Clone> FunctionVerificationUnit<D> {
                 Ok(vec![result])
             })();
         match (verification, context.end_function()) {
-            (Ok(results), Ok(())) => Ok(results),
+            (Ok(results), Ok(())) => {
+                context
+                    .complete_function_log()
+                    .map_err(FunctionVerificationError::Service)?;
+                Ok(results)
+            }
             (Err(primary), Ok(())) => Err(primary),
             (Ok(_), Err(cleanup)) => Err(FunctionVerificationError::Service(cleanup)),
             (Err(primary), Err(cleanup)) => Err(FunctionVerificationError::Cleanup {

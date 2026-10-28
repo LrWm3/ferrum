@@ -476,3 +476,12 @@ Z3 checks cover positive/negative programs, repeated calls, consistency rejectio
 shutdown, initialization warnings and process cleanup, including linked Z3.
 The caller supplies a thread with sufficient verification stack space. Dependency
 metadata, exact reporter events and plugin-aware reporter rebinding remain open.
+
+Optional run-owned logging now opens/closes method, predicate and function member
+scopes at source lifecycle points. Fatal proof results close a completed function
+scope; service or option-cleanup errors leave it open. Active roots require a
+full-state factory before registration. Focused lifecycle checks pass; the root
+is still not installed by ordinary verification sessions. Additional progress
+events and top-level shutdown attachment remain before reporting profiles can be
+enabled. Source configuration forbids combining ordinary parallel branches with
+advanced logging or stalled-state reporting.
