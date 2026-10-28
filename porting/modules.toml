@@ -1023,7 +1023,8 @@ status = "described"
 repository = "silicon"
 upstream = "annotation/src/main/scala/flyweight.scala"
 destination = "crates/ferrum-silicon/src/annotation/flyweight.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native explicit flyweight pool exists; source macro is dormant; existing term factories have separate typed pools."]
 
 [[modules]]
 repository = "silicon"
@@ -1172,13 +1173,15 @@ remaining = ["Current term/sort/declaration families render SMT-LIB; source-untr
 repository = "silicon"
 upstream = "src/main/scala/decider/TermToZ3APIConverter.scala"
 destination = "crates/ferrum-silicon/src/decider/term_to_z3_api_converter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native source algorithms and typed context/driver contracts exist; linked native Z3 adapter, complete Prover lifecycle/options/models, trigger repair and concrete trigger/rendering services remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/decider/Z3ProverAPI.scala"
 destination = "crates/ferrum-silicon/src/decider/z3_prover_api.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native source algorithms and typed context/driver contracts exist; linked native Z3 adapter, complete Prover lifecycle/options/models, trigger repair and concrete trigger/rendering services remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1922,7 +1925,8 @@ remaining = ["Predicate analysis, local body verification, branch-tree and decla
 repository = "silicon"
 upstream = "src/main/scala/supporters/QuantifierSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/quantifier_supporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native source algorithms and typed context/driver contracts exist; linked native Z3 adapter, complete Prover lifecycle/options/models, trigger repair and concrete trigger/rendering services remain."]
 
 [[modules]]
 repository = "silicon"
