@@ -183,6 +183,23 @@ impl ExtensionStmt for TryBlock {
             .downcast_ref::<Self>()
             .is_some_and(|o| self.body == o.body)
     }
+    fn map_expressions(
+        &self,
+        _map: &dyn Fn(
+            &ferrum_silver::ast::expression::Exp,
+        ) -> Result<ferrum_silver::ast::expression::Exp, DiagnosticError>,
+    ) -> Result<ExtensionStmtHandle, DiagnosticError> {
+        Ok(ExtensionStmtHandle(Arc::new(self.clone())))
+    }
+    fn map_statements(
+        &self,
+        map: &dyn Fn(&Stmt) -> Result<Stmt, DiagnosticError>,
+    ) -> Result<Option<ExtensionStmtHandle>, DiagnosticError> {
+        Ok(Some(ExtensionStmtHandle(Arc::new(Self {
+            body: map(&self.body)?,
+            meta: self.meta.clone(),
+        }))))
+    }
     fn subnodes(&self) -> Result<Vec<Node>, TraversalError> {
         Ok(vec![Node::Stmt(self.body.clone())])
     }
@@ -194,5 +211,70 @@ impl ExtensionStmt for TryBlock {
     }
     fn scope_declarations(&self) -> Result<Option<Vec<Declaration>>, DiagnosticError> {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod reconstruction_tests {
+    use super::*;
+    use ferrum_silver::ast::{
+        expression::{Exp, ExpKind},
+        utility::nodes::map_node_tree,
+    };
+
+    #[test]
+    fn frontend_rewrites_assume_inside_try_block() {
+        use crate::extensions::try_block_parser_plugin::TryBlockParserPlugin;
+        use ferrum_silver::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
+        use ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager;
+        let plugins = SilverPluginManager::new(vec![Box::new(TryBlockParserPlugin)]);
+        let mut phases = SilFrontendPhases::new(std::path::PathBuf::from("test.vpr"), plugins);
+        let parsed = phases.parse("method m() { try { assume true; } }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let StmtKind::Seqn { statements, .. } = program.methods[0].body.as_ref().unwrap().kind()
+        else {
+            panic!("method block")
+        };
+        let StmtKind::Extension(extension) = statements[0].kind() else {
+            panic!("try block")
+        };
+        let block = extension.0.as_any().downcast_ref::<TryBlock>().unwrap();
+        fn has_inhale(s: &Stmt) -> bool {
+            match s.kind() {
+                StmtKind::Inhale(_) => true,
+                StmtKind::Seqn { statements, .. } => statements.iter().any(has_inhale),
+                _ => false,
+            }
+        }
+        assert!(has_inhale(&block.body));
+        phases.check_consistency(program).unwrap();
+    }
+    #[test]
+    fn node_mapper_rewrites_assume_inside_try_block() {
+        let meta = Metadata::default();
+        let condition = Exp::new(ExpKind::TrueLit, meta.clone());
+        let inner = Stmt::new(StmtKind::Assume(condition), meta.clone());
+        let block = TryBlock { body: inner, meta }.statement();
+        let mapped = map_node_tree(&Node::Stmt(block), &|node| {
+            if let Node::Stmt(stmt) = node {
+                if let StmtKind::Assume(exp) = stmt.kind() {
+                    return Ok(Node::Stmt(Stmt::new(
+                        StmtKind::Inhale(exp.clone()),
+                        stmt.metadata().clone(),
+                    )));
+                }
+            }
+            Ok(node.clone())
+        })
+        .unwrap();
+        let Node::Stmt(stmt) = mapped else {
+            panic!("expected statement")
+        };
+        let StmtKind::Extension(extension) = stmt.kind() else {
+            panic!("expected try block")
+        };
+        let block = extension.0.as_any().downcast_ref::<TryBlock>().unwrap();
+        assert!(matches!(block.body.kind(), StmtKind::Inhale(_)));
     }
 }

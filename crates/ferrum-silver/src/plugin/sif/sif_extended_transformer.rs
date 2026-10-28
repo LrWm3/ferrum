@@ -42,8 +42,9 @@
 //!
 //! Status: partial; source configuration defaults, name generation and relational predicate
 //! dependency closure and pure-method product construction with local assignments and pure
-//! inhale/exhale, conditionals, method calls and heap-independent functions are implemented.
-//! Heap, loops and other relational forms remain explicitly unsupported.
+//! inhale/exhale, conditionals, calls, fields, allocation and heap-independent functions are
+//! implemented, including heap-dependent function and unary predicate duplication. Relational
+//! predicates, loops and other relational forms remain explicitly unsupported.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -342,12 +343,111 @@ mod tests {
         assert_eq!(NameTransformer::primed_field_name("f"), "f$_p");
         assert!(NameTransformer::is_predicate_all_low_name("p$_all_low"));
     }
+
+    #[test]
+    fn declassification_inhales_equality_only_when_both_executions_active() {
+        use super::super::sif_ast_extensions::{SifStatement, SifStatementKind};
+        use crate::ast::{
+            ast::Metadata,
+            expression::LocalVar,
+            statement::{Stmt, StmtKind},
+            r#type::Type,
+        };
+        let meta = Metadata::default();
+        let variable = |name: &str, typ| {
+            Exp::new(
+                ExpKind::LocalVar(LocalVar::new(name.into(), typ, meta.clone())),
+                meta.clone(),
+            )
+        };
+        let first = variable("p1", Type::Bool);
+        let second = variable("p2", Type::Bool);
+        let x = variable("x", Type::Int);
+        let declassify = SifStatement {
+            kind: SifStatementKind::Declassify(x),
+            meta: meta.clone(),
+        }
+        .statement()
+        .unwrap();
+        let body = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![declassify],
+                declarations: vec![],
+            },
+            meta,
+        );
+        let product = sif_assertion_block(
+            &body,
+            &first,
+            &second,
+            &mut HashMap::from([("x".into(), "x_0".into())]),
+            &HashMap::new(),
+            &mut NameTransformer::default(),
+        )
+        .unwrap();
+        let StmtKind::Seqn { statements, .. } = product.kind() else {
+            panic!("expected block")
+        };
+        let StmtKind::Inhale(exp) = statements[0].kind() else {
+            panic!("expected inhale")
+        };
+        let ExpKind::Implies(active, equality) = exp.kind() else {
+            panic!("expected guarded equality")
+        };
+        assert!(matches!(active.kind(), ExpKind::And(a, b) if a == &first && b == &second));
+        assert!(
+            matches!(equality.kind(), ExpKind::EqCmp(a, b) if matches!(a.kind(), ExpKind::LocalVar(v) if v.name == "x") && matches!(b.kind(), ExpKind::LocalVar(v) if v.name == "x_0"))
+        );
+    }
+
+    #[test]
+    fn false_inhale_is_preserved_unguarded() {
+        use crate::ast::{
+            ast::Metadata,
+            statement::{Stmt, StmtKind},
+        };
+        let meta = Metadata::default();
+        let original = Stmt::new(
+            StmtKind::Inhale(Exp::new(ExpKind::FalseLit, meta.clone())),
+            meta.clone(),
+        );
+        let block = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![original.clone()],
+                declarations: vec![],
+            },
+            meta.clone(),
+        );
+        let inactive = Exp::new(ExpKind::FalseLit, meta);
+        let product = sif_assertion_block(
+            &block,
+            &inactive,
+            &inactive,
+            &mut HashMap::new(),
+            &HashMap::new(),
+            &mut NameTransformer::default(),
+        )
+        .unwrap();
+        assert!(
+            matches!(product.kind(), StmtKind::Seqn { statements, .. } if statements.len() == 1 && statements[0].same_node(&original))
+        );
+    }
 }
 
 /// Concrete source product construction for a pure method fragment. Every other
 /// source product is rejected until its corresponding transformer is implemented.
 #[derive(Default)]
 pub struct NativeSifTransformer;
+
+fn sif_supported_type(typ: &crate::ast::r#type::Type) -> bool {
+    use crate::ast::r#type::Type;
+    match typ {
+        Type::Int | Type::Bool | Type::Ref => true,
+        Type::Seq(inner) | Type::Set(inner) | Type::Multiset(inner) => sif_supported_type(inner),
+        Type::Map(pair) => sif_supported_type(&pair.0) && sif_supported_type(&pair.1),
+        _ => false,
+    }
+}
 
 fn sif_forward_meta(node: Node, meta: &crate::ast::ast::Metadata) -> crate::ast::ast::Metadata {
     use crate::ast::ast::{ErrorTrafo, PreviousNode};
@@ -364,14 +464,27 @@ fn sif_pure_expression(
     exp: &Exp,
     prime: bool,
     names: &HashMap<String, String>,
+    fields: &HashMap<String, crate::ast::program::Field>,
 ) -> Result<Exp, String> {
     use crate::ast::expression::LocalVar;
+    let declaration = |d: &crate::ast::program::LocalVarDecl| {
+        if prime {
+            if let Some(name) = names.get(&d.name) {
+                return crate::ast::program::LocalVarDecl::new(
+                    name.clone(),
+                    d.typ.clone(),
+                    sif_forward_meta(Node::LocalDecl(d.clone()), &d.meta),
+                );
+            }
+        }
+        d.clone()
+    };
     let meta = exp.metadata().clone();
     macro_rules! binary {
         ($ctor:ident, $a:expr, $b:expr) => {
             ExpKind::$ctor(
-                sif_pure_expression($a, prime, names)?,
-                sif_pure_expression($b, prime, names)?,
+                sif_pure_expression($a, prime, names, fields)?,
+                sif_pure_expression($b, prime, names, fields)?,
             )
         };
     }
@@ -381,7 +494,7 @@ fn sif_pure_expression(
                 return Ok(exp.clone());
             }
             let Some(name) = names.get(&v.name) else {
-                return Err(format!("unmapped SIF local variable {}", v.name));
+                return Ok(exp.clone());
             };
             let meta = sif_forward_meta(Node::LocalVar(v.clone()), &v.meta);
             ExpKind::LocalVar(LocalVar::new(name.clone(), v.typ.clone(), meta))
@@ -393,6 +506,90 @@ fn sif_pure_expression(
         | ExpKind::Result(_) => {
             return Ok(exp.clone());
         }
+        ExpKind::FieldAccess(access) => {
+            let receiver = sif_pure_expression(&access.receiver, prime, names, fields)?;
+            let Some(primed_field) = fields.get(&access.field.name) else {
+                return Err(format!("unmapped SIF field {}", access.field.name));
+            };
+            if !prime {
+                return Ok(exp.clone());
+            }
+            let meta = sif_forward_meta(Node::FieldAccess(access.clone()), &access.meta);
+            ExpKind::FieldAccess(crate::ast::expression::FieldAccess::new(
+                receiver,
+                primed_field.clone(),
+                meta,
+            ))
+        }
+        ExpKind::FieldAccessPredicate(access, permission) => {
+            let view = Exp::new(ExpKind::FieldAccess(access.clone()), access.meta.clone());
+            let translated = sif_pure_expression(&view, prime, names, fields)?;
+            let ExpKind::FieldAccess(access) = translated.kind() else {
+                return Err("invalid SIF field access".into());
+            };
+            let permission = permission
+                .as_ref()
+                .map(|p| sif_pure_expression(p, prime, names, fields))
+                .transpose()?;
+            ExpKind::FieldAccessPredicate(access.clone(), permission)
+        }
+        ExpKind::PredicateAccess(access) => {
+            let arguments = access
+                .args
+                .iter()
+                .map(|a| sif_pure_expression(a, prime, names, fields))
+                .collect::<Result<Vec<_>, _>>()?;
+            if !prime {
+                return Ok(exp.clone());
+            }
+            let name = names
+                .get(&access.predicate_name)
+                .ok_or_else(|| format!("unmapped SIF predicate {}", access.predicate_name))?;
+            ExpKind::PredicateAccess(crate::ast::expression::PredicateAccess::new(
+                arguments,
+                name.clone(),
+                sif_forward_meta(Node::PredicateAccess(access.clone()), &access.meta),
+            ))
+        }
+        ExpKind::PredicateAccessPredicate(access) => {
+            let loc = Exp::new(
+                ExpKind::PredicateAccess(access.location.clone()),
+                access.location.meta.clone(),
+            );
+            let mapped = sif_pure_expression(&loc, prime, names, fields)?;
+            let ExpKind::PredicateAccess(location) = mapped.kind() else {
+                return Err("invalid SIF predicate access".into());
+            };
+            let permission = access
+                .permission
+                .as_ref()
+                .map(|p| sif_pure_expression(p, prime, names, fields))
+                .transpose()?;
+            ExpKind::PredicateAccessPredicate(crate::ast::statement::PredicateAccessPredicate::new(
+                location.clone(),
+                permission,
+                access.meta.clone(),
+            ))
+        }
+        ExpKind::Unfolding(access, body) => binary!(Unfolding, access, body),
+        ExpKind::CurrentPerm(resource) => {
+            ExpKind::CurrentPerm(sif_pure_expression(resource, prime, names, fields)?)
+        }
+        ExpKind::FullPerm | ExpKind::NoPerm | ExpKind::WildcardPerm | ExpKind::EpsilonPerm => {
+            return Ok(exp.clone());
+        }
+        ExpKind::FractionalPerm(a, b) => binary!(FractionalPerm, a, b),
+        ExpKind::PermDiv(a, b) => binary!(PermDiv, a, b),
+        ExpKind::PermPermDiv(a, b) => binary!(PermPermDiv, a, b),
+        ExpKind::PermAdd(a, b) => binary!(PermAdd, a, b),
+        ExpKind::PermSub(a, b) => binary!(PermSub, a, b),
+        ExpKind::PermMul(a, b) => binary!(PermMul, a, b),
+        ExpKind::IntPermMul(a, b) => binary!(IntPermMul, a, b),
+        ExpKind::PermLtCmp(a, b) => binary!(PermLtCmp, a, b),
+        ExpKind::PermLeCmp(a, b) => binary!(PermLeCmp, a, b),
+        ExpKind::PermGtCmp(a, b) => binary!(PermGtCmp, a, b),
+        ExpKind::PermGeCmp(a, b) => binary!(PermGeCmp, a, b),
+        ExpKind::PermMinus(a) => ExpKind::PermMinus(sif_pure_expression(a, prime, names, fields)?),
         ExpKind::FuncApp(name, arguments) => ExpKind::FuncApp(
             if prime {
                 names.get(name).cloned().unwrap_or_else(|| name.clone())
@@ -401,7 +598,7 @@ fn sif_pure_expression(
             },
             arguments
                 .iter()
-                .map(|arg| sif_pure_expression(arg, prime, names))
+                .map(|arg| sif_pure_expression(arg, prime, names, fields))
                 .collect::<Result<_, _>>()?,
         ),
         ExpKind::Add(a, b) => binary!(Add, a, b),
@@ -418,8 +615,101 @@ fn sif_pure_expression(
         ExpKind::Or(a, b) => binary!(Or, a, b),
         ExpKind::And(a, b) => binary!(And, a, b),
         ExpKind::Implies(a, b) => binary!(Implies, a, b),
-        ExpKind::Not(a) => ExpKind::Not(sif_pure_expression(a, prime, names)?),
-        ExpKind::Minus(a) => ExpKind::Minus(sif_pure_expression(a, prime, names)?),
+        ExpKind::CondExp(condition, then_exp, else_exp) => ExpKind::CondExp(
+            sif_pure_expression(condition, prime, names, fields)?,
+            sif_pure_expression(then_exp, prime, names, fields)?,
+            sif_pure_expression(else_exp, prime, names, fields)?,
+        ),
+        ExpKind::Old(inner) => ExpKind::Old(sif_pure_expression(inner, prime, names, fields)?),
+        ExpKind::LabelledOld(inner, label) => ExpKind::LabelledOld(
+            sif_pure_expression(inner, prime, names, fields)?,
+            label.clone(),
+        ),
+        ExpKind::DebugLabelledOld(inner, label) => ExpKind::DebugLabelledOld(
+            sif_pure_expression(inner, prime, names, fields)?,
+            label.clone(),
+        ),
+        ExpKind::Let(var, value, body) => ExpKind::Let(
+            declaration(var),
+            sif_pure_expression(value, prime, names, fields)?,
+            sif_pure_expression(body, prime, names, fields)?,
+        ),
+        ExpKind::Forall(vars, triggers, body) | ExpKind::Exists(vars, triggers, body) => {
+            let vars = vars.iter().map(declaration).collect();
+            let triggers = triggers
+                .iter()
+                .map(|t| {
+                    Ok(crate::ast::expression::Trigger::new(
+                        t.exps
+                            .iter()
+                            .map(|e| sif_pure_expression(e, prime, names, fields))
+                            .collect::<Result<Vec<_>, _>>()?,
+                        t.meta.clone(),
+                    ))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let body = sif_pure_expression(body, prime, names, fields)?;
+            if matches!(exp.kind(), ExpKind::Forall(..)) {
+                ExpKind::Forall(vars, triggers, body)
+            } else {
+                ExpKind::Exists(vars, triggers, body)
+            }
+        }
+        ExpKind::Not(a) => ExpKind::Not(sif_pure_expression(a, prime, names, fields)?),
+        ExpKind::Minus(a) => ExpKind::Minus(sif_pure_expression(a, prime, names, fields)?),
+        ExpKind::EmptySeq(_)
+        | ExpKind::EmptySet(_)
+        | ExpKind::EmptyMultiset(_)
+        | ExpKind::EmptyMap(_, _) => return Ok(exp.clone()),
+        ExpKind::ExplicitSeq(es)
+        | ExpKind::ExplicitSet(es)
+        | ExpKind::ExplicitMultiset(es)
+        | ExpKind::ExplicitMap(es) => {
+            let children = es
+                .iter()
+                .map(|e| sif_pure_expression(e, prime, names, fields))
+                .collect::<Result<Vec<_>, _>>()?;
+            match exp.kind() {
+                ExpKind::ExplicitSeq(_) => ExpKind::ExplicitSeq(children),
+                ExpKind::ExplicitSet(_) => ExpKind::ExplicitSet(children),
+                ExpKind::ExplicitMultiset(_) => ExpKind::ExplicitMultiset(children),
+                ExpKind::ExplicitMap(_) => ExpKind::ExplicitMap(children),
+                _ => unreachable!(),
+            }
+        }
+        ExpKind::RangeSeq(a, b) => binary!(RangeSeq, a, b),
+        ExpKind::SeqAppend(a, b) => binary!(SeqAppend, a, b),
+        ExpKind::SeqIndex(a, b) => binary!(SeqIndex, a, b),
+        ExpKind::SeqTake(a, b) => binary!(SeqTake, a, b),
+        ExpKind::SeqDrop(a, b) => binary!(SeqDrop, a, b),
+        ExpKind::SeqContains(a, b) => binary!(SeqContains, a, b),
+        ExpKind::AnySetUnion(a, b) => binary!(AnySetUnion, a, b),
+        ExpKind::AnySetIntersection(a, b) => binary!(AnySetIntersection, a, b),
+        ExpKind::AnySetSubset(a, b) => binary!(AnySetSubset, a, b),
+        ExpKind::AnySetMinus(a, b) => binary!(AnySetMinus, a, b),
+        ExpKind::AnySetContains(a, b) => binary!(AnySetContains, a, b),
+        ExpKind::Maplet(a, b) => binary!(Maplet, a, b),
+        ExpKind::MapLookup(a, b) => binary!(MapLookup, a, b),
+        ExpKind::MapContains(a, b) => binary!(MapContains, a, b),
+        ExpKind::SeqUpdate(a, b, c) => ExpKind::SeqUpdate(
+            sif_pure_expression(a, prime, names, fields)?,
+            sif_pure_expression(b, prime, names, fields)?,
+            sif_pure_expression(c, prime, names, fields)?,
+        ),
+        ExpKind::MapUpdate(a, b, c) => ExpKind::MapUpdate(
+            sif_pure_expression(a, prime, names, fields)?,
+            sif_pure_expression(b, prime, names, fields)?,
+            sif_pure_expression(c, prime, names, fields)?,
+        ),
+        ExpKind::SeqLength(a) => ExpKind::SeqLength(sif_pure_expression(a, prime, names, fields)?),
+        ExpKind::AnySetCardinality(a) => {
+            ExpKind::AnySetCardinality(sif_pure_expression(a, prime, names, fields)?)
+        }
+        ExpKind::MapCardinality(a) => {
+            ExpKind::MapCardinality(sif_pure_expression(a, prime, names, fields)?)
+        }
+        ExpKind::MapDomain(a) => ExpKind::MapDomain(sif_pure_expression(a, prime, names, fields)?),
+        ExpKind::MapRange(a) => ExpKind::MapRange(sif_pure_expression(a, prime, names, fields)?),
         _ => return Err("SIF expression outside the supported pure product fragment".into()),
     };
     if !prime {
@@ -439,6 +729,7 @@ fn sif_assertion(
     first: &Exp,
     second: &Exp,
     names: &HashMap<String, String>,
+    fields: &HashMap<String, crate::ast::program::Field>,
 ) -> Result<Exp, String> {
     use super::sif_ast_extensions::{SifExpression, SifExpressionKind};
     use crate::ast::ast::Metadata;
@@ -450,11 +741,50 @@ fn sif_assertion(
     match exp.kind() {
         ExpKind::And(left, right) => Ok(Exp::new(
             ExpKind::And(
-                sif_assertion(left, first, second, names)?,
-                sif_assertion(right, first, second, names)?,
+                sif_assertion(left, first, second, names, fields)?,
+                sif_assertion(right, first, second, names, fields)?,
             ),
             forwarded(),
         )),
+        ExpKind::Forall(variables, triggers, body) if exp.is_pure() => {
+            if variables.iter().any(|v| names.contains_key(&v.name)) {
+                return Err("SIF quantified binder shadows a primed variable".into());
+            }
+            let mut all_triggers = triggers.clone();
+            for trigger in triggers {
+                let primed = trigger
+                    .exps
+                    .iter()
+                    .map(|e| sif_pure_expression(e, true, names, fields))
+                    .collect::<Result<Vec<_>, _>>()?;
+                all_triggers.push(crate::ast::expression::Trigger::new(
+                    primed,
+                    Metadata::default(),
+                ));
+            }
+            let quantified = Exp::new(
+                ExpKind::Forall(
+                    variables.clone(),
+                    all_triggers,
+                    sif_assertion(body, first, second, names, fields)?,
+                ),
+                forwarded(),
+            );
+            crate::ast::utility::triggers::auto_trigger(&quantified)
+                .map_err(|e| format!("SIF automatic trigger: {e:?}"))
+        }
+        ExpKind::Implies(left, right)
+            if !is_directly_unary(exp, &SifConfig::default())
+                .map_err(|e| format!("SIF expression traversal: {e:?}"))? =>
+        {
+            Ok(Exp::new(
+                ExpKind::Implies(
+                    sif_assertion(left, first, second, names, fields)?,
+                    sif_assertion(right, first, second, names, fields)?,
+                ),
+                forwarded(),
+            ))
+        }
         ExpKind::Extension(extension) => {
             let Some(sif) = extension.0.as_any().downcast_ref::<SifExpression>() else {
                 return Err("unsupported SIF assertion extension".into());
@@ -465,8 +795,8 @@ fn sif_assertion(
                     comparator: None,
                     ..
                 } => {
-                    let normal = sif_pure_expression(value, false, names)?;
-                    let primed = sif_pure_expression(value, true, names)?;
+                    let normal = sif_pure_expression(value, false, names, fields)?;
+                    let primed = sif_pure_expression(value, true, names, fields)?;
                     let equality = Exp::new(ExpKind::EqCmp(normal, primed), forwarded());
                     let both = make(ExpKind::And(first.clone(), second.clone()));
                     Ok(Exp::new(ExpKind::Implies(both, equality), forwarded()))
@@ -479,8 +809,8 @@ fn sif_assertion(
             }
         }
         _ => {
-            let normal = sif_pure_expression(exp, false, names)?;
-            let primed = sif_pure_expression(exp, true, names)?;
+            let normal = sif_pure_expression(exp, false, names, fields)?;
+            let primed = sif_pure_expression(exp, true, names, fields)?;
             let left = Exp::new(ExpKind::Implies(first.clone(), normal), forwarded());
             let right = Exp::new(ExpKind::Implies(second.clone(), primed), forwarded());
             Ok(Exp::new(ExpKind::And(left, right), forwarded()))
@@ -519,6 +849,7 @@ fn sif_assertion_block(
     first: &Exp,
     second: &Exp,
     names: &mut HashMap<String, String>,
+    fields: &HashMap<String, crate::ast::program::Field>,
     generator: &mut NameTransformer,
 ) -> Result<crate::ast::statement::Stmt, String> {
     use crate::ast::{
@@ -536,9 +867,7 @@ fn sif_assertion_block(
     sif_flatten_block(stmt, &mut locals, &mut original)?;
     let mut declarations = Vec::new();
     for local in locals {
-        if names.contains_key(&local.name)
-            || !matches!(local.typ, Type::Int | Type::Bool | Type::Ref)
-        {
+        if names.contains_key(&local.name) || !sif_supported_type(&local.typ) {
             return Err("SIF shadowed local or local type outside supported fragment".into());
         }
         let new_name = generator.get_unused_name(&local.name);
@@ -616,21 +945,41 @@ fn sif_assertion_block(
                 normal.push(Stmt::new(
                     StmtKind::LocalVarAssign {
                         lhs: lhs.clone(),
-                        rhs: sif_pure_expression(rhs, false, names)?,
+                        rhs: sif_pure_expression(rhs, false, names, fields)?,
                     },
                     current.metadata().clone(),
                 ));
                 primed.push(Stmt::new(
                     StmtKind::LocalVarAssign {
                         lhs: primed_lhs,
-                        rhs: sif_pure_expression(rhs, true, names)?,
+                        rhs: sif_pure_expression(rhs, true, names, fields)?,
                     },
                     current.metadata().clone(),
                 ));
             }
+            StmtKind::Inhale(exp) if matches!(exp.kind(), ExpKind::FalseLit) => {
+                flush(&mut normal, &mut primed, &mut result);
+                result.push(current.clone());
+            }
             StmtKind::Inhale(exp) | StmtKind::Exhale(exp) => {
-                let normal_exp = sif_pure_expression(exp, false, names)?;
-                let primed_exp = sif_pure_expression(exp, true, names)?;
+                if !is_directly_unary(exp, &SifConfig::default())
+                    .map_err(|e| format!("SIF expression traversal: {e:?}"))?
+                {
+                    flush(&mut normal, &mut primed, &mut result);
+                    let translated = sif_assertion(exp, first, second, names, fields)?;
+                    let kind = if matches!(current.kind(), StmtKind::Inhale(_)) {
+                        StmtKind::Inhale(translated)
+                    } else {
+                        StmtKind::Exhale(translated)
+                    };
+                    result.push(Stmt::new(
+                        kind,
+                        sif_forward_meta(Node::Stmt(current.clone()), current.metadata()),
+                    ));
+                    continue;
+                }
+                let normal_exp = sif_pure_expression(exp, false, names, fields)?;
+                let primed_exp = sif_pure_expression(exp, true, names, fields)?;
                 let is_inhale = matches!(current.kind(), StmtKind::Inhale(_));
                 normal.push(Stmt::new(
                     if is_inhale {
@@ -649,6 +998,124 @@ fn sif_assertion_block(
                     current.metadata().clone(),
                 ));
             }
+            StmtKind::NewStmt {
+                lhs,
+                fields: allocated,
+            } => {
+                flush(&mut normal, &mut primed, &mut result);
+                let Some(primed_name) = names.get(&lhs.name) else {
+                    return Err(format!("unmapped SIF allocation target {}", lhs.name));
+                };
+                let mut all_fields = allocated.clone();
+                for field in allocated {
+                    all_fields.push(
+                        fields
+                            .get(&field.name)
+                            .cloned()
+                            .ok_or_else(|| format!("unmapped SIF field {}", field.name))?,
+                    );
+                }
+                let temporary = LocalVarDecl::new(
+                    generator.get_unused_name("tmp"),
+                    Type::Ref,
+                    Metadata::default(),
+                );
+                let value = Exp::new(
+                    ExpKind::LocalVar(temporary.local_var()),
+                    Metadata::default(),
+                );
+                let allocate = Stmt::new(
+                    StmtKind::NewStmt {
+                        lhs: temporary.local_var(),
+                        fields: all_fields,
+                    },
+                    Metadata::default(),
+                );
+                let primed_lhs = LocalVar::new(
+                    primed_name.clone(),
+                    lhs.typ.clone(),
+                    sif_forward_meta(Node::LocalVar(lhs.clone()), &lhs.meta),
+                );
+                let branch = |active: &Exp, target: LocalVar| {
+                    let assign = Stmt::new(
+                        StmtKind::LocalVarAssign {
+                            lhs: target,
+                            rhs: value.clone(),
+                        },
+                        Metadata::default(),
+                    );
+                    Stmt::new(
+                        StmtKind::If {
+                            condition: active.clone(),
+                            then_branch: Stmt::new(
+                                StmtKind::Seqn {
+                                    statements: vec![assign],
+                                    declarations: vec![],
+                                },
+                                Metadata::default(),
+                            ),
+                            else_branch: skip.clone(),
+                        },
+                        Metadata::default(),
+                    )
+                };
+                result.push(Stmt::new(
+                    StmtKind::Seqn {
+                        statements: vec![
+                            allocate,
+                            branch(first, lhs.clone()),
+                            branch(second, primed_lhs),
+                            skip.clone(),
+                        ],
+                        declarations: vec![Declaration::Local(temporary)],
+                    },
+                    Metadata::default(),
+                ));
+            }
+            StmtKind::FieldAssign { lhs, rhs } => {
+                flush(&mut normal, &mut primed, &mut result);
+                let access = Exp::new(ExpKind::FieldAccess(lhs.clone()), lhs.meta.clone());
+                sif_pure_expression(&access, false, names, fields)?;
+                sif_pure_expression(rhs, false, names, fields)?;
+                let prime_access = sif_pure_expression(&access, true, names, fields)?;
+                let ExpKind::FieldAccess(prime_lhs) = prime_access.kind() else {
+                    return Err("invalid SIF primed field assignment".into());
+                };
+                let second_stmt = Stmt::new(
+                    StmtKind::FieldAssign {
+                        lhs: prime_lhs.clone(),
+                        rhs: sif_pure_expression(rhs, true, names, fields)?,
+                    },
+                    current.metadata().clone(),
+                );
+                let branch = |active: &Exp, statement: Stmt| {
+                    Stmt::new(
+                        StmtKind::If {
+                            condition: active.clone(),
+                            then_branch: Stmt::new(
+                                StmtKind::Seqn {
+                                    statements: vec![statement],
+                                    declarations: vec![],
+                                },
+                                Metadata::default(),
+                            ),
+                            else_branch: skip.clone(),
+                        },
+                        Metadata::default(),
+                    )
+                };
+                result.push(Stmt::new(
+                    StmtKind::Seqn {
+                        statements: vec![
+                            branch(first, current.clone()),
+                            branch(second, second_stmt),
+                            skip.clone(),
+                        ],
+                        declarations: vec![],
+                    },
+                    Metadata::default(),
+                ));
+            }
             StmtKind::MethodCall {
                 method_name,
                 args,
@@ -663,7 +1130,7 @@ fn sif_assertion_block(
                     let typ = argument
                         .typ()
                         .map_err(|e| format!("SIF argument type: {e:?}"))?;
-                    if !matches!(typ, Type::Int | Type::Bool | Type::Ref) {
+                    if !sif_supported_type(&typ) {
                         return Err("SIF method argument type outside supported fragment".into());
                     }
                     let a = LocalVarDecl::new(
@@ -687,14 +1154,14 @@ fn sif_assertion_block(
                     first_arguments.push(Stmt::new(
                         StmtKind::LocalVarAssign {
                             lhs: a.local_var(),
-                            rhs: sif_pure_expression(argument, false, names)?,
+                            rhs: sif_pure_expression(argument, false, names, fields)?,
                         },
                         Metadata::default(),
                     ));
                     second_arguments.push(Stmt::new(
                         StmtKind::LocalVarAssign {
                             lhs: b.local_var(),
-                            rhs: sif_pure_expression(argument, true, names)?,
+                            rhs: sif_pure_expression(argument, true, names, fields)?,
                         },
                         Metadata::default(),
                     ));
@@ -704,7 +1171,7 @@ fn sif_assertion_block(
                 let mut first_targets = Vec::new();
                 let mut second_targets = Vec::new();
                 for target in targets {
-                    if !matches!(target.typ, Type::Int | Type::Bool | Type::Ref) {
+                    if !sif_supported_type(&target.typ) {
                         return Err("SIF method return type outside supported fragment".into());
                     }
                     let Some(primed_name) = names.get(&target.name) else {
@@ -803,8 +1270,8 @@ fn sif_assertion_block(
                 else_branch,
             } => {
                 flush(&mut normal, &mut primed, &mut result);
-                let normal_cond = sif_pure_expression(condition, false, names)?;
-                let prime_cond = sif_pure_expression(condition, true, names)?;
+                let normal_cond = sif_pure_expression(condition, false, names, fields)?;
+                let prime_cond = sif_pure_expression(condition, true, names, fields)?;
                 let controls = ["p1", "p2", "p3", "p4"]
                     .into_iter()
                     .map(|name| {
@@ -846,6 +1313,7 @@ fn sif_assertion_block(
                     &refs[0],
                     &refs[1],
                     names,
+                    fields,
                     generator,
                 )?);
                 branches.push(sif_assertion_block(
@@ -853,6 +1321,7 @@ fn sif_assertion_block(
                     &refs[2],
                     &refs[3],
                     names,
+                    fields,
                     generator,
                 )?);
                 result.push(Stmt::new(
@@ -866,9 +1335,103 @@ fn sif_assertion_block(
             StmtKind::Assert(exp) => {
                 flush(&mut normal, &mut primed, &mut result);
                 result.push(Stmt::new(
-                    StmtKind::Assert(sif_assertion(exp, first, second, names)?),
+                    StmtKind::Assert(sif_assertion(exp, first, second, names, fields)?),
                     sif_forward_meta(Node::Stmt(current.clone()), current.metadata()),
                 ));
+            }
+            StmtKind::Fold(access) | StmtKind::Unfold(access) => {
+                flush(&mut normal, &mut primed, &mut result);
+                let source_access = Exp::new(
+                    ExpKind::PredicateAccessPredicate(access.clone()),
+                    access.meta.clone(),
+                );
+                let translated = sif_pure_expression(&source_access, true, names, fields)?;
+                let ExpKind::PredicateAccessPredicate(primed_access) = translated.kind() else {
+                    return Err("invalid SIF folded predicate".into());
+                };
+                let explicit = crate::ast::statement::PredicateAccessPredicate::new(
+                    primed_access.location.clone(),
+                    Some(primed_access.permission_or_full()),
+                    Metadata::default(),
+                );
+                let prime_stmt = if matches!(current.kind(), StmtKind::Fold(_)) {
+                    StmtKind::Fold(explicit)
+                } else {
+                    StmtKind::Unfold(explicit)
+                };
+                let branch = |condition: &Exp, statement: Stmt| {
+                    Stmt::new(
+                        StmtKind::If {
+                            condition: condition.clone(),
+                            then_branch: Stmt::new(
+                                StmtKind::Seqn {
+                                    statements: vec![statement],
+                                    declarations: vec![],
+                                },
+                                Metadata::default(),
+                            ),
+                            else_branch: skip.clone(),
+                        },
+                        Metadata::default(),
+                    )
+                };
+                let first_branch = branch(first, current.clone());
+                let second_branch =
+                    branch(second, Stmt::new(prime_stmt, current.metadata().clone()));
+                let statements = if matches!(current.kind(), StmtKind::Fold(_)) {
+                    vec![first_branch, second_branch, skip.clone()]
+                } else {
+                    vec![skip.clone(), first_branch, second_branch]
+                };
+                result.push(Stmt::new(
+                    StmtKind::Seqn {
+                        statements,
+                        declarations: vec![],
+                    },
+                    Metadata::default(),
+                ));
+            }
+            StmtKind::Extension(extension) => {
+                use super::sif_ast_extensions::{SifStatement, SifStatementKind};
+                use crate::plugin::standard::refute::refute_ast_extension::Refute;
+                flush(&mut normal, &mut primed, &mut result);
+                if let Some(refute) = extension.0.as_any().downcast_ref::<Refute>() {
+                    result.push(
+                        Refute::new(
+                            sif_assertion(&refute.exp, first, second, names, fields)?,
+                            sif_forward_meta(Node::Stmt(current.clone()), current.metadata()),
+                        )
+                        .statement(),
+                    );
+                } else if let Some(SifStatement {
+                    kind: SifStatementKind::Declassify(exp),
+                    ..
+                }) = extension.0.as_any().downcast_ref::<SifStatement>()
+                {
+                    let meta = current.metadata().clone();
+                    let both = Exp::new(
+                        ExpKind::And(first.clone(), second.clone()),
+                        Metadata::default(),
+                    );
+                    let equality = Exp::new(
+                        ExpKind::EqCmp(
+                            sif_pure_expression(exp, false, names, fields)?,
+                            sif_pure_expression(exp, true, names, fields)?,
+                        ),
+                        Metadata::default(),
+                    );
+                    result.push(Stmt::new(
+                        StmtKind::Inhale(Exp::new(
+                            ExpKind::Implies(both, equality),
+                            Metadata::default(),
+                        )),
+                        meta,
+                    ));
+                } else {
+                    return Err(
+                        "SIF statement extension outside the supported product fragment".into(),
+                    );
+                }
             }
             _ => return Err("SIF statement outside the supported pure product fragment".into()),
         }
@@ -897,24 +1460,60 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
             r#type::Type,
         };
         use crate::plugin::silver_plugin::PluginHookError;
-        if enable_timing
-            || !input.domains.is_empty()
-            || !input.fields.is_empty()
-            || !input.predicates.is_empty()
-            || !input.extensions.is_empty()
-        {
+        if enable_timing || !input.domains.is_empty() || !input.extensions.is_empty() {
             return Err(PluginHookError(
                 "SIF program outside the supported pure method fragment".into(),
             ));
         }
+        if !source_relational_predicates(&input, &SifConfig::default())
+            .map_err(|e| PluginHookError(format!("SIF relational predicate analysis: {e:?}")))?
+            .is_empty()
+        {
+            return Err(PluginHookError(
+                "SIF relational predicates are outside the supported product fragment".into(),
+            ));
+        }
+        let occupied_globals: HashSet<_> = input
+            .fields
+            .iter()
+            .map(|field| field.name.as_str())
+            .chain(input.methods.iter().map(|method| method.name.as_str()))
+            .chain(
+                input
+                    .predicates
+                    .iter()
+                    .map(|predicate| predicate.name.as_str()),
+            )
+            .chain(
+                input
+                    .functions
+                    .iter()
+                    .map(|function| function.name.as_str()),
+            )
+            .collect();
+        for field in &input.fields {
+            if occupied_globals.contains(NameTransformer::primed_field_name(&field.name).as_str()) {
+                return Err(PluginHookError(
+                    "SIF primed field conflicts with an existing global declaration".into(),
+                ));
+            }
+        }
+        let mut fields = HashMap::new();
+        let mut product_fields = input.fields.clone();
+        for field in &input.fields {
+            let prime =
+                field.copy_with(|data| data.name = NameTransformer::primed_field_name(&field.name));
+            fields.insert(field.name.clone(), prime.clone());
+            product_fields.push(prime);
+        }
         // A function is unchanged by the source transformer when its preconditions are
-        // heap independent. The admitted syntax below contains no heap resources.
+        // heap independent. Reject expression families whose translation is not yet available.
         for function in &input.functions {
-            if !matches!(function.typ, Type::Int | Type::Bool | Type::Ref)
+            if !sif_supported_type(&function.typ)
                 || function
                     .formal_args
                     .iter()
-                    .any(|arg| !matches!(arg.typ, Type::Int | Type::Bool | Type::Ref))
+                    .any(|arg| !sif_supported_type(&arg.typ))
             {
                 return Err(PluginHookError(
                     "SIF function type outside supported fragment".into(),
@@ -926,10 +1525,32 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
                 .chain(&function.posts)
                 .chain(function.body.iter())
             {
-                sif_pure_expression(expression, false, &HashMap::new()).map_err(PluginHookError)?;
+                sif_pure_expression(expression, false, &HashMap::new(), &fields)
+                    .map_err(PluginHookError)?;
             }
         }
+        fn seed_declarations(node: &Node, names: &mut Vec<String>) -> Result<(), PluginHookError> {
+            if let Node::LocalDecl(decl) = node {
+                names.push(decl.name.clone());
+            }
+            for child in
+                subnodes(node).map_err(|e| PluginHookError(format!("SIF name traversal: {e:?}")))?
+            {
+                seed_declarations(&child, names)?;
+            }
+            Ok(())
+        }
+        let mut all_declarations = Vec::new();
+        seed_declarations(&Node::Program(input.clone()), &mut all_declarations)?;
         let mut generator = NameTransformer::default();
+        generator.mark_used(all_declarations);
+        generator.mark_used(input.fields.iter().map(|field| field.name.clone()));
+        generator.mark_used(
+            input
+                .predicates
+                .iter()
+                .map(|predicate| predicate.name.clone()),
+        );
         generator.mark_used(input.methods.iter().flat_map(|m| {
             std::iter::once(m.name.clone())
                 .chain(m.formal_args.iter().map(|a| a.name.clone()))
@@ -971,13 +1592,97 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
         generator.mark_used(input.functions.iter().flat_map(|f| {
             std::iter::once(f.name.clone()).chain(f.formal_args.iter().map(|arg| arg.name.clone()))
         }));
+        let mut function_names = HashMap::new();
+        for function in &input.functions {
+            let mut dependent = false;
+            for pre in &function.pres {
+                dependent |= crate::ast::utility::expressions::is_heap_dependent(pre, &input)
+                    .map_err(|e| PluginHookError(format!("SIF heap dependency: {e:?}")))?;
+            }
+            if dependent {
+                function_names.insert(
+                    function.name.clone(),
+                    generator.get_unused_name(&function.name),
+                );
+            }
+        }
+        for predicate in &input.predicates {
+            function_names.insert(
+                predicate.name.clone(),
+                generator.get_unused_name(&predicate.name),
+            );
+        }
+        let mut functions = Vec::new();
+        for function in &input.functions {
+            let Some(name) = function_names.get(&function.name) else {
+                functions.push(function.clone());
+                continue;
+            };
+            let map = |expressions: &[Exp], prime| {
+                expressions
+                    .iter()
+                    .map(|e| sif_pure_expression(e, prime, &function_names, &fields))
+                    .collect::<Result<Vec<_>, _>>()
+            };
+            let first_pres = map(&function.pres, false).map_err(PluginHookError)?;
+            let first_posts = map(&function.posts, false).map_err(PluginHookError)?;
+            let first_body = function
+                .body
+                .as_ref()
+                .map(|e| sif_pure_expression(e, false, &function_names, &fields))
+                .transpose()
+                .map_err(PluginHookError)?;
+            let first = function.copy_with(|f| {
+                f.pres = first_pres;
+                f.posts = first_posts;
+                f.body = first_body;
+            });
+            let pres = map(&function.pres, true).map_err(PluginHookError)?;
+            let posts = map(&function.posts, true).map_err(PluginHookError)?;
+            let body = function
+                .body
+                .as_ref()
+                .map(|e| sif_pure_expression(e, true, &function_names, &fields))
+                .transpose()
+                .map_err(PluginHookError)?;
+            let second = function.copy_with(|f| {
+                f.name = name.clone();
+                f.pres = pres;
+                f.posts = posts;
+                f.body = body;
+            });
+            functions.extend([first, second]);
+        }
+        let mut predicates = Vec::new();
+        for predicate in &input.predicates {
+            let name = function_names
+                .get(&predicate.name)
+                .ok_or_else(|| PluginHookError("missing SIF predicate name".into()))?;
+            let normal = predicate
+                .body
+                .as_ref()
+                .map(|e| sif_pure_expression(e, false, &function_names, &fields))
+                .transpose()
+                .map_err(PluginHookError)?;
+            let prime = predicate
+                .body
+                .as_ref()
+                .map(|e| sif_pure_expression(e, true, &function_names, &fields))
+                .transpose()
+                .map_err(PluginHookError)?;
+            predicates.push(predicate.copy_with(|p| p.body = normal));
+            predicates.push(predicate.copy_with(|p| {
+                p.name = name.clone();
+                p.body = prime;
+            }));
+        }
         let mut methods = Vec::new();
         for method in &input.methods {
             if method
                 .formal_args
                 .iter()
                 .chain(&method.formal_returns)
-                .any(|a| !matches!(a.typ, Type::Int | Type::Bool | Type::Ref))
+                .any(|a| !sif_supported_type(&a.typ))
             {
                 return Err(PluginHookError(
                     "SIF method result or type outside supported fragment".into(),
@@ -995,7 +1700,7 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
             );
             let _ = generator.get_unused_name("t1");
             let _ = generator.get_unused_name("t2");
-            let mut names = HashMap::new();
+            let mut names = function_names.clone();
             let mut args = vec![first.clone(), second.clone()];
             for arg in &method.formal_args {
                 let name = generator.get_unused_name(&arg.name);
@@ -1020,13 +1725,13 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
             let pres = method
                 .pres
                 .iter()
-                .map(|e| sif_assertion(e, &first_exp, &second_exp, &names))
+                .map(|e| sif_assertion(e, &first_exp, &second_exp, &names, &fields))
                 .collect::<Result<_, _>>()
                 .map_err(PluginHookError)?;
             let posts = method
                 .posts
                 .iter()
-                .map(|e| sif_assertion(e, &first_exp, &second_exp, &names))
+                .map(|e| sif_assertion(e, &first_exp, &second_exp, &names, &fields))
                 .collect::<Result<_, _>>()
                 .map_err(PluginHookError)?;
             let body = method
@@ -1038,6 +1743,7 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
                         &first_exp,
                         &second_exp,
                         &mut names,
+                        &fields,
                         &mut generator,
                     )?;
                     Ok::<_, String>(Stmt::new(
@@ -1063,6 +1769,11 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
                 meta: method.meta.clone(),
             }));
         }
-        Ok(input.copy_with(|p| p.methods = methods))
+        Ok(input.copy_with(|p| {
+            p.methods = methods;
+            p.fields = product_fields;
+            p.functions = functions;
+            p.predicates = predicates;
+        }))
     }
 }

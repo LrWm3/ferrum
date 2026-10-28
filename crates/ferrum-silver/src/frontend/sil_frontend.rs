@@ -621,6 +621,37 @@ mod tests {
         phases.prepare_verification(program).unwrap();
     }
     #[test]
+    fn quasihavoc_resource_reaches_typed_ast() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases.parse("field f: Int method m(r: Ref, b: Bool) requires acc(r.f) { quasihavoc b ==> r.f; quasihavoc r.f; }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        let parsed = phases
+            .parse("predicate P(r: Ref) method m(r: Ref) { quasihavoc P(r); }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        let parsed = phases.parse("method m(x: Int) { quasihavoc x; }").unwrap();
+        assert!(phases.analyze(parsed).is_err());
+        let parsed = phases
+            .parse("field f: Int method m(s: Set[Ref]) { quasihavocall x: Ref :: x in s ==> x.f; }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        let parsed = phases.parse("field f: Int define havoc(s) { quasihavocall x: Ref :: x in s ==> x.f; } method m(x: Ref, s: Set[Ref]) { havoc(s); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+    }
+
+    #[test]
     fn sif_plugin_builds_pure_assertion_product_and_rejects_unsupported() {
         let mut config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
         config.plugin = Some("viper.silver.plugin.sif.SIFPlugin".into());
@@ -628,6 +659,46 @@ mod tests {
             PathBuf::from("test.vpr"),
             standard_plugin_manager(&config).unwrap(),
         );
+        let parsed = phases.parse("field f: Int predicate P(r: Ref) { acc(r.f) } method pred(r: Ref) requires acc(r.f) { fold acc(P(r)); unfold acc(P(r)); assert acc(r.f); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        assert_eq!(
+            product
+                .predicates
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>(),
+            ["P", "P_0"]
+        );
+        phases.check_consistency(product).unwrap();
+        let parsed = phases.parse("field f: Int function read(r: Ref): Int requires acc(r.f) { r.f } method heapfunc(r: Ref) requires acc(r.f) && low(r) && low(r.f) { assert low(read(r)); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        assert_eq!(
+            product
+                .functions
+                .iter()
+                .map(|f| f.name.as_str())
+                .collect::<Vec<_>>(),
+            ["read", "read_0"]
+        );
+        phases.check_consistency(product).unwrap();
+        let parsed = phases.parse("method collections(xs: Seq[Int]) requires low(xs) { var ys: Seq[Int] := xs ++ Seq(1); assert low(ys); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases.parse("method bindings(x: Int) requires low(x) { assert low(let y == (x) in y + 1); assert low((exists z: Int :: z == x)); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
         let parsed = phases.parse("method m(x: Int) { assert low(x); }").unwrap();
         let analyzed = phases.analyze(parsed).unwrap();
         let program = phases.translate(analyzed).unwrap();
@@ -684,6 +755,67 @@ mod tests {
         );
         phases.check_consistency(product).unwrap();
         let parsed = phases.parse("method identity(x: Int) returns (r: Int) requires low(x) ensures low(r) { r := x; } method m(x: Int) requires low(x) { var y: Int := identity(x); assert low(y); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases.parse("field f: Int method m(r: Ref) requires acc(r.f) && low(r) && low(r.f) { r.f := r.f + 1; assert low(r.f); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        assert_eq!(
+            product
+                .fields
+                .iter()
+                .map(|f| f.name.as_str())
+                .collect::<Vec<_>>(),
+            ["f", "f$_p"]
+        );
+        phases.check_consistency(product).unwrap();
+        let parsed = phases.parse("field f: Int method m() { var r: Ref := new(f); r.f := 1; assert low(r); assert low(r.f); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases.parse("method m(x: Int) requires low(x) ensures low(old(x)) { assert low(x > 0 ? x : 0); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases
+            .parse("method m(x: Int) { inhale low(x); assert low(x); }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases
+            .parse(
+                "method m(x: Int, y: Int) requires low(x) ==> low(y) { assert low(x) ==> low(y); }",
+            )
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases
+            .parse("method m(x: Int) { assert forall x_0: Int :: x_0 == x_0; }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        assert_eq!(product.methods[0].formal_args[3].name, "x_1");
+        phases.check_consistency(product).unwrap();
+        let parsed = phases
+            .parse("method m() { assert forall i: Int :: low(i) && i == i; }")
+            .unwrap();
         let analyzed = phases.analyze(parsed).unwrap();
         let program = phases.translate(analyzed).unwrap();
         let program = phases.check_consistency(program).unwrap();
@@ -2135,26 +2267,38 @@ mod tests {
             .unwrap();
         assert!(frontend.errors.is_empty());
         let meta = crate::ast::ast::Metadata::default();
-        let low = crate::plugin::sif::sif_ast_extensions::SifExpression {
-            kind: crate::plugin::sif::sif_ast_extensions::SifExpressionKind::Low {
-                exp: crate::ast::expression::Exp::new(
+        let field = crate::ast::program::Field::new(crate::ast::program::FieldData {
+            name: "f".into(),
+            typ: crate::ast::r#type::Type::Int,
+            meta: meta.clone(),
+        });
+        let receiver = crate::ast::expression::Exp::new(
+            crate::ast::expression::ExpKind::NullLit,
+            meta.clone(),
+        );
+        let access =
+            crate::ast::expression::FieldAccess::new(receiver, field.clone(), meta.clone());
+        let permission = crate::ast::expression::Exp::new(
+            crate::ast::expression::ExpKind::FieldAccessPredicate(access, None),
+            meta.clone(),
+        );
+        let invalid = crate::ast::expression::Exp::new(
+            crate::ast::expression::ExpKind::And(
+                crate::ast::expression::Exp::new(
                     crate::ast::expression::ExpKind::TrueLit,
                     meta.clone(),
                 ),
-                comparator: None,
-                type_variables: Default::default(),
-            },
-            meta: meta.clone(),
-        }
-        .expression()
-        .unwrap();
+                permission,
+            ),
+            meta.clone(),
+        );
         let var = crate::ast::program::LocalVarDecl::new(
             "x".into(),
             crate::ast::r#type::Type::Int,
             meta.clone(),
         );
         let quantifier = crate::ast::expression::Exp::new(
-            crate::ast::expression::ExpKind::Forall(vec![var], vec![], low),
+            crate::ast::expression::ExpKind::Forall(vec![var], vec![], invalid),
             meta.clone(),
         );
         let statement = crate::ast::statement::Stmt::new(
@@ -2162,6 +2306,7 @@ mod tests {
             meta,
         );
         let program = frontend.program.as_ref().unwrap().copy_with(|p| {
+            p.fields.push(field);
             p.methods[0] = p.methods[0].copy_with(|method| method.body = Some(statement));
         });
         frontend.program = Some(program);

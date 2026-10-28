@@ -1229,6 +1229,8 @@ impl ExpressionParser<'_> {
         let keyword = match name {
             "package" => Some(PKw::Package),
             "apply" => Some(PKw::Apply),
+            "quasihavoc" => Some(PKw::Quasihavoc),
+            "quasihavocall" => Some(PKw::Quasihavocall),
             "fold" => Some(PKw::Fold),
             "unfold" => Some(PKw::Unfold),
             "assert" => Some(PKw::Assert),
@@ -1246,6 +1248,74 @@ impl ExpressionParser<'_> {
             self.cursor = end;
             let token = PReserved::new(keyword, self.span(start, end));
             match keyword {
+                PKw::Quasihavocall => {
+                    let first = self.binding(PDeclarationKind::LogicalVar)?;
+                    let list_start = first
+                        .node()
+                        .read()
+                        .expect("poisoned parse node")
+                        .pos
+                        .0
+                        .clone();
+                    let mut rest = Vec::new();
+                    while let Some(comma) = self.take(",")? {
+                        rest.push((
+                            PReserved::new(PSym::Comma, comma),
+                            self.binding(PDeclarationKind::LogicalVar)?,
+                        ));
+                    }
+                    let list_end = rest
+                        .last()
+                        .map(|(_, v)| v)
+                        .unwrap_or(&first)
+                        .node()
+                        .read()
+                        .expect("poisoned parse node")
+                        .pos
+                        .1
+                        .clone();
+                    let vars = PDelimited::new(Some(first), rest, None, (list_start, list_end));
+                    let colons = self
+                        .take("::")?
+                        .ok_or_else(|| self.error("expected '::' after quasihavocall variables"))?;
+                    let begin = self.cursor;
+                    let possible_guard = self.expression(4)?;
+                    let (lhs, exp) = if let Some(pos) = self.take("==>")? {
+                        (
+                            Some((possible_guard, PReserved::new(PSymOp::Implies, pos))),
+                            self.expression(0)?,
+                        )
+                    } else {
+                        self.cursor = begin;
+                        (None, self.expression(0)?)
+                    };
+                    PStatementKind::Quasihavocall {
+                        keyword: token,
+                        vars,
+                        colons: PReserved::new(PSym::ColonColon, colons),
+                        lhs,
+                        exp,
+                        scope_id: fresh_scope_id(),
+                    }
+                }
+                PKw::Quasihavoc => {
+                    let begin = self.cursor;
+                    let possible_guard = self.expression(4)?;
+                    let (lhs, exp) = if let Some(pos) = self.take("==>")? {
+                        (
+                            Some((possible_guard, PReserved::new(PSymOp::Implies, pos))),
+                            self.expression(0)?,
+                        )
+                    } else {
+                        self.cursor = begin;
+                        (None, self.expression(0)?)
+                    };
+                    PStatementKind::Quasihavoc {
+                        keyword: token,
+                        lhs,
+                        exp,
+                    }
+                }
                 PKw::Fold | PKw::Unfold | PKw::Assert | PKw::Assume | PKw::Inhale | PKw::Exhale => {
                     let exp = self.expression(0)?;
                     match keyword {

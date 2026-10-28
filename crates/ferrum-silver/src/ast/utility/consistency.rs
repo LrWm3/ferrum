@@ -3008,13 +3008,6 @@ pub fn check_node_with_options<E>(
                         n: &Node,
                         inside: bool,
                     ) -> std::result::Result<bool, NodeConsistencyError<()>> {
-                        if matches!(n, Node::Exp(e) if matches!(e.kind(), Extension(_)))
-                            || matches!(n, Node::Stmt(s) if matches!(s.kind(), StmtKind::Extension(_)))
-                        {
-                            return Err(NodeConsistencyError::Unsupported(
-                                "extension quantified-permission context",
-                            ));
-                        }
                         let inside = inside
                             || matches!(n, Node::Exp(e) if matches!(e.kind(), Unfolding(..)));
                         let mut found = !inside

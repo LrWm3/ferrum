@@ -1182,6 +1182,45 @@ fn translate_statement_with_fields(
                 StmtKind::Unfold(access.clone())
             }
         }
+        ref kind @ (PStatementKind::Quasihavoc {
+            ref lhs, ref exp, ..
+        }
+        | PStatementKind::Quasihavocall {
+            ref lhs, ref exp, ..
+        }) => {
+            use crate::ast::statement::ResourceAccess;
+            let guard = lhs
+                .as_ref()
+                .map(|(e, _)| translate_expression_with_fields(e, fields))
+                .transpose()?;
+            let expression = translate_expression_with_fields(&exp, fields)?;
+            let resource = match expression.kind() {
+                ExpKind::FieldAccess(access) => ResourceAccess::Field(access.clone()),
+                ExpKind::PredicateAccessPredicate(access)
+                    if access.permission.is_none()
+                        || matches!(
+                            access.permission.as_ref().map(|p| p.kind()),
+                            Some(ExpKind::FullPerm)
+                        ) =>
+                {
+                    ResourceAccess::Predicate(access.location.clone())
+                }
+                ExpKind::MagicWand(..) => ResourceAccess::MagicWand(expression.clone()),
+                _ => return Err(TranslationError::Unsupported("havoc resource")),
+            };
+            match kind {
+                PStatementKind::Quasihavocall { vars, .. } => StmtKind::Quasihavocall {
+                    variables: vars
+                        .to_seq()
+                        .into_iter()
+                        .map(formal_declaration)
+                        .collect::<Result<Vec<_>, _>>()?,
+                    guard,
+                    resource,
+                },
+                _ => StmtKind::Quasihavoc { guard, resource },
+            }
+        }
         PStatementKind::Assert { exp, .. } => {
             StmtKind::Assert(translate_expression_with_fields(&exp, fields)?)
         }

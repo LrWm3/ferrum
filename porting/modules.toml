@@ -448,7 +448,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/sif/SIFExtendedTransformer.scala"
 destination = "crates/ferrum-silver/src/plugin/sif/sif_extended_transformer.rs"
 status = "skeleton"
-remaining = ["Concrete source product transformation handles pure methods/functions, locals, conditionals, paired returns and calls. Loop/heap/predicate products and other relational forms remain explicitly unsupported; broad SIF compatibility is pending."]
+remaining = ["Concrete product transformation handles fields/allocation, heap functions, unary predicates, locals, conditionals, paired calls/returns, bindings, collections, quantifiers and relational inhale/exhale. Loop and relational-predicate products and other source modes remain explicitly unsupported; broader compatibility and diagnostic backtranslation remain."]
 
 [[modules]]
 repository = "silver"

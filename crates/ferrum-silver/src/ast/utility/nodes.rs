@@ -1804,7 +1804,11 @@ fn map_node_tree_impl(
                 &|n| self.pass(n),
                 &|ext, map| {
                     if self.visit_maps {
-                        ext.0.map_expressions(map)
+                        let mapped = ext.0.map_expressions(map)?;
+                        Ok(mapped
+                            .0
+                            .map_statements(&|stmt| self.stmt(stmt))?
+                            .unwrap_or(mapped))
                     } else {
                         for child in ext.0.check_product_nodes()? {
                             self.pass(&child)?;

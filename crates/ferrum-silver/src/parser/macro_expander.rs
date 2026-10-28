@@ -1540,6 +1540,35 @@ fn copy_macro_statement(
             keyword: token!(keyword),
             exp: copy_expression(&exp, replacements, scope)?,
         },
+        S::Quasihavoc { keyword, lhs, exp } => S::Quasihavoc {
+            keyword: token!(keyword),
+            lhs: lhs
+                .as_ref()
+                .map(|(guard, op)| Ok((copy_expression(guard, replacements, scope)?, token!(op))))
+                .transpose()?,
+            exp: copy_expression(&exp, replacements, scope)?,
+        },
+        S::Quasihavocall {
+            keyword,
+            vars,
+            colons,
+            lhs,
+            exp,
+            ..
+        } => {
+            let (vars, inner) = copy_macro_bound_variables(&vars, replacements, scope, true)?;
+            S::Quasihavocall {
+                keyword: token!(keyword),
+                vars,
+                colons: token!(colons),
+                lhs: lhs
+                    .as_ref()
+                    .map(|(guard, op)| Ok((copy_expression(guard, &inner, scope)?, token!(op))))
+                    .transpose()?,
+                exp: copy_expression(&exp, &inner, scope)?,
+                scope_id: super::parse_ast::fresh_scope_id(),
+            }
+        }
         S::Assign { targets, op, rhs } => {
             let first = targets
                 .first

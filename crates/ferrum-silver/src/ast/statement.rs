@@ -86,6 +86,27 @@ pub trait ExtensionStmt: Debug + Send + Sync {
             ),
         )
     }
+    /// Rebuild nested statement children in source order. Unknown extensions with
+    /// statement children must implement this hook rather than skip their bodies.
+    fn map_statements(
+        &self,
+        _map: &dyn Fn(&Stmt) -> Result<Stmt, crate::verifier::verification_result::DiagnosticError>,
+    ) -> Result<Option<ExtensionStmtHandle>, crate::verifier::verification_result::DiagnosticError>
+    {
+        use crate::verifier::verification_result::DiagnosticError;
+        let children = self
+            .subnodes()
+            .map_err(|_| DiagnosticError::Unsupported("extension statement traversal"))?;
+        if children
+            .iter()
+            .any(|n| matches!(n, super::utility::nodes::Node::Stmt(_)))
+        {
+            return Err(DiagnosticError::Unsupported(
+                "extension nested statement reconstruction",
+            ));
+        }
+        Ok(None)
+    }
     fn subnodes(
         &self,
     ) -> Result<Vec<super::utility::nodes::Node>, super::utility::nodes::TraversalError> {

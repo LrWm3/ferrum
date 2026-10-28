@@ -520,12 +520,11 @@ fn visit_names(
                 true,
                 messages,
             )?,
-            PStatementKind::Seqn { .. } => scope = Some(DeclarationMap::new(false, false)),
+            PStatementKind::Seqn { .. } | PStatementKind::Quasihavocall { .. } => scope = Some(DeclarationMap::new(false, false)),
             PStatementKind::Extension(extension) if !extension.statement_name_analysis_passthrough() && !extension.as_any().is::<crate::plugin::standard::refute::refute_past_extension::PRefute>() && !extension.as_any().is::<crate::plugin::standard::smoke::unreachable_past_extension::PUnreachable>() => {
                 return Err(NameAnalysisError::Unsupported("statement extension scope"));
             }
-            PStatementKind::MacroSeqn { .. }
-            | PStatementKind::Quasihavocall { .. } => {
+            PStatementKind::MacroSeqn { .. } => {
                 return Err(NameAnalysisError::Unsupported(
                     "statement extension or macro scope",
                 ));
@@ -2317,6 +2316,33 @@ pub fn check_statement_core(
             ensure_nonabstract_predicate_access(exp, matches!(kind, S::Fold { .. }))?;
             let predicate = type_from_signature(&SignatureType::Predicate);
             check_program_expression(exp, Some(&predicate), &mut *warn)?;
+        }
+        S::Quasihavoc { lhs, exp, .. } | S::Quasihavocall { lhs, exp, .. } => {
+            if let Some((guard, _)) = lhs {
+                check_program_expression(&guard, Some(&boolean), &mut *warn)?;
+            }
+            let kind = match &exp.node().read().expect("poisoned parse node").kind {
+                PNodeKind::Expression(e) => e.kind.clone(),
+                _ => return Err(TypeCheckError::Unsupported("havoc resource")),
+            };
+            match kind {
+                PExpressionKind::FieldAccess { .. } => {
+                    check_program_expression(&exp, None, &mut *warn)?;
+                }
+                PExpressionKind::Call { .. } => {
+                    let predicate = type_from_signature(&SignatureType::Predicate);
+                    check_program_expression(&exp, Some(&predicate), &mut *warn)?;
+                }
+                PExpressionKind::MagicWandExp { .. } => {
+                    let wand = type_from_signature(&SignatureType::Wand);
+                    check_program_expression(&exp, Some(&wand), &mut *warn)?;
+                }
+                _ => {
+                    return Err(TypeCheckError::Unsupported(
+                        "havoc statement must take a field access, predicate, or wand",
+                    ));
+                }
+            }
         }
         S::Assert { exp, .. }
         | S::Assume { exp, .. }
