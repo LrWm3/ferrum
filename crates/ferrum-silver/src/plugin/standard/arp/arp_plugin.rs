@@ -848,6 +848,12 @@ pub fn encode_arp(program: &Program) -> Result<Program, ArpError> {
 }
 pub struct ArpPlugin;
 impl SilverPlugin for ArpPlugin {
+    fn shared_entity_mapper(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::reporter::reporter::EntityResultMapper>> {
+        Some(crate::plugin::silver_plugin_manager::identity_entity_mapper())
+    }
+
     fn parser_features(&self) -> Vec<crate::parser::fast_parser::ParserFeature> {
         vec![crate::parser::fast_parser::ParserFeature::Arp]
     }

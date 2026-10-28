@@ -45,6 +45,11 @@ fn make_try_block(keyword: Span, body: PStmtHandle, pos: Span) -> PStmtHandle {
 #[derive(Default)]
 pub struct TryBlockParserPlugin;
 impl SilverPlugin for TryBlockParserPlugin {
+    fn shared_entity_mapper(
+        &self,
+    ) -> Option<std::sync::Arc<dyn ferrum_silver::reporter::reporter::EntityResultMapper>> {
+        Some(ferrum_silver::plugin::silver_plugin_manager::identity_entity_mapper())
+    }
     fn parser_features(&self) -> Vec<ParserFeature> {
         vec![ParserFeature::StatementBlock {
             keyword: "try",

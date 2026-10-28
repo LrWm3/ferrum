@@ -72,6 +72,13 @@ impl From<crate::ast::pretty::pretty_printer::PrintError> for ReportError {
 pub trait Reporter: Send + Sync {
     fn name(&self) -> &str;
     fn report(&self, message: Message) -> Result<(), ReportError>;
+    /// Bind the manager only for reporters that transform entity results.
+    fn bind_plugin_manager(
+        &self,
+        _manager: &crate::plugin::silver_plugin_manager::SilverPluginManager,
+    ) -> Result<(), ReportError> {
+        Ok(())
+    }
     /// Called by a configured Silver frontend reset; most reporters ignore configuration.
     fn set_config(
         &self,
@@ -98,49 +105,77 @@ pub trait EntityResultMapper: Send + Sync {
         result: VerificationResult,
     ) -> Result<VerificationResult, ReportError>;
 }
+impl<F> EntityResultMapper for F
+where
+    F: Fn(&Entity, VerificationResult) -> Result<VerificationResult, ReportError> + Send + Sync,
+{
+    fn map_entity_result(
+        &self,
+        entity: &Entity,
+        result: VerificationResult,
+    ) -> Result<VerificationResult, ReportError> {
+        self(entity, result)
+    }
+}
+type MapperSlot = RwLock<Option<Arc<dyn EntityResultMapper>>>;
+fn bind_mapper(
+    slot: &MapperSlot,
+    manager: &crate::plugin::silver_plugin_manager::SilverPluginManager,
+) -> Result<(), ReportError> {
+    let mapper = manager.shared_entity_mapper()?;
+    *slot.write().expect("poisoned reporter plugin lock") = Some(mapper);
+    Ok(())
+}
+fn map_entity_message(mapper_lock: &MapperSlot, message: Message) -> Result<Message, ReportError> {
+    let mapper = mapper_lock
+        .read()
+        .expect("poisoned reporter plugin lock")
+        .clone();
+    Ok(if let Some(mapper) = mapper {
+        match message {
+            Message::EntitySuccess {
+                verifier,
+                concerning,
+                time,
+                cached,
+            } => {
+                let result = mapper.map_entity_result(&concerning, VerificationResult::Success)?;
+                Message::entity_result(verifier, concerning, time, result, cached)
+            }
+            Message::EntityFailure {
+                verifier,
+                concerning,
+                time,
+                errors,
+                cached,
+            } => {
+                let result =
+                    mapper.map_entity_result(&concerning, VerificationResult::Failure(errors))?;
+                Message::entity_result(verifier, concerning, time, result, cached)
+            }
+            other => other,
+        }
+    } else {
+        message
+    })
+}
 pub struct PluginAwareReporter {
     pub name: String,
     pub target: Arc<dyn Reporter>,
     pub mapper: RwLock<Option<Arc<dyn EntityResultMapper>>>,
 }
 impl Reporter for PluginAwareReporter {
+    fn bind_plugin_manager(
+        &self,
+        manager: &crate::plugin::silver_plugin_manager::SilverPluginManager,
+    ) -> Result<(), ReportError> {
+        bind_mapper(&self.mapper, manager)
+    }
     fn name(&self) -> &str {
         &self.name
     }
     fn report(&self, message: Message) -> Result<(), ReportError> {
-        let mapper = self
-            .mapper
-            .read()
-            .expect("poisoned reporter plugin lock")
-            .clone();
-        let message = if let Some(mapper) = mapper {
-            match message {
-                Message::EntitySuccess {
-                    verifier,
-                    concerning,
-                    time,
-                    cached,
-                } => {
-                    let result =
-                        mapper.map_entity_result(&concerning, VerificationResult::Success)?;
-                    Message::entity_result(verifier, concerning, time, result, cached)
-                }
-                Message::EntityFailure {
-                    verifier,
-                    concerning,
-                    time,
-                    errors,
-                    cached,
-                } => {
-                    let result = mapper
-                        .map_entity_result(&concerning, VerificationResult::Failure(errors))?;
-                    Message::entity_result(verifier, concerning, time, result, cached)
-                }
-                other => other,
-            }
-        } else {
-            message
-        };
+        let message = map_entity_message(&self.mapper, message)?;
         self.target.report(message)
     }
 }
@@ -149,6 +184,7 @@ pub struct PollingReporter {
     pub name: String,
     pub pass_through: Arc<dyn Reporter>,
     messages: Mutex<VecDeque<Message>>,
+    mapper: MapperSlot,
 }
 impl PollingReporter {
     pub fn new(pass_through: Arc<dyn Reporter>) -> Self {
@@ -156,6 +192,7 @@ impl PollingReporter {
             name: "polling_reporter".into(),
             pass_through,
             messages: Mutex::new(VecDeque::new()),
+            mapper: RwLock::new(None),
         }
     }
     pub fn has_new_message(&self) -> bool {
@@ -174,10 +211,17 @@ impl PollingReporter {
     }
 }
 impl Reporter for PollingReporter {
+    fn bind_plugin_manager(
+        &self,
+        manager: &crate::plugin::silver_plugin_manager::SilverPluginManager,
+    ) -> Result<(), ReportError> {
+        bind_mapper(&self.mapper, manager)
+    }
     fn name(&self) -> &str {
         &self.name
     }
     fn report(&self, message: Message) -> Result<(), ReportError> {
+        let message = map_entity_message(&self.mapper, message)?;
         let mut messages = self.messages.lock().expect("poisoned reporter queue");
         messages.push_back(message.clone());
         self.pass_through.report(message)
@@ -492,12 +536,14 @@ impl Message {
 /// Writes source CSV records in order and flushes each report.
 pub struct CsvReporter<W: Write + Send> {
     pub name: String,
+    mapper: MapperSlot,
     writer: Mutex<W>,
 }
 impl<W: Write + Send> CsvReporter<W> {
     pub fn new(writer: W) -> Self {
         Self {
             name: "csv_reporter".into(),
+            mapper: RwLock::new(None),
             writer: Mutex::new(writer),
         }
     }
@@ -513,10 +559,17 @@ impl CsvReporter<std::fs::File> {
     }
 }
 impl<W: Write + Send> Reporter for CsvReporter<W> {
+    fn bind_plugin_manager(
+        &self,
+        manager: &crate::plugin::silver_plugin_manager::SilverPluginManager,
+    ) -> Result<(), ReportError> {
+        bind_mapper(&self.mapper, manager)
+    }
     fn name(&self) -> &str {
         &self.name
     }
     fn report(&self, message: Message) -> Result<(), ReportError> {
+        let message = map_entity_message(&self.mapper, message)?;
         let mut writer = self.writer.lock().expect("poisoned CSV reporter");
         match message {
             Message::AstConstructionFailure { time, .. } => {
@@ -707,6 +760,7 @@ pub struct StdIoReporter<W: Write + Send> {
     pub report_partial_results: bool,
     // 0: standalone field, 1: configured false, 2: configured true.
     configured_partial_results: std::sync::atomic::AtomicU8,
+    mapper: MapperSlot,
     writer: Mutex<W>,
     counter: std::sync::atomic::AtomicI32,
 }
@@ -717,6 +771,7 @@ impl<W: Write + Send> StdIoReporter<W> {
             time_info,
             report_partial_results: false,
             configured_partial_results: std::sync::atomic::AtomicU8::new(0),
+            mapper: RwLock::new(None),
             writer: Mutex::new(writer),
             counter: std::sync::atomic::AtomicI32::new(0),
         }
@@ -730,6 +785,12 @@ impl<W: Write + Send> StdIoReporter<W> {
     }
 }
 impl<W: Write + Send> Reporter for StdIoReporter<W> {
+    fn bind_plugin_manager(
+        &self,
+        manager: &crate::plugin::silver_plugin_manager::SilverPluginManager,
+    ) -> Result<(), ReportError> {
+        bind_mapper(&self.mapper, manager)
+    }
     fn set_config(
         &self,
         config: Option<&crate::frontend::sil_front_end_config::SilFrontendConfig>,
@@ -747,6 +808,7 @@ impl<W: Write + Send> Reporter for StdIoReporter<W> {
     }
     fn report(&self, message: Message) -> Result<(), ReportError> {
         use super::message::SimpleMessageKind;
+        let message = map_entity_message(&self.mapper, message)?;
         let mut writer = self.writer.lock().expect("poisoned stdout reporter");
         match message {
             Message::AstConstructionSuccess { time } => {
@@ -1121,6 +1183,210 @@ mod tests {
             Err(ReportError::Io(_))
         ));
         assert_eq!(reporter.counter(), 0);
+    }
+    #[test]
+    fn polling_maps_before_queue_lock_on_reentrant_report() {
+        use crate::plugin::{
+            silver_plugin::SilverPlugin, silver_plugin_manager::SilverPluginManager,
+        };
+        struct Reentrant(
+            std::sync::Weak<PollingReporter>,
+            Arc<std::sync::atomic::AtomicBool>,
+        );
+        impl SilverPlugin for Reentrant {
+            fn shared_entity_mapper(&self) -> Option<Arc<dyn EntityResultMapper>> {
+                let reporter = self.0.clone();
+                let entered = self.1.clone();
+                Some(Arc::new(move |_: &Entity, result| {
+                    if !entered.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        reporter.upgrade().unwrap().report(Message::EntitySuccess {
+                            verifier: "Silicon".into(),
+                            concerning: method(),
+                            time: 0,
+                            cached: false,
+                        })?;
+                    }
+                    Ok(result)
+                }))
+            }
+        }
+        let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+        let manager = SilverPluginManager::new(vec![Box::new(Reentrant(
+            Arc::downgrade(&reporter),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        ))]);
+        reporter.bind_plugin_manager(&manager).unwrap();
+        reporter
+            .report(Message::EntitySuccess {
+                verifier: "Silicon".into(),
+                concerning: method(),
+                time: 0,
+                cached: false,
+            })
+            .unwrap();
+        assert!(reporter.get_new_message().is_ok());
+        assert!(reporter.get_new_message().is_ok());
+    }
+    #[test]
+    fn concrete_reporters_map_entities_before_writing_or_queueing() {
+        use crate::plugin::{
+            silver_plugin::SilverPlugin, silver_plugin_manager::SilverPluginManager,
+        };
+        struct Flip;
+        impl SilverPlugin for Flip {
+            fn shared_entity_mapper(&self) -> Option<Arc<dyn EntityResultMapper>> {
+                Some(Arc::new(|_: &Entity, _: VerificationResult| {
+                    Ok(VerificationResult::Failure(vec![]))
+                }))
+            }
+        }
+        let manager = SilverPluginManager::new(vec![Box::new(Flip)]);
+        let message = || Message::EntitySuccess {
+            verifier: "Silicon".into(),
+            concerning: method(),
+            time: 0,
+            cached: false,
+        };
+        let polling = PollingReporter::new(Arc::new(NoopReporter));
+        polling.bind_plugin_manager(&manager).unwrap();
+        polling.report(message()).unwrap();
+        assert!(matches!(
+            polling.get_new_message().unwrap(),
+            Message::EntityFailure { .. }
+        ));
+        let csv = CsvReporter::new(Vec::new());
+        csv.bind_plugin_manager(&manager).unwrap();
+        csv.report(message()).unwrap();
+        let csv_text = String::from_utf8(csv.writer.lock().unwrap().clone()).unwrap();
+        assert!(csv_text.starts_with("EntityFailureMessage,"));
+        let mut stdout = StdIoReporter::new(Vec::new(), false);
+        stdout.report_partial_results = true;
+        stdout.bind_plugin_manager(&manager).unwrap();
+        stdout.report(message()).unwrap();
+        let output = String::from_utf8(stdout.writer.lock().unwrap().clone()).unwrap();
+        assert!(output.contains("entity_failure_message"));
+    }
+    #[test]
+    fn shared_mapping_allows_reentrant_entity_report() {
+        use crate::plugin::{
+            silver_plugin::SilverPlugin, silver_plugin_manager::SilverPluginManager,
+        };
+        struct Reentrant(
+            std::sync::Weak<PluginAwareReporter>,
+            Arc<std::sync::atomic::AtomicBool>,
+        );
+        impl SilverPlugin for Reentrant {
+            fn shared_entity_mapper(&self) -> Option<Arc<dyn EntityResultMapper>> {
+                let reporter = self.0.clone();
+                let entered = self.1.clone();
+                Some(Arc::new(move |_: &Entity, result| {
+                    if !entered.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        reporter.upgrade().unwrap().report(Message::EntitySuccess {
+                            verifier: "Silicon".into(),
+                            concerning: method(),
+                            time: 0,
+                            cached: false,
+                        })?;
+                    }
+                    Ok(result)
+                }))
+            }
+        }
+        let target = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+        let reporter = Arc::new(PluginAwareReporter {
+            name: "shared".into(),
+            target: target.clone(),
+            mapper: RwLock::new(None),
+        });
+        let manager = SilverPluginManager::new(vec![Box::new(Reentrant(
+            Arc::downgrade(&reporter),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        ))]);
+        reporter.bind_plugin_manager(&manager).unwrap();
+        reporter
+            .report(Message::EntitySuccess {
+                verifier: "Silicon".into(),
+                concerning: method(),
+                time: 0,
+                cached: false,
+            })
+            .unwrap();
+        assert!(matches!(
+            target.get_new_message().unwrap(),
+            Message::EntitySuccess { .. }
+        ));
+        assert!(matches!(
+            target.get_new_message().unwrap(),
+            Message::EntitySuccess { .. }
+        ));
+    }
+    #[test]
+    fn builtin_shared_mapper_matches_manager_success_mapping() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::parse_shared(
+            "test",
+            &["--ignoreFile".into(), "test.vpr".into()],
+        );
+        let mut manager = crate::frontend::sil_frontend::standard_plugin_manager(&config).unwrap();
+        let entity = method();
+        let view = manager.shared_entity_mapper().unwrap();
+        let direct = manager
+            .map_entity_verification_result(&entity, VerificationResult::Success)
+            .unwrap();
+        let shared = view
+            .map_entity_result(&entity, VerificationResult::Success)
+            .unwrap();
+        assert!(matches!(direct, VerificationResult::Success));
+        assert!(matches!(shared, VerificationResult::Success));
+    }
+    #[test]
+    fn shared_mapper_supports_concurrent_reports_and_rejects_unavailable_plugins() {
+        use crate::plugin::{
+            silver_plugin::SilverPlugin, silver_plugin_manager::SilverPluginManager,
+        };
+        struct Unavailable;
+        impl SilverPlugin for Unavailable {}
+        let unsupported = SilverPluginManager::new(vec![Box::new(Unavailable)]);
+        let plain = NoopReporter;
+        plain.bind_plugin_manager(&unsupported).unwrap();
+        let reporter = Arc::new(PluginAwareReporter {
+            name: "shared".into(),
+            target: Arc::new(NoopReporter),
+            mapper: RwLock::new(None),
+        });
+        assert!(matches!(
+            reporter.bind_plugin_manager(&unsupported),
+            Err(ReportError::Unsupported(_))
+        ));
+        struct Concurrent(Arc<std::sync::Barrier>);
+        impl SilverPlugin for Concurrent {
+            fn shared_entity_mapper(&self) -> Option<Arc<dyn EntityResultMapper>> {
+                let barrier = self.0.clone();
+                Some(Arc::new(move |_: &Entity, result| {
+                    barrier.wait();
+                    Ok(result)
+                }))
+            }
+        }
+        let manager = SilverPluginManager::new(vec![Box::new(Concurrent(Arc::new(
+            std::sync::Barrier::new(2),
+        )))]);
+        reporter.bind_plugin_manager(&manager).unwrap();
+        let threads: Vec<_> = (0..2)
+            .map(|_| {
+                let reporter = reporter.clone();
+                std::thread::spawn(move || {
+                    reporter.report(Message::EntitySuccess {
+                        verifier: "Silicon".into(),
+                        concerning: method(),
+                        time: 0,
+                        cached: false,
+                    })
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap().unwrap();
+        }
     }
     #[test]
     fn configured_partial_results_override_and_restore_standalone_field() {

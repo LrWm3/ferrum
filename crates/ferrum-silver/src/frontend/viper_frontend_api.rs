@@ -111,6 +111,9 @@ impl ViperFrontendApi<super::sil_frontend::SilFrontendPhases> {
         }
         let plugins = super::sil_frontend::standard_plugin_manager_with_resolver(&config, resolver)
             .map_err(FrontendApiInitError::Plugin)?;
+        reporter
+            .bind_plugin_manager(&plugins)
+            .map_err(FrontendApiInitError::Reporter)?;
         self.frontend.phases.configure_consistency(&config);
         self.frontend.phases.plugins = plugins;
         self.frontend.init(verifier);

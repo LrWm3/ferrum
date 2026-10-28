@@ -45,6 +45,17 @@ pub struct PluginHookError(pub String);
 
 /// Plugin hooks default to identity, as in SilverPlugin. Concrete plugins own their error lists.
 pub trait SilverPlugin: Send {
+    /// A shared view of this plugin's entity mapping, or None when unavailable.
+    /// The view must observe all mapping-relevant phase changes throughout its lifetime,
+    /// agree with sequential `map_entity_verification_result`, and support concurrent and
+    /// reentrant calls without deadlock. A view may retain shared state beyond the manager's
+    /// lifetime. Built-ins capture only mapping data verified immutable during verification;
+    /// custom stateful plugins must instead share their live mapping state.
+    fn shared_entity_mapper(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::reporter::reporter::EntityResultMapper>> {
+        None
+    }
     fn parser_features(&self) -> Vec<crate::parser::fast_parser::ParserFeature> {
         Vec::new()
     }

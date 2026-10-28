@@ -38,7 +38,25 @@ use crate::parser::parse_ast::PProgramHandle;
 use crate::reporter::package::Entity;
 use crate::reporter::reporter::{EntityResultMapper, ReportError};
 use crate::verifier::verification_result::{AbstractError, VerificationResult};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+
+/// Explicit identity view for plugins with the source default entity mapping.
+pub fn identity_entity_mapper() -> Arc<dyn EntityResultMapper> {
+    Arc::new(|_: &Entity, result: VerificationResult| Ok(result))
+}
+struct SharedEntityMappers(Vec<Arc<dyn EntityResultMapper>>);
+impl EntityResultMapper for SharedEntityMappers {
+    fn map_entity_result(
+        &self,
+        entity: &Entity,
+        mut result: VerificationResult,
+    ) -> Result<VerificationResult, ReportError> {
+        for mapper in &self.0 {
+            result = mapper.map_entity_result(entity, result)?;
+        }
+        Ok(result)
+    }
+}
 
 #[derive(Default)]
 pub struct SilverPluginManager {
@@ -51,6 +69,19 @@ impl SilverPluginManager {
             plugins,
             errors: Vec::new(),
         }
+    }
+    pub fn shared_entity_mapper(&self) -> Result<Arc<dyn EntityResultMapper>, ReportError> {
+        let mut views = Vec::with_capacity(self.plugins.len());
+        for plugin in &self.plugins {
+            views.push(
+                plugin
+                    .shared_entity_mapper()
+                    .ok_or(ReportError::Unsupported(
+                        "plugin does not provide a shared entity mapper",
+                    ))?,
+            );
+        }
+        Ok(Arc::new(SharedEntityMappers(views)))
     }
     pub fn parser_features(&self) -> Vec<crate::parser::fast_parser::ParserFeature> {
         self.plugins

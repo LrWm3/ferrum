@@ -48,6 +48,11 @@ pub struct SifPlugin<T: SifTransformer> {
     pub transformer: T,
 }
 impl<T: SifTransformer> SilverPlugin for SifPlugin<T> {
+    fn shared_entity_mapper(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::reporter::reporter::EntityResultMapper>> {
+        Some(crate::plugin::silver_plugin_manager::identity_entity_mapper())
+    }
     fn parser_features(&self) -> Vec<ParserFeature> {
         vec![ParserFeature::Sif]
     }

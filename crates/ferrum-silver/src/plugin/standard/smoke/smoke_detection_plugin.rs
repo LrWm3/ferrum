@@ -537,6 +537,12 @@ mod tests {
 /// Runtime smoke transformation. Register refute after this plugin to consume probes.
 pub struct SmokeDetectionPlugin;
 impl crate::plugin::silver_plugin::SilverPlugin for SmokeDetectionPlugin {
+    fn shared_entity_mapper(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::reporter::reporter::EntityResultMapper>> {
+        Some(crate::plugin::silver_plugin_manager::identity_entity_mapper())
+    }
+
     fn parser_features(&self) -> Vec<crate::parser::fast_parser::ParserFeature> {
         vec![crate::parser::fast_parser::ParserFeature::Unreachable]
     }

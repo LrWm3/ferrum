@@ -548,3 +548,21 @@ at the source continuation boundary, including successful joins with no entries.
 Fatal results and execution errors leave the scope open. A focused real-Z3 check
 covers original-state capture and the empty/error boundaries. Parallel join
 logging and remaining rule events are still separate from these optional hooks.
+
+Plugin-aware, StdIO, CSV and Polling reporters now bind ordered shared entity
+mapping views during configured provider reset and injected API factory setup.
+The built-in Refute, PredicateInstance and Termination views reuse their existing
+mapping algorithms and immutable mapping data; other known plugins, including
+Silicon TryBlock, retain identity mapping. Callbacks run outside reporter locks,
+so supported concurrent and reentrant entity mapping needs no mutable-manager
+lock. Polling still enqueues and forwards under its queue lock. Only entity
+success/failure events are mapped; overall and branch messages retain source
+behavior. Provider plugin disabling preserves the source's earlier reporter
+binding. Custom mutable plugins must supply an explicit concurrent shared view
+or receive an unsupported error when bound to a plugin-aware reporter; plain
+reporters remain usable. The older opaque-callback API initializer still cannot
+bind an inaccessible manager, and broad transformed-failure parity remains open.
+
+The injected Refute regression checks mapped entity and final outcomes with
+one/two workers: refuting false succeeds and refuting true reports the source
+refutation failure. It passes with both stdio and linked Z3.

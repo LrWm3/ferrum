@@ -68,6 +68,12 @@ impl AdtPlugin {
     }
 }
 impl SilverPlugin for AdtPlugin {
+    fn shared_entity_mapper(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::reporter::reporter::EntityResultMapper>> {
+        Some(crate::plugin::silver_plugin_manager::identity_entity_mapper())
+    }
+
     fn errors(&self) -> &[crate::verifier::verification_result::AbstractError] {
         &self.errors
     }

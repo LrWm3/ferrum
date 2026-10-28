@@ -342,6 +342,21 @@ pub struct RefutePlugin {
     pub renderer: Arc<dyn crate::verifier::verification_error::ErrorNodeRenderer>,
 }
 impl crate::plugin::silver_plugin::SilverPlugin for RefutePlugin {
+    fn shared_entity_mapper(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::reporter::reporter::EntityResultMapper>> {
+        let renderer = self.renderer.clone();
+        Some(std::sync::Arc::new(
+            move |entity: &crate::reporter::package::Entity, input| {
+                map_refute_results(
+                    &crate::ast::utility::nodes::Node::Member((**entity).clone()),
+                    input,
+                    renderer.clone(),
+                )
+                .map_err(|error| crate::reporter::reporter::ReportError::Plugin(error.into()))
+            },
+        ))
+    }
     fn parser_features(&self) -> Vec<crate::parser::fast_parser::ParserFeature> {
         vec![crate::parser::fast_parser::ParserFeature::Refute]
     }

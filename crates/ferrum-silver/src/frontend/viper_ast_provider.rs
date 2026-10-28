@@ -158,6 +158,9 @@ pub(crate) fn reset_configured(
         }
         let manager = super::sil_frontend::standard_plugin_manager(config)
             .map_err(ProviderSetupError::Plugin)?;
+        reporter
+            .bind_plugin_manager(&manager)
+            .map_err(ProviderSetupError::Reporter)?;
         frontend.phases.plugins = manager;
         reporter
             .set_config(Some(config))
@@ -355,6 +358,47 @@ mod tests {
             )))
         ));
         assert_eq!(*reporter.0.lock().unwrap(), vec![false, true]);
+    }
+    #[test]
+    fn provider_rebinds_constructed_manager_before_disable_override() {
+        struct Binding(std::sync::Mutex<Vec<usize>>);
+        impl Reporter for Binding {
+            fn name(&self) -> &str {
+                "binding"
+            }
+            fn report(&self, _: Message) -> Result<(), ReportError> {
+                Ok(())
+            }
+            fn bind_plugin_manager(
+                &self,
+                manager: &crate::plugin::silver_plugin_manager::SilverPluginManager,
+            ) -> Result<(), ReportError> {
+                manager.shared_entity_mapper()?;
+                self.0.lock().unwrap().push(manager.plugins.len());
+                Ok(())
+            }
+        }
+        let reporter = Arc::new(Binding(std::sync::Mutex::new(Vec::new())));
+        let phases = super::super::sil_frontend::SilFrontendPhases::new(
+            "test.vpr".into(),
+            crate::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+        );
+        let mut provider =
+            ViperAstProvider::new(DefaultFrontend::new(phases), reporter.clone(), true);
+        provider
+            .initialize_configured(&["--ignoreFile".into(), "test.vpr".into()])
+            .unwrap();
+        for _ in 0..2 {
+            provider
+                .reset(std::path::Path::new("test.vpr"), |_| {
+                    Ok("method m() {}".into())
+                })
+                .unwrap();
+        }
+        let calls = reporter.0.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert!(calls.iter().all(|count| *count > 0));
+        assert!(provider.frontend.phases.plugins.plugins.is_empty());
     }
     #[test]
     fn ast_constructor_retains_shared_command_line_config() {

@@ -475,6 +475,16 @@ mod tests {
 /// Registers predicate-instance syntax, lowering and fallible result mapping.
 pub struct PredicateInstancePlugin;
 impl crate::plugin::silver_plugin::SilverPlugin for PredicateInstancePlugin {
+    fn shared_entity_mapper(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::reporter::reporter::EntityResultMapper>> {
+        Some(std::sync::Arc::new(
+            |_: &crate::reporter::package::Entity, result| {
+                map_predicate_instance_result(result)
+                    .map_err(|error| crate::reporter::reporter::ReportError::Plugin(error.0))
+            },
+        ))
+    }
     fn parser_features(&self) -> Vec<crate::parser::fast_parser::ParserFeature> {
         vec![crate::parser::fast_parser::ParserFeature::PredicateInstance]
     }

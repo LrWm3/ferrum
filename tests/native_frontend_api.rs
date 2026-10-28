@@ -227,3 +227,98 @@ fn reporter_warning_failure_retains_warning_sink() {
         .join()
         .unwrap();
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3 or FERRUM_TEST_PROVER=Z3-API"]
+fn injected_builtin_refute_maps_entity_and_final_results() {
+    use ferrum::silver::{
+        frontend::{
+            sil_front_end_config::SilFrontendConfig, sil_frontend::standard_plugin_manager,
+        },
+        reporter::{message::Message, reporter::PollingReporter},
+    };
+    std::thread::Builder::new()
+        .stack_size(VERIFICATION_STACK_SIZE)
+        .spawn(|| {
+            let plugin = "viper.silver.plugin.standard.refute.RefutePlugin";
+            let parse_args = vec![
+                "--ignoreFile".into(),
+                "--disableDefaultPlugins".into(),
+                "--plugin".into(),
+                plugin.into(),
+                "injected.vpr".into(),
+            ];
+            let config = SilFrontendConfig::parse_shared("test", &parse_args);
+            let mut phases = SilFrontendPhases::new(
+                "injected.vpr".into(),
+                standard_plugin_manager(&config).unwrap(),
+            );
+            let parsed = phases
+                .parse("method disproved() { refute false; } method true_refute() { refute true; }")
+                .unwrap();
+            let checked = phases.analyze(parsed).unwrap();
+            let program = phases.translate(checked).unwrap();
+            for workers in [1, 2] {
+                let prover = std::env::var("FERRUM_TEST_PROVER").unwrap_or_else(|_| "Z3".into());
+                let mut args = vec![
+                    "--prover".into(),
+                    prover.clone(),
+                    "--disableDefaultPlugins".into(),
+                    "--plugin".into(),
+                    plugin.into(),
+                    "--numberOfParallelVerifiers".into(),
+                    workers.to_string(),
+                ];
+                if prover == "Z3" {
+                    args.extend([
+                        "--z3Exe".into(),
+                        std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3"),
+                    ]);
+                }
+                let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+                let mut api = NativeFrontendApi::new(&args, reporter.clone(), false).unwrap();
+                let VerificationResult::Failure(errors) = api.verify(&program).unwrap() else {
+                    panic!("true refute must fail")
+                };
+                assert_eq!(
+                    errors
+                        .iter()
+                        .map(|error| error.full_id())
+                        .collect::<Vec<_>>(),
+                    vec!["refute.failed:refutation.true"]
+                );
+                let mut success = false;
+                let mut failure = false;
+                while reporter.has_new_message() {
+                    match reporter.get_new_message().unwrap() {
+                        Message::EntitySuccess { concerning, .. }
+                            if concerning.name() == "disproved" =>
+                        {
+                            success = true
+                        }
+                        Message::EntityFailure {
+                            concerning, errors, ..
+                        } if concerning.name() == "true_refute" => {
+                            assert_eq!(
+                                errors
+                                    .iter()
+                                    .map(|error| error.full_id())
+                                    .collect::<Vec<_>>(),
+                                vec!["refute.failed:refutation.true"]
+                            );
+                            failure = true;
+                        }
+                        _ => {}
+                    }
+                }
+                assert!(
+                    success && failure,
+                    "missing mapped entity outcomes for {workers} workers"
+                );
+                api.stop().unwrap();
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}

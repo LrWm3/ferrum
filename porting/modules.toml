@@ -330,7 +330,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ViperFrontendAPI.scala"
 destination = "crates/ferrum-silver/src/frontend/viper_frontend_api.rs"
 status = "skeleton"
-remaining = ["Configured injected-AST API and concrete native Session adapter preserve backend consistency, owner-thread reuse and fallible stop. Full dependency metadata, exact reporter events and reporter reset integration remain."]
+remaining = ["Configured injected AST APIs and native Sessions connect lifecycle, metadata and reporter events. Exact warning provenance, opaque-callback initializer binding and broader custom-plugin/embedding compatibility remain."]
 
 [[modules]]
 repository = "silver"
@@ -700,7 +700,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/reporter/Reporter.scala"
 destination = "crates/ferrum-silver/src/reporter/reporter.rs"
 status = "skeleton"
-remaining = ["Source event rendering, verifier-state printing, captured exception payloads and CSV/StdIO adapters exist; origin capture wiring, runtime collection/parse-program fallback provenance and full runtime progress delivery remain."]
+remaining = ["Source event rendering, configured output and shared builtin entity mapping are connected. Arbitrary custom mutable mapper parity, Polling pass-through reentrancy, origin/fallback provenance and complete runtime progress delivery remain."]
 
 [[modules]]
 repository = "silver"

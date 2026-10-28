@@ -438,30 +438,45 @@ impl TerminationPlugin {
         }))
     }
     fn map_result(&self, input: VerificationResult) -> Result<VerificationResult, PluginHookError> {
-        use crate::verifier::verification_error::{
-            RenderedVerificationError, VerificationErrorKind,
-        };
-        if self.disabled {
-            return Ok(input);
-        }
-        let VerificationResult::Failure(errors) = input else {
-            return Ok(input);
-        };
-        let mut mapped = Vec::new();
-        for error in errors {
-            let transform = matches!(&error, AbstractError::Verification(e) if e.as_any().downcast_ref::<RenderedVerificationError>().is_some_and(|v| matches!(&v.error().kind, VerificationErrorKind::AssertFailed(stmt) if matches!(stmt.kind(), StmtKind::Assert(_)))));
-            mapped.push(if transform {
-                error.transformed_error().map_err(|e| {
-                    PluginHookError(format!("termination error transformation: {e:?}"))
-                })?
-            } else {
-                error
-            });
-        }
-        Ok(VerificationResult::Failure(mapped))
+        map_termination_result(self.disabled, input)
     }
 }
+fn map_termination_result(
+    disabled: bool,
+    input: VerificationResult,
+) -> Result<VerificationResult, PluginHookError> {
+    use crate::verifier::verification_error::{RenderedVerificationError, VerificationErrorKind};
+    if disabled {
+        return Ok(input);
+    }
+    let VerificationResult::Failure(errors) = input else {
+        return Ok(input);
+    };
+    let mut mapped = Vec::new();
+    for error in errors {
+        let transform = matches!(&error, AbstractError::Verification(e) if e.as_any().downcast_ref::<RenderedVerificationError>().is_some_and(|v| matches!(&v.error().kind, VerificationErrorKind::AssertFailed(stmt) if matches!(stmt.kind(), StmtKind::Assert(_)))));
+        mapped.push(if transform {
+            error
+                .transformed_error()
+                .map_err(|e| PluginHookError(format!("termination error transformation: {e:?}")))?
+        } else {
+            error
+        });
+    }
+    Ok(VerificationResult::Failure(mapped))
+}
 impl SilverPlugin for TerminationPlugin {
+    fn shared_entity_mapper(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::reporter::reporter::EntityResultMapper>> {
+        let disabled = self.disabled;
+        Some(std::sync::Arc::new(
+            move |_: &crate::reporter::package::Entity, input| {
+                map_termination_result(disabled, input)
+                    .map_err(|error| crate::reporter::reporter::ReportError::Plugin(error.0))
+            },
+        ))
+    }
     fn parser_features(&self) -> Vec<crate::parser::fast_parser::ParserFeature> {
         vec![crate::parser::fast_parser::ParserFeature::Termination]
     }
