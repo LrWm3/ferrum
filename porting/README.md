@@ -634,3 +634,8 @@ Method postcondition well-formedness checks now retain their source logging
 record: the initialized method state before debug setup, the postcondition
 identities and current path conditions. The record opens after the empty
 post-check heap is selected and closes only in the production continuation.
+
+AST provider plugin failures now carry an actual native Rust backtrace captured
+at missing-plugin error construction. StdIo and CSV exception reporting can
+consume this payload; opaque resolver failures are labeled at their resolver
+boundary. Direct reset keeps its existing typed error contract.

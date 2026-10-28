@@ -302,7 +302,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ReformatterAstProvider.scala"
 destination = "crates/ferrum-silver/src/frontend/reformatter_ast_provider.rs"
 status = "skeleton"
-remaining = ["Concrete parse-only execution, configuration/plugin reset, reporter binding and completion events are connected. Custom plugin resolution and captured exception provenance remain incomplete."]
+remaining = ["Concrete parse-only execution, configured plugin/reporter reset, completion events and native plugin exception capture are connected. Custom plugin resolution and broader diagnostic compatibility remain."]
 
 [[modules]]
 repository = "silver"
@@ -323,7 +323,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ViperAstProvider.scala"
 destination = "crates/ferrum-silver/src/frontend/viper_ast_provider.rs"
 status = "skeleton"
-remaining = ["Concrete AST execution through consistency checking, configuration/plugin reset, reporter binding and completion events are connected. Custom plugin resolution, exception provenance and generic missing-dependency handling remain incomplete."]
+remaining = ["Concrete AST execution through consistency, configured plugin/reporter reset, completion events and native plugin exception capture are connected. Custom plugin resolution, generic missing-dependency handling and broader compatibility remain."]
 
 [[modules]]
 repository = "silver"

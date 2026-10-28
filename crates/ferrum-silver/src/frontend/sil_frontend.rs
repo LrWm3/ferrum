@@ -171,12 +171,30 @@ pub fn standard_plugin_manager(
 /// Resolve additional native plugins in the same configured order as built-in plugins.
 pub fn standard_plugin_manager_with_resolver(
     config: &crate::frontend::sil_front_end_config::SilFrontendConfig,
+    extra: impl FnMut(
+        &str,
+    ) -> Result<
+        Option<Box<dyn crate::plugin::silver_plugin::SilverPlugin>>,
+        crate::plugin::silver_plugin_manager::PluginResolutionError,
+    >,
+) -> Result<SilverPluginManager, crate::plugin::silver_plugin_manager::PluginResolutionError> {
+    standard_plugin_manager_internal(config, extra, None)
+}
+pub(crate) fn standard_plugin_manager_with_origin(
+    config: &crate::frontend::sil_front_end_config::SilFrontendConfig,
+    origin: &mut Option<crate::reporter::message::CapturedExceptionDetails>,
+) -> Result<SilverPluginManager, crate::plugin::silver_plugin_manager::PluginResolutionError> {
+    standard_plugin_manager_internal(config, |_| Ok(None), Some(origin))
+}
+fn standard_plugin_manager_internal(
+    config: &crate::frontend::sil_front_end_config::SilFrontendConfig,
     mut extra: impl FnMut(
         &str,
     ) -> Result<
         Option<Box<dyn crate::plugin::silver_plugin::SilverPlugin>>,
         crate::plugin::silver_plugin_manager::PluginResolutionError,
     >,
+    origin: Option<&mut Option<crate::reporter::message::CapturedExceptionDetails>>,
 ) -> Result<SilverPluginManager, crate::plugin::silver_plugin_manager::PluginResolutionError> {
     use crate::plugin::silver_plugin::SilverPlugin;
     use crate::plugin::silver_plugin_manager::PluginResolutionError;
@@ -194,6 +212,7 @@ pub fn standard_plugin_manager_with_resolver(
         .as_ref()
         .map(|s| s.split(':').map(str::to_owned).collect())
         .unwrap_or_default();
+    let mut origin = origin;
     let mut plugins: Vec<Box<dyn SilverPlugin>> = Vec::new();
     for name in names {
         let plugin: Box<dyn SilverPlugin> = match name.as_str() {
@@ -222,11 +241,42 @@ pub fn standard_plugin_manager_with_resolver(
                     transformer: crate::plugin::sif::sif_extended_transformer::NativeSifTransformer,
                 })
             }
-            _ => extra(&name)?.ok_or(PluginResolutionError::NotFound(name))?,
+            _ => match extra(&name) {
+                Ok(Some(plugin)) => plugin,
+                Ok(None) => {
+                    let error = PluginResolutionError::NotFound(name);
+                    capture_plugin_error(&error, "plugin resolution", origin.as_deref_mut());
+                    return Err(error);
+                }
+                Err(error) => {
+                    capture_plugin_error(
+                        &error,
+                        "external resolver boundary",
+                        origin.as_deref_mut(),
+                    );
+                    return Err(error);
+                }
+            },
         };
         plugins.push(plugin);
     }
     Ok(SilverPluginManager::new(plugins))
+}
+
+fn capture_plugin_error(
+    error: &crate::plugin::silver_plugin_manager::PluginResolutionError,
+    boundary: &str,
+    origin: Option<&mut Option<crate::reporter::message::CapturedExceptionDetails>>,
+) {
+    if let Some(origin) = origin {
+        let display = error.to_string();
+        let trace = std::backtrace::Backtrace::force_capture();
+        *origin = Some(crate::reporter::message::CapturedExceptionDetails {
+            stack_trace: format!("{display}\nNative Rust backtrace ({boundary}):\n{trace}"),
+            display,
+            cause: None,
+        });
+    }
 }
 
 /// Silver's native phase bodies. Unsupported semantic and consistency families

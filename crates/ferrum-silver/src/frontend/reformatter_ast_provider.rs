@@ -24,7 +24,7 @@
 //!
 //! Status: partial; concrete parse-only provider, macro toggle, AST-constructor verifier and
 //! finish reporting, shared configuration and built-in plugin reset are wired. Complete
-//! custom plugin resolution and native exception stack rendering remain pending.
+//! custom plugin resolution and complete diagnostic compatibility remain pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -86,7 +86,16 @@ impl ReformatterAstProvider<super::sil_frontend::SilFrontendPhases> {
         self.frontend.phases.configure_consistency(&config);
         self.frontend.init(Box::new(verifier));
         self.config = Some(config.clone());
-        if let Err(error) = self.reset(std::path::Path::new(&file), load) {
+        let mut origin = None;
+        if let Err(error) = super::viper_ast_provider::reset_configured_with_origin(
+            &mut self.frontend,
+            self.config.as_ref(),
+            self.disable_plugins,
+            self.reporter.as_ref(),
+            std::path::Path::new(&file),
+            load,
+            Some(&mut origin),
+        ) {
             use crate::plugin::silver_plugin_manager::PluginResolutionError;
             match error {
                 ProviderSetupError::Plugin(
@@ -94,9 +103,15 @@ impl ReformatterAstProvider<super::sil_frontend::SilFrontendPhases> {
                     | PluginResolutionError::WrongType(_)
                     | PluginResolutionError::WrongArguments(_)),
                 ) => {
-                    let message = crate::reporter::message::Message::exception(
-                        std::sync::Arc::new(plugin.clone()),
-                    );
+                    let message = match origin {
+                        Some(details) => crate::reporter::message::Message::captured_exception(
+                            std::sync::Arc::new(plugin.clone()),
+                            details,
+                        ),
+                        None => crate::reporter::message::Message::exception(std::sync::Arc::new(
+                            plugin.clone(),
+                        )),
+                    };
                     if let Err(reporter) = self.reporter.report(message) {
                         return Err(ReformatterExecuteError::PluginReport { plugin, reporter });
                     }
@@ -200,6 +215,43 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    fn execute_prints_origin_captured_plugin_exception_to_stdout_reporter() {
+        use super::super::sil_frontend::PrepareOutcome;
+        use crate::reporter::reporter::StdIoReporter;
+        use std::io::Write;
+        struct SharedWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl Write for SharedWriter {
+            fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(data);
+                Ok(data.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let bytes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let reporter = std::sync::Arc::new(StdIoReporter::new(SharedWriter(bytes.clone()), false));
+        let phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let mut provider = ReformatterAstProvider::with_reporter(phases, reporter);
+        let args = vec![
+            "--ignoreFile".into(),
+            "--disableDefaultPlugins".into(),
+            "--plugin".into(),
+            "unknown.Plugin".into(),
+            "test.vpr".into(),
+        ];
+        assert!(matches!(
+            provider.execute(&args, |_| Ok("".into())).unwrap(),
+            PrepareOutcome::PluginSetupFailed
+        ));
+        let output = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+        assert!(
+            output.contains("Verification aborted exceptionally: Plugin unknown.Plugin not found.")
+        );
+        assert!(output.contains("Native Rust backtrace (plugin resolution):"));
+    }
+    #[test]
     fn execute_reports_plugin_exception_and_preserves_reporter_failure() {
         use super::super::sil_frontend::PrepareOutcome;
         use crate::plugin::silver_plugin_manager::PluginResolutionError;
@@ -232,7 +284,7 @@ mod tests {
             }
         ));
         assert!(
-            matches!(reporter.get_new_message().unwrap(), Message::Exception { error, details: None } if error.to_string() == "Plugin unknown.Plugin not found.")
+            matches!(reporter.get_new_message().unwrap(), Message::Exception { error, details: Some(details) } if error.to_string() == "Plugin unknown.Plugin not found." && details.stack_trace.contains("Native Rust backtrace (plugin resolution):"))
         );
         assert!(!reporter.has_new_message());
         struct Reject;

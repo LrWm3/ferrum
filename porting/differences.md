@@ -292,3 +292,15 @@ filenames are not persistent graph identifiers. Method dumps retain `<name>.dot`
 The source DOT structure, block IDs, iteration order and escaping remain intact.
 Native rendering and file-write errors propagate instead of being suppressed by
 Java PrintWriter, consistent with the native I/O difference above.
+
+## Native plugin exception stacks
+
+Silver SilFrontend.execute reports PluginException with the JVM stack captured
+by the thrown exception. Ferrum captures a Rust backtrace when its missing-plugin
+error is constructed, together with the actual error display. The payload is
+explicitly labeled Native Rust; frames and symbol availability depend on the
+native build. An opaque resolver error can only be captured at the external
+resolver boundary and is labeled accordingly. Direct reset retains its original
+typed error, while concrete execute reports the captured exception and preserves
+the plugin error if reporting also fails. Focused provider checks exercise the
+actual StdIo path and plugin/reporting failure combination.

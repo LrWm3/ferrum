@@ -136,6 +136,25 @@ pub(crate) fn reset_configured(
     input: &std::path::Path,
     load: impl FnOnce(&std::path::Path) -> std::io::Result<String>,
 ) -> Result<(), ProviderSetupError> {
+    reset_configured_with_origin(
+        frontend,
+        config,
+        disable_plugins,
+        reporter,
+        input,
+        load,
+        None,
+    )
+}
+pub(crate) fn reset_configured_with_origin(
+    frontend: &mut DefaultFrontend<super::sil_frontend::SilFrontendPhases>,
+    config: Option<&super::sil_front_end_config::SilFrontendConfig>,
+    disable_plugins: bool,
+    reporter: &dyn Reporter,
+    input: &std::path::Path,
+    load: impl FnOnce(&std::path::Path) -> std::io::Result<String>,
+    origin: Option<&mut Option<crate::reporter::message::CapturedExceptionDetails>>,
+) -> Result<(), ProviderSetupError> {
     frontend
         .reset(input, load)
         .map_err(ProviderSetupError::Frontend)?;
@@ -156,8 +175,13 @@ pub(crate) fn reset_configured(
                 text: format!("The following plugins will be executed multiple times, which is most likely a configuration mistake: {}.", duplicates.join(", ")),
             }).map_err(ProviderSetupError::Reporter)?;
         }
-        let manager = super::sil_frontend::standard_plugin_manager(config)
-            .map_err(ProviderSetupError::Plugin)?;
+        let manager = match origin {
+            Some(origin) => {
+                super::sil_frontend::standard_plugin_manager_with_origin(config, origin)
+            }
+            None => super::sil_frontend::standard_plugin_manager(config),
+        }
+        .map_err(ProviderSetupError::Plugin)?;
         reporter
             .bind_plugin_manager(&manager)
             .map_err(ProviderSetupError::Reporter)?;
@@ -231,7 +255,16 @@ impl ViperAstProvider<super::sil_frontend::SilFrontendPhases> {
         self.frontend.phases.configure_consistency(&config);
         self.frontend.init(Box::new(verifier));
         self.config = Some(config.clone());
-        if let Err(error) = self.reset(std::path::Path::new(&file), load) {
+        let mut origin = None;
+        if let Err(error) = reset_configured_with_origin(
+            &mut self.frontend,
+            self.config.as_ref(),
+            self.disable_plugins,
+            self.reporter.as_ref(),
+            std::path::Path::new(&file),
+            load,
+            Some(&mut origin),
+        ) {
             use crate::plugin::silver_plugin_manager::PluginResolutionError;
             match error {
                 ProviderSetupError::Plugin(
@@ -239,7 +272,12 @@ impl ViperAstProvider<super::sil_frontend::SilFrontendPhases> {
                     | PluginResolutionError::WrongType(_)
                     | PluginResolutionError::WrongArguments(_)),
                 ) => {
-                    let message = Message::exception(Arc::new(plugin.clone()));
+                    let message = match origin {
+                        Some(details) => {
+                            Message::captured_exception(Arc::new(plugin.clone()), details)
+                        }
+                        None => Message::exception(Arc::new(plugin.clone())),
+                    };
                     if let Err(reporter) = self.reporter.report(message) {
                         return Err(ProviderExecuteError::PluginReport { plugin, reporter });
                     }
