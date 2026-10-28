@@ -1827,7 +1827,7 @@ repository = "silicon"
 upstream = "src/main/scala/state/Triggers.scala"
 destination = "crates/ferrum-silicon/src/state/triggers.rs"
 status = "skeleton"
-remaining = ["Source trigger grouping and arithmetic rewriting are connected. Repeated structurally identical forbidden occurrences remain an explicit error; complete trigger compatibility and rendering remain."]
+remaining = ["Source trigger grouping, arithmetic rewriting and distinct replacement of repeated forbidden occurrences are connected. Full trigger compatibility and rendering remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2583,4 +2583,4 @@ remaining = ["General user-domain/collection assembly and source interpreted bac
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/decider/native_z3.rs"
 status = "skeleton"
-remaining = ["Optional linked Z3 C API driver and Prover adapter connect context-owned handles, solver scopes, declarations, models, both assertion modes and startup options. Context arguments, dynamic options, invalid-trigger repair, richer reporting and broad parity remain incomplete."]
+remaining = ["Linked C API and Prover adapter connect both assertion modes, startup solver options, random seeds and source invalid-trigger retry. Context arguments, source warnings, richer reporting and broad parity remain incomplete; dynamic setOption is unsupported upstream."]

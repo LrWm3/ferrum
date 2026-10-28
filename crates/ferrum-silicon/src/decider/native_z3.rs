@@ -4,8 +4,9 @@
 //! Status: partial; context-owned handles, primitive terms, datatypes, solver scopes,
 //! quantifiers, SMT-LIB preamble parsing and parse-based interpreted sorts/functions
 //! are implemented. Structured model extraction is available; the complete Prover
-//! adapter covers push/pop and soft-constraint verification; custom options and trigger
-//! repair remain explicit unsupported paths. Source default options are available
+//! adapter covers push/pop and soft-constraint verification, typed solver options,
+//! seed randomization and trigger repair. Context arguments and source internal
+//! warning reporting remain pending. Source default options are available
 //! through `new_with_source_options`. The linked library is selected at build/run time;
 //! pinned Silicon requires Z3 4.16.0.0, independently of the stdio executable.
 //!
@@ -1244,6 +1245,95 @@ impl NativeZ3Solver for LinkedZ3 {
     }
 }
 
+/// Source API retry removes entire trigger groups containing a bare variable or
+/// forbidden operator. Plus and minus are explicitly allowed by the advanced rule.
+fn clean_invalid_triggers(
+    factory: &crate::state::terms::TermFactory,
+    term: &crate::state::terms::Term,
+) -> Result<crate::state::terms::Term, LinkedProverError> {
+    use crate::state::terms::TermKind;
+    fn forbidden(t: &crate::state::terms::Term) -> Result<bool, LinkedProverError> {
+        if matches!(
+            t.kind(),
+            TermKind::Times(..)
+                | TermKind::Div(..)
+                | TermKind::Mod(..)
+                | TermKind::Not(..)
+                | TermKind::Or(..)
+                | TermKind::And(..)
+                | TermKind::Implies(..)
+                | TermKind::Iff(..)
+                | TermKind::Ite(..)
+                | TermKind::BuiltinEquals(..)
+                | TermKind::Less(..)
+                | TermKind::AtMost(..)
+                | TermKind::Greater(..)
+                | TermKind::AtLeast(..)
+                | TermKind::PermTimes(..)
+                | TermKind::IntPermTimes(..)
+                | TermKind::PermIntDiv(..)
+                | TermKind::PermPermDiv(..)
+                | TermKind::PermPlus(..)
+                | TermKind::PermMinus(..)
+                | TermKind::PermLess(..)
+                | TermKind::PermAtMost(..)
+                | TermKind::Distinct(..)
+        ) {
+            return Ok(true);
+        }
+        for child in t
+            .subterms()
+            .map_err(|_| LinkedProverError::Unsupported("trigger subterm traversal"))?
+        {
+            if forbidden(&child)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+    let failure = std::cell::RefCell::new(None);
+    let result = factory
+        .transform_preorder_descending(term, &|current| {
+            let TermKind::Quantification { triggers, .. } = current.kind() else {
+                return None;
+            };
+            let mut kept = Vec::new();
+            for trigger in triggers {
+                let mut bad = false;
+                for pattern in &trigger.terms {
+                    if matches!(pattern.kind(), TermKind::Var(_)) {
+                        bad = true;
+                        break;
+                    }
+                    match forbidden(pattern) {
+                        Ok(true) => {
+                            bad = true;
+                            break;
+                        }
+                        Ok(false) => {}
+                        Err(e) => {
+                            *failure.borrow_mut() = Some(e);
+                            return None;
+                        }
+                    }
+                }
+                if !bad {
+                    kept.push(trigger.clone());
+                }
+            }
+            if kept.len() == triggers.len() {
+                None
+            } else {
+                factory.quantification_with_raw_triggers(current, kept)
+            }
+        })
+        .map_err(|_| LinkedProverError::Unsupported("trigger term reconstruction"))?;
+    if let Some(error) = failure.into_inner() {
+        return Err(error);
+    }
+    Ok(result)
+}
+
 /// Configuration for the source-shaped linked prover adapter. Unsupported source
 /// modes are rejected explicitly instead of silently changing solver behavior.
 #[derive(Clone, Debug)]
@@ -1269,6 +1359,20 @@ pub enum LinkedProverError {
         operation: Box<LinkedProverError>,
         cleanup: Box<LinkedProverError>,
     },
+}
+impl LinkedProverError {
+    fn is_z3_failure(&self) -> bool {
+        use super::term_to_z3_api_converter::NativeConversionError;
+        use super::z3_prover_api::ApiProverError;
+        matches!(
+            self,
+            Self::Native(NativeZ3Error::Solver(_))
+                | Self::Session(ApiProverError::Driver(NativeZ3Error::Solver(_)))
+                | Self::Session(ApiProverError::Conversion(NativeConversionError::Context(
+                    NativeZ3Error::Solver(_)
+                )))
+        )
+    }
 }
 impl From<NativeZ3Error> for LinkedProverError {
     fn from(e: NativeZ3Error) -> Self {
@@ -1310,131 +1414,13 @@ impl LinkedZ3Prover {
     pub fn identifier_factory(&self) -> crate::state::identifiers::DefaultIdentifierFactory {
         self.identifiers.clone()
     }
-    fn active(
-        &mut self,
-    ) -> Result<&mut super::z3_prover_api::Z3ApiSession<LinkedZ3>, LinkedProverError> {
-        self.session.as_mut().ok_or(LinkedProverError::Inactive)
-    }
-}
-impl crate::interfaces::decider::prover::TextEmitter for LinkedZ3Prover {
-    type Error = LinkedProverError;
-    fn emit(&mut self, content: &str) -> Result<(), Self::Error> {
-        self.active()?.emit(content.to_string()).map_err(Into::into)
-    }
-    fn emit_settings(&mut self, contents: &[String]) -> Result<(), Self::Error> {
-        use crate::interfaces::preamble::PreambleReader;
-        if contents.is_empty() {
-            return Ok(());
-        }
-        let expected = crate::decider::smt_lib2_preamble_reader::SmtLib2PreambleReader::default()
-            .read_preamble("/z3config.smt2")
-            .map_err(|_| LinkedProverError::Unsupported("missing Z3 static settings"))?;
-        if contents == expected {
-            return Ok(());
-        }
-        let randomized = contents
-            .iter()
-            .any(|s| s.starts_with("(set-option :RANDOMIZE_SEEDS"));
-        if randomized
-            && contents
-                .iter()
-                .all(|s| s.starts_with("(set-option :RANDOMIZE_SEEDS") || expected.contains(s))
-        {
-            self.active()?.converter.context.randomize_seed()?;
-            return Ok(());
-        }
-        Err(LinkedProverError::Unsupported("custom Z3 API settings"))
-    }
-}
-impl crate::interfaces::decider::prover::ProverLike for LinkedZ3Prover {
-    fn assume_axioms(
-        &mut self,
-        terms: &crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<
-            crate::state::terms::Term,
-        >,
-        _: &str,
-    ) -> Result<(), Self::Error> {
-        for term in terms.iter() {
-            self.active()?.assume(term)?;
-        }
-        Ok(())
-    }
-    fn set_option(&mut self, _: &str, _: &str) -> Result<String, Self::Error> {
-        Err(LinkedProverError::Unsupported("dynamic Z3 API options"))
-    }
-    fn assume(&mut self, term: &crate::state::terms::Term) -> Result<(), Self::Error> {
-        self.active()?.assume(term).map_err(Into::into)
-    }
-    fn declare(
-        &mut self,
-        declaration: &crate::state::terms::Declaration,
-    ) -> Result<(), Self::Error> {
-        self.active()?.declare(declaration).map_err(Into::into)
-    }
-    fn comment(&mut self, _: &mut dyn FnMut() -> String) -> Result<(), Self::Error> {
-        Ok(())
-    }
-    fn saturate(&mut self, timeout_ms: i32, _: &str) -> Result<(), Self::Error> {
-        self.active()?.check(Some(timeout_ms))?;
-        Ok(())
-    }
-    fn saturate_configured(
-        &mut self,
-        data: Option<&crate::interfaces::decider::prover::ProverStateSaturationTimeout>,
-    ) -> Result<(), Self::Error> {
-        self.active()?.end_preamble()?;
-        if let Some(data) = data {
-            self.active()?.check(Some(data.timeout_ms))?;
-        }
-        Ok(())
-    }
-}
-impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
-    type Model = ferrum_silver::verifier::verification_error::Model;
-    type Version = crate::common::config::package::Version;
-    fn start(&mut self, user_args: Option<&str>) -> Result<(), Self::Error> {
-        if self.session.is_some() {
-            return Err(LinkedProverError::AlreadyStarted);
-        }
-        if user_args.is_some_and(|s| !s.is_empty()) {
-            return Err(LinkedProverError::Unsupported(
-                "Z3 API command-line arguments",
-            ));
-        }
-        let driver = LinkedZ3::new_with_source_options()?;
-        driver.set_source_solver_options(
-            &self.options.custom_options,
-            self.options.disable_nonlinear,
-        )?;
-        let converter = super::term_to_z3_api_converter::TermToZ3ApiConverter::new(
-            driver,
-            self.factory.clone(),
-        );
-        self.session = Some(super::z3_prover_api::Z3ApiSession::new(
-            converter,
-            self.options.timeout,
-        ));
-        self.identifiers.start();
-        Ok(())
-    }
-    fn reset(&mut self) -> Result<(), Self::Error> {
-        self.stop()?;
-        self.identifiers.reset();
-        self.start(None)
-    }
-    fn stop(&mut self) -> Result<(), Self::Error> {
-        self.last_model = None;
-        self.last_reason_unknown = None;
-        self.session = None;
-        self.identifiers.stop();
-        Ok(())
-    }
-    fn assert_goal(
+    fn assert_goal_once(
         &mut self,
         goal: &crate::state::terms::Term,
         timeout_ms: Option<i32>,
-    ) -> Result<bool, Self::Error> {
+    ) -> Result<bool, LinkedProverError> {
         if self.options.soft_assertions {
+            use crate::interfaces::decider::prover::Prover;
             use crate::state::terms::{ApplicationTarget, Sort};
             self.active()?.end_preamble()?;
             self.active()?.set_timeout(timeout_ms)?;
@@ -1516,6 +1502,158 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
             self.last_reason_unknown = reason;
         }
         Ok(proved)
+    }
+    fn assume_with_trigger_retry(
+        &mut self,
+        term: &crate::state::terms::Term,
+    ) -> Result<(), LinkedProverError> {
+        match self.active()?.assume(term).map_err(LinkedProverError::from) {
+            Ok(()) => Ok(()),
+            Err(error) if error.is_z3_failure() => {
+                let clean = clean_invalid_triggers(&self.factory, term)?;
+                if clean == *term {
+                    return Err(error);
+                }
+                self.active()?.assume(&clean).map_err(Into::into)
+            }
+            Err(error) => Err(error),
+        }
+    }
+    fn active(
+        &mut self,
+    ) -> Result<&mut super::z3_prover_api::Z3ApiSession<LinkedZ3>, LinkedProverError> {
+        self.session.as_mut().ok_or(LinkedProverError::Inactive)
+    }
+}
+impl crate::interfaces::decider::prover::TextEmitter for LinkedZ3Prover {
+    type Error = LinkedProverError;
+    fn emit(&mut self, content: &str) -> Result<(), Self::Error> {
+        self.active()?.emit(content.to_string()).map_err(Into::into)
+    }
+    fn emit_settings(&mut self, contents: &[String]) -> Result<(), Self::Error> {
+        use crate::interfaces::preamble::PreambleReader;
+        if contents.is_empty() {
+            return Ok(());
+        }
+        let expected = crate::decider::smt_lib2_preamble_reader::SmtLib2PreambleReader::default()
+            .read_preamble("/z3config.smt2")
+            .map_err(|_| LinkedProverError::Unsupported("missing Z3 static settings"))?;
+        if contents == expected {
+            return Ok(());
+        }
+        let randomized = contents
+            .iter()
+            .any(|s| s.starts_with("(set-option :RANDOMIZE_SEEDS"));
+        if randomized
+            && contents
+                .iter()
+                .all(|s| s.starts_with("(set-option :RANDOMIZE_SEEDS") || expected.contains(s))
+        {
+            self.active()?.converter.context.randomize_seed()?;
+            return Ok(());
+        }
+        Err(LinkedProverError::Unsupported("custom Z3 API settings"))
+    }
+}
+impl crate::interfaces::decider::prover::ProverLike for LinkedZ3Prover {
+    fn assume_axioms(
+        &mut self,
+        terms: &crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<
+            crate::state::terms::Term,
+        >,
+        _: &str,
+    ) -> Result<(), Self::Error> {
+        for term in terms.iter() {
+            self.assume_with_trigger_retry(term)?;
+        }
+        Ok(())
+    }
+    fn set_option(&mut self, _: &str, _: &str) -> Result<String, Self::Error> {
+        Err(LinkedProverError::Unsupported("dynamic Z3 API options"))
+    }
+    fn assume(&mut self, term: &crate::state::terms::Term) -> Result<(), Self::Error> {
+        self.assume_with_trigger_retry(term)
+    }
+    fn declare(
+        &mut self,
+        declaration: &crate::state::terms::Declaration,
+    ) -> Result<(), Self::Error> {
+        self.active()?.declare(declaration).map_err(Into::into)
+    }
+    fn comment(&mut self, _: &mut dyn FnMut() -> String) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn saturate(&mut self, timeout_ms: i32, _: &str) -> Result<(), Self::Error> {
+        self.active()?.check(Some(timeout_ms))?;
+        Ok(())
+    }
+    fn saturate_configured(
+        &mut self,
+        data: Option<&crate::interfaces::decider::prover::ProverStateSaturationTimeout>,
+    ) -> Result<(), Self::Error> {
+        self.active()?.end_preamble()?;
+        if let Some(data) = data {
+            self.active()?.check(Some(data.timeout_ms))?;
+        }
+        Ok(())
+    }
+}
+impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
+    type Model = ferrum_silver::verifier::verification_error::Model;
+    type Version = crate::common::config::package::Version;
+    fn start(&mut self, user_args: Option<&str>) -> Result<(), Self::Error> {
+        if self.session.is_some() {
+            return Err(LinkedProverError::AlreadyStarted);
+        }
+        if user_args.is_some_and(|s| !s.is_empty()) {
+            return Err(LinkedProverError::Unsupported(
+                "Z3 API command-line arguments",
+            ));
+        }
+        let driver = LinkedZ3::new_with_source_options()?;
+        driver.set_source_solver_options(
+            &self.options.custom_options,
+            self.options.disable_nonlinear,
+        )?;
+        let converter = super::term_to_z3_api_converter::TermToZ3ApiConverter::new(
+            driver,
+            self.factory.clone(),
+        );
+        self.session = Some(super::z3_prover_api::Z3ApiSession::new(
+            converter,
+            self.options.timeout,
+        ));
+        self.identifiers.start();
+        Ok(())
+    }
+    fn reset(&mut self) -> Result<(), Self::Error> {
+        self.stop()?;
+        self.identifiers.reset();
+        self.start(None)
+    }
+    fn stop(&mut self) -> Result<(), Self::Error> {
+        self.last_model = None;
+        self.last_reason_unknown = None;
+        self.session = None;
+        self.identifiers.stop();
+        Ok(())
+    }
+    fn assert_goal(
+        &mut self,
+        goal: &crate::state::terms::Term,
+        timeout_ms: Option<i32>,
+    ) -> Result<bool, Self::Error> {
+        match self.assert_goal_once(goal, timeout_ms) {
+            Err(error) if error.is_z3_failure() => {
+                let clean = clean_invalid_triggers(&self.factory, goal)?;
+                if clean == *goal {
+                    Err(error)
+                } else {
+                    self.assert_goal_once(&clean, timeout_ms)
+                }
+            }
+            result => result,
+        }
     }
     fn check(&mut self, timeout_ms: Option<i32>) -> Result<SatResult, Self::Error> {
         self.active()?.check(timeout_ms).map_err(Into::into)
@@ -1837,6 +1975,121 @@ mod tests {
                 ]
             }))
         );
+    }
+    #[test]
+    fn linked_prover_retries_invalid_bare_variable_trigger_without_losing_assumption() {
+        use crate::interfaces::decider::prover::{Prover, ProverLike};
+        use crate::state::{
+            identifiers::Identifier,
+            terms::{Quantifier, Sort, TermFactory, TermKind, TermOptions, Trigger},
+        };
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let x = factory.var(Identifier::new("x"), Sort::Int, false);
+        let q = factory.quantification_without_triggers(
+            Quantifier::Forall,
+            vec![x.clone()],
+            factory.greater(x.clone(), factory.int_literal(0)),
+            "invalid".into(),
+            false,
+            None,
+        );
+        let q = factory
+            .quantification_with_raw_triggers(&q, vec![Trigger { terms: vec![x] }])
+            .unwrap();
+        let y = factory.var(Identifier::new("y"), Sort::Int, false);
+        let outer = factory.quantification_without_triggers(
+            Quantifier::Forall,
+            vec![y.clone()],
+            q.clone(),
+            "outer".into(),
+            false,
+            None,
+        );
+        let outer = factory
+            .quantification_with_raw_triggers(&outer, vec![Trigger { terms: vec![y] }])
+            .unwrap();
+        let cleaned_outer = clean_invalid_triggers(&factory, &outer).unwrap();
+        assert!(
+            matches!(cleaned_outer.kind(), TermKind::Quantification { triggers, body, .. } if triggers.is_empty() && matches!(body.kind(), TermKind::Quantification { triggers, .. } if triggers.is_empty()))
+        );
+        let clean = clean_invalid_triggers(&factory, &q).unwrap();
+        assert!(
+            matches!(clean.kind(), TermKind::Quantification { triggers, .. } if triggers.is_empty())
+        );
+        let options = LinkedProverOptions {
+            timeout: super::super::z3_prover_api::ApiTimeoutSettings {
+                default_timeout_ms: 0,
+                use_time_bounds: true,
+                resources_per_millisecond: 1,
+            },
+            counterexamples: false,
+            report_reason_unknown: false,
+            debug: false,
+            soft_assertions: false,
+            custom_options: vec![],
+            disable_nonlinear: false,
+        };
+        let mut raw = LinkedZ3Prover::new("raw", factory.clone(), options.clone());
+        raw.start(None).unwrap();
+        assert!(
+            raw.active().unwrap().assume(&q).is_err(),
+            "raw invalid pattern should provoke Z3 error"
+        );
+        let mut p = LinkedZ3Prover::new("retry", factory.clone(), options);
+        p.start(None).unwrap();
+        p.assume(&q).unwrap();
+        assert!(p.assert_goal(&clean, None).unwrap());
+    }
+    #[test]
+    fn invalid_trigger_goal_retry_keeps_both_assertion_modes_scoped() {
+        use crate::interfaces::decider::prover::Prover;
+        use crate::state::{
+            identifiers::Identifier,
+            terms::{Quantifier, Sort, TermFactory, TermOptions, Trigger},
+        };
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let x = factory.var(Identifier::new("x"), Sort::Int, false);
+        let q = factory.quantification_without_triggers(
+            Quantifier::Forall,
+            vec![x.clone()],
+            factory.greater(x.clone(), factory.int_literal(0)),
+            "goal".into(),
+            false,
+            None,
+        );
+        let q = factory
+            .quantification_with_raw_triggers(&q, vec![Trigger { terms: vec![x] }])
+            .unwrap();
+        for soft_assertions in [false, true] {
+            let options = LinkedProverOptions {
+                timeout: super::super::z3_prover_api::ApiTimeoutSettings {
+                    default_timeout_ms: 0,
+                    use_time_bounds: true,
+                    resources_per_millisecond: 1,
+                },
+                counterexamples: false,
+                report_reason_unknown: false,
+                debug: false,
+                soft_assertions,
+                custom_options: vec![],
+                disable_nonlinear: false,
+            };
+            let mut p = LinkedZ3Prover::new("goal-retry", factory.clone(), options);
+            p.start(None).unwrap();
+            assert!(!p.assert_goal(&q, None).unwrap());
+            assert_eq!(p.push_pop_scope_depth(), 0);
+            assert!(p.assert_goal(&factory.boolean(true), None).unwrap());
+            assert!(!p.assert_goal(&factory.boolean(false), None).unwrap());
+            assert_eq!(p.push_pop_scope_depth(), 0);
+        }
     }
     #[test]
     fn linked_z3_custom_solver_options_validate_types() {

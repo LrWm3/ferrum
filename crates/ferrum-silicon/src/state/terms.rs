@@ -2386,7 +2386,7 @@ impl fmt::Display for UnsupportedTriggerTransform {
 impl std::error::Error for UnsupportedTriggerTransform {}
 impl TermFactory {
     fn rewrite_trigger_seq_in(&self, t: &Term) -> Result<Term, UnsupportedTriggerTransform> {
-        self.transform_replacements(t, None)
+        self.transform_replacements(t, None, None, false)
     }
     /// Apply simultaneous pre-order replacements, stopping below each matched node.
     pub fn replace(
@@ -2401,19 +2401,85 @@ impl TermFactory {
         if replacements.is_empty() {
             return Ok(term.clone());
         }
-        self.transform_replacements(term, Some(replacements))
+        self.transform_replacements(term, Some(replacements), None, false)
+    }
+    /// Rebuild a term in source pre-order, stopping below each callback replacement.
+    /// The callback runs separately for every occurrence, including equal subterms.
+    pub fn transform_preorder(
+        &self,
+        term: &Term,
+        rewrite: &dyn Fn(&Term) -> Option<Term>,
+    ) -> Result<Term, UnsupportedTriggerTransform> {
+        self.check(&[term]);
+        self.transform_replacements(term, Some(&HashMap::new()), Some(rewrite), false)
+    }
+    /// Copy a quantification with its trigger list unchanged by factory normalization.
+    pub fn quantification_with_raw_triggers(
+        &self,
+        term: &Term,
+        triggers: Vec<Trigger>,
+    ) -> Option<Term> {
+        let TermKind::Quantification {
+            quantifier,
+            vars,
+            body,
+            name,
+            is_global,
+            weight,
+            ..
+        } = term.kind()
+        else {
+            return None;
+        };
+        self.check(&[term]);
+        for trigger in &triggers {
+            self.check(&trigger.terms.iter().collect::<Vec<_>>());
+        }
+        Some(self.create(
+            TermKind::Quantification {
+                quantifier: *quantifier,
+                vars: vars.clone(),
+                body: body.clone(),
+                triggers,
+                name: name.clone(),
+                is_global: *is_global,
+                weight: *weight,
+            },
+            Sort::Bool,
+        ))
+    }
+    /// Transform each occurrence before visiting its children, including children
+    /// of replacement terms. Quantifier reconstruction preserves raw triggers.
+    pub fn transform_preorder_descending(
+        &self,
+        term: &Term,
+        rewrite: &dyn Fn(&Term) -> Option<Term>,
+    ) -> Result<Term, UnsupportedTriggerTransform> {
+        self.check(&[term]);
+        self.transform_replacements(term, Some(&HashMap::new()), Some(rewrite), true)
     }
     fn transform_replacements(
         &self,
         t: &Term,
         replacements: Option<&HashMap<Term, Term>>,
+        rewrite: Option<&dyn Fn(&Term) -> Option<Term>>,
+        descend_replacements: bool,
     ) -> Result<Term, UnsupportedTriggerTransform> {
+        let replacement = rewrite.and_then(|f| f(t));
+        if let Some(replacement) = &replacement {
+            self.check(&[replacement]);
+            if !descend_replacements {
+                return Ok(replacement.clone());
+            }
+        }
+        let t = replacement.as_ref().unwrap_or(t);
         if let Some(replacements) = replacements {
             if let Some(replacement) = replacements.get(t) {
                 return Ok(replacement.clone());
             }
         }
-        let go = |x: &Term| self.transform_replacements(x, replacements);
+        let go =
+            |x: &Term| self.transform_replacements(x, replacements, rewrite, descend_replacements);
         let result = match t.kind() {
             // Trigger rewriting is pre-order and stops recursion at the matched SeqIn.
             TermKind::SeqIn(a, b) if replacements.is_none() => {
@@ -2607,15 +2673,30 @@ impl TermFactory {
                         })
                     })
                     .collect::<Result<Vec<_>, UnsupportedTriggerTransform>>()?;
-                self.quantification(
-                    *quantifier,
-                    vars,
-                    body,
-                    triggers,
-                    name.clone(),
-                    *is_global,
-                    *weight,
-                )?
+                if descend_replacements {
+                    self.create(
+                        TermKind::Quantification {
+                            quantifier: *quantifier,
+                            vars,
+                            body,
+                            triggers,
+                            name: name.clone(),
+                            is_global: *is_global,
+                            weight: *weight,
+                        },
+                        Sort::Bool,
+                    )
+                } else {
+                    self.quantification(
+                        *quantifier,
+                        vars,
+                        body,
+                        triggers,
+                        name.clone(),
+                        *is_global,
+                        *weight,
+                    )?
+                }
             }
         };
         Ok(result)

@@ -28,8 +28,7 @@
 //! Generic trigger extension points and counter ownership.
 //!
 //! Status: partial; source generic trigger search and arithmetic axiom rewriting are connected.
-//! Rewriting repeated structurally identical forbidden subterms remains an explicit error until
-//! term reconstruction can preserve distinct occurrences.
+//! Forbidden trigger subterms are rewritten per occurrence, including equal subterms.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -262,8 +261,7 @@ where
     }
 }
 
-/// Source generic trigger search for terms that need neither forbidden-expression
-/// replacement nor arithmetic axiom rewriting. Those cases remain explicit errors.
+/// Errors from source generic trigger search and arithmetic axiom rewriting.
 #[derive(Debug)]
 pub enum NativeTriggerSearchError {
     Traversal(UnsupportedSubterms),
@@ -322,37 +320,28 @@ impl ferrum_silver::ast::utility::generic_trigger_generator::TriggerAdapter
         Ok(unique)
     }
     fn rewrite_forbidden(&mut self, exp: &Term) -> Result<(Term, Vec<Term>), Self::Error> {
-        let forbidden = exp
-            .shallow_collect(&mut |term| {
-                (self.generator.is_forbidden(term)
-                    && !(self.advanced
-                        && matches!(term.kind(), TermKind::Plus(..) | TermKind::Minus(..))))
-                .then(|| term.clone())
+        let fresh = std::cell::RefCell::new(Vec::new());
+        let result = self
+            .factory
+            .transform_preorder(exp, &|term| {
+                if !self.generator.is_forbidden(term)
+                    || (self.advanced
+                        && matches!(term.kind(), TermKind::Plus(..) | TermKind::Minus(..)))
+                {
+                    return None;
+                }
+                let id = self.generator.next_unique.get();
+                self.generator.next_unique.set(id.wrapping_add(1));
+                let var = self.factory.var(
+                    crate::state::identifiers::Identifier::new(format!("fresh__{id}")),
+                    term.sort().clone(),
+                    false,
+                );
+                fresh.borrow_mut().push(var.clone());
+                Some(var)
             })
-            .map_err(NativeTriggerSearchError::Traversal)?;
-        let mut result = exp.clone();
-        let mut fresh = Vec::new();
-        let mut seen = Vec::new();
-        for old in forbidden {
-            // Structural replacement cannot distinguish equal occurrences; report the gap.
-            if seen.contains(&old) {
-                return Err(NativeTriggerSearchError::RequiresAxiomRewrite);
-            }
-            seen.push(old.clone());
-            let id = self.generator.next_unique.get();
-            self.generator.next_unique.set(id.wrapping_add(1));
-            let var = self.factory.var(
-                crate::state::identifiers::Identifier::new(format!("fresh__{id}")),
-                old.sort().clone(),
-                false,
-            );
-            result = self
-                .factory
-                .replace(&result, &HashMap::from([(old, var.clone())]))
-                .map_err(NativeTriggerSearchError::Transform)?;
-            fresh.push(var);
-        }
-        Ok((result, fresh))
+            .map_err(NativeTriggerSearchError::Transform)?;
+        Ok((result, fresh.into_inner()))
     }
     fn additional_relevant(
         &self,
@@ -572,6 +561,37 @@ mod native_rewrite_tests {
         identifiers::Identifier,
         terms::{ApplicableData, ApplicableKind, Quantifier, Sort, TermOptions, Trigger},
     };
+    #[test]
+    fn equal_forbidden_occurrences_get_distinct_fresh_variables() {
+        use ferrum_silver::ast::utility::generic_trigger_generator::TriggerAdapter;
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let x = factory.var(Identifier::new("x"), Sort::Int, false);
+        let f = factory.applicable(ApplicableData {
+            kind: ApplicableKind::Fun,
+            id: Identifier::new("f"),
+            arg_sorts: vec![Sort::Int, Sort::Int],
+            result_sort: Sort::Int,
+        });
+        let forbidden = factory.plus(x, factory.int_literal(1));
+        let input = factory.app(f, vec![forbidden.clone(), forbidden]);
+        let generator = TriggerGenerator::default();
+        let mut adapter = NativeTriggerAdapter {
+            factory: &factory,
+            generator: &generator,
+            advanced: false,
+        };
+        let (result, fresh) = adapter.rewrite_forbidden(&input).unwrap();
+        assert_eq!(fresh.len(), 2);
+        assert_ne!(fresh[0], fresh[1]);
+        let TermKind::App { args, .. } = result.kind() else {
+            panic!("expected application")
+        };
+        assert_eq!(args, &fresh);
+    }
     #[test]
     fn arithmetic_trigger_isolated_into_a_fresh_quantified_variable() {
         let factory = TermFactory::new(TermOptions {
