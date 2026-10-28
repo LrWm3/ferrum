@@ -26,6 +26,7 @@ use std::{
     sync::atomic::{AtomicI32, Ordering},
 };
 static COUNTER: AtomicI32 = AtomicI32::new(0);
+static GENERATION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InverseError {
     NotForall,
@@ -76,7 +77,10 @@ fn conjunction(items: Vec<Exp>, meta: &Metadata) -> Result<Exp, InverseError> {
 fn replacements(vars: &[LocalVarDecl], exps: &[Exp]) -> Vec<(Exp, Exp)> {
     vars.iter().map(local).zip(exps.iter().cloned()).collect()
 }
-/// Mirrors the source process-global counter. Concurrent generation order is not promised.
+/// Mirrors the source process-global counter. Each generation is serialized so
+/// concurrent calls cannot read the same counter before reserving their names.
+/// Source field quantifiers with zero variables do not advance the counter and
+/// can still reuse a domain name even in sequential execution.
 pub fn get_fresh_inverse(source: &Exp, program: &Program) -> Result<InverseResult, InverseError> {
     let ExpKind::Forall(qvars, triggers, _) = source.kind() else {
         return Err(InverseError::NotForall);
@@ -84,6 +88,9 @@ pub fn get_fresh_inverse(source: &Exp, program: &Program) -> Result<InverseResul
     let Some((_, condition, access)) = quantified_permission_assertion(source) else {
         return Ok((None, None, source.clone()));
     };
+    let _generation = GENERATION_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let start = COUNTER.load(Ordering::SeqCst);
     let domain_name = format!("Inverse_{start}");
     let meta = source.metadata().clone();
@@ -369,6 +376,40 @@ pub fn get_fresh_inverse(source: &Exp, program: &Program) -> Result<InverseResul
 mod tests {
     use super::*;
     use crate::ast::program::Field;
+    #[test]
+    fn concurrent_inverse_domains_reserve_distinct_names() {
+        let m = Metadata::default();
+        let q = LocalVarDecl::new("x".into(), Type::Ref, m.clone());
+        let field = Field::new(crate::ast::program::FieldData {
+            name: "f".into(),
+            typ: Type::Int,
+            meta: m.clone(),
+        });
+        let access = Exp::new(
+            ExpKind::FieldAccessPredicate(FieldAccess::new(local(&q), field, m.clone()), None),
+            m.clone(),
+        );
+        let source = forall(vec![q], vec![], access, &m);
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![], vec![], m);
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let source = source.clone();
+                let program = program.clone();
+                std::thread::spawn(move || {
+                    get_fresh_inverse(&source, &program)
+                        .unwrap()
+                        .0
+                        .unwrap()
+                        .1
+                        .name
+                        .clone()
+                })
+            })
+            .collect();
+        let names: std::collections::HashSet<_> =
+            handles.into_iter().map(|h| h.join().unwrap()).collect();
+        assert_eq!(names.len(), 8);
+    }
     #[test]
     fn field_inverse_retains_optional_permission_and_produces_two_axioms() {
         let m = Metadata::default();

@@ -122,7 +122,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/InverseFunctions.scala"
 destination = "crates/ferrum-silver/src/ast/utility/inverse_functions.rs"
 status = "skeleton"
-remaining = ["Resource inverse functions and axioms exist; extension reconstruction and full caller integration remain."]
+remaining = ["Inverse generation and serialized counter access exist; solver validation and complete trigger-generation integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -192,7 +192,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/chopper/Chopper.scala"
 destination = "crates/ferrum-silver/src/ast/utility/chopper/chopper.rs"
 status = "skeleton"
-remaining = ["Graph SCC/condensation and penalties exist; dependency construction, bounded cuts and full program reconstruction remain."]
+remaining = ["Smallest cuts and penalty-based greedy bounded-heap merging exist; program dependency graph construction and reconstruction remain; equal-priority ordering may differ."]
 
 [[modules]]
 repository = "silver"
@@ -726,14 +726,14 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/Caching.scala"
 destination = "crates/ferrum-silver/src/utility/caching.rs"
 status = "skeleton"
-remaining = ["Dependency collection exists; source printer, normalized entity hashing and digest integration remain."]
+remaining = ["MD5 and source key normalization exist; complete source class-name/printer adapters and platform charset selection remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/Common.scala"
 destination = "crates/ferrum-silver/src/utility/common.rs"
 status = "skeleton"
-remaining = ["Concrete structural equality integration remains pending."]
+remaining = ["Native structural equality and IO helpers exist; Scala hashes, platform encodings and Java PrintWriter error suppression differ."]
 
 [[modules]]
 repository = "silver"
@@ -779,7 +779,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/verifier/Counterexample.scala"
 destination = "crates/ferrum-silver/src/verifier/counterexample.rs"
 status = "skeleton"
-remaining = ["Rationals and literal conversion exist; heap/store/collection/function models and wand substitution remain."]
+remaining = ["Native counterexample stores, heaps, collections and wand substitution exist; complete AST printers and backend adapters remain."]
 
 [[modules]]
 repository = "silver"

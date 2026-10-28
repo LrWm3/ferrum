@@ -25,7 +25,8 @@
 //! Resolve Rational hash/equality mismatch and runtime-specific hash compatibility with
 //! consumers.
 //!
-//! Status: partially implemented; structural equality integration with concrete types remains.
+//! Status: partial; both source StructuralEquality implementors are connected. Scala
+//! runtime hash values, platform file encoding and PrintWriter error suppression remain distinct.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -54,6 +55,33 @@ pub fn generate_hash_code(hashes: impl IntoIterator<Item = i32>) -> i32 {
 pub trait StructuralEquality {
     type Members: PartialEq;
     fn equality_defining_members(&self) -> Self::Members;
+}
+
+impl StructuralEquality for crate::ast::position::SourcePosition {
+    type Members = (
+        Option<std::path::PathBuf>,
+        Box<crate::ast::position::LineColumn>,
+        Option<Box<crate::ast::position::LineColumn>>,
+    );
+    fn equality_defining_members(&self) -> Self::Members {
+        (self.file.clone(), self.start.clone(), self.end.clone())
+    }
+}
+impl StructuralEquality for crate::ast::position::IdentifierPosition {
+    type Members = (
+        Option<std::path::PathBuf>,
+        Box<crate::ast::position::LineColumn>,
+        Option<Box<crate::ast::position::LineColumn>>,
+        String,
+    );
+    fn equality_defining_members(&self) -> Self::Members {
+        (
+            self.file.clone(),
+            self.start.clone(),
+            self.end.clone(),
+            self.id.clone(),
+        )
+    }
 }
 
 /// Compare the defining members of values of the same concrete Rust type.

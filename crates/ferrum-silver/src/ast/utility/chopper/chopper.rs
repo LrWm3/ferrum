@@ -1,7 +1,7 @@
 //! Dependency graph components and merge penalties for program chopping.
 //! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/ast/utility/chopper/Chopper.scala
-//! Status: partial; vertex families, default penalties and ordered Tarjan SCC/condensation
-//! are implemented. Viper dependency construction, bounded cuts and program reconstruction
+//! Status: partial; vertex families, penalties, ordered SCC/condensation and smallest cuts
+//! are implemented. Viper dependency construction, bounded merging and program reconstruction
 //! are not yet implemented and cannot be used to chop a program.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -109,7 +109,240 @@ impl<T> Component<T> {
 pub enum GraphError {
     WrongAdjacencyLength,
     InvalidVertex(usize),
+    CycleInAcyclicCut,
 }
+/// Merge two sorted scored lists, using the left score for shared nodes as upstream.
+pub fn penalty_and_merge<T: Ord + Clone>(
+    left: &[(T, i32)],
+    right: &[(T, i32)],
+    penalty: &impl Penalty<T>,
+) -> (i32, Vec<(T, i32)>) {
+    use std::cmp::Ordering;
+    let (mut a, mut b, mut shared) = (0i32, 0i32, 0i32);
+    let (mut i, mut j) = (0, 0);
+    let mut merged = Vec::with_capacity(left.len() + right.len());
+    while i < left.len() && j < right.len() {
+        match left[i].0.cmp(&right[j].0) {
+            Ordering::Less => {
+                a = a.wrapping_add(left[i].1);
+                merged.push(left[i].clone());
+                i += 1;
+            }
+            Ordering::Greater => {
+                b = b.wrapping_add(right[j].1);
+                merged.push(right[j].clone());
+                j += 1;
+            }
+            Ordering::Equal => {
+                shared = shared.wrapping_add(left[i].1);
+                merged.push(left[i].clone());
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    for entry in &left[i..] {
+        a = a.wrapping_add(entry.1);
+        merged.push(entry.clone());
+    }
+    for entry in &right[j..] {
+        b = b.wrapping_add(entry.1);
+        merged.push(entry.clone());
+    }
+    (penalty.merge_penalty(a, b, shared), merged)
+}
+
+/// Source greedy merge over a min-penalty priority queue. Equal-penalty ties and
+/// output order follow the host heap/hash-map iteration order, as in the source
+/// they are not semantically ordered; callers must not rely on a stable tie order.
+pub fn merge_programs<T: Ord + Clone>(
+    programs: &[Vec<T>],
+    bound: Option<usize>,
+    penalty: &impl Penalty<T>,
+) -> Vec<Vec<T>> {
+    use std::collections::{BinaryHeap, HashMap};
+    struct Merge<T> {
+        rank: i32,
+        cost: i32,
+        left: usize,
+        right: usize,
+        merged: Vec<(T, i32)>,
+    }
+    impl<T> PartialEq for Merge<T> {
+        fn eq(&self, other: &Self) -> bool {
+            self.rank == other.rank
+        }
+    }
+    impl<T> Eq for Merge<T> {}
+    impl<T> PartialOrd for Merge<T> {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    impl<T> Ord for Merge<T> {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            self.rank.cmp(&other.rank)
+        }
+    }
+    let initial: Vec<Vec<(T, i32)>> = programs
+        .iter()
+        .map(|program| {
+            program
+                .iter()
+                .map(|v| (v.clone(), penalty.penalty(v)))
+                .collect()
+        })
+        .collect();
+    let mut sets: HashMap<usize, Vec<(T, i32)>> = initial.iter().cloned().enumerate().collect();
+    let mut queue = BinaryHeap::new();
+    for left in 0..initial.len() {
+        for right in left + 1..initial.len() {
+            let (cost, merged) = penalty_and_merge(&initial[left], &initial[right], penalty);
+            queue.push(Merge {
+                rank: cost.wrapping_neg(),
+                cost,
+                left,
+                right,
+                merged,
+            });
+        }
+    }
+    let mut next = initial.len();
+    while let Some(head) = queue.peek() {
+        if head.cost > 0 && !bound.is_some_and(|n| sets.len() > n) {
+            break;
+        }
+        let mut candidate = queue.pop().expect("peeked queue");
+        while !(sets.contains_key(&candidate.left) && sets.contains_key(&candidate.right)) {
+            let Some(next_candidate) = queue.pop() else {
+                return sets
+                    .into_values()
+                    .map(|p| p.into_iter().map(|(v, _)| v).collect())
+                    .collect();
+            };
+            candidate = next_candidate;
+        }
+        if candidate.cost <= 0 || bound.is_some_and(|n| sets.len() > n) {
+            sets.remove(&candidate.left);
+            sets.remove(&candidate.right);
+            for (&index, existing) in &sets {
+                let (cost, merged) = penalty_and_merge(existing, &candidate.merged, penalty);
+                queue.push(Merge {
+                    rank: cost.wrapping_neg(),
+                    cost,
+                    left: index,
+                    right: next,
+                    merged,
+                });
+            }
+            sets.insert(next, candidate.merged);
+            next += 1;
+        }
+    }
+    sets.into_values()
+        .map(|p| p.into_iter().map(|(v, _)| v).collect())
+        .collect()
+}
+
+fn validate_cut_graph(
+    n: usize,
+    selected: &[usize],
+    edges: &[BTreeSet<usize>],
+) -> Result<(), GraphError> {
+    if edges.len() != n {
+        return Err(GraphError::WrongAdjacencyLength);
+    }
+    for &v in selected.iter().chain(edges.iter().flat_map(|e| e.iter())) {
+        if v >= n {
+            return Err(GraphError::InvalidVertex(v));
+        }
+    }
+    Ok(())
+}
+
+/// Source cyclic cut: preserve selected-node order and duplicate-selected behavior.
+pub fn smallest_cut_with_cycles(
+    n: usize,
+    selected: &[usize],
+    edges: &[BTreeSet<usize>],
+) -> Result<Vec<Vec<usize>>, GraphError> {
+    validate_cut_graph(n, selected, edges)?;
+    let mut global = vec![false; n];
+    let mut not_root = vec![false; n];
+    let mut reachable = vec![BTreeSet::new(); n];
+    for &start in selected {
+        let mut stack = vec![start];
+        let mut local = vec![false; n];
+        let mut result = BTreeSet::new();
+        while let Some(node) = stack.pop() {
+            if !local[node] {
+                local[node] = true;
+                if global[node] {
+                    not_root[node] = true;
+                }
+                global[node] = true;
+                result.insert(node);
+                stack.extend(edges[node].iter().copied());
+            }
+        }
+        reachable[start] = result;
+    }
+    Ok(selected
+        .iter()
+        .filter(|&&node| !not_root[node])
+        .map(|&node| reachable[node].iter().copied().collect())
+        .collect())
+}
+
+/// Source DAG cut using shared reachability memoization and source root ordering.
+pub fn smallest_cut_without_cycles(
+    n: usize,
+    selected: &[usize],
+    edges: &[BTreeSet<usize>],
+) -> Result<Vec<Vec<usize>>, GraphError> {
+    validate_cut_graph(n, selected, edges)?;
+    #[derive(Clone, Copy)]
+    enum State {
+        Unvisited,
+        Active,
+        Finalized(usize),
+    }
+    let mut state = vec![State::Unvisited; n];
+    let mut not_root = vec![false; n];
+    let mut reachable = vec![BTreeSet::new(); n];
+    for &start in selected {
+        let mut stack = vec![(start, false)];
+        while let Some((node, finish)) = stack.pop() {
+            match state[node] {
+                State::Unvisited => {
+                    state[node] = State::Active;
+                    stack.push((node, true));
+                    stack.extend(edges[node].iter().copied().map(|v| (v, false)));
+                }
+                State::Active if finish => {
+                    let mut result = BTreeSet::from([node]);
+                    for &child in &edges[node] {
+                        if !matches!(state[child], State::Finalized(_)) {
+                            return Err(GraphError::CycleInAcyclicCut);
+                        }
+                        result.extend(reachable[child].iter().copied());
+                    }
+                    reachable[node] = result;
+                    state[node] = State::Finalized(start);
+                }
+                State::Active => return Err(GraphError::CycleInAcyclicCut),
+                State::Finalized(previous) if previous != start => not_root[node] = true,
+                State::Finalized(_) => {}
+            }
+        }
+    }
+    Ok(selected
+        .iter()
+        .filter(|&&node| !not_root[node])
+        .map(|&node| reachable[node].iter().copied().collect())
+        .collect())
+}
+
 /// SCC order and member order follow source sorted successor traversal and list prepend.
 pub fn fast_components(
     n: usize,
@@ -258,5 +491,42 @@ mod tests {
         );
         assert_eq!(owner, vec![0, 0, 1]);
         assert_eq!(graph[0], BTreeSet::from([2]));
+    }
+}
+
+#[cfg(test)]
+mod cut_tests {
+    use super::*;
+    #[test]
+    fn positive_cost_merges_only_when_bound_forces_them() {
+        struct P;
+        impl Penalty<i32> for P {
+            fn penalty(&self, _: &i32) -> i32 {
+                1
+            }
+            fn merge_penalty(&self, lhs: i32, rhs: i32, _: i32) -> i32 {
+                lhs + rhs
+            }
+        }
+        let input = vec![vec![1], vec![2], vec![3]];
+        assert_eq!(merge_programs(&input, None, &P).len(), 3);
+        let result = merge_programs(&input, Some(1), &P);
+        assert_eq!(result, vec![vec![1, 2, 3]]);
+    }
+    #[test]
+    fn cyclic_and_dag_cuts_keep_source_duplicate_selection_behavior() {
+        let edges = vec![BTreeSet::from([1]), BTreeSet::new()];
+        assert_eq!(
+            smallest_cut_with_cycles(2, &[0, 0], &edges).unwrap(),
+            Vec::<Vec<usize>>::new()
+        );
+        assert_eq!(
+            smallest_cut_without_cycles(2, &[0, 0], &edges).unwrap(),
+            vec![vec![0, 1], vec![0, 1]]
+        );
+        assert_eq!(
+            smallest_cut_without_cycles(2, &[1, 0], &edges).unwrap(),
+            vec![vec![0, 1]]
+        );
     }
 }
