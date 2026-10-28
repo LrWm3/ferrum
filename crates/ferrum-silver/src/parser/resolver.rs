@@ -269,6 +269,86 @@ fn definition_name(node: &PNodeHandle) -> String {
         _ => panic!("expected identifier definition"),
     }
 }
+fn let_binding(node: &PNodeHandle) -> Option<(PNodeHandle, super::parse_ast::PExpHandle)> {
+    let parent = super::parse_ast::get_ancestor(node, |node| {
+        matches!(
+            &node.read().expect("poisoned parse node").kind,
+            PNodeKind::Expression(super::parse_ast::PExpression {
+                kind: PExpressionKind::Let { .. },
+                ..
+            })
+        )
+    })?;
+    let snapshot = parent.read().expect("poisoned parse node").kind.clone();
+    match snapshot {
+        PNodeKind::Expression(super::parse_ast::PExpression {
+            kind: PExpressionKind::Let { variable, exp, .. },
+            ..
+        }) => Some((variable, exp.inner().clone())),
+        _ => None,
+    }
+}
+fn adt_signature(
+    owner: &PNodeHandle,
+) -> Result<(String, Vec<String>, super::parse_ast::PTypeHandle), TypeCheckError> {
+    use super::parse_ast::{PDeclarationClass, PDomainTypeKind, PIdnRef, PNode, PTypeKind};
+    use super::parse_ast_keyword::{PDelimited, PGrouped, PReserved, PSym};
+    let adt = match &owner.read().expect("poisoned parse node").kind {
+        PNodeKind::Member(PMember {
+            kind: PMemberKind::Extension(ext),
+            ..
+        }) => ext
+            .as_any()
+            .downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdt>()
+            .cloned()
+            .ok_or(TypeCheckError::Unsupported("ADT owner"))?,
+        _ => return Err(TypeCheckError::Unsupported("ADT owner")),
+    };
+    let name = definition_name(&adt.idndef);
+    let names = adt
+        .type_vars
+        .iter()
+        .map(|node| {
+            declaration_identifier(node)
+                .map(|id| definition_name(&id))
+                .ok_or(TypeCheckError::Unsupported("ADT type variable"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let no_pos = (
+        crate::ast::position::Position::NoPosition,
+        crate::ast::position::Position::NoPosition,
+    );
+    let mut reference = PIdnRef::with_class(name.clone(), PDeclarationClass::TypeDeclaration);
+    reference.new_decl(owner);
+    let domain = PNode::new(PNodeKind::IdnRef(reference), no_pos.clone());
+    let args = if adt.type_vars_present {
+        let mut vars = names
+            .iter()
+            .map(|name| super::parse_ast::p_type_var(name.clone()));
+        let first = vars.next();
+        let rest = vars
+            .map(|v| (PReserved::new(PSym::Comma, no_pos.clone()), v))
+            .collect();
+        let list = PDelimited::new(first, rest, None, no_pos.clone());
+        Some(PGrouped::new(
+            PReserved::new(PSym::LBracket, no_pos.clone()),
+            list,
+            PReserved::new(PSym::RBracket, no_pos.clone()),
+            no_pos.clone(),
+        ))
+    } else {
+        None
+    };
+    let typ = super::parse_ast::PTypeHandle::new(
+        PTypeKind::Domain {
+            domain,
+            args,
+            kind: PDomainTypeKind::Adt,
+        },
+        no_pos,
+    );
+    Ok((name, names, typ))
+}
 fn add_named_declaration(
     map: &mut DeclarationMap,
     node: &PNodeHandle,
@@ -327,12 +407,21 @@ fn declaration_identifier(node: &PNodeHandle) -> Option<PNodeHandle> {
             | PMemberKind::Predicate { idndef, .. }
             | PMemberKind::Method { idndef, .. }
             | PMemberKind::Define { idndef, .. } => Some(idndef.clone()),
+            PMemberKind::Extension(extension) => extension
+                .as_any()
+                .downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdt>()
+                .map(|adt| adt.idndef.clone()),
             _ => None,
         },
+        PNodeKind::Extension(extension) => extension
+            .as_any()
+            .downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>()
+            .map(|constructor| constructor.idndef.clone()),
         PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function { idndef, .. }) => {
             Some(idndef.clone())
         }
         PNodeKind::TypeVarDecl { children } => children.first().cloned(),
+        PNodeKind::LetNestedScope { .. } => let_binding(node).map(|(id, _)| id),
         PNodeKind::Statement(statement) => match &statement.kind {
             PStatementKind::Label { idndef, .. } => Some(idndef.clone()),
             _ => None,
@@ -365,6 +454,11 @@ fn visit_names(
                     DeclarationUniqueness::Global,
                     true,
                 ),
+                PDeclarationKind::AdtField => (
+                    DeclarationVisibility::Global,
+                    DeclarationUniqueness::Member,
+                    true,
+                ),
             };
             add_named_declaration(
                 current,
@@ -390,6 +484,10 @@ fn visit_names(
                     messages,
                 )?,
                 PMemberKind::Fields { .. } | PMemberKind::Import { .. } => {}
+                PMemberKind::Extension(extension) if extension.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdt>() => {
+                    let adt = extension.as_any().downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdt>().expect("checked ADT");
+                    add_named_declaration(current, node, &adt.idndef, DeclarationVisibility::Global, DeclarationUniqueness::None, true, messages)?;
+                }
                 PMemberKind::Domain { idndef, interpretations, members, .. }
                     if interpretations.is_none() && members.inner().to_seq().iter().all(|m| matches!(&m.node().read().expect("poisoned parse node").kind, PNodeKind::DomainMember(super::parse_ast::PDomainMember::Axiom { .. } | super::parse_ast::PDomainMember::Function { interpretation: None, .. }))) =>
                 {
@@ -434,7 +532,7 @@ fn visit_names(
             PExpressionKind::Extension(extension) if !extension.as_any().is::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() && !extension.as_any().is::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() && !extension.as_any().is::<crate::plugin::standard::arp::arppast_extension::PRdPerm>() && !extension.as_any().is::<crate::plugin::standard::termination::termination_past_extension::PDecreasesClause>() => {
                 return Err(NameAnalysisError::Unsupported("expression extension name analysis"));
             }
-            PExpressionKind::Let { .. } => return Err(NameAnalysisError::Unsupported("let name analysis")),
+            PExpressionKind::Let { .. } => scope = Some(DeclarationMap::new(false, false)),
             _ => {}
         },
         PNodeKind::IdnRef(_) => current.new_ref(node.clone()),
@@ -447,9 +545,17 @@ fn visit_names(
             let idndef = children.first().ok_or(NameAnalysisError::Unsupported("type variable identifier"))?;
             add_named_declaration(current, node, idndef, DeclarationVisibility::Member, DeclarationUniqueness::None, false, messages)?;
         }
+        PNodeKind::LetNestedScope { .. } => {
+            let (idndef, _) = let_binding(node).ok_or(NameAnalysisError::Unsupported("let binding owner"))?;
+            add_named_declaration(current, node, &idndef, DeclarationVisibility::Local, DeclarationUniqueness::Scope, false, messages)?;
+        }
+        PNodeKind::Extension(extension) if extension.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>() => {
+            let ctor = extension.as_any().downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>().expect("checked ADT constructor");
+            add_named_declaration(current, node, &ctor.idndef, DeclarationVisibility::Global, DeclarationUniqueness::Global, true, messages)?;
+        }
+        PNodeKind::Extension(extension) if extension.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdtDerivingInfo>() => {}
         PNodeKind::DomainMember(_)
         | PNodeKind::DefineParam { .. }
-        | PNodeKind::LetNestedScope { .. }
         | PNodeKind::Extension(_) => {
             return Err(NameAnalysisError::Unsupported(
                 "domain, macro or extension name analysis",
@@ -719,11 +825,23 @@ pub fn check_expression(
             if candidates.len() != 1 {
                 return Err(TypeCheckError::AmbiguousIdentifier(name));
             }
-            let typ = match &candidates[0].read().expect("poisoned parse node").kind {
-                PNodeKind::Declaration(declaration) => declaration.typ.clone(),
+            let declaration = candidates[0].read().expect("poisoned parse node").kind.clone();
+            let typ = match declaration {
+                PNodeKind::Declaration(declaration) => declaration.typ,
+                PNodeKind::LetNestedScope { .. } => {
+                    let (_, value) = let_binding(&candidates[0]).ok_or(TypeCheckError::Unsupported("let binding owner"))?;
+                    match &value.node().read().expect("poisoned parse node").kind { PNodeKind::Expression(e) => e.typ.clone(), _ => return Err(TypeCheckError::Unsupported("let value")) }
+                }
                 _ => return Err(TypeCheckError::Unsupported("identifier declaration")),
             };
             (typ, vec![PTypeSubstitution::default()])
+        }
+        PExpressionKind::Let { exp, nested_scope, .. } => {
+            check_expression(exp.inner(), None)?;
+            let body = match &nested_scope.read().expect("poisoned parse node").kind { PNodeKind::LetNestedScope { body } => body.clone(), _ => return Err(TypeCheckError::Unsupported("let body")) };
+            let typ = check_expression(&body, None)?;
+            let substitutions = input.type_subs_distinct().ok_or(TypeCheckError::Unsupported("let substitutions"))?;
+            (typ, substitutions)
         }
         PExpressionKind::UnExp { op, exp } => {
             let signatures = op
@@ -771,7 +889,7 @@ pub fn check_expression(
                             interpretation: None,
                             ..
                         })
-                    )
+                    ) || matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Extension(extension) if extension.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>())
             });
             super::parse_ast::PIdnRef::filter_decls(&idnref, predicate, |_| true);
             let candidates = super::parse_ast::PIdnRef::decls(&idnref, |_| true);
@@ -864,6 +982,35 @@ pub fn check_expression(
                         false,
                     )
                 }
+                PNodeKind::Extension(extension) if extension.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>() => {
+                    use super::parse_ast::{PDomainTypeKind, PExpression, PIdnRef, PNode, PTypeKind};
+                    use super::parse_ast_keyword::{PDelimited, PGrouped, PReserved, PSym};
+                    let constructor = extension.as_any().downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>().expect("checked ADT constructor");
+                    let owner = super::parse_ast::get_ancestor(&candidates[0], |node| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Member(PMember { kind: PMemberKind::Extension(ext), .. }) if ext.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdt>())).ok_or(TypeCheckError::Unsupported("ADT constructor owner"))?;
+                    let adt = match &owner.read().expect("poisoned parse node").kind { PNodeKind::Member(PMember { kind: PMemberKind::Extension(ext), .. }) => ext.as_any().downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdt>().cloned().ok_or(TypeCheckError::Unsupported("ADT constructor owner"))?, _ => return Err(TypeCheckError::Unsupported("ADT constructor owner")) };
+                    let adt_name = definition_name(&adt.idndef);
+                    let names = adt.type_vars.iter().map(|node| declaration_identifier(node).map(|id| definition_name(&id)).ok_or(TypeCheckError::Unsupported("ADT type variable"))).collect::<Result<Vec<_>, _>>()?;
+                    let renaming = super::parse_ast::fresh_type_renaming(&names, Some(&adt_name));
+                    let substitution = renaming.as_substitution();
+                    if let PNodeKind::Expression(PExpression { kind: PExpressionKind::Call { domain_type_renaming, extra_local_type_variables, .. }, .. }) = &mut input.node().write().expect("poisoned parse node").kind {
+                        *domain_type_renaming = Some(renaming);
+                        *extra_local_type_variables = names.iter().cloned().map(super::parse_ast::p_type_var).collect();
+                    }
+                    let no_pos = (crate::ast::position::Position::NoPosition, crate::ast::position::Position::NoPosition);
+                    let mut reference = PIdnRef::with_class(adt_name, super::parse_ast::PDeclarationClass::TypeDeclaration);
+                    reference.new_decl(&owner);
+                    let domain = PNode::new(PNodeKind::IdnRef(reference), no_pos.clone());
+                    let args = if adt.type_vars_present {
+                        let mut vars = names.iter().map(|name| super::parse_ast::p_type_var(name.clone()));
+                        let first = vars.next();
+                        let rest = vars.map(|v| (PReserved::new(PSym::Comma, no_pos.clone()), v)).collect();
+                        let list = PDelimited::new(first, rest, None, no_pos.clone());
+                        Some(PGrouped::new(PReserved::new(PSym::LBracket, no_pos.clone()), list, PReserved::new(PSym::RBracket, no_pos.clone()), no_pos.clone()))
+                    } else { None };
+                    let result = super::parse_ast::PTypeHandle::new(PTypeKind::Domain { domain, args, kind: PDomainTypeKind::Adt }, no_pos);
+                    let formals = constructor.args.inner().to_seq().into_iter().map(|arg| match &arg.node().read().expect("poisoned parse node").kind { PNodeKind::Declaration(d) => Ok(d.typ.substitute(&substitution)), _ => Err(TypeCheckError::Unsupported("ADT field declaration")) }).collect::<Result<Vec<_>, _>>()?;
+                    (formals, result.substitute(&substitution), false)
+                }
                 _ => return Err(TypeCheckError::Unsupported("call declaration")),
             };
             if predicate_call && type_annotated.is_some() {
@@ -891,6 +1038,7 @@ pub fn check_expression(
             }
             bindings.insert("#R".to_string(), result_type);
             let annotation = type_annotated.as_ref().map(|(_, typ)| typ);
+            if let Some(annotation) = annotation { check_supported_type(annotation)?; }
             if annotation.is_some() && expected.is_some() {
                 return Err(TypeCheckError::Unsupported(
                     "both annotated and contextual call constraints",
@@ -943,8 +1091,35 @@ pub fn check_expression(
         PExpressionKind::InhaleExhale { inhale, exhale, .. } => {
             check_operator(input, None, vec![inhale, exhale], expected, false)?
         }
-        PExpressionKind::FieldAccess { receiver, .. } => {
-            check_operator(input, None, vec![receiver], expected, false)?
+        PExpressionKind::FieldAccess { receiver, idnref, .. } => {
+            use super::parse_ast::{PDeclarationClass, PDomainTypeKind, PTypeKind};
+            let class = match &idnref.read().expect("poisoned parse node").kind { PNodeKind::IdnRef(id) => id.declaration_class, _ => return Err(TypeCheckError::Unsupported("field identifier")) };
+            if matches!(class, PDeclarationClass::AdtField | PDeclarationClass::AdtConstructor) {
+                let receiver_type = check_expression(&receiver, None)?;
+                let receiver_name = match receiver_type.kind() { PTypeKind::Domain { domain, kind: PDomainTypeKind::Adt, .. } => match &domain.read().expect("poisoned parse node").kind { PNodeKind::IdnRef(id) => id.name.clone(), _ => return Err(TypeCheckError::Unsupported("ADT receiver")) }, _ => return Err(TypeCheckError::Unsupported("ADT receiver type")) };
+                let candidates = super::parse_ast::PIdnRef::decls(&idnref, |_| true);
+                let mut matching = Vec::new();
+                for candidate in candidates {
+                    let owner = super::parse_ast::get_ancestor(&candidate, |node| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Member(PMember { kind: PMemberKind::Extension(ext), .. }) if ext.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdt>()));
+                    if let Some(owner) = owner {
+                        let (name, _, _) = adt_signature(&owner)?;
+                        if class == PDeclarationClass::AdtConstructor || name == receiver_name { matching.push((candidate, owner)); }
+                    }
+                }
+                if matching.len() != 1 { return Err(TypeCheckError::Unsupported("undefined or ambiguous ADT member")); }
+                let (declaration, owner) = matching.pop().expect("one ADT member");
+                let selected = declaration.clone();
+                super::parse_ast::PIdnRef::filter_decls(&idnref, std::sync::Arc::new(move |node| std::sync::Arc::ptr_eq(node, &selected)), |_| true);
+                let (adt_name, names, receiver_signature) = adt_signature(&owner)?;
+                let renaming = super::parse_ast::fresh_type_renaming(&names, Some(&adt_name));
+                let substitution = renaming.as_substitution();
+                if let PNodeKind::Expression(super::parse_ast::PExpression { kind: PExpressionKind::FieldAccess { adt_type_renaming, .. }, .. }) = &mut input.node().write().expect("poisoned parse node").kind { *adt_type_renaming = Some(renaming); }
+                let result_type = if class == PDeclarationClass::AdtConstructor { type_from_signature(&super::parse_ast_keyword::SignatureType::Bool) } else {
+                    match &declaration.read().expect("poisoned parse node").kind { PNodeKind::Declaration(d) => d.typ.substitute(&substitution), _ => return Err(TypeCheckError::Unsupported("ADT field declaration")) }
+                };
+                let bindings = [("#T0".into(), receiver_signature.substitute(&substitution)), ("#R".into(), result_type)].into_iter().collect();
+                check_operator(input, Some(vec![PTypeSubstitution::new(bindings, false)]), vec![receiver], expected, false)?
+            } else { check_operator(input, None, vec![receiver], expected, false)? }
         }
         PExpressionKind::OldExp { exp, .. } => {
             check_operator(input, None, vec![exp.inner().clone()], expected, false)?
@@ -1196,11 +1371,17 @@ fn check_operator(
     if let PNodeKind::Expression(expression) =
         &mut input.node().write().expect("poisoned parse node").kind
     {
-        if let PExpressionKind::Call {
-            domain_type_renaming: Some(domain),
-            ..
-        } = &mut expression.kind
-        {
+        let domain = match &mut expression.kind {
+            PExpressionKind::Call {
+                domain_type_renaming,
+                ..
+            } => domain_type_renaming.as_mut(),
+            PExpressionKind::FieldAccess {
+                adt_type_renaming, ..
+            } => adt_type_renaming.as_mut(),
+            _ => None,
+        };
+        if let Some(domain) = domain {
             for fresh in domain.mappings.values_mut() {
                 *fresh = renaming.rename(fresh).to_owned();
             }
@@ -1462,17 +1643,21 @@ fn check_supported_type(typ: &PTypeHandle) -> Result<(), TypeCheckError> {
             check_supported_type(types.inner().first())?;
             check_supported_type(types.inner().second())
         }
-        super::parse_ast::PTypeKind::Domain { domain, args, .. } => {
+        super::parse_ast::PTypeKind::Domain { domain, args, kind } => {
             use super::parse_ast::{PDomainTypeKind, PIdnRef};
             let declarations = PIdnRef::decls(&domain, |node| {
-                matches!(
-                    &node.read().expect("poisoned parse node").kind,
-                    PNodeKind::TypeVarDecl { .. }
-                        | PNodeKind::Member(PMember {
-                            kind: PMemberKind::Domain { .. },
-                            ..
-                        })
-                )
+                if kind == PDomainTypeKind::Adt {
+                    matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Member(PMember { kind: PMemberKind::Extension(extension), .. }) if extension.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdt>())
+                } else {
+                    matches!(
+                        &node.read().expect("poisoned parse node").kind,
+                        PNodeKind::TypeVarDecl { .. }
+                            | PNodeKind::Member(PMember {
+                                kind: PMemberKind::Domain { .. },
+                                ..
+                            })
+                    )
+                }
             });
             if declarations.len() != 1 {
                 return Err(TypeCheckError::Unsupported(
@@ -1496,6 +1681,19 @@ fn check_supported_type(typ: &PTypeHandle) -> Result<(), TypeCheckError> {
                     PDomainTypeKind::Domain,
                     type_vars.as_ref().map_or(0, |v| v.inner().len()),
                 ),
+                PNodeKind::Member(PMember {
+                    kind: PMemberKind::Extension(extension),
+                    ..
+                }) => {
+                    let adt = extension
+                        .as_any()
+                        .downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdt>()
+                        .ok_or(TypeCheckError::Unsupported("ADT declaration"))?;
+                    if adt.type_vars_present != args.is_some() {
+                        return Err(TypeCheckError::Unsupported("ADT type argument list"));
+                    }
+                    (PDomainTypeKind::Adt, adt.type_vars.len())
+                }
                 _ => unreachable!(),
             };
             if arity != arguments.len() {
@@ -1630,6 +1828,39 @@ pub fn check_program_core(
     warn: &mut impl FnMut(&PNodeHandle, &str),
 ) -> Result<(), TypeCheckError> {
     let members = program.all_members();
+    fn global_names(
+        node: &PNodeHandle,
+        names: &mut std::collections::HashSet<String>,
+    ) -> Result<(), TypeCheckError> {
+        let kind = node.read().expect("poisoned parse node").kind.clone();
+        let global = matches!(
+            &kind,
+            PNodeKind::Member(PMember {
+                kind: PMemberKind::Domain { .. }
+                    | PMemberKind::Function { .. }
+                    | PMemberKind::Predicate { .. }
+                    | PMemberKind::Method { .. },
+                ..
+            }) | PNodeKind::Declaration(super::parse_ast::PDeclaration {
+                kind: PDeclarationKind::Field { .. } | PDeclarationKind::AdtField,
+                ..
+            }) | PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function { .. })
+        ) || matches!(&kind, PNodeKind::Member(PMember { kind: PMemberKind::Extension(ext), .. }) if ext.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdt>())
+            || matches!(&kind, PNodeKind::Extension(ext) if ext.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>());
+        if global {
+            if let Some(id) = declaration_identifier(node) {
+                names.insert(definition_name(&id));
+            }
+        }
+        for child in subnodes(node)
+            .map_err(|_| TypeCheckError::Unsupported("global declaration traversal"))?
+        {
+            global_names(&child, names)?;
+        }
+        Ok(())
+    }
+    let mut globals = std::collections::HashSet::new();
+    if members.iter().any(|node| matches!(&node.node().read().expect("poisoned parse node").kind, PNodeKind::Member(PMember { kind: PMemberKind::Extension(ext), .. }) if ext.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdt>())) { global_names(program.node(), &mut globals)?; }
     for handle in &members {
         let member = match &handle.node().read().expect("poisoned parse node").kind {
             PNodeKind::Member(member) => member.clone(),
@@ -1637,6 +1868,52 @@ pub fn check_program_core(
         };
         match member.kind {
             PMemberKind::Import { .. } => {}
+            PMemberKind::Extension(extension)
+                if extension
+                    .as_any()
+                    .is::<crate::plugin::standard::adt::adt_past_extension::PAdt>() =>
+            {
+                let adt = extension
+                    .as_any()
+                    .downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdt>()
+                    .expect("checked ADT");
+                adt.validate_derivations()
+                    .map_err(|_| TypeCheckError::Unsupported("invalid ADT derivation"))?;
+                for node in &adt.constructors {
+                    let constructor = match &node.read().expect("poisoned parse node").kind {
+                        PNodeKind::Extension(extension) => extension.as_any().downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>().cloned().ok_or(TypeCheckError::Unsupported("ADT constructor"))?,
+                        _ => return Err(TypeCheckError::Unsupported("ADT constructor")),
+                    };
+                    if globals.contains(&format!("is{}", definition_name(&constructor.idndef))) {
+                        return Err(TypeCheckError::Unsupported(
+                            "ADT discriminator name is shadowed",
+                        ));
+                    }
+                    check_declarations(&constructor.args)?;
+                }
+                for node in &adt.deriving {
+                    let info = match &node.read().expect("poisoned parse node").kind {
+                        PNodeKind::Extension(extension) => extension.as_any().downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdtDerivingInfo>().cloned().ok_or(TypeCheckError::Unsupported("ADT derivation"))?,
+                        _ => return Err(TypeCheckError::Unsupported("ADT derivation")),
+                    };
+                    if let Some(typ) = &info.parameter {
+                        check_supported_type(typ)?;
+                    }
+                    let fields: Vec<_> = adt.constructors.iter().flat_map(|node| {
+                        match &node.read().expect("poisoned parse node").kind {
+                            PNodeKind::Extension(ext) => ext.as_any().downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>().map(|c| c.formal_args().into_iter().map(|a| a.node().clone()).collect::<Vec<_>>()).unwrap_or_default(),
+                            _ => Vec::new(),
+                        }
+                    }).collect();
+                    info.validate_fields(|reference| {
+                        super::parse_ast::PIdnRef::decls(reference, |decl| {
+                            fields.iter().any(|f| std::sync::Arc::ptr_eq(f, decl))
+                        })
+                        .len()
+                    })
+                    .map_err(|_| TypeCheckError::Unsupported("ADT derivation field"))?;
+                }
+            }
             PMemberKind::Domain {
                 interpretations,
                 members,
@@ -1710,6 +1987,10 @@ pub fn check_program_core(
         };
         match member.kind {
             PMemberKind::Fields { .. } | PMemberKind::Import { .. } => {}
+            PMemberKind::Extension(extension)
+                if extension
+                    .as_any()
+                    .is::<crate::plugin::standard::adt::adt_past_extension::PAdt>() => {}
             PMemberKind::Domain {
                 interpretations,
                 members,

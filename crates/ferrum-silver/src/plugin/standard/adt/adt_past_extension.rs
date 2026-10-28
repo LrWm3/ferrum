@@ -181,6 +181,8 @@ pub struct PAdt {
     pub keyword: PReserved<PExtensionKeyword>,
     pub idndef: PNodeHandle,
     pub type_vars: Vec<PNodeHandle>,
+    /// Distinguish absent type parameters from an explicitly empty list.
+    pub type_vars_present: bool,
     pub constructors: Vec<PNodeHandle>,
     pub deriving: Vec<PNodeHandle>,
     pub pos: Span,

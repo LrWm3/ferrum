@@ -125,6 +125,60 @@ pub fn translate_type(typ: &PTypeHandle) -> Result<Type, TranslationError> {
             };
             match kind {
                 PDomainTypeKind::TypeVar => Type::Var(TypeVar::new(name)),
+                PDomainTypeKind::Adt => {
+                    let declarations = PIdnRef::decls(
+                        &domain,
+                        |node| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Member(super::parse_ast::PMember { kind: super::parse_ast::PMemberKind::Extension(ext), .. }) if ext.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdt>()),
+                    );
+                    if declarations.len() != 1 {
+                        return Err(TranslationError::InvalidType);
+                    }
+                    let params = match &declarations[0].read().expect("poisoned parse node").kind {
+                        PNodeKind::Member(super::parse_ast::PMember {
+                            kind: super::parse_ast::PMemberKind::Extension(ext),
+                            ..
+                        }) => ext
+                            .as_any()
+                            .downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdt>(
+                            )
+                            .expect("checked ADT")
+                            .type_vars
+                            .iter()
+                            .map(
+                                |node| match &node.read().expect("poisoned parse node").kind {
+                                    PNodeKind::TypeVarDecl { children } => children
+                                        .first()
+                                        .ok_or(TranslationError::InvalidType)
+                                        .and_then(declaration_name)
+                                        .map(TypeVar::new),
+                                    _ => Err(TranslationError::InvalidType),
+                                },
+                            )
+                            .collect::<Result<Vec<_>, _>>()?,
+                        _ => return Err(TranslationError::InvalidType),
+                    };
+                    let actuals = args
+                        .as_ref()
+                        .map(|a| {
+                            a.inner()
+                                .to_seq()
+                                .into_iter()
+                                .map(translate_type)
+                                .collect::<Result<Vec<_>, _>>()
+                        })
+                        .transpose()?
+                        .unwrap_or_default();
+                    if params.len() != actuals.len() {
+                        return Err(TranslationError::InvalidType);
+                    }
+                    let substitution = params.iter().cloned().zip(actuals).collect();
+                    crate::plugin::standard::adt::adt_ast_extension::AdtType::new(
+                        name,
+                        substitution,
+                        params,
+                    )
+                    .as_type()
+                }
                 PDomainTypeKind::Domain => {
                     let declarations = PIdnRef::decls(&domain, |node| {
                         matches!(
@@ -225,7 +279,7 @@ fn translate_expression_with_fields(
             if refs.len() != 1
                 || !matches!(
                     &refs[0].read().expect("poisoned parse node").kind,
-                    PNodeKind::Declaration(super::parse_ast::PDeclaration {
+                    PNodeKind::LetNestedScope { .. } | PNodeKind::Declaration(super::parse_ast::PDeclaration {
                         kind: super::parse_ast::PDeclarationKind::FormalArg
                             | super::parse_ast::PDeclarationKind::FormalReturn
                             | super::parse_ast::PDeclarationKind::LogicalVar
@@ -279,11 +333,23 @@ fn translate_expression_with_fields(
             );
         }
         PExpressionKind::FieldAccess {
-            receiver, idnref, ..
+            receiver, idnref, adt_substitution, ..
         } => {
             let declarations = PIdnRef::decls(&idnref, |_| true);
             if declarations.len() != 1 {
                 return Err(TranslationError::Unsupported("unresolved field"));
+            }
+            let (class, name) = match &idnref.read().expect("poisoned parse node").kind { PNodeKind::IdnRef(id) => (id.declaration_class, id.name.clone()), _ => return Err(TranslationError::InvalidType) };
+            if matches!(class, super::parse_ast::PDeclarationClass::AdtField | super::parse_ast::PDeclarationClass::AdtConstructor) {
+                let owner = super::parse_ast::get_ancestor(&declarations[0], |node| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Member(super::parse_ast::PMember { kind: super::parse_ast::PMemberKind::Extension(ext), .. }) if ext.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdt>())).ok_or(TranslationError::Unsupported("ADT member owner"))?;
+                let adt_name = match &owner.read().expect("poisoned parse node").kind { PNodeKind::Member(super::parse_ast::PMember { kind: super::parse_ast::PMemberKind::Extension(ext), .. }) => declaration_name(&ext.as_any().downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdt>().ok_or(TranslationError::InvalidType)?.idndef)?, _ => return Err(TranslationError::InvalidType) };
+                let type_vars = adt_substitution.ok_or(TranslationError::Unsupported("unresolved ADT member substitution"))?.iter().map(|(name, typ)| Ok((crate::ast::r#type::TypeVar::new(name), translate_type(typ)?))).collect::<Result<_, TranslationError>>()?;
+                let receiver = translate_expression_with_fields(&receiver, fields)?;
+                return Ok(if class == super::parse_ast::PDeclarationClass::AdtField {
+                    crate::plugin::standard::adt::adt_ast_extension::AdtDestructorApp { name, receiver, type_vars, typ: translate_type(&expression.typ)?, adt_name, meta }.expression()
+                } else {
+                    crate::plugin::standard::adt::adt_ast_extension::AdtDiscriminatorApp { name, receiver, type_vars, adt_name, meta }.expression()
+                });
             }
             let field_handle =
                 super::parse_ast::PDeclarationHandle::from_node(declarations[0].clone())
@@ -343,6 +409,12 @@ fn translate_expression_with_fields(
                 .into_iter()
                 .map(|e| translate_expression_with_fields(e, fields))
                 .collect::<Result<Vec<_>, _>>()?;
+            if matches!(&declaration, PNodeKind::Extension(ext) if ext.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>()) {
+                let owner = super::parse_ast::get_ancestor(&declarations[0], |node| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Member(super::parse_ast::PMember { kind: super::parse_ast::PMemberKind::Extension(ext), .. }) if ext.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdt>())).ok_or(TranslationError::Unsupported("ADT constructor owner"))?;
+                let adt_name = match &owner.read().expect("poisoned parse node").kind { PNodeKind::Member(super::parse_ast::PMember { kind: super::parse_ast::PMemberKind::Extension(ext), .. }) => declaration_name(&ext.as_any().downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdt>().ok_or(TranslationError::InvalidType)?.idndef)?, _ => return Err(TranslationError::InvalidType) };
+                let type_vars = domain_substitution.ok_or(TranslationError::Unsupported("unresolved ADT constructor substitution"))?.iter().map(|(name, typ)| Ok((crate::ast::r#type::TypeVar::new(name), translate_type(typ)?))).collect::<Result<_, TranslationError>>()?;
+                return Ok(crate::plugin::standard::adt::adt_ast_extension::AdtConstructorApp { name, args, type_vars, typ: translate_type(&expression.typ)?, adt_name, meta }.expression());
+            }
             if matches!(
                 declaration,
                 PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function {
@@ -559,6 +631,18 @@ fn translate_expression_with_fields(
             translate_expression_with_fields(&assertion, fields)?,
             translate_expression_with_fields(&exp, fields)?,
         ),
+        PExpressionKind::Let { variable, exp, nested_scope, .. } => {
+            let body = match &nested_scope.read().expect("poisoned parse node").kind { PNodeKind::LetNestedScope { body } => body.clone(), _ => return Err(TranslationError::Unsupported("let body")) };
+            let value = translate_expression_with_fields(exp.inner(), fields)?;
+            let typ = value.typ().map_err(|_| TranslationError::InvalidType)?;
+            let mut binder_meta = metadata(&variable)?;
+            let syntax_type = match &exp.inner().node().read().expect("poisoned parse node").kind { PNodeKind::Expression(e) => e.typ.clone(), _ => return Err(TranslationError::InvalidType) };
+            let binder_pos = variable.read().expect("poisoned parse node").pos.clone();
+            let declaration = super::parse_ast::PDeclarationHandle::from_binding(super::parse_ast::PDeclarationKind::LogicalVar, super::parse_ast::PIdnTypeBinding { idndef: variable.clone(), colon: super::parse_ast_keyword::PReserved::new(super::parse_ast_keyword::PSym::Colon, (crate::ast::position::Position::NoPosition, crate::ast::position::Position::NoPosition)), typ: syntax_type, pos: binder_pos });
+            binder_meta.info = Info::SourcePNode(declaration.node().clone());
+            let binder = crate::ast::program::LocalVarDecl::new(declaration_name(&variable)?, typ, binder_meta);
+            ExpKind::Let(binder, value, translate_expression_with_fields(&body, fields)?)
+        }
         PExpressionKind::MagicWandExp { left, right, .. } => ExpKind::MagicWand(
             translate_expression_with_fields(&left, fields)?,
             translate_expression_with_fields(&right, fields)?,
@@ -1358,6 +1442,7 @@ pub fn translate_program_core(
     let mut functions = Vec::new();
     let mut predicates = Vec::new();
     let mut methods = Vec::new();
+    let mut extensions = Vec::new();
     for handle in input.all_members() {
         let member = match &handle.node().read().expect("poisoned parse node").kind {
             PNodeKind::Member(member) => member.clone(),
@@ -1366,6 +1451,87 @@ pub fn translate_program_core(
         let mut member_meta = metadata(handle.node())?;
         member_meta.info = annotation_info(member.annotations());
         match member.kind {
+            PMemberKind::Extension(extension)
+                if extension
+                    .as_any()
+                    .is::<crate::plugin::standard::adt::adt_past_extension::PAdt>() =>
+            {
+                use crate::plugin::standard::adt::adt_ast_extension::{Adt, AdtConstructor};
+                use crate::plugin::standard::adt::adt_past_extension::{
+                    PAdt, PAdtConstructor, PAdtDerivingInfo,
+                };
+                let adt = extension
+                    .as_any()
+                    .downcast_ref::<PAdt>()
+                    .expect("checked ADT");
+                let type_vars = adt
+                    .type_vars
+                    .iter()
+                    .map(
+                        |node| match &node.read().expect("poisoned parse node").kind {
+                            PNodeKind::TypeVarDecl { children } => children
+                                .first()
+                                .ok_or(TranslationError::InvalidType)
+                                .and_then(declaration_name)
+                                .map(crate::ast::r#type::TypeVar::new),
+                            _ => Err(TranslationError::InvalidType),
+                        },
+                    )
+                    .collect::<Result<Vec<_>, _>>()?;
+                let name = declaration_name(&adt.idndef)?;
+                let mut constructors = Vec::new();
+                for node in &adt.constructors {
+                    let constructor = match &node.read().expect("poisoned parse node").kind {
+                        PNodeKind::Extension(ext) => ext
+                            .as_any()
+                            .downcast_ref::<PAdtConstructor>()
+                            .cloned()
+                            .ok_or(TranslationError::InvalidType)?,
+                        _ => return Err(TranslationError::InvalidType),
+                    };
+                    let mut meta = metadata(node)?;
+                    meta.info = annotation_info(&constructor.annotations);
+                    constructors.push(std::sync::Arc::new(AdtConstructor::new(
+                        &name,
+                        type_vars.clone(),
+                        declaration_name(&constructor.idndef)?,
+                        formal_declarations(&constructor.args)?,
+                        meta,
+                    )));
+                }
+                let mut deriving_info = std::collections::HashMap::new();
+                for node in &adt.deriving {
+                    let info = match &node.read().expect("poisoned parse node").kind {
+                        PNodeKind::Extension(ext) => ext
+                            .as_any()
+                            .downcast_ref::<PAdtDerivingInfo>()
+                            .cloned()
+                            .ok_or(TranslationError::InvalidType)?,
+                        _ => return Err(TranslationError::InvalidType),
+                    };
+                    let parameter = info.parameter.as_ref().map(translate_type).transpose()?;
+                    let without = info
+                        .without
+                        .iter()
+                        .map(
+                            |node| match &node.read().expect("poisoned parse node").kind {
+                                PNodeKind::IdnRef(id) => Ok(id.name.clone()),
+                                _ => Err(TranslationError::InvalidType),
+                            },
+                        )
+                        .collect::<Result<_, _>>()?;
+                    deriving_info.insert(declaration_name(&info.idndef)?, (parameter, without));
+                }
+                extensions.push(crate::ast::program::ExtensionMemberHandle(
+                    std::sync::Arc::new(Adt {
+                        name,
+                        constructors,
+                        type_vars,
+                        deriving_info,
+                        meta: member_meta,
+                    }),
+                ));
+            }
             PMemberKind::Fields { .. } => {}
             PMemberKind::Domain {
                 idndef,
@@ -1572,13 +1738,7 @@ pub fn translate_program_core(
     let mut meta = metadata(input.node())?;
     meta.info = Info::NoInfo;
     Ok(Program::new(
-        domains,
-        fields,
-        functions,
-        predicates,
-        methods,
-        Vec::new(),
-        meta,
+        domains, fields, functions, predicates, methods, extensions, meta,
     ))
 }
 

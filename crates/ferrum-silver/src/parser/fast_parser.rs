@@ -137,6 +137,7 @@ pub enum ParserFeature {
     Sif,
     Arp,
     Termination,
+    Adt,
     StatementBlock {
         keyword: &'static str,
         factory: fn(
@@ -154,7 +155,8 @@ impl PartialEq for ParserFeature {
             | (Self::PredicateInstance, Self::PredicateInstance)
             | (Self::Sif, Self::Sif)
             | (Self::Arp, Self::Arp)
-            | (Self::Termination, Self::Termination) => true,
+            | (Self::Termination, Self::Termination)
+            | (Self::Adt, Self::Adt) => true,
             (
                 Self::StatementBlock {
                     keyword: a,
@@ -441,6 +443,9 @@ impl ExpressionParser<'_> {
                 |f| matches!(f, ParserFeature::StatementBlock { keyword, .. } if *keyword == name),
             )
             || (name == "rd" && self.features.contains(&ParserFeature::Arp))
+            || (name == "decreases" && self.features.contains(&ParserFeature::Termination))
+            || (matches!(name, "adt" | "derives" | "without")
+                && self.features.contains(&ParserFeature::Adt))
             || (matches!(name, "low" | "lowEvent" | "rel")
                 && self.features.contains(&ParserFeature::Sif))
             || (name == "refute" && self.features.contains(&ParserFeature::Refute))
@@ -1316,6 +1321,123 @@ impl ExpressionParser<'_> {
         self.cursor = end;
         let keyword_span = self.span(start, end);
         let kind = match name {
+            "adt" if self.features.contains(&ParserFeature::Adt) => {
+                use crate::plugin::standard::adt::adt_past_extension::{
+                    PAdt, PAdtConstructor, PAdtDerivingInfo, adt_keyword,
+                };
+                use std::sync::Arc;
+                let idndef = self.identifier_definition()?;
+                let mut type_vars = Vec::new();
+                let type_vars_present = self.take("[")?.is_some();
+                if type_vars_present {
+                    self.trivia()?;
+                    if !self.source[self.cursor..].starts_with(']') {
+                        loop {
+                            let id = self.identifier_definition()?;
+                            let pos = id.read().expect("poisoned parse node").pos.clone();
+                            type_vars.push(super::parse_ast::type_var_decl(id, pos));
+                            if self.take(",")?.is_none() {
+                                break;
+                            }
+                        }
+                    }
+                    self.take("]")?
+                        .ok_or_else(|| self.error("expected ']' after ADT type parameters"))?;
+                }
+                self.take("{")?
+                    .ok_or_else(|| self.error("expected '{' in ADT declaration"))?;
+                let mut constructors = Vec::new();
+                loop {
+                    self.trivia()?;
+                    if self.take("}")?.is_some() {
+                        break;
+                    }
+                    let begin = self.cursor;
+                    let idndef = self.identifier_definition()?;
+                    let args = self.formal_args(PDeclarationKind::AdtField)?;
+                    let pos = self.span(begin, self.cursor);
+                    constructors.push(PNode::new(
+                        PNodeKind::Extension(Arc::new(PAdtConstructor {
+                            annotations: vec![],
+                            idndef,
+                            args,
+                            pos: pos.clone(),
+                        })),
+                        pos,
+                    ));
+                    self.take(";")?;
+                }
+                self.trivia()?;
+                let mut deriving = Vec::new();
+                if self.source[self.cursor..].starts_with("derives")
+                    && self.identifier_end(self.cursor) == self.cursor + 7
+                {
+                    self.cursor += 7;
+                    self.take("{")?
+                        .ok_or_else(|| self.error("expected '{' after derives"))?;
+                    loop {
+                        self.trivia()?;
+                        if self.take("}")?.is_some() {
+                            break;
+                        }
+                        let begin = self.cursor;
+                        let idndef = self.identifier_definition()?;
+                        let parameter = if self.take("[")?.is_some() {
+                            let typ = self.typ()?;
+                            self.take("]")?
+                                .ok_or_else(|| self.error("expected ']' after derives type"))?;
+                            Some(typ)
+                        } else {
+                            None
+                        };
+                        self.trivia()?;
+                        let mut without = Vec::new();
+                        if self.source[self.cursor..].starts_with("without")
+                            && self.identifier_end(self.cursor) == self.cursor + 7
+                        {
+                            self.cursor += 7;
+                            loop {
+                                let id = self.identifier_definition()?;
+                                let node = id.read().expect("poisoned parse node");
+                                let PNodeKind::IdnDef(def) = &node.kind else {
+                                    unreachable!()
+                                };
+                                without.push(PNode::new(
+                                    PNodeKind::IdnRef(PIdnRef::with_class(
+                                        def.name.clone(),
+                                        super::parse_ast::PDeclarationClass::AdtField,
+                                    )),
+                                    node.pos.clone(),
+                                ));
+                                drop(node);
+                                if self.take(",")?.is_none() {
+                                    break;
+                                }
+                            }
+                        }
+                        let pos = self.span(begin, self.cursor);
+                        deriving.push(PNode::new(
+                            PNodeKind::Extension(Arc::new(PAdtDerivingInfo {
+                                idndef,
+                                parameter,
+                                without,
+                                pos: pos.clone(),
+                            })),
+                            pos,
+                        ));
+                        self.take(";")?;
+                    }
+                }
+                PMemberKind::Extension(Arc::new(PAdt {
+                    keyword: adt_keyword("adt", keyword_span),
+                    idndef,
+                    type_vars,
+                    type_vars_present,
+                    constructors,
+                    deriving,
+                    pos: self.span(start, self.cursor),
+                }))
+            }
             "import" => {
                 self.trivia()?;
                 let open = self.cursor;
@@ -1936,6 +2058,21 @@ impl ExpressionParser<'_> {
         if self.take("(")?.is_some() {
             let left = PReserved::new(PSym::LParen, self.span(start, start + 1));
             let expression = self.expression(0)?;
+            if let Some(colon) = self.take(":")? {
+                let typ = self.typ()?;
+                let end = self.position(self.cursor);
+                let mut node = expression.node().write().expect("poisoned parse node");
+                match &mut node.kind {
+                    PNodeKind::Expression(PExpression {
+                        kind: PExpressionKind::Call { type_annotated, .. },
+                        ..
+                    }) if type_annotated.is_none() => {
+                        *type_annotated = Some((PReserved::new(PSym::Colon, colon), typ));
+                        node.pos.1 = end;
+                    }
+                    _ => return Err(self.error("type ascription requires a function call")),
+                }
+            }
             let right = self.take(")")?.ok_or_else(|| self.error("expected ')'"))?;
             let group = PExpressionBrackets::new(
                 left,
@@ -2177,6 +2314,37 @@ impl ExpressionParser<'_> {
                 let expression =
                     self.expr_node(kind, self.position(start), self.position(self.cursor));
                 return self.suffix(expression);
+            }
+            if name == "let" {
+                let variable = self.identifier_definition()?;
+                let equals = self
+                    .take("==")?
+                    .ok_or_else(|| self.error("expected '==' after let variable"))?;
+                let value = self.parenthesized_expression()?;
+                self.trivia()?;
+                let at = self.cursor;
+                if !self.source[at..].starts_with("in") || self.identifier_end(at) != at + 2 {
+                    return Err(self.error("expected 'in' after let value"));
+                }
+                self.cursor += 2;
+                let in_token = PReserved::new(PKwOp::In, self.span(at, self.cursor));
+                let body = self.expression(0)?;
+                let body_pos = body.node().read().expect("poisoned parse node").pos.clone();
+                let nested_scope = PNode::new(PNodeKind::LetNestedScope { body }, body_pos);
+                let result = self.expr_node(
+                    PExpressionKind::Let {
+                        keyword: PReserved::new(PKwOp::Let, span),
+                        variable,
+                        eq: PReserved::new(PSymOp::EqEq, equals),
+                        exp: value,
+                        in_token,
+                        nested_scope,
+                        scope_id: fresh_scope_id(),
+                    },
+                    self.position(start),
+                    self.position(self.cursor),
+                );
+                return self.suffix(result);
             }
             if matches!(name, "forall" | "exists") {
                 let first = self.binding(PDeclarationKind::LogicalVar)?;
@@ -2626,6 +2794,8 @@ impl ExpressionParser<'_> {
                     receiver: base,
                     dot,
                     idnref,
+                    adt_type_renaming: None,
+                    adt_substitution: None,
                 },
                 begin,
                 self.position(self.cursor),

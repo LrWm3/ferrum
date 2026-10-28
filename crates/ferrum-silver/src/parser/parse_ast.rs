@@ -76,7 +76,9 @@ pub enum PDeclarationClass {
     TypedVar,
     AssignableVar,
     Field,
+    AdtField,
     Callable,
+    AdtConstructor,
     Predicate,
     Label,
     TypeDeclaration,
@@ -129,15 +131,27 @@ impl PDeclarationClass {
                     ..
                 })
             ),
-            Self::Callable => matches!(
+            Self::Callable => {
+                matches!(
+                    kind,
+                    PNodeKind::Member(PMember {
+                        kind: PMemberKind::Function { .. }
+                            | PMemberKind::Predicate { .. }
+                            | PMemberKind::Method { .. },
+                        ..
+                    }) | PNodeKind::DomainMember(PDomainMember::Function { .. })
+                ) || matches!(&kind, PNodeKind::Extension(ext) if ext.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>())
+            }
+            Self::AdtField => matches!(
                 kind,
-                PNodeKind::Member(PMember {
-                    kind: PMemberKind::Function { .. }
-                        | PMemberKind::Predicate { .. }
-                        | PMemberKind::Method { .. },
+                PNodeKind::Declaration(PDeclaration {
+                    kind: PDeclarationKind::AdtField,
                     ..
-                }) | PNodeKind::DomainMember(PDomainMember::Function { .. })
+                })
             ),
+            Self::AdtConstructor => {
+                matches!(&kind, PNodeKind::Extension(ext) if ext.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>())
+            }
             Self::Predicate => matches!(
                 kind,
                 PNodeKind::Member(PMember {
@@ -151,14 +165,16 @@ impl PDeclarationClass {
                     kind: PStatementKind::Label { .. }
                 })
             ),
-            Self::TypeDeclaration => matches!(
-                kind,
-                PNodeKind::TypeVarDecl { .. }
-                    | PNodeKind::Member(PMember {
-                        kind: PMemberKind::Domain { .. },
-                        ..
-                    })
-            ),
+            Self::TypeDeclaration => {
+                matches!(
+                    kind,
+                    PNodeKind::TypeVarDecl { .. }
+                        | PNodeKind::Member(PMember {
+                            kind: PMemberKind::Domain { .. },
+                            ..
+                        })
+                ) || matches!(&kind, PNodeKind::Member(PMember { kind: PMemberKind::Extension(ext), .. }) if ext.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdt>())
+            }
         }
     }
 }
@@ -494,6 +510,7 @@ impl PComment {
 pub enum PDomainTypeKind {
     Unresolved,
     Domain,
+    Adt,
     TypeVar,
     Undeclared,
 }
@@ -1095,6 +1112,8 @@ pub enum PExpressionKind {
         receiver: PExpHandle,
         dot: super::parse_ast_keyword::PReserved<super::parse_ast_keyword::PSymOp>,
         idnref: PNodeHandle,
+        adt_type_renaming: Option<PTypeRenaming>,
+        adt_substitution: Option<PTypeSubstitution>,
     },
     InhaleExhale {
         left: super::parse_ast_keyword::PReserved<super::parse_ast_keyword::PSymOp>,
@@ -1391,6 +1410,8 @@ pub enum PDeclarationKind {
     FormalReturn,
     LogicalVar,
     LocalVar,
+    /// An ADT constructor field is globally visible and member-unique upstream.
+    AdtField,
     /// Owner identity is weak to avoid a cycle; cached annotations keep detached
     /// field metadata available after the enclosing PFields node is dropped.
     Field {
@@ -2257,6 +2278,7 @@ fn expression_subnodes(kind: PExpressionKind) -> Vec<PNodeHandle> {
             receiver,
             dot,
             idnref,
+            ..
         } => add!(receiver, dot, idnref),
         InhaleExhale {
             left,
@@ -2587,15 +2609,16 @@ impl PTypeHandle {
                 Domain {
                     domain: a,
                     args: aa,
-                    ..
+                    kind: ak,
                 },
                 Domain {
                     domain: b,
                     args: ba,
-                    ..
+                    kind: bk,
                 },
             ) => {
-                idn_name(&a) == idn_name(&b)
+                (ak == PDomainTypeKind::Adt) == (bk == PDomainTypeKind::Adt)
+                    && idn_name(&a) == idn_name(&b)
                     && match (&aa, &ba) {
                         (None, None) => true,
                         (Some(a), Some(b)) => {
@@ -2716,7 +2739,7 @@ impl PTypeHandle {
                     Domain {
                         domain,
                         args: Some(group.update(delimited)),
-                        kind: PDomainTypeKind::Domain,
+                        kind,
                     },
                     pos,
                 )
@@ -3591,11 +3614,17 @@ impl PExpHandle {
             }
             kind => {
                 let mut effective = substitution.clone();
-                if let Call {
-                    domain_type_renaming: Some(renaming),
-                    ..
-                } = &kind
-                {
+                let renaming = match &kind {
+                    Call {
+                        domain_type_renaming,
+                        ..
+                    } => domain_type_renaming.as_ref(),
+                    FieldAccess {
+                        adt_type_renaming, ..
+                    } => adt_type_renaming.as_ref(),
+                    _ => None,
+                };
+                if let Some(renaming) = renaming {
                     let default =
                         type_from_signature(&super::parse_ast_keyword::SignatureType::Int);
                     let domain_mappings = renaming
@@ -3625,14 +3654,16 @@ impl PExpHandle {
                                 .expect("default type substitution failed");
                         }
                     }
-                    self.update(|exp| {
-                        if let Call {
+                    self.update(|exp| match &mut exp.kind {
+                        Call {
                             domain_substitution: slot,
                             ..
-                        } = &mut exp.kind
-                        {
-                            *slot = Some(domain_substitution);
                         }
+                        | FieldAccess {
+                            adt_substitution: slot,
+                            ..
+                        } => *slot = Some(domain_substitution),
+                        _ => unreachable!(),
                     });
                 }
                 let typ = expression.typ.substitute(&effective);

@@ -538,6 +538,226 @@ impl FrontendPhases for SilFrontendPhases {
 mod tests {
     use super::*;
     #[test]
+    fn native_termination_imports_sequence_order() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases
+            .parse("method m(x: Seq[Int]) decreases x {}")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        assert!(
+            program
+                .domains
+                .iter()
+                .any(|d| d.name == "SeqWellFoundedOrder")
+        );
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+    }
+    #[test]
+    fn native_termination_imports_remaining_builtin_orders() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        for (typ, domain) in [
+            ("Ref", "RefWellFoundedOrder"),
+            ("Perm", "PermWellFoundedOrder"),
+            ("Set[Int]", "SetWellFoundedOrder"),
+            ("Multiset[Int]", "MultiSetWellFoundedOrder"),
+        ] {
+            let mut phases = SilFrontendPhases::new(
+                PathBuf::from("test.vpr"),
+                standard_plugin_manager(&config).unwrap(),
+            );
+            let parsed = phases
+                .parse(&format!("method m(x: {typ}) decreases x {{}}"))
+                .unwrap();
+            let analyzed = phases.analyze(parsed).unwrap();
+            let program = phases.translate(analyzed).unwrap();
+            assert!(program.domains.iter().any(|d| d.name == domain));
+            let program = phases.check_consistency(program).unwrap();
+            phases.prepare_verification(program).unwrap();
+        }
+    }
+    #[test]
+    fn native_adt_destructor_and_discriminator_reach_encoding() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases.parse("adt Box[T] { Boxed(value: T) } method m() { var a: Box[Int] := Boxed(1); assert a.value == 1; assert a.isBoxed; var b: Box[Bool] := Boxed(true); assert b.value; assert b.isBoxed; }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let program = phases.prepare_verification(program).unwrap();
+        assert!(program.domains.iter().any(|d| d.name == "Box"));
+    }
+    #[test]
+    fn adt_destructor_assignment_is_rejected_as_field_access() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases
+            .parse("adt Box[T] { Boxed(value: T) } method m(a: Box[Int]) { a.value := 1; }")
+            .unwrap();
+        assert!(phases.analyze(parsed).is_err());
+    }
+    #[test]
+    fn generic_domain_call_type_ascription_resolves_in_parentheses() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("domain D[T] { function empty(): D[T] } method m() { var x: D[Int] := (empty(): D[Int]); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+    }
+    #[test]
+    fn impure_let_in_method_precondition_reaches_backend() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases
+            .parse("field f: Int method m(x: Ref) requires let y == (x) in acc(y.f) {}")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+    }
+    #[test]
+    fn let_binder_only_scopes_over_body() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases
+            .parse("method m(x: Int) { assert (let y == (x) in let z == (y) in z) == x; }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        let parsed = phases
+            .parse("method m() { assert (let y == (y) in y) == 1; }")
+            .unwrap();
+        assert!(phases.analyze(parsed).is_err());
+    }
+    #[test]
+    fn native_generic_adt_constructor_calls_reach_encoding() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases.parse("adt Box[T] { Boxed(value: T) } method m() { var a: Box[Int] := Boxed(1); var b: Box[Bool] := Boxed(true); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        fn collect(
+            node: &crate::ast::utility::nodes::Node,
+            types: &mut Vec<crate::ast::r#type::Type>,
+        ) {
+            if let crate::ast::utility::nodes::Node::Exp(exp) = node {
+                if let crate::ast::expression::ExpKind::Extension(ext) = exp.kind() {
+                    if let Some(app) = ext.0.as_any().downcast_ref::<crate::plugin::standard::adt::adt_ast_extension::AdtConstructorApp>() {
+                        types.push(app.type_vars[&crate::ast::r#type::TypeVar::new("T")].clone());
+                    }
+                }
+            }
+            for child in crate::ast::utility::nodes::subnodes(node).unwrap() {
+                collect(&child, types);
+            }
+        }
+        let mut types = Vec::new();
+        collect(
+            &crate::ast::utility::nodes::Node::Program(program.clone()),
+            &mut types,
+        );
+        assert_eq!(
+            types,
+            vec![
+                crate::ast::r#type::Type::Int,
+                crate::ast::r#type::Type::Bool
+            ]
+        );
+        let program = phases.check_consistency(program).unwrap();
+        let program = phases.prepare_verification(program).unwrap();
+        assert!(program.domains.iter().any(|d| d.name == "Box"));
+    }
+    #[test]
+    fn native_adt_declaration_reaches_domain_encoding() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases.parse("adt Tree { Leaf() } method m() {}").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let program = phases.prepare_verification(program).unwrap();
+        assert!(program.domains.iter().any(|d| d.name == "Tree"));
+    }
+    #[test]
+    fn native_recursive_generic_adt_declaration_reaches_domain_encoding() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases
+            .parse("adt List[T] { Nil(); Cons(head: T, tail: List[T]) } method m(x: List[Int]) {}")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let program = phases.prepare_verification(program).unwrap();
+        assert!(program.domains.iter().any(|d| d.name == "List"));
+    }
+    #[test]
+    fn adt_invalid_type_arguments_and_discriminator_clashes_are_rejected() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        for source in [
+            "adt A { C() } method m(x: A[]) {}",
+            "adt A { C() } function isC(): Bool { true }",
+        ] {
+            let mut phases = SilFrontendPhases::new(
+                PathBuf::from("test.vpr"),
+                standard_plugin_manager(&config).unwrap(),
+            );
+            let parsed = phases.parse(source).unwrap();
+            assert!(phases.analyze(parsed).is_err());
+        }
+    }
+    #[test]
+    fn adt_declaration_grammar_retains_constructors_and_derivations() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let program = phases.parse("adt List[T] { Nil(); Cons(head: T, tail: List[T]) } derives { contains[Int] without head }").unwrap();
+        let member = program.all_members().remove(0);
+        let node = member.node().read().unwrap();
+        let crate::parser::parse_ast::PNodeKind::Member(crate::parser::parse_ast::PMember {
+            kind: crate::parser::parse_ast::PMemberKind::Extension(extension),
+            ..
+        }) = &node.kind
+        else {
+            panic!("expected ADT");
+        };
+        let adt = extension
+            .as_any()
+            .downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdt>()
+            .unwrap();
+        assert_eq!(adt.type_vars.len(), 1);
+        assert_eq!(adt.constructors.len(), 2);
+        assert_eq!(adt.deriving.len(), 1);
+    }
+    #[test]
     fn default_plugins_prepare_refute_and_method_initializer() {
         let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
         for source in [
@@ -596,6 +816,23 @@ mod tests {
         assert!(
             matches!(&program.domains[0].functions[0].typ, crate::ast::r#type::Type::Var(v) if v.name == "T")
         );
+    }
+    #[test]
+    fn generic_domain_use_checks_arity_and_translates_arguments() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases
+            .parse("domain D[T] {} method m(x: D[Int]) {}")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let crate::ast::r#type::Type::Domain(domain) = &program.methods[0].formal_args[0].typ
+        else {
+            panic!("expected domain type");
+        };
+        assert_eq!(domain.type_arguments(), vec![crate::ast::r#type::Type::Int]);
+        let parsed = phases.parse("domain D[T] {} method m(x: D) {}").unwrap();
+        assert!(phases.analyze(parsed).is_err());
     }
     #[test]
     fn generic_domain_call_infers_type_arguments() {
