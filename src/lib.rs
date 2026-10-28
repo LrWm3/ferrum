@@ -193,7 +193,9 @@ where
         let worker_options = options.clone();
         let worker_warnings = warning_sink.clone();
         let pool = ThreadVerificationPool::start(count, move |index| {
-            let id = format!("worker-{index}");
+            // Counterexample lookup uses raw term identifiers, as in upstream.
+            // Keep generated worker names unchanged by SMT symbol sanitization.
+            let id = format!("worker_{index}");
             let (prover, identifiers) = make_prover(
                 &id,
                 &worker_config,

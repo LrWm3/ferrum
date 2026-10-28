@@ -86,6 +86,10 @@ pub struct NativeOptions {
     pub disable_isc_triggers: bool,
     pub include_methods: regex::Regex,
     pub exclude_methods: regex::Regex,
+    pub counterexample: Option<crate::rules::symbolic_execution_rules::CounterexampleKind>,
+    pub report_reason_unknown: bool,
+    pub report_branch_conditions: bool,
+    pub alternative_function_verification_order: bool,
 }
 impl NativeOptions {
     /// Select only features for which the native execution and reporting context is connected.
@@ -99,7 +103,6 @@ impl NativeOptions {
             || config.conditionalize_permissions
             || config.prover_randomize_seeds
             || config.report_reason_unknown
-            || config.frontend.counterexample.is_some()
             || config.frontend.ide_mode_advanced
             || config.generate_block_messages
             || config.print_method_cf_gs
@@ -119,8 +122,6 @@ impl NativeOptions {
             || config.sequence_axiomatization_file.is_some()
             || config.map_axiomatization_file.is_some()
             || config.simplify_on_consume
-            || config.enable_branchcondition_reporting
-            || config.alternative_function_verification_order
             || config.report_state_after.is_some()
         {
             return Err(NativeError::Unsupported(
@@ -181,6 +182,20 @@ impl NativeOptions {
             disable_isc_triggers: config.disable_isc_triggers,
             include_methods,
             exclude_methods,
+            counterexample: config.frontend.counterexample.map(|value| {
+                use crate::rules::symbolic_execution_rules::CounterexampleKind as K;
+                use ferrum_silver::frontend::sil_front_end_config::CounterexampleModel as M;
+                match value {
+                    M::Native => K::Native,
+                    M::Variables => K::Variables,
+                    M::Mapped => K::Mapped,
+                    M::Raw => K::Raw,
+                    M::Resolved => K::Resolved,
+                }
+            }),
+            report_reason_unknown: config.report_reason_unknown,
+            report_branch_conditions: config.enable_branchcondition_reporting,
+            alternative_function_verification_order: config.alternative_function_verification_order,
         })
     }
 }
@@ -420,18 +435,100 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             .assume([(term.clone(), None)], false, false)
             .map_err(NativeError::Decider)
     }
+    fn store_counterexample_transformer(
+        &self,
+        store: &Arc<crate::state::store::MapBackedStore>,
+    ) -> ferrum_silver::verifier::verification_error::CounterexampleTransformer {
+        let store = store.clone();
+        let converter = self.base.symbol_converter.clone();
+        Arc::new(move |example| {
+            use crate::reporting::silicon_resolved_counterexample::NativeCounterexample;
+            let any = example.as_ref() as &dyn std::any::Any;
+            if let Some(native) = any.downcast_ref::<NativeCounterexample>() {
+                Ok(Arc::new(native.with_store(store.clone(), &converter)?))
+            } else {
+                Ok(example)
+            }
+        })
+    }
     fn failure_full(
         &mut self,
-        error: VerificationError,
-        retry_level: i32,
+        mut error: VerificationError,
+        state: &State<PD, FD, JoinMode>,
+        generate_new_model: bool,
     ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
-        if retry_level == 0
+        if state.retry_level == 0
             && !error
                 .is_expected()
                 .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?
         {
             self.base.errors_reported.fetch_add(1, Ordering::SeqCst);
         }
+        let (unwrapped, example_transformer) = error.unwrap_example_transformer();
+        error = unwrapped;
+        let (counterexample, reason) =
+            if self.options.counterexample.is_some() || self.options.report_reason_unknown {
+                if generate_new_model || !self.base.decider.has_model() {
+                    self.base
+                        .decider
+                        .generate_model(&self.factory)
+                        .map_err(NativeError::Decider)?;
+                }
+                let counterexample = if let Some(kind) = self.options.counterexample
+                    && self.base.decider.is_model_valid()
+                {
+                    let model = self
+                        .base
+                        .decider
+                        .get_model()
+                        .map_err(NativeError::Decider)?;
+                    let value =
+                        crate::reporting::silicon_resolved_counterexample::build_counterexample(
+                            &model,
+                            state,
+                            kind,
+                            &self.base.symbol_converter,
+                        )
+                        .map_err(NativeError::Diagnostic)?;
+                    Some(Arc::new(value)
+                        as Arc<
+                            dyn ferrum_silver::verifier::verification_error::Counterexample,
+                        >)
+                } else {
+                    None
+                };
+                let reason = if self.options.report_reason_unknown {
+                    Some(
+                        self.base
+                            .decider
+                            .prover
+                            .get_reason_unknown()
+                            .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?,
+                    )
+                } else {
+                    None
+                };
+                (counterexample, reason)
+            } else {
+                (None, None)
+            };
+        let branches = if self.options.report_branch_conditions {
+            self.base
+                .decider
+                .pcs
+                .recorded()
+                .branch_condition_exps()
+                .into_iter()
+                .map(|(expression, _)| expression)
+                .filter(|expression| !matches!(expression.kind(), ExpKind::TrueLit))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let context = crate::reporting::silicon_resolved_counterexample::SiliconFailureContext::from_transformed(
+            branches, counterexample, example_transformer.as_ref(), reason,
+        ).map_err(NativeError::Diagnostic)?;
+        error.failure_contexts = vec![Arc::new(context)];
         Ok(VerificationResult::failure(
             error,
             self.base.report_further_errors(self.options.error_limit),
@@ -441,22 +538,12 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         &mut self,
         partial: &PartialVerificationError,
         reason: ErrorReason,
-        retry_level: i32,
+        state: &State<PD, FD, JoinMode>,
     ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
         let error = partial
             .due_to(reason)
             .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
-        if retry_level == 0
-            && !error
-                .is_expected()
-                .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?
-        {
-            self.base.errors_reported.fetch_add(1, Ordering::SeqCst);
-        }
-        Ok(VerificationResult::failure(
-            error,
-            self.base.report_further_errors(self.options.error_limit),
-        ))
+        self.failure_full(error, state, false)
     }
 }
 #[allow(unused_variables)]
@@ -560,7 +647,7 @@ where
         self.failure(
             partial,
             ErrorReason::DivisionByZero(divisor.clone()),
-            state.retry_level,
+            &state,
         )
     }
     fn sequence_bounds_failure(
@@ -586,7 +673,7 @@ where
                     index: index.clone(),
                 }
             },
-            state.retry_level,
+            &state,
         )
     }
     fn map_key_failure(
@@ -604,7 +691,7 @@ where
                 map: base.clone(),
                 key: key.clone(),
             },
-            state.retry_level,
+            &state,
         )
     }
     fn fresh_arp(&mut self) -> Result<(Term, Term, Option<Exp>), Self::Error> {
@@ -651,7 +738,7 @@ where
         self.failure(
             partial,
             ErrorReason::LabelledStateNotReached(original.clone()),
-            state.retry_level,
+            &state,
         )
     }
     fn fresh_let_application(
@@ -1219,7 +1306,7 @@ where
                 node: ferrum_silver::ast::utility::nodes::Node::Exp(expression.clone()),
                 explanation: "Quantifier evaluation failed.".into(),
             },
-            state.retry_level,
+            &state,
         )
     }
     fn join_off(&self) -> JoinMode {
@@ -1364,6 +1451,7 @@ where
     fn consume_function_preconditions(
         &mut self,
         state: State<PD, FD, JoinMode>,
+        caller_store: &Arc<crate::state::store::MapBackedStore>,
         function: &ferrum_silver::ast::program::Function,
         application: &Exp,
         arguments: &[Exp],
@@ -1434,6 +1522,8 @@ where
                 },
             )
         });
+        let partial =
+            partial.with_example_transformer(self.store_counterexample_transformer(caller_store));
         let mut callback_error = None;
         let result = crate::rules::consumer::consume_all(
             self,
@@ -1772,7 +1862,7 @@ where
                                 .failure(
                                     error,
                                     ErrorReason::NonPositivePermission(permission.clone()),
-                                    state.retry_level,
+                                    &state,
                                 )
                                 .map_err(EvaluationError::Context);
                         }
@@ -1998,7 +2088,7 @@ where
             self.failure(
                 error,
                 ErrorReason::NegativePermission(original.clone()),
-                state.retry_level,
+                &state,
             )
             .map_err(ProductionError::Context)
         }
@@ -2552,7 +2642,7 @@ where
             self.failure(
                 error,
                 ErrorReason::NegativePermission(original.clone()),
-                state.retry_level,
+                &state,
             )
             .map_err(ConsumptionError::Context)
         }
@@ -2751,11 +2841,7 @@ where
         goal: &Term,
         rewritten: Option<&Exp>,
     ) -> Result<VerificationResult<VerificationError>, Self::Error> {
-        self.failure(
-            error,
-            ErrorReason::AssertionFalse(original.clone()),
-            state.retry_level,
-        )
+        self.failure(error, ErrorReason::AssertionFalse(original.clone()), &state)
     }
     fn report_further_errors(&self) -> bool {
         self.base.report_further_errors(self.options.error_limit)
@@ -3811,7 +3897,7 @@ where
                 "wand transfer failure context",
             )))?;
         let failure = self
-            .failure_full(full, state.retry_level)
+            .failure_full(full, &state, false)
             .map_err(ChunkExecutionError::Context)?;
         let factory = self.factory.clone();
         let mut callback_error = None;
@@ -3862,7 +3948,7 @@ where
         let error = error.clone().ok_or(NativeError::Unsupported(
             "failure from null partial verification error",
         ))?;
-        self.failure_full(error, state.retry_level)
+        self.failure_full(error, state, generate_model)
     }
     fn fresh_snapshot(
         &mut self,
@@ -4477,7 +4563,7 @@ where
                         "field access failure context",
                     )))?;
             return self
-                .failure_full(failure, state.retry_level)
+                .failure_full(failure, &state, false)
                 .map_err(ChunkExecutionError::Context);
         }
         let value = factory.lookup(field.name.clone(), map.clone(), receiver.clone());
@@ -4621,7 +4707,7 @@ where
                             "field assignment failure context",
                         )))?;
                 return ctx
-                    .failure_full(failure, state.retry_level)
+                    .failure_full(failure, &state, false)
                     .map_err(ChunkExecutionError::Context);
             }
             let mut consumed = relevant;
@@ -5223,7 +5309,7 @@ where
                     ctx.failure(
                         &partial,
                         ErrorReason::AssertionFalse(expression.clone()),
-                        state.retry_level,
+                        &state,
                     )
                     .map_err(ConsumptionError::Context)
                 }
@@ -5274,6 +5360,7 @@ where
     fn consume_call_preconditions(
         &mut self,
         state: State<PD, FD, JoinMode>,
+        caller_store: &Arc<crate::state::store::MapBackedStore>,
         call: &Stmt,
         method: &ferrum_silver::ast::program::Method,
         return_snapshot: bool,
@@ -5289,6 +5376,8 @@ where
         let partial = self
             .call_partial(call, method, true)
             .map_err(ExecutionError::Context)?;
+        let partial =
+            partial.with_example_transformer(self.store_counterexample_transformer(caller_store));
         let mut callback_error = None;
         let result = crate::rules::consumer::consume_all(
             self,
@@ -5519,7 +5608,7 @@ where
                             .failure(
                                 &error,
                                 ErrorReason::QuasihavocallNotInjective(statement.clone()),
-                                state.retry_level,
+                                &state,
                             )
                             .map_err(EvaluationError::Context);
                     }
@@ -5861,7 +5950,7 @@ where
                                     .failure(
                                         &partial,
                                         ErrorReason::NonPositivePermission(permission.clone()),
-                                        state.retry_level,
+                                        &state,
                                     )
                                     .map_err(ExecutionError::Context);
                             }
@@ -7488,7 +7577,7 @@ where
         .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
         let mut functions = crate::supporters::functions::function_verification_unit::FunctionVerificationUnit::default();
         let factory = self.factory.clone();
-        functions.analyze(&factory, &self.base.symbol_converter, &mut self.base.identifiers, program, false, false,
+        functions.analyze(&factory, &self.base.symbol_converter, &mut self.base.identifiers, program, self.options.alternative_function_verification_order, false,
             |_, _| Ok::<_, std::convert::Infallible>((crate::supporters::functions::function_encoding::DefaultFunctionEncoding::state_args(&factory), None)))
             .map_err(|e| NativeError::Execution(format!("function analysis: {e:?}")))?;
         if !program.functions.is_empty() {
@@ -10733,7 +10822,7 @@ where
         let error = error.clone().ok_or(NativeError::Unsupported(
             "failure from null partial verification error",
         ))?;
-        self.failure_full(error, state.retry_level)
+        self.failure_full(error, &state, false)
     }
     fn consume_single_in_package(
         &mut self,
@@ -11242,7 +11331,7 @@ where
                 ErrorReason::QPAssertionNotInjective(node)
             }
         };
-        self.failure(&error.partial, reason, state.retry_level)
+        self.failure(&error.partial, reason, state)
     }
     fn warn_missing_quantified_triggers(&mut self) -> Result<(), Self::Error> {
         self.warnings
@@ -11528,7 +11617,7 @@ where
                 ));
             }
         };
-        self.failure(&error.partial, reason, state.retry_level)
+        self.failure(&error.partial, reason, state)
     }
     fn consume_general_in_package(
         &mut self,

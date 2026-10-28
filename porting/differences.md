@@ -178,7 +178,7 @@ and focused solver checks do not establish complete native API parity.
 Debug tokens retain the source ASCII grammar. `debug@` is lexically accepted
 upstream but its split-index construction fails; native construction reports a
 specific error. Debugger input/worker/solver services propagate typed failures;
-the interactive loop, complete printing and failure-context assembly are pending.
+the interactive loop, complete printing and debug failure-context assembly are pending.
 The dormant flyweight annotation has an explicit native pool rather than a new
 procedural macro. Concurrent creation returns the canonical stored handle.
 
@@ -216,6 +216,13 @@ matching accepts ASCII letters, digits, underscore, dot, star, question mark,
 alternation, and escaped literal dot/dollar after source wildcard conversion.
 Other Java regular-expression constructs return an explicit unsupported error;
 they are not silently interpreted with different Rust regex semantics.
+
+Generated native worker identifiers use underscores so SMT symbol sanitization
+leaves them unchanged. This preserves source counterexample lookup by raw term
+identifier. The CLI retains diagnostic IDs while using source readable messages
+to include failure contexts. Alternative function ordering follows the source
+call graph; incomparable SCCs may receive different numeric heights because Rust
+and JGraphT iteration order differ.
 
 The native CLI reports source dependency metadata and elapsed time, honoring
 `--dependencies` and `--no-timing`. Elapsed time uses a monotonic Rust clock

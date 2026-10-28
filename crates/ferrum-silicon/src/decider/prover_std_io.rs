@@ -52,6 +52,7 @@ use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -153,6 +154,30 @@ impl From<ConversionError> for ProverError {
     }
 }
 
+/// A safe cross-thread handle to terminate the currently running stdio solver.
+/// It never owns the solver's I/O streams and becomes inactive after stop; after
+/// reset the same handle refers to the newly started child.
+/// Coordinate cancellation with start/reset: a child that has not yet been installed
+/// cannot be interrupted through this handle.
+#[derive(Clone)]
+pub struct StdioCancellationHandle(Arc<Mutex<Option<Child>>>);
+impl StdioCancellationHandle {
+    /// Terminate the child if currently running, returning whether it was interrupted.
+    /// Cancellation invalidates the solver session; callers must not reuse it without reset.
+    pub fn cancel(&self) -> io::Result<bool> {
+        let mut child = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        match child.as_mut() {
+            Some(child) => {
+                if child.try_wait()?.is_some() {
+                    return Ok(false);
+                }
+                child.kill()?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+}
 /// Owns one solver process. No streams or mutable solver scopes are shared between workers.
 pub struct ProverStdIo {
     pub unique_id: String,
@@ -162,7 +187,7 @@ pub struct ProverStdIo {
     factory: TermFactory,
     identifiers: DefaultIdentifierFactory,
     report: Box<dyn FnMut(ProverEvent) + Send>,
-    child: Option<Child>,
+    child: Arc<Mutex<Option<Child>>>,
     input: Option<BufReader<std::fs::File>>,
     output: Option<BufWriter<ChildStdin>>,
     log: Option<PrintWriter>,
@@ -175,6 +200,10 @@ pub struct ProverStdIo {
     pub preamble_assumptions: Vec<(String, InsertionOrderedSet<Term>)>,
 }
 impl ProverStdIo {
+    /// Obtain a handle which may interrupt a blocking solver read from another thread.
+    pub fn cancellation_handle(&self) -> StdioCancellationHandle {
+        StdioCancellationHandle(self.child.clone())
+    }
     /// Share the source verifier's identifier stream with its prover.
     pub fn identifier_factory(&self) -> DefaultIdentifierFactory {
         self.identifiers.clone()
@@ -194,7 +223,7 @@ impl ProverStdIo {
             settings,
             profile,
             report: Box::new(report),
-            child: None,
+            child: Arc::new(Mutex::new(None)),
             input: None,
             output: None,
             log: None,
@@ -473,10 +502,14 @@ impl ProverLike for ProverStdIo {
     }
 }
 impl Prover for ProverStdIo {
-    type Model = Model;
     type Version = Version;
     fn start(&mut self, user_args: Option<&str>) -> Result<(), Self::Error> {
-        if self.child.is_some() {
+        if self
+            .child
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .is_some()
+        {
             return Err(ProverError::InvalidLifecycle(
                 "stop must be called between starts",
             ));
@@ -523,7 +556,7 @@ impl Prover for ProverStdIo {
             self.output = child.stdin.take().map(BufWriter::new);
             let reader: OwnedFd = reader.into();
             self.input = Some(BufReader::new(std::fs::File::from(reader)));
-            self.child = Some(child);
+            *self.child.lock().unwrap_or_else(|error| error.into_inner()) = Some(child);
             Ok(())
         }
         #[cfg(not(unix))]
@@ -550,7 +583,12 @@ impl Prover for ProverStdIo {
                 }
             }
         }
-        if let Some(mut child) = self.child.take() {
+        let child = self
+            .child
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        if let Some(mut child) = child {
             if let Err(e) = child.kill() {
                 if e.kind() != io::ErrorKind::InvalidInput && failure.is_none() {
                     failure = Some(e);
@@ -727,5 +765,47 @@ impl Prover for ProverStdIo {
 impl Drop for ProverStdIo {
     fn drop(&mut self) {
         let _ = self.stop();
+    }
+}
+
+#[cfg(all(test, unix))]
+mod cancellation_tests {
+    use super::*;
+    use crate::state::terms::TermOptions;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn cancellation_unblocks_a_solver_read_and_cleanup_reaps_child() {
+        let script =
+            std::env::temp_dir().join(format!("ferrum-blocked-solver-{}", std::process::id()));
+        std::fs::write(&script, "#!/bin/sh\nexec /bin/sleep 60\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let path = script.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let factory = TermFactory::new(TermOptions {
+                use_flyweight: false,
+                use_old_axiomatization: false,
+                mask_heap_mode: false,
+            });
+            let mut prover = crate::decider::z3_prover_std_io::new(
+                "blocked".into(),
+                ProverSettings::new(path, 10000),
+                factory,
+                |_| {},
+            );
+            prover.start(None).unwrap();
+            sender.send(prover.cancellation_handle()).unwrap();
+            let read = prover.read_line();
+            let stopped = prover.stop();
+            (read, stopped)
+        });
+        let handle = receiver.recv().unwrap();
+        assert!(handle.cancel().unwrap());
+        let (read, stopped) = worker.join().unwrap();
+        assert!(read.is_err());
+        stopped.unwrap();
+        assert!(!handle.cancel().unwrap());
+        std::fs::remove_file(script).unwrap();
     }
 }

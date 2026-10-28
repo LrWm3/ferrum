@@ -70,6 +70,16 @@ Ten positive/negative field, predicate and wand cases pass through both transpor
 Three pinned template-name defects are corrected during instantiation, as recorded
 in [differences.md](differences.md).
 
+Native failures now capture available solver models in all five source views,
+restore caller stores on method/function precondition failures and render failure
+contexts in the CLI. Branch-condition reporting and the alternative function
+verification order are connected. Twenty direct Session model cases and seventy
+CLI cases pass per transport, including one/two-worker value checks; all fifteen
+permanent native CLI regressions pass on both transports. A reproduced linked-Z3
+fractional-function model crash is fixed by retaining interpretation/entry handles.
+Counterexamples still have explicit unsupported model/heap forms; debugger and
+unknown-reason options require further integration.
+
 The opt-in SIF plugin now connects paired domain/permission values, relational
 predicate helpers, optimized loops and AST return/termination control. Source
 `old` assertions and inactive `inhale false` guards retain their transformed

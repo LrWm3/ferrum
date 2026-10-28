@@ -30,6 +30,7 @@ use std::{
     ffi::{CStr, CString, c_char, c_int, c_uint, c_void},
     fmt, ptr,
     rc::Rc,
+    sync::{Arc, Mutex},
 };
 
 type Raw = *mut c_void;
@@ -41,6 +42,7 @@ unsafe extern "C" {
     fn Z3_mk_context(c: Raw) -> Raw;
     fn Z3_update_param_value(c: Raw, name: *const c_char, value: *const c_char);
     fn Z3_del_context(c: Raw);
+    fn Z3_interrupt(c: Raw);
     fn Z3_set_error_handler(c: Raw, h: Option<unsafe extern "C" fn(Raw, c_uint)>);
     fn Z3_get_error_code(c: Raw) -> c_uint;
     fn Z3_get_error_msg(c: Raw, e: c_uint) -> *const c_char;
@@ -136,6 +138,10 @@ unsafe extern "C" {
     fn Z3_model_get_func_decl(c: Raw, m: Raw, i: c_uint) -> Raw;
     fn Z3_model_get_func_interp(c: Raw, m: Raw, d: Raw) -> Raw;
     fn Z3_func_interp_get_num_entries(c: Raw, f: Raw) -> c_uint;
+    fn Z3_func_interp_inc_ref(c: Raw, f: Raw);
+    fn Z3_func_interp_dec_ref(c: Raw, f: Raw);
+    fn Z3_func_entry_inc_ref(c: Raw, e: Raw);
+    fn Z3_func_entry_dec_ref(c: Raw, e: Raw);
     fn Z3_func_interp_get_entry(c: Raw, f: Raw, i: c_uint) -> Raw;
     fn Z3_func_interp_get_else(c: Raw, f: Raw) -> Raw;
     fn Z3_func_entry_get_num_args(c: Raw, e: Raw) -> c_uint;
@@ -203,9 +209,34 @@ impl fmt::Display for NativeZ3Error {
 }
 impl std::error::Error for NativeZ3Error {}
 unsafe extern "C" fn ignore_error(_: Raw, _: c_uint) {}
-struct Context(Raw);
+type InterruptSlot = Arc<Mutex<Option<usize>>>;
+
+/// Cross-thread access is limited to Z3's documented interrupt operation.
+/// The slot synchronizes the call with solver and context destruction. It does
+/// not queue cancellation before start or during reset, nor make the driver Send.
+#[derive(Clone, Default)]
+pub struct LinkedZ3CancellationHandle(InterruptSlot);
+impl LinkedZ3CancellationHandle {
+    /// Request interruption of the current context, returning false if inactive.
+    pub fn interrupt(&self) -> bool {
+        let slot = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(address) = *slot {
+            // SAFETY: context installation and teardown are synchronized by this
+            // mutex. Z3_interrupt is the C API's cross-thread interrupt operation.
+            unsafe { Z3_interrupt(ptr::with_exposed_provenance_mut(address)) };
+            true
+        } else {
+            false
+        }
+    }
+}
+struct Context(Raw, InterruptSlot);
 impl Drop for Context {
     fn drop(&mut self) {
+        let mut slot = self.1.lock().unwrap_or_else(|error| error.into_inner());
+        if *slot == Some(self.0.expose_provenance()) {
+            *slot = None;
+        }
         unsafe { Z3_del_context(self.0) }
     }
 }
@@ -264,15 +295,16 @@ pub struct LinkedZ3 {
 }
 impl LinkedZ3 {
     pub fn new() -> Result<Self, NativeZ3Error> {
-        Self::create(false, &[])
+        Self::create(false, &[], Default::default())
     }
     /// Initialize the solver with the pinned Z3ProverAPI's standard options.
     pub fn new_with_source_options() -> Result<Self, NativeZ3Error> {
-        Self::create(true, &[])
+        Self::create(true, &[], Default::default())
     }
     fn create(
         source_options: bool,
         context_options: &[(String, String)],
+        interrupt: LinkedZ3CancellationHandle,
     ) -> Result<Self, NativeZ3Error> {
         // Z3_set_param_value has no error return. Restrict this native boundary to
         // context keys documented by the linked Z3 C API, rather than silently
@@ -329,7 +361,7 @@ impl LinkedZ3 {
                 return Err(NativeZ3Error::Solver("Z3_mk_context failed".into()));
             }
             Z3_set_error_handler(raw, Some(ignore_error));
-            let context = Rc::new(Context(raw));
+            let context = Rc::new(Context(raw, interrupt.0));
             let solver = Z3_mk_solver(raw);
             if solver.is_null() {
                 return Err(NativeZ3Error::Solver("Z3_mk_solver failed".into()));
@@ -347,6 +379,11 @@ impl LinkedZ3 {
             if source_options {
                 this.set_source_solver_options(&[], false)?;
             }
+            *this
+                .context
+                .1
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = Some(raw.expose_provenance());
             Ok(this)
         }
     }
@@ -529,8 +566,20 @@ impl LinkedZ3 {
         if !Rc::ptr_eq(&self.context, &guard.context) {
             return Err(NativeZ3Error::ContextMismatch);
         }
+        struct Interpretation(Raw, Raw);
+        impl Drop for Interpretation {
+            fn drop(&mut self) {
+                unsafe { Z3_func_interp_dec_ref(self.0, self.1) }
+            }
+        }
+        struct Entry(Raw, Raw);
+        impl Drop for Entry {
+            fn drop(&mut self) {
+                unsafe { Z3_func_entry_dec_ref(self.0, self.1) }
+            }
+        }
         let c = self.context.0;
-        let value = |ast: Raw| -> Result<ValueEntry, NativeZ3Error> {
+        let value = |ast: Raw, normalize_rational: bool| -> Result<ValueEntry, NativeZ3Error> {
             if ast.is_null() {
                 return Err(NativeZ3Error::Solver("Z3 returned no model value".into()));
             }
@@ -541,7 +590,7 @@ impl LinkedZ3 {
             let numeral = unsafe { Z3_is_numeral_ast(c, ast) };
             self.checked()?;
             let text = unsafe {
-                if real && numeral {
+                if normalize_rational && real && numeral {
                     Z3_get_numeral_string(c, ast)
                 } else {
                     Z3_ast_to_string(c, ast)
@@ -556,7 +605,7 @@ impl LinkedZ3 {
             let mut text = unsafe { CStr::from_ptr(text) }
                 .to_string_lossy()
                 .into_owned();
-            if real && numeral {
+            if normalize_rational && real && numeral {
                 let (num, den) = text.split_once('/').unwrap_or((&text, "1"));
                 text = format!("(/ {num} {den})");
             }
@@ -606,7 +655,7 @@ impl LinkedZ3 {
             let key = name(decl)?;
             let interpretation = unsafe { Z3_model_get_const_interp(c, guard.raw, decl) };
             self.checked()?;
-            entries.insert(key, ModelEntry::Value(value(interpretation)?));
+            entries.insert(key, ModelEntry::Value(value(interpretation, true)?));
         }
         let count = unsafe { Z3_model_get_num_funcs(c, guard.raw) };
         self.checked()?;
@@ -615,17 +664,28 @@ impl LinkedZ3 {
             self.checked()?;
             let key = name(decl)?;
             let interp = unsafe { Z3_model_get_func_interp(c, guard.raw, decl) };
-            self.checked()?;
             if interp.is_null() {
+                self.checked()?;
                 return Err(NativeZ3Error::Solver(
                     "Z3 returned no function interpretation".into(),
                 ));
             }
+            unsafe { Z3_func_interp_inc_ref(c, interp) };
+            let _interp_guard = Interpretation(c, interp);
+            self.checked()?;
             let count = unsafe { Z3_func_interp_get_num_entries(c, interp) };
             self.checked()?;
             let mut options = HashMap::new();
             for j in 0..count {
                 let entry = unsafe { Z3_func_interp_get_entry(c, interp, j) };
+                if entry.is_null() {
+                    self.checked()?;
+                    return Err(NativeZ3Error::Solver(
+                        "Z3 returned no function entry".into(),
+                    ));
+                }
+                unsafe { Z3_func_entry_inc_ref(c, entry) };
+                let _entry_guard = Entry(c, entry);
                 self.checked()?;
                 let n = unsafe { Z3_func_entry_get_num_args(c, entry) };
                 self.checked()?;
@@ -633,11 +693,11 @@ impl LinkedZ3 {
                 for k in 0..n {
                     let arg = unsafe { Z3_func_entry_get_arg(c, entry, k) };
                     self.checked()?;
-                    args.push(value(arg)?);
+                    args.push(value(arg, false)?);
                 }
                 let result = unsafe { Z3_func_entry_get_value(c, entry) };
                 self.checked()?;
-                options.insert(args, value(result)?);
+                options.insert(args, value(result, false)?);
             }
             let default = unsafe { Z3_func_interp_get_else(c, interp) };
             self.checked()?;
@@ -645,7 +705,7 @@ impl LinkedZ3 {
                 key,
                 ModelEntry::Map(MapEntry {
                     options,
-                    default: value(default)?,
+                    default: value(default, false)?,
                 }),
             );
         }
@@ -998,6 +1058,14 @@ impl LinkedZ3 {
 }
 impl Drop for LinkedZ3 {
     fn drop(&mut self) {
+        let mut slot = self
+            .context
+            .1
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if *slot == Some(self.context.0.expose_provenance()) {
+            *slot = None;
+        }
         unsafe { Z3_solver_dec_ref(self.context.0, self.solver) }
     }
 }
@@ -1470,6 +1538,7 @@ pub struct LinkedZ3Prover {
     randomize_options: Vec<String>,
     warnings: Vec<String>,
     warning_reporter: Option<Box<dyn FnMut(&str)>>,
+    interrupt: LinkedZ3CancellationHandle,
 }
 impl LinkedZ3Prover {
     pub fn new(
@@ -1487,7 +1556,12 @@ impl LinkedZ3Prover {
             randomize_options: vec!["RANDOMIZE_SEEDS".into()],
             warnings: Vec::new(),
             warning_reporter: None,
+            interrupt: LinkedZ3CancellationHandle::default(),
         }
+    }
+    /// Obtain a cross-thread interrupt handle shared across subsequent resets.
+    pub fn cancellation_handle(&self) -> LinkedZ3CancellationHandle {
+        self.interrupt.clone()
     }
     /// Install a sink for future internal warnings; warnings are also retained until drained.
     pub fn set_warning_reporter(&mut self, reporter: impl FnMut(&str) + 'static) {
@@ -1697,7 +1771,6 @@ impl crate::interfaces::decider::prover::ProverLike for LinkedZ3Prover {
     }
 }
 impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
-    type Model = ferrum_silver::verifier::verification_error::Model;
     type Version = crate::common::config::package::Version;
     fn start(&mut self, user_args: Option<&str>) -> Result<(), Self::Error> {
         if self.session.is_some() {
@@ -1717,7 +1790,7 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
                 context_options.push((key.to_owned(), value.to_owned()));
             }
         }
-        let driver = LinkedZ3::create(true, &context_options)?;
+        let driver = LinkedZ3::create(true, &context_options, self.interrupt.clone())?;
         let warnings = driver.set_source_solver_options(
             &self.options.custom_options,
             self.options.disable_nonlinear,
@@ -1806,7 +1879,9 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
     fn is_model_valid(&self) -> bool {
         self.last_model.is_some()
     }
-    fn get_model(&mut self) -> Result<Self::Model, Self::Error> {
+    fn get_model(
+        &mut self,
+    ) -> Result<ferrum_silver::verifier::verification_error::Model, Self::Error> {
         let model = self.last_model.as_ref().ok_or(LinkedProverError::NoModel)?;
         let session = self.session.as_ref().ok_or(LinkedProverError::Inactive)?;
         session
@@ -1871,6 +1946,70 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn interrupt_unblocks_solver_and_context_lifetime_is_synchronized() {
+        use std::time::Duration;
+        let interrupt = LinkedZ3CancellationHandle::default();
+        assert!(!interrupt.interrupt());
+        let worker_interrupt = interrupt.clone();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let mut solver = LinkedZ3::create(false, &[], worker_interrupt.clone()).unwrap();
+            let mut input = String::new();
+            for i in 0..35 {
+                for j in 0..34 {
+                    input.push_str(&format!("(declare-const p{i}_{j} Bool)\n"));
+                }
+                input.push_str("(assert (or");
+                for j in 0..34 {
+                    input.push_str(&format!(" p{i}_{j}"));
+                }
+                input.push_str("))\n");
+            }
+            for j in 0..34 {
+                for i in 0..35 {
+                    for k in i + 1..35 {
+                        input.push_str(&format!("(assert (or (not p{i}_{j}) (not p{k}_{j})))\n"));
+                    }
+                }
+            }
+            solver.parse_and_add_preamble(&[input], &[], &[]).unwrap();
+            ready_tx.send(()).unwrap();
+            let result = solver.check();
+            done_tx.send(result).unwrap();
+        });
+        ready_rx.recv().unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(
+            matches!(
+                done_rx.try_recv(),
+                Err(std::sync::mpsc::TryRecvError::Empty)
+            ),
+            "solver returned before interruption"
+        );
+        assert!(interrupt.interrupt());
+        let result = done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("solver did not interrupt");
+        assert!(
+            matches!(result, Ok(SatResult::Unknown) | Err(_)),
+            "{result:?}"
+        );
+        worker.join().unwrap();
+        assert!(!interrupt.interrupt());
+
+        // Handles from an old context can outlive its solver and a later reset.
+        let mut old = LinkedZ3::create(false, &[], interrupt.clone()).unwrap();
+        let retained = old.sort(NativeSort::Int).unwrap();
+        drop(old);
+        assert!(!interrupt.interrupt());
+        let new = LinkedZ3::create(false, &[], interrupt.clone()).unwrap();
+        drop(retained);
+        assert!(interrupt.interrupt());
+        drop(new);
+        assert!(!interrupt.interrupt());
+    }
     #[test]
     fn linked_z3_checks_scopes_snapshots_and_context_ownership() {
         let mut z = LinkedZ3::new().unwrap();
@@ -2087,6 +2226,82 @@ mod tests {
         );
     }
     #[test]
+    fn linked_model_function_reals_keep_raw_z3_spelling() {
+        use ferrum_silver::verifier::verification_error::{ModelEntry, ValueEntry};
+        let mut z = LinkedZ3::new().unwrap();
+        let real = z.sort(NativeSort::Real).unwrap();
+        let one = z.literal(NativeLiteral::Real(1), &real).unwrap();
+        let two = z.literal(NativeLiteral::Real(2), &real).unwrap();
+        let three = z.literal(NativeLiteral::Real(3), &real).unwrap();
+        let half = z
+            .builtin(NativeOp::Div, &[one.clone(), two.clone()])
+            .unwrap();
+        let third = z
+            .builtin(NativeOp::Div, &[one.clone(), three.clone()])
+            .unwrap();
+        let two_thirds = z.builtin(NativeOp::Div, &[two, three]).unwrap();
+        let a = z
+            .application("real_f", &[real.clone()], &real, &[half], false)
+            .unwrap();
+        let b = z
+            .application("real_f", &[real.clone()], &real, &[one], false)
+            .unwrap();
+        let a_eq = z.builtin(NativeOp::Equal, &[a, third]).unwrap();
+        let b_eq = z.builtin(NativeOp::Equal, &[b, two_thirds]).unwrap();
+        z.add(&a_eq).unwrap();
+        z.add(&b_eq).unwrap();
+        assert_eq!(z.check().unwrap(), SatResult::Sat);
+        let retained = z.retain_model().unwrap();
+        let model = z.model_from_retained(&retained).unwrap();
+        let ModelEntry::Map(mapped) = &model.entries["real_f"] else {
+            panic!("missing function map")
+        };
+        assert!(
+            !mapped.options.is_empty(),
+            "two distinct function values require an explicit entry"
+        );
+        let c = z.context.0;
+        let parse = |ast: Raw| {
+            let text = unsafe { CStr::from_ptr(Z3_ast_to_string(c, ast)) }.to_string_lossy();
+            let parsed =
+                ferrum_silver::verifier::model_parser::parse_model(&format!("value -> {text}"))
+                    .unwrap();
+            let ModelEntry::Value(value) = parsed.entries["value"].clone() else {
+                panic!("not a value")
+            };
+            value
+        };
+        let count = unsafe { Z3_model_get_num_funcs(c, retained.raw) };
+        let interp = (0..count)
+            .find_map(|i| {
+                let decl = unsafe { Z3_model_get_func_decl(c, retained.raw, i) };
+                let sym = unsafe { Z3_get_decl_name(c, decl) };
+                let name =
+                    unsafe { CStr::from_ptr(Z3_get_symbol_string(c, sym)) }.to_string_lossy();
+                (name == "real_f")
+                    .then(|| unsafe { Z3_model_get_func_interp(c, retained.raw, decl) })
+            })
+            .expect("real_f interpretation");
+        unsafe { Z3_func_interp_inc_ref(c, interp) };
+        let default = unsafe { Z3_func_interp_get_else(c, interp) };
+        assert_eq!(mapped.default, parse(default));
+        for i in 0..unsafe { Z3_func_interp_get_num_entries(c, interp) } {
+            let entry = unsafe { Z3_func_interp_get_entry(c, interp, i) };
+            unsafe { Z3_func_entry_inc_ref(c, entry) };
+            let args = (0..unsafe { Z3_func_entry_get_num_args(c, entry) })
+                .map(|k| parse(unsafe { Z3_func_entry_get_arg(c, entry, k) }))
+                .collect::<Vec<_>>();
+            let value = parse(unsafe { Z3_func_entry_get_value(c, entry) });
+            assert_eq!(mapped.options.get(&args), Some(&value));
+            unsafe { Z3_func_entry_dec_ref(c, entry) };
+        }
+        unsafe { Z3_func_interp_dec_ref(c, interp) };
+        assert!(matches!(
+            mapped.default,
+            ValueEntry::Application { .. } | ValueEntry::Constant(_)
+        ));
+    }
+    #[test]
     fn linked_prover_retries_invalid_bare_variable_trigger_without_losing_assumption() {
         use crate::interfaces::decider::prover::{Prover, ProverLike};
         use crate::state::{
@@ -2234,6 +2449,8 @@ mod tests {
             disable_nonlinear: false,
         };
         let mut p = LinkedZ3Prover::new("context", factory, options);
+        let interrupt = p.cancellation_handle();
+        assert!(!interrupt.interrupt());
         assert!(p.start(Some("unknown=true")).is_err());
         assert!(p.start(Some("proof=maybe")).is_err());
         assert!(p.start(Some("malformed")).is_err());
@@ -2246,6 +2463,10 @@ mod tests {
         let proof = unsafe { Z3_solver_get_proof(z.context.0, z.solver) };
         z.checked().unwrap();
         assert!(!proof.is_null());
+        p.reset().unwrap();
+        assert!(interrupt.interrupt());
+        p.stop().unwrap();
+        assert!(!interrupt.interrupt());
     }
     #[test]
     fn unknown_custom_option_is_reported_at_start() {

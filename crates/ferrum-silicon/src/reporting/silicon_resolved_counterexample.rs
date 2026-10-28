@@ -3,7 +3,8 @@
 //! Status: partial; basic variables, sequence/set/multiset/map reconstruction,
 //! resolved heap and store/name translation, and assembly from extracted raw data
 //! are implemented, including quantified raw heap candidates and permissions.
-//! Domain/function extraction and complete automatic model assembly remain pending.
+//! Model/state assembly and ordinary failure contexts are implemented; verifier callback,
+//! debug-context and model-validity integration remain pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -28,6 +29,275 @@ use ferrum_silver::{
     },
 };
 use std::collections::HashMap;
+
+/// Source domain/function model extraction. Traversal and symbol-conversion failures
+/// remain explicit; this does not silently produce a partial counterexample.
+pub fn extract_domains_and_functions(
+    model: &Model,
+    program: &ferrum_silver::ast::program::Program,
+    converter: &crate::state::symbol_converter::DefaultSymbolConverter,
+) -> Result<(Vec<BasicDomainEntry>, Vec<BasicFunctionEntry>), String> {
+    use ferrum_silver::ast::{
+        program::Member,
+        r#type::TypeSubstitution,
+        utility::{
+            nodes::{Node, subnodes},
+            visitor::visit,
+        },
+    };
+    let mut domains = Vec::new();
+    let mut functions = Vec::new();
+    let mut instances: Vec<(String, TypeSubstitution)> = Vec::new();
+    let mut invalid_application = false;
+    visit(
+        &Node::Program(program.clone()),
+        &subnodes,
+        &mut |node| match node {
+            Node::Member(Member::Domain(domain)) => domains.push(domain.clone()),
+            Node::Member(Member::Function(function)) => functions.push(function.clone()),
+            Node::Type(Type::Domain(domain)) => {
+                let instance = (domain.domain_name.clone(), domain.partial_type_vars.clone());
+                if !instance.1.values().any(|t| matches!(t, Type::Var(_)))
+                    && !instances.contains(&instance)
+                {
+                    instances.push(instance);
+                }
+            }
+            Node::Exp(exp) => {
+                if let ExpKind::DomainFuncApp(_, _, substitutions) = exp.kind() {
+                    if let Some(name) = &exp.0.extra.domain_name {
+                        let instance = (name.clone(), substitutions.clone());
+                        if !instance.1.values().any(|t| matches!(t, Type::Var(_)))
+                            && !instances.contains(&instance)
+                        {
+                            instances.push(instance);
+                        }
+                    } else {
+                        invalid_application = true;
+                    }
+                }
+            }
+            _ => (),
+        },
+    )
+    .map_err(|e| format!("counterexample domain traversal: {e:?}"))?;
+    if invalid_application {
+        return Err("domain application missing domain name".into());
+    }
+
+    let mut entries = Vec::new();
+    for domain in domains {
+        let maps: Vec<TypeSubstitution> = if domain.type_vars.is_empty() {
+            vec![HashMap::new()]
+        } else {
+            instances
+                .iter()
+                .filter(|(name, _)| name == &domain.name)
+                .map(|(_, map)| map.clone())
+                .collect()
+        };
+        for substitutions in maps {
+            let types = domain
+                .type_vars
+                .iter()
+                .map(|v| substitutions.get(v).cloned())
+                .collect::<Option<Vec<_>>>()
+                .unwrap_or_default();
+            let mut members = Vec::new();
+            for function in &domain.functions {
+                members.push(extract_model_function(
+                    model,
+                    program,
+                    converter,
+                    ModelFunction::Domain(function),
+                    &substitutions,
+                )?);
+            }
+            entries.insert(
+                0,
+                BasicDomainEntry {
+                    name: domain.name.clone(),
+                    types,
+                    functions: members,
+                },
+            );
+        }
+    }
+    let mut members = Vec::new();
+    for function in functions {
+        members.push(extract_model_function(
+            model,
+            program,
+            converter,
+            ModelFunction::HeapDependent(&function),
+            &HashMap::new(),
+        )?);
+    }
+    Ok((entries, members))
+}
+
+enum ModelFunction<'a> {
+    Domain(&'a ferrum_silver::ast::program::DomainFunc),
+    HeapDependent(&'a ferrum_silver::ast::program::Function),
+}
+
+fn extract_model_function(
+    model: &Model,
+    program: &ferrum_silver::ast::program::Program,
+    converter: &crate::state::symbol_converter::DefaultSymbolConverter,
+    function: ModelFunction<'_>,
+    substitutions: &ferrum_silver::ast::r#type::TypeSubstitution,
+) -> Result<BasicFunctionEntry, String> {
+    let (name, arguments, return_type, heap_dependent) = match &function {
+        ModelFunction::Domain(f) => (
+            &f.name,
+            f.formal_args
+                .iter()
+                .map(|a| a.typ().clone())
+                .collect::<Vec<_>>(),
+            f.typ.clone(),
+            false,
+        ),
+        ModelFunction::HeapDependent(f) => (
+            &f.name,
+            f.formal_args
+                .iter()
+                .map(|a| a.typ.clone())
+                .collect::<Vec<_>>(),
+            f.typ.clone(),
+            true,
+        ),
+    };
+    let error_entry = |message: String| BasicFunctionEntry {
+        name: "ERROR".into(),
+        argument_types: arguments.clone(),
+        return_type: return_type.clone(),
+        options: FunctionOptions::default(),
+        default: format!("{name} {message}"),
+    };
+    let to_sort = |typ: &Type| -> Result<_, String> {
+        match converter.to_sort(typ) {
+            Ok(sort) => Ok(sort),
+            Err(_)
+                if matches!(
+                    typ,
+                    Type::Var(_)
+                        | Type::Seq(_)
+                        | Type::Set(_)
+                        | Type::Multiset(_)
+                        | Type::Map(_)
+                        | Type::Domain(_)
+                        | Type::Extension(_)
+                ) =>
+            {
+                if let Type::Var(var) = typ {
+                    if !substitutions.contains_key(var) {
+                        return Err("missing type substitution".into());
+                    }
+                }
+                converter
+                    .to_sort(&typ.substitute(substitutions))
+                    .map_err(|_| "substitution failed".into())
+            }
+            Err(_) => Err("type not resolvable".into()),
+        }
+    };
+    let mut sorts = Vec::new();
+    for typ in &arguments {
+        match to_sort(typ) {
+            Ok(sort) => sorts.push(sort),
+            Err(error) => {
+                if error == "missing type substitution" {
+                    return Err(error);
+                }
+                if error == "type not resolvable" {
+                    return Ok(error_entry(error));
+                }
+                return Ok(error_entry(format!(
+                    "typeError in arg type {}",
+                    ferrum_silver::ast::pretty::pretty_printer::show_type(typ)
+                        .map_err(|e| format!("{e:?}"))?
+                )));
+            }
+        }
+    }
+    match to_sort(&return_type) {
+        Ok(sort) => sorts.push(sort),
+        Err(error) => {
+            if error == "missing type substitution" {
+                return Err(error);
+            }
+            if error == "type not resolvable" {
+                return Ok(error_entry(error));
+            }
+            return Ok(error_entry(format!(
+                "typeError in return type {}",
+                ferrum_silver::ast::pretty::pretty_printer::show_type(&return_type)
+                    .map_err(|e| format!("{e:?}"))?
+            )));
+        }
+    }
+    let symbol = match function {
+        ModelFunction::Domain(f) if f.interpretation.is_some() => {
+            converter.domain_function(f, program)
+        }
+        ModelFunction::Domain(f) => converter.domain_function_with_sorts(f, &sorts, program),
+        ModelFunction::HeapDependent(f) => converter.heap_dependent_function(f, program, None),
+    }
+    .map_err(|e| format!("counterexample function symbol: {e:?}"))?
+    .data()
+    .id
+    .to_string()
+    .replace('[', "<")
+    .replace(']', ">")
+    .replace(", ", "~_");
+    let key = model
+        .entries
+        .keys()
+        .find(|key| key.contains(&format!("{name}%limited")))
+        .or_else(|| model.entries.keys().find(|key| *key == name))
+        .or_else(|| model.entries.keys().find(|key| *key == &symbol));
+    let Some(entry) = key.and_then(|key| model.entries.get(key)) else {
+        return Ok(error_entry("model function not found".into()));
+    };
+    let mut options = Vec::new();
+    let default = match entry {
+        ModelEntry::Map(map) => {
+            let mut heap_names: HashMap<ValueEntry, String> = HashMap::new();
+            for (keys, value) in &map.options {
+                let mut translated: Vec<String> = keys
+                    .iter()
+                    .map(|key| {
+                        heap_names
+                            .get(key)
+                            .cloned()
+                            .unwrap_or_else(|| key.to_string())
+                    })
+                    .collect();
+                if heap_dependent {
+                    let first = keys.first().ok_or_else(|| {
+                        "heap-dependent model function has no heap argument".to_owned()
+                    })?;
+                    let text = first.to_string();
+                    if text.starts_with('$') {
+                        let next = format!("Heap@{}", heap_names.len());
+                        translated[0] = heap_names.entry(first.clone()).or_insert(next).clone();
+                    }
+                }
+                options.push((translated, value.to_string()));
+            }
+            map.default.to_string()
+        }
+        ModelEntry::Value(value) => value.to_string(),
+    };
+    Ok(BasicFunctionEntry {
+        name: name.clone(),
+        argument_types: arguments,
+        return_type,
+        options: FunctionOptions::new(options),
+        default,
+    })
+}
 
 pub fn ast_type_from_string(value: &str) -> Option<Type> {
     match value {
@@ -999,6 +1269,290 @@ pub fn det_multisets(model: &Model) -> Result<Vec<CeCollection>, CollectionError
 mod tests {
     use super::*;
     use ferrum_silver::verifier::verification_error::MapEntry;
+    #[test]
+    fn assembles_state_models_and_failure_context() {
+        use crate::{
+            rules::symbolic_execution_rules::CounterexampleKind,
+            state::{
+                package::OrderedMap,
+                state::State,
+                store::{AbstractLocalVar, MapBackedStore},
+                symbol_converter::DefaultSymbolConverter,
+                terms::{TermFactory, TermOptions},
+            },
+        };
+        use ferrum_silver::{
+            ast::{ast::Metadata, expression::LocalVar, program::Program},
+            verifier::verification_error::FailureContext,
+        };
+        use std::sync::Arc;
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let program = Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Metadata::default(),
+        );
+        let mut state = State::<(), (), u8>::new(
+            program,
+            OrderedMap::new(),
+            OrderedMap::new(),
+            0,
+            &factory,
+            false,
+            false,
+        );
+        let local = AbstractLocalVar::new(Exp::new(
+            ExpKind::LocalVar(LocalVar::new("x".into(), Type::Int, Metadata::default())),
+            Metadata::default(),
+        ));
+        state.g = Arc::new(MapBackedStore::from_bindings([(
+            local,
+            (factory.int_literal(7), None),
+        )]));
+        let model = Model {
+            entries: HashMap::new(),
+        };
+        let converter = DefaultSymbolConverter::new(factory, false);
+        let variables =
+            build_counterexample(&model, &state, CounterexampleKind::Variables, &converter)
+                .unwrap();
+        assert_eq!(
+            variables.model.entries.get("x"),
+            Some(&ModelEntry::Value(c("7")))
+        );
+        let changed = variables
+            .with_store(Arc::new(MapBackedStore::new()), &converter)
+            .unwrap();
+        assert!(changed.model.entries.is_empty());
+        assert_eq!(
+            variables.model.entries.get("x"),
+            Some(&ModelEntry::Value(c("7")))
+        );
+        let dynamic: Arc<dyn ferrum_silver::verifier::verification_error::Counterexample> =
+            Arc::new(variables.clone());
+        let typed = (&*dynamic as &dyn std::any::Any)
+            .downcast_ref::<NativeCounterexample>()
+            .unwrap();
+        assert!(
+            typed
+                .with_store(Arc::new(MapBackedStore::new()), &converter)
+                .unwrap()
+                .model
+                .entries
+                .is_empty()
+        );
+        let transform_converter = converter.clone();
+        let transform: ferrum_silver::verifier::verification_error::CounterexampleTransformer =
+            Arc::new(move |value| {
+                let typed = (&*value as &dyn std::any::Any)
+                    .downcast_ref::<NativeCounterexample>()
+                    .ok_or("unexpected counterexample type")?;
+                Ok(Arc::new(typed.with_store(
+                    Arc::new(MapBackedStore::new()),
+                    &transform_converter,
+                )?))
+            });
+        let transformed =
+            SiliconFailureContext::from_transformed(vec![], Some(dynamic), Some(&transform), None)
+                .unwrap();
+        assert!(
+            transformed
+                .counterexample()
+                .unwrap()
+                .model()
+                .entries
+                .is_empty()
+        );
+        assert!(!transformed.render().contains("x -> 7"));
+        let raw =
+            build_counterexample(&model, &state, CounterexampleKind::Raw, &converter).unwrap();
+        assert!(
+            matches!(&raw.view, NativeCounterexampleView::Raw(value) if value.basic_variables.len() == 1)
+        );
+        let resolved =
+            build_counterexample(&model, &state, CounterexampleKind::Resolved, &converter).unwrap();
+        assert!(
+            matches!(&resolved.view, NativeCounterexampleView::Resolved(value) if value.store.store_entries.len() == 1)
+        );
+        let display = variables.render().unwrap();
+        let context = SiliconFailureContext::new(
+            vec![],
+            Some(Arc::new(variables)),
+            Some(display),
+            Some("unknown".into()),
+        )
+        .unwrap();
+        assert!(context.counterexample().is_some());
+        assert!(
+            context
+                .render()
+                .contains("Potential prover incompleteness: unknown")
+        );
+        let mapped =
+            build_counterexample(&model, &state, CounterexampleKind::Mapped, &converter).unwrap();
+        assert!(mapped.render().unwrap().contains("x <- 7"));
+    }
+    #[test]
+    fn extracts_domain_and_heap_function_model_entries() {
+        use crate::state::{
+            symbol_converter::DefaultSymbolConverter,
+            terms::{TermFactory, TermOptions},
+        };
+        use ferrum_silver::ast::{
+            ast::Metadata,
+            program::{
+                Domain, DomainData, DomainFunc, DomainFuncData, Function, FunctionData, Program,
+            },
+        };
+        let meta = Metadata::default();
+        let domain_function = DomainFunc::new(DomainFuncData {
+            name: "zero".into(),
+            formal_args: vec![],
+            typ: Type::Int,
+            unique: false,
+            interpretation: None,
+            domain_name: "D".into(),
+            meta: meta.clone(),
+        });
+        let domain = Domain::new(DomainData {
+            name: "D".into(),
+            functions: vec![domain_function],
+            axioms: vec![],
+            type_vars: vec![],
+            interpretations: None,
+            meta: meta.clone(),
+        });
+        let function = Function::new(FunctionData {
+            name: "f".into(),
+            formal_args: vec![],
+            typ: Type::Int,
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(
+            vec![domain],
+            vec![],
+            vec![function],
+            vec![],
+            vec![],
+            vec![],
+            meta,
+        );
+        let model = Model {
+            entries: HashMap::from([
+                ("zero".into(), ModelEntry::Value(c("4"))),
+                ("f%limited@1".into(), map(vec![(vec![c("$heap")], c("9"))])),
+            ]),
+        };
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory, false);
+        let (domains, functions) =
+            extract_domains_and_functions(&model, &program, &converter).unwrap();
+        assert_eq!(domains[0].name, "D");
+        assert_eq!(domains[0].functions[0].default, "4");
+        assert_eq!(
+            functions[0].options.entries(),
+            &[(vec!["Heap@0".to_owned()], "9".to_owned())]
+        );
+        let mapped = super::super::converter::build_mapped_model(
+            &model,
+            &MapBackedStore::new(),
+            &crate::state::heap::ListBackedHeap::new(),
+            &[],
+            &program,
+            &converter,
+        )
+        .unwrap();
+        assert_eq!(mapped.domains[0].functions[0].default.to_string(), "4");
+        assert_eq!(mapped.functions[0].options[0].1.to_string(), "9");
+        assert!(mapped.render().unwrap().contains("domain D{"));
+    }
+    #[test]
+    fn generic_domain_instance_substitutes_function_result_sort() {
+        use crate::state::{
+            symbol_converter::DefaultSymbolConverter,
+            terms::{TermFactory, TermOptions},
+        };
+        use ferrum_silver::ast::{
+            ast::Metadata,
+            program::{Domain, DomainData, DomainFunc, DomainFuncData, Field, FieldData, Program},
+            r#type::{DomainType, TypeVar},
+        };
+        let meta = Metadata::default();
+        let t = TypeVar::new("T");
+        let function = DomainFunc::new(DomainFuncData {
+            name: "zero".into(),
+            formal_args: vec![],
+            typ: Type::Var(t.clone()),
+            unique: false,
+            interpretation: None,
+            domain_name: "D".into(),
+            meta: meta.clone(),
+        });
+        let domain = Domain::new(DomainData {
+            name: "D".into(),
+            functions: vec![function],
+            axioms: vec![],
+            type_vars: vec![t.clone()],
+            interpretations: None,
+            meta: meta.clone(),
+        });
+        let instance = Type::Domain(DomainType::new(
+            "D",
+            HashMap::from([(t.clone(), Type::Int)]),
+            vec![t],
+        ));
+        let field = Field::new(FieldData {
+            name: "f".into(),
+            typ: instance,
+            meta: meta.clone(),
+        });
+        let program = Program::new(
+            vec![domain],
+            vec![field],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            meta,
+        );
+        let model = Model {
+            entries: HashMap::from([("zero<Int>".into(), ModelEntry::Value(c("5")))]),
+        };
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory, false);
+        let (domains, _) = extract_domains_and_functions(&model, &program, &converter).unwrap();
+        assert_eq!(domains[0].types, vec![Type::Int]);
+        assert_eq!(domains[0].functions[0].default, "5");
+        let mapped = super::super::converter::build_mapped_model(
+            &model,
+            &MapBackedStore::new(),
+            &crate::state::heap::ListBackedHeap::new(),
+            &[],
+            &program,
+            &converter,
+        )
+        .unwrap();
+        assert_eq!(mapped.domains[0].functions[0].default.to_string(), "5");
+    }
     fn c(value: &str) -> ValueEntry {
         ValueEntry::Constant(value.into())
     }
@@ -1090,6 +1644,333 @@ pub struct SiliconRawCounterexample {
     pub raw_heaps: Vec<(String, counterexample::RawHeap)>,
     pub domains: Vec<BasicDomainEntry>,
     pub functions: Vec<BasicFunctionEntry>,
+}
+impl SiliconRawCounterexample {
+    pub fn render(&self) -> Result<String, ferrum_silver::ast::pretty::pretty_printer::PrintError> {
+        let mut out = String::from("      Raw Counterexample: \n   Local Information:\n");
+        for value in &self.basic_variables {
+            out.push_str(&value.render()?);
+            out.push('\n');
+        }
+        for value in self
+            .sequences
+            .iter()
+            .chain(&self.sets)
+            .chain(&self.multisets)
+            .chain(&self.maps)
+        {
+            out.push_str(&value.render()?);
+            out.push('\n');
+        }
+        for (name, heap) in &self.raw_heaps {
+            if !heap.entries().is_empty() {
+                out.push_str(&format!("   {name} Heap: \n{}\n", heap.render()?));
+            }
+        }
+        if !self.domains.is_empty() || !self.functions.is_empty() {
+            out.push_str("   Domains:\n");
+        }
+        for domain in &self.domains {
+            out.push_str(&domain.render()?);
+            out.push('\n');
+        }
+        for function in &self.functions {
+            out.push_str(&function.render()?);
+            out.push('\n');
+        }
+        Ok(out)
+    }
+}
+
+/// Owned source counterexample payload, retaining the original native model and
+/// symbolic store/heap for clients that need more than its textual rendering.
+#[derive(Clone, Debug)]
+pub struct NativeCounterexample {
+    pub model: Model,
+    /// Variables view filters `model`; keep the original for rebuilding the view.
+    pub native_model: Model,
+    pub store: std::sync::Arc<MapBackedStore>,
+    pub heap: std::sync::Arc<crate::state::heap::ListBackedHeap>,
+    pub old_heaps: Vec<(String, std::sync::Arc<crate::state::heap::ListBackedHeap>)>,
+    pub program: ferrum_silver::ast::program::Program,
+    pub view: NativeCounterexampleView,
+}
+#[derive(Clone, Debug)]
+pub enum NativeCounterexampleView {
+    Native,
+    Variables,
+    Mapped(super::converter::MappedModel),
+    Raw(SiliconRawCounterexample),
+    Resolved(SiliconResolvedCounterexample),
+}
+impl ferrum_silver::verifier::verification_error::Counterexample for NativeCounterexample {
+    fn model(&self) -> &Model {
+        &self.model
+    }
+    fn render(&self) -> Result<String, String> {
+        NativeCounterexample::render(self)
+    }
+}
+impl NativeCounterexample {
+    /// Source `withStore` creates the same view with a replacement symbolic store.
+    pub fn with_store(
+        &self,
+        store: std::sync::Arc<MapBackedStore>,
+        converter: &crate::state::symbol_converter::DefaultSymbolConverter,
+    ) -> Result<Self, String> {
+        use crate::rules::symbolic_execution_rules::CounterexampleKind;
+        let kind = match self.view {
+            NativeCounterexampleView::Native => CounterexampleKind::Native,
+            NativeCounterexampleView::Variables => CounterexampleKind::Variables,
+            NativeCounterexampleView::Mapped(_) => CounterexampleKind::Mapped,
+            NativeCounterexampleView::Raw(_) => CounterexampleKind::Raw,
+            NativeCounterexampleView::Resolved(_) => CounterexampleKind::Resolved,
+        };
+        build_counterexample_from_parts(
+            &self.native_model,
+            store,
+            self.heap.clone(),
+            self.old_heaps.clone(),
+            self.program.clone(),
+            kind,
+            converter,
+        )
+    }
+    pub fn render(&self) -> Result<String, String> {
+        match &self.view {
+            NativeCounterexampleView::Native | NativeCounterexampleView::Variables => {
+                Ok(self.model.to_string())
+            }
+            NativeCounterexampleView::Raw(raw) => raw.render().map_err(|e| format!("{e:?}")),
+            NativeCounterexampleView::Mapped(mapped) => mapped.render(),
+            NativeCounterexampleView::Resolved(resolved) => {
+                resolved.render().map_err(|e| format!("{e:?}"))
+            }
+        }
+    }
+}
+
+/// Build a source counterexample only after the caller has established model validity.
+pub fn build_counterexample<P, D, J>(
+    model: &Model,
+    state: &crate::state::state::State<P, D, J>,
+    kind: crate::rules::symbolic_execution_rules::CounterexampleKind,
+    converter: &crate::state::symbol_converter::DefaultSymbolConverter,
+) -> Result<NativeCounterexample, String> {
+    let old_heaps = state
+        .old_heaps
+        .iter()
+        .map(|(name, heap)| (name.clone(), heap.clone()))
+        .collect::<Vec<_>>();
+    build_counterexample_from_parts(
+        model,
+        state.g.clone(),
+        state.h.clone(),
+        old_heaps,
+        state.program.clone(),
+        kind,
+        converter,
+    )
+}
+
+fn build_counterexample_from_parts(
+    model: &Model,
+    store: std::sync::Arc<MapBackedStore>,
+    heap: std::sync::Arc<crate::state::heap::ListBackedHeap>,
+    old_heaps: Vec<(String, std::sync::Arc<crate::state::heap::ListBackedHeap>)>,
+    program: ferrum_silver::ast::program::Program,
+    kind: crate::rules::symbolic_execution_rules::CounterexampleKind,
+    converter: &crate::state::symbol_converter::DefaultSymbolConverter,
+) -> Result<NativeCounterexample, String> {
+    use crate::{
+        rules::symbolic_execution_rules::CounterexampleKind,
+        state::{heap::Heap, terms::TermKind},
+    };
+    let mut selected_model = model.clone();
+    let view = match kind {
+        CounterexampleKind::Native => NativeCounterexampleView::Native,
+        CounterexampleKind::Variables => {
+            let mut entries = HashMap::new();
+            for (key, (term, _)) in store.values() {
+                if matches!(term.kind(), TermKind::Var(_)) {
+                    let symbol =
+                        super::formatters::render_term(term).map_err(|e| format!("{e:?}"))?;
+                    if let Some(value) = model.entries.get(&symbol) {
+                        entries.insert(variable_name(key.expression()).to_owned(), value.clone());
+                    }
+                }
+            }
+            for (key, (term, _)) in store.values() {
+                if matches!(
+                    term.kind(),
+                    TermKind::IntLiteral(_) | TermKind::True | TermKind::False
+                ) {
+                    let value =
+                        super::formatters::render_term(term).map_err(|e| format!("{e:?}"))?;
+                    entries.insert(
+                        variable_name(key.expression()).to_owned(),
+                        ModelEntry::Value(ValueEntry::Constant(value)),
+                    );
+                }
+            }
+            selected_model = Model { entries };
+            NativeCounterexampleView::Variables
+        }
+        CounterexampleKind::Mapped => {
+            NativeCounterexampleView::Mapped(super::converter::build_mapped_model(
+                model, &store, &heap, &old_heaps, &program, converter,
+            )?)
+        }
+        CounterexampleKind::Raw | CounterexampleKind::Resolved => {
+            let basic_variables =
+                basic_variables_native(model, &store).map_err(|e| format!("{e:?}"))?;
+            let sequences = det_sequences(model).map_err(|e| format!("{e:?}"))?;
+            let sets = det_sets(model).map_err(|e| format!("{e:?}"))?;
+            let multisets = det_multisets(model).map_err(|e| format!("{e:?}"))?;
+            let maps = det_maps(model).map_err(|e| format!("{e:?}"))?;
+            let mut raw_heaps = vec![(
+                "current".into(),
+                det_raw_heap_native(model, heap.values(), &program)
+                    .map_err(|e| format!("{e:?}"))?,
+            )];
+            for (name, old_heap) in &old_heaps {
+                raw_heaps.insert(
+                    0,
+                    (
+                        name.clone(),
+                        det_raw_heap_native(model, old_heap.values(), &program)
+                            .map_err(|e| format!("{e:?}"))?,
+                    ),
+                );
+            }
+            let (domains, functions) = extract_domains_and_functions(model, &program, converter)?;
+            let raw = SiliconRawCounterexample {
+                basic_variables,
+                sequences,
+                sets,
+                multisets,
+                maps,
+                raw_heaps,
+                domains,
+                functions,
+            };
+            if kind == CounterexampleKind::Raw {
+                NativeCounterexampleView::Raw(raw)
+            } else {
+                NativeCounterexampleView::Resolved(
+                    SiliconResolvedCounterexample::from_raw(raw, &store, &program, model)
+                        .map_err(|e| format!("{e:?}"))?,
+                )
+            }
+        }
+    };
+    Ok(NativeCounterexample {
+        model: selected_model,
+        native_model: model.clone(),
+        store,
+        heap,
+        old_heaps,
+        program,
+        view,
+    })
+}
+
+/// Non-debug source failure context. The supplied display must describe the
+/// final (possibly transformed) counterexample, if one is present.
+#[derive(Clone, Debug)]
+pub struct SiliconFailureContext {
+    branch_conditions: Vec<Exp>,
+    counterexample:
+        Option<std::sync::Arc<dyn ferrum_silver::verifier::verification_error::Counterexample>>,
+    counterexample_display: Option<String>,
+    reason_unknown: Option<String>,
+    rendered: String,
+}
+impl SiliconFailureContext {
+    /// Apply the optional source transformer before rendering the final example.
+    pub fn from_transformed(
+        branch_conditions: Vec<Exp>,
+        counterexample: Option<
+            std::sync::Arc<dyn ferrum_silver::verifier::verification_error::Counterexample>,
+        >,
+        transformer: Option<
+            &ferrum_silver::verifier::verification_error::CounterexampleTransformer,
+        >,
+        reason_unknown: Option<String>,
+    ) -> Result<Self, String> {
+        let counterexample = match (counterexample, transformer) {
+            (Some(value), Some(transform)) => Some(transform(value)?),
+            (value, _) => value,
+        };
+        let display = counterexample
+            .as_ref()
+            .map(|value| value.render())
+            .transpose()?;
+        Self::new(branch_conditions, counterexample, display, reason_unknown)
+    }
+    pub fn branch_conditions(&self) -> &[Exp] {
+        &self.branch_conditions
+    }
+    pub fn counterexample_display(&self) -> Option<&str> {
+        self.counterexample_display.as_deref()
+    }
+    pub fn reason_unknown(&self) -> Option<&str> {
+        self.reason_unknown.as_deref()
+    }
+    pub fn new(
+        branch_conditions: Vec<Exp>,
+        counterexample: Option<
+            std::sync::Arc<dyn ferrum_silver::verifier::verification_error::Counterexample>,
+        >,
+        counterexample_display: Option<String>,
+        reason_unknown: Option<String>,
+    ) -> Result<Self, String> {
+        if counterexample.is_some() != counterexample_display.is_some() {
+            return Err("counterexample and display must both be present or absent".into());
+        }
+        let mut rendered = String::new();
+        if !branch_conditions.is_empty() {
+            let branches = branch_conditions
+                .iter()
+                .map(|exp| {
+                    Ok(format!(
+                        "{} [ {} ] ",
+                        ferrum_silver::ast::pretty::pretty_printer::pretty_expression(exp)
+                            .map_err(|e| format!("{e:?}"))?,
+                        exp.metadata().position
+                    ))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            rendered.push_str(&format!(
+                "\n\t\tunder branch conditions:\n\t\t{}",
+                branches.join(" ~~> ")
+            ));
+        }
+        if let Some(display) = &counterexample_display {
+            rendered.push_str(&format!("\n\t\tcounterexample:\n{display}"));
+        }
+        if let Some(reason) = &reason_unknown {
+            rendered.push_str(&format!("\nPotential prover incompleteness: {reason}"));
+        }
+        Ok(Self {
+            branch_conditions,
+            counterexample,
+            counterexample_display,
+            reason_unknown,
+            rendered,
+        })
+    }
+}
+impl ferrum_silver::verifier::verification_error::FailureContext for SiliconFailureContext {
+    fn counterexample(
+        &self,
+    ) -> Option<std::sync::Arc<dyn ferrum_silver::verifier::verification_error::Counterexample>>
+    {
+        self.counterexample.clone()
+    }
+    fn render(&self) -> String {
+        self.rendered.clone()
+    }
 }
 impl counterexample::RawCounterexample for SiliconRawCounterexample {
     fn basic_variables(&self) -> &[CeVariable] {

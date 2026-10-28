@@ -69,7 +69,6 @@ pub trait ProverLike: TextEmitter {
 /// Stateful solver operations. Concrete implementations own the process/API
 /// context; transport failures and solver unknown are separate outcomes.
 pub trait Prover: ProverLike {
-    type Model;
     type Version;
 
     fn start(&mut self, user_args: Option<&str>) -> Result<(), Self::Error>;
@@ -86,7 +85,9 @@ pub trait Prover: ProverLike {
     fn statistics(&mut self) -> Result<Vec<(String, String)>, Self::Error>;
     fn has_model(&self) -> bool;
     fn is_model_valid(&self) -> bool;
-    fn get_model(&mut self) -> Result<Self::Model, Self::Error>;
+    fn get_model(
+        &mut self,
+    ) -> Result<ferrum_silver::verifier::verification_error::Model, Self::Error>;
     fn get_reason_unknown(&mut self) -> Result<String, Self::Error>;
     fn clear_last_assert(&mut self);
     fn name(&self) -> &str;

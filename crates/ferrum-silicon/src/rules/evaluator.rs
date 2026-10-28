@@ -42,8 +42,7 @@
 //! Continuation and verifier ownership, quantified auxiliary scopes, snapshot and error
 //! propagation.
 //!
-//! Status: source-shaped evaluation families connect through typed context services.
-//! Non-inlined family dispatch limits individual Rust frames; recursive CPS depth remains finite.
+//! Status: partial; CPS heap restoration, literals, locals and basic binary dispatch implemented.
 //! Control-flow, division checks, heap/function/quantifier/collection families require collaborators.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -402,6 +401,7 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
     fn consume_function_preconditions(
         &mut self,
         state: State<P, D, J>,
+        caller_store: &Arc<crate::state::store::MapBackedStore>,
         function: &ferrum_silver::ast::program::Function,
         application: &Exp,
         arguments: &[Exp],
@@ -1486,7 +1486,7 @@ where
                 pre_state.sm_domain_needed = true; pre_state.more_joins = context.join_off();
                 if !context.respect_function_pre_permission_amounts() { pre_state.assert_read_access_only = true; }
                 let pre_state_for_snapshot = pre_state.clone();
-                context.consume_function_preconditions(pre_state,&function,expression,args,&pres,&mut |context,mut state,snapshot| {
+                context.consume_function_preconditions(pre_state,&base.g,&function,expression,args,&pres,&mut |context,mut state,snapshot| {
                     let snapshot = snapshot.ok_or(EvaluationError::MissingFunctionSnapshot)?;
                     let (state_args,snapshot_to_record) = context.function_snapshot_args(&pre_state_for_snapshot,&function,&terms,&snapshot).map_err(EvaluationError::Context)?;
                     let symbol = context.heap_function(&function,&base.program).map_err(EvaluationError::Context)?;

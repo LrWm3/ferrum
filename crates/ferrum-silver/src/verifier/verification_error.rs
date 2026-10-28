@@ -198,8 +198,15 @@ impl fmt::Display for Model {
         )
     }
 }
-pub trait Counterexample: fmt::Debug + Send + Sync {
+/// Source counterexample implementations may retain backend-specific data; `Any`
+/// permits an explicitly typed transformer to recover that data without coupling
+/// Silver to a backend.
+pub trait Counterexample: fmt::Debug + Send + Sync + std::any::Any {
     fn model(&self) -> &Model;
+    /// Source counterexamples default to model text and may override it.
+    fn render(&self) -> Result<String, String> {
+        Ok(self.model().to_string())
+    }
 }
 #[derive(Clone, Debug)]
 pub struct SimpleCounterexample {
@@ -211,7 +218,7 @@ impl Counterexample for SimpleCounterexample {
     }
 }
 pub type CounterexampleTransformer =
-    Arc<dyn Fn(Arc<dyn Counterexample>) -> Arc<dyn Counterexample> + Send + Sync>;
+    Arc<dyn Fn(Arc<dyn Counterexample>) -> Result<Arc<dyn Counterexample>, String> + Send + Sync>;
 
 /// Extensible source reason family. Equality is supplied by the extension value.
 pub trait ExtensionErrorReason: fmt::Debug + Send + Sync {
@@ -807,6 +814,18 @@ pub trait FailureContext: fmt::Debug + Send + Sync {
     fn counterexample(&self) -> Option<Arc<dyn Counterexample>>;
     fn render(&self) -> String;
 }
+#[derive(Clone)]
+struct ExampleWrapper {
+    wrapped: VerificationError,
+    transformer: CounterexampleTransformer,
+}
+impl fmt::Debug for ExampleWrapper {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExampleWrapper")
+            .field("wrapped", &self.wrapped)
+            .finish_non_exhaustive()
+    }
+}
 #[derive(Clone, Debug)]
 pub struct VerificationError {
     pub kind: VerificationErrorKind,
@@ -814,6 +833,7 @@ pub struct VerificationError {
     pub cached: bool,
     pub failure_contexts: Vec<Arc<dyn FailureContext>>,
     scope: Arc<std::sync::RwLock<Option<Arc<crate::ast::program::Member>>>>,
+    example_wrapper: Option<Arc<ExampleWrapper>>,
 }
 /// Source ErrorMessage.isExpected checks info only on Infoed offending nodes.
 pub fn node_is_expected(
@@ -854,6 +874,29 @@ impl VerificationError {
             cached: false,
             failure_contexts: Vec::new(),
             scope: Arc::new(std::sync::RwLock::new(None)),
+            example_wrapper: None,
+        }
+    }
+    /// Source ErrorWrapperWithExampleTransformer; the wrapper itself is a fresh
+    /// error with default cached/scope/context state and delegates its message.
+    pub fn with_example_transformer(self, transformer: CounterexampleTransformer) -> Self {
+        Self {
+            kind: self.kind.clone(),
+            reason: self.reason.clone(),
+            cached: false,
+            failure_contexts: Vec::new(),
+            scope: Arc::new(std::sync::RwLock::new(None)),
+            example_wrapper: Some(Arc::new(ExampleWrapper {
+                wrapped: self,
+                transformer,
+            })),
+        }
+    }
+    /// Unwrap one source wrapper layer, retaining the original error and callback.
+    pub fn unwrap_example_transformer(self) -> (Self, Option<CounterexampleTransformer>) {
+        match &self.example_wrapper {
+            Some(wrapper) => (wrapper.wrapped.clone(), Some(wrapper.transformer.clone())),
+            None => (self, None),
         }
     }
     pub fn full_id(&self) -> String {
@@ -861,24 +904,38 @@ impl VerificationError {
     }
     /// Source case-class copies reset the separately mutable failure contexts.
     pub fn with_reason(&self, reason: ErrorReason) -> Self {
+        if let Some(wrapper) = &self.example_wrapper {
+            return wrapper
+                .wrapped
+                .with_reason(reason)
+                .with_example_transformer(wrapper.transformer.clone());
+        }
         Self {
             kind: self.kind.clone(),
             reason,
             cached: self.cached,
             failure_contexts: Vec::new(),
             scope: Arc::new(std::sync::RwLock::new(None)),
+            example_wrapper: None,
         }
     }
     pub fn with_node(
         &self,
         node: crate::ast::utility::nodes::Node,
     ) -> Result<Self, super::verification_result::DiagnosticError> {
+        if let Some(wrapper) = &self.example_wrapper {
+            return Ok(wrapper
+                .wrapped
+                .with_node(node)?
+                .with_example_transformer(wrapper.transformer.clone()));
+        }
         Ok(Self {
             kind: self.kind.with_node(node)?,
             reason: self.reason.clone(),
             cached: self.cached,
             failure_contexts: Vec::new(),
             scope: Arc::new(std::sync::RwLock::new(None)),
+            example_wrapper: None,
         })
     }
     pub fn readable_message(
@@ -1409,6 +1466,15 @@ impl PartialVerificationError {
     ) -> Result<VerificationError, super::verification_result::DiagnosticError> {
         (self.factory)(reason)
     }
+    /// The source partial wrapper waits for a reason before wrapping its error.
+    pub fn with_example_transformer(&self, transformer: CounterexampleTransformer) -> Self {
+        let original = self.clone();
+        Self::new(move |reason| {
+            Ok(original
+                .due_to(reason)?
+                .with_example_transformer(transformer.clone()))
+        })
+    }
     pub fn with_reason_node_transformed(
         &self,
         transform: impl Fn(
@@ -1446,6 +1512,26 @@ impl PartialVerificationError {
 #[cfg(test)]
 mod transformation_order_tests {
     use super::*;
+    #[test]
+    fn example_wrapper_keeps_original_and_survives_partial_reason_copy() {
+        let transformer: CounterexampleTransformer = Arc::new(Ok);
+        let mut original =
+            VerificationError::new(VerificationErrorKind::Internal(None), ErrorReason::Dummy);
+        original.cached = true;
+        let wrapper = original.with_example_transformer(transformer.clone());
+        assert!(!wrapper.cached);
+        let (unwrapped, found) = wrapper.unwrap_example_transformer();
+        assert!(unwrapped.cached);
+        assert!(Arc::ptr_eq(&transformer, &found.unwrap()));
+        let partial = PartialVerificationError::for_kind(VerificationErrorKind::Internal(None))
+            .with_example_transformer(transformer.clone());
+        let copied = partial
+            .due_to(ErrorReason::Dummy)
+            .unwrap()
+            .with_reason(ErrorReason::Dummy);
+        let (_, found) = copied.unwrap_example_transformer();
+        assert!(Arc::ptr_eq(&transformer, &found.unwrap()));
+    }
     use crate::ast::{
         ast::{ErrorTransformation, Metadata},
         expression::{Exp, ExpKind},

@@ -1,8 +1,9 @@
 //! Silicon model extraction and interpretation.
 //! Upstream: https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/reporting/Converter.scala
 //! Status: partial; extracted data families, function application, scalar conversion,
-//! and source term evaluation are implemented. Recursive heap/store extraction and
-//! domain/function discovery remain explicit integration boundaries.
+//! source term evaluation, recursive heap/store extraction, domain/function discovery,
+//! mapped-model assembly and interpretation are implemented. Some term/chunk and
+//! type families propagate explicit unsupported errors; verifier integration is pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -246,6 +247,19 @@ impl fmt::Display for ExtractedModelEntry {
 pub struct ExtractedModel {
     pub entries: Vec<(String, ExtractedModelEntry)>,
 }
+impl std::fmt::Display for ExtractedModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.entries
+                .iter()
+                .map(|(name, entry)| format!("{name} <- {entry}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HeapEntry {
     Predicate {
@@ -304,6 +318,20 @@ impl DomainEntry {
         })
     }
 }
+impl std::fmt::Display for DomainEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = self.value_name().map_err(|_| std::fmt::Error)?;
+        write!(
+            f,
+            "domain {name}{{\n {}\n}}",
+            self.functions
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    }
+}
 #[derive(Clone, Debug)]
 pub struct ExtractedFunction {
     pub name: String,
@@ -311,6 +339,38 @@ pub struct ExtractedFunction {
     pub return_type: Sort,
     pub options: Vec<(Vec<ExtractedModelEntry>, ExtractedModelEntry)>,
     pub default: ExtractedModelEntry,
+}
+impl std::fmt::Display for ExtractedFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.options.is_empty() {
+            return write!(f, "{}{{\n    {}\n}}", self.name, self.default);
+        }
+        let args = self
+            .argument_types
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let options = self
+            .options
+            .iter()
+            .map(|(args, value)| {
+                format!(
+                    "    {} -> {value}",
+                    args.iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        write!(
+            f,
+            "{}({args}):{}{{\n{options}\n    else -> {}\n}}",
+            self.name, self.return_type, self.default
+        )
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FunctionApplication {
@@ -421,9 +481,7 @@ pub fn get_constant_entry(
     entry: &ModelEntry,
 ) -> Result<ExtractedModelEntry, ConversionError> {
     use ExtractedModelEntry as E;
-    if matches!(entry, ModelEntry::Value(ValueEntry::Unspecified))
-        || matches!(entry, ModelEntry::Value(ValueEntry::Constant(s)) if s == "#unspecified")
-    {
+    if matches!(entry, ModelEntry::Value(ValueEntry::Constant(s)) if s == "#unspecified") {
         return Ok(other("#unspecified", "default case"));
     }
     let value = match entry {
@@ -940,6 +998,36 @@ mod tests {
     use super::*;
     use crate::state::terms::{TermFactory, TermOptions};
     #[test]
+    fn unspecified_entry_remains_distinct_from_unspecified_constant() {
+        let unspecified = ModelEntry::Value(ValueEntry::Unspecified);
+        assert_eq!(
+            get_constant_entry(&Sort::Ref, &unspecified).unwrap(),
+            ExtractedModelEntry::Var {
+                name: "#unspecified".into(),
+                sort: Sort::Ref
+            }
+        );
+        assert_eq!(
+            get_constant_entry(&Sort::Int, &unspecified).unwrap(),
+            ExtractedModelEntry::Other {
+                value: "#unspecified".into(),
+                problem: "not an integer literal".into()
+            }
+        );
+        assert_eq!(
+            get_constant_entry(&Sort::Snap, &unspecified).unwrap(),
+            ExtractedModelEntry::Unprocessed(ValueEntry::Unspecified)
+        );
+        let constant = ModelEntry::Value(ValueEntry::Constant("#unspecified".into()));
+        assert_eq!(
+            get_constant_entry(&Sort::Ref, &constant).unwrap(),
+            ExtractedModelEntry::Other {
+                value: "#unspecified".into(),
+                problem: "default case".into()
+            }
+        );
+    }
+    #[test]
     fn term_evaluation_uses_euclidean_division() {
         let f = TermFactory::new(TermOptions {
             use_flyweight: false,
@@ -1379,4 +1467,491 @@ pub fn map_heap_to_store(
         }
     }
     Ok(ExtractedModel { entries })
+}
+
+/// Source mapped-model extraction and its recursively interpreted current/old stores.
+#[derive(Clone, Debug)]
+pub struct MappedModel {
+    pub current: ExtractedModel,
+    pub old: Vec<(String, ExtractedModel)>,
+    pub domains: Vec<DomainEntry>,
+    pub functions: Vec<ExtractedFunction>,
+}
+
+fn error_function(problem: String) -> ExtractedFunction {
+    ExtractedFunction {
+        name: "ERROR".into(),
+        argument_types: vec![],
+        return_type: Sort::Unit,
+        options: vec![],
+        default: other("ERROR", problem),
+    }
+}
+
+fn mapped_function(
+    basic: &ferrum_silver::verifier::counterexample::BasicFunctionEntry,
+    substitutions: &ferrum_silver::ast::r#type::TypeSubstitution,
+    domain_function: Option<&ferrum_silver::ast::program::DomainFunc>,
+    model: &Model,
+    program: &ferrum_silver::ast::program::Program,
+    converter: &crate::state::symbol_converter::DefaultSymbolConverter,
+) -> Result<ExtractedFunction, String> {
+    let sort = |typ: &Type| -> Result<Result<Sort, bool>, String> {
+        if let Ok(sort) = converter.to_sort(typ) {
+            return Ok(Ok(sort));
+        }
+        if let Type::Var(variable) = typ {
+            if !substitutions.contains_key(variable) {
+                return Err("missing type substitution".into());
+            }
+        }
+        if matches!(
+            typ,
+            Type::Var(_)
+                | Type::Seq(_)
+                | Type::Set(_)
+                | Type::Multiset(_)
+                | Type::Map(_)
+                | Type::Domain(_)
+                | Type::Extension(_)
+        ) {
+            Ok(converter
+                .to_sort(&typ.substitute(substitutions))
+                .map_err(|_| true))
+        } else {
+            Ok(Err(false))
+        }
+    };
+    let mut args = Vec::new();
+    for typ in &basic.argument_types {
+        match sort(typ)? {
+            Ok(sort) => args.push(sort),
+            Err(generic) => {
+                if !generic {
+                    return Ok(error_function(format!(
+                        "{} type not resolvable",
+                        basic.name
+                    )));
+                }
+                let shown = ferrum_silver::ast::pretty::pretty_printer::show_type(typ)
+                    .map_err(|e| format!("{e:?}"))?;
+                return Ok(error_function(format!(
+                    "{} typeError in arg type {shown}",
+                    basic.name
+                )));
+            }
+        }
+    }
+    let result = match sort(&basic.return_type)? {
+        Ok(sort) => sort,
+        Err(generic) => {
+            if !generic {
+                return Ok(error_function(format!(
+                    "{} type not resolvable",
+                    basic.name
+                )));
+            }
+            let shown = ferrum_silver::ast::pretty::pretty_printer::show_type(&basic.return_type)
+                .map_err(|e| format!("{e:?}"))?;
+            return Ok(error_function(format!(
+                "{} typeError in return type {shown}",
+                basic.name
+            )));
+        }
+    };
+    let symbol = if let Some(function) = domain_function {
+        if function.interpretation.is_some() {
+            converter.domain_function(function, program)
+        } else {
+            let mut sorts = args.clone();
+            sorts.push(result.clone());
+            converter.domain_function_with_sorts(function, &sorts, program)
+        }
+    } else {
+        let function = program
+            .find_function_optionally(&basic.name)
+            .ok_or_else(|| format!("missing function {}", basic.name))?;
+        converter.heap_dependent_function(function, program, None)
+    }
+    .map_err(|e| format!("mapped function symbol: {e:?}"))?
+    .data()
+    .id
+    .to_string()
+    .replace('[', "<")
+    .replace(']', ">")
+    .replace(", ", "~_");
+    let key = model
+        .entries
+        .keys()
+        .find(|key| key.contains(&format!("{}%limited", basic.name)))
+        .or_else(|| model.entries.keys().find(|key| *key == &basic.name))
+        .or_else(|| model.entries.keys().find(|key| *key == &symbol));
+    let Some((name, entry)) = key.and_then(|key| model.entries.get_key_value(key)) else {
+        return Ok(error_function(format!(
+            "{} model function not found",
+            basic.name
+        )));
+    };
+    let (options, default) = match entry {
+        ModelEntry::Map(map) => {
+            if name.contains("%limited") {
+                args.insert(0, Sort::Snap);
+            }
+            // Scala catches conversion errors for the entire options map and yields an empty map.
+            let converted = map
+                .options
+                .iter()
+                .map(|(keys, value)| {
+                    let key = keys
+                        .iter()
+                        .zip(&args)
+                        .map(|(value, sort)| {
+                            get_constant_entry(sort, &ModelEntry::Value(value.clone()))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok::<_, ConversionError>((
+                        key,
+                        get_constant_entry(&result, &ModelEntry::Value(value.clone()))?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap_or_default();
+            let mut options: Vec<(Vec<ExtractedModelEntry>, ExtractedModelEntry)> = Vec::new();
+            for (key, value) in converted {
+                if let Some((_, old)) = options.iter_mut().find(|(existing, _)| *existing == key) {
+                    *old = value;
+                } else {
+                    options.push((key, value));
+                }
+            }
+            (
+                options,
+                get_constant_entry(&result, &ModelEntry::Value(map.default.clone()))
+                    .map_err(|e| format!("mapped function default: {e:?}"))?,
+            )
+        }
+        value => (
+            vec![],
+            get_constant_entry(&result, value)
+                .map_err(|e| format!("mapped function value: {e:?}"))?,
+        ),
+    };
+    Ok(ExtractedFunction {
+        name: basic.name.clone(),
+        argument_types: args,
+        return_type: result,
+        options,
+        default,
+    })
+}
+
+pub fn build_mapped_model(
+    model: &Model,
+    store: &crate::state::store::MapBackedStore,
+    heap: &crate::state::heap::ListBackedHeap,
+    old_heaps: &[(String, std::sync::Arc<crate::state::heap::ListBackedHeap>)],
+    program: &ferrum_silver::ast::program::Program,
+    converter: &crate::state::symbol_converter::DefaultSymbolConverter,
+) -> Result<MappedModel, String> {
+    use super::domain_interpreter::{
+        AbstractInterpreter, GenericDomainInterpreter, InterpretationContext,
+    };
+    use crate::state::heap::Heap;
+    let render = |term: &crate::state::terms::Term| {
+        super::formatters::render_term(term).map_err(|e| format!("{e:?}"))
+    };
+    let current_heap = extract_heap_native(heap.values(), model).map_err(|e| format!("{e:?}"))?;
+    let current = map_heap_to_store(store, &current_heap, model, converter, &render)
+        .map_err(|e| format!("{e:?}"))?;
+    let mut old = Vec::new();
+    for (name, heap) in old_heaps {
+        let extracted = extract_heap_native(heap.values(), model).map_err(|e| format!("{e:?}"))?;
+        old.push((
+            name.clone(),
+            map_heap_to_store(store, &extracted, model, converter, &render)
+                .map_err(|e| format!("{e:?}"))?,
+        ));
+    }
+    use ferrum_silver::ast::{
+        program::Member,
+        utility::{
+            nodes::{Node, subnodes},
+            visitor::visit,
+        },
+    };
+    use ferrum_silver::verifier::counterexample::{BasicFunctionEntry, FunctionOptions};
+    let mut source_domains = Vec::new();
+    let mut source_functions = Vec::new();
+    let mut instances: Vec<(String, ferrum_silver::ast::r#type::TypeSubstitution)> = Vec::new();
+    let mut malformed = false;
+    visit(
+        &Node::Program(program.clone()),
+        &subnodes,
+        &mut |node| match node {
+            Node::Member(Member::Domain(domain)) => source_domains.push(domain.clone()),
+            Node::Member(Member::Function(function)) => source_functions.push(function.clone()),
+            Node::Type(Type::Domain(domain)) => {
+                let instance = (domain.domain_name.clone(), domain.partial_type_vars.clone());
+                if !instance.1.values().any(|v| matches!(v, Type::Var(_)))
+                    && !instances.contains(&instance)
+                {
+                    instances.push(instance);
+                }
+            }
+            Node::Exp(exp) => {
+                if let ferrum_silver::ast::expression::ExpKind::DomainFuncApp(_, _, substitutions) =
+                    exp.kind()
+                {
+                    if let Some(name) = &exp.0.extra.domain_name {
+                        let instance = (name.clone(), substitutions.clone());
+                        if !instance.1.values().any(|v| matches!(v, Type::Var(_)))
+                            && !instances.contains(&instance)
+                        {
+                            instances.push(instance);
+                        }
+                    } else {
+                        malformed = true;
+                    }
+                }
+            }
+            _ => (),
+        },
+    )
+    .map_err(|e| format!("mapped model traversal: {e:?}"))?;
+    if malformed {
+        return Err("domain application missing domain name".into());
+    }
+    let basic = |name: String, argument_types: Vec<Type>, return_type: Type| BasicFunctionEntry {
+        name,
+        argument_types,
+        return_type,
+        options: FunctionOptions::default(),
+        default: String::new(),
+    };
+    let mut domains = Vec::new();
+    for source in source_domains {
+        let substitutions = if source.type_vars.is_empty() {
+            vec![Default::default()]
+        } else {
+            instances
+                .iter()
+                .filter(|(name, _)| name == &source.name)
+                .map(|(_, vars)| vars.clone())
+                .collect()
+        };
+        for substitution in substitutions {
+            let types = source
+                .type_vars
+                .iter()
+                .map(|v| substitution.get(v).cloned())
+                .collect::<Option<Vec<_>>>()
+                .unwrap_or_default();
+            let functions = source
+                .functions
+                .iter()
+                .map(|function| {
+                    let f = basic(
+                        function.name.clone(),
+                        function
+                            .formal_args
+                            .iter()
+                            .map(|v| v.typ().clone())
+                            .collect(),
+                        function.typ.clone(),
+                    );
+                    mapped_function(&f, &substitution, Some(function), model, program, converter)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            domains.push(DomainEntry {
+                name: source.name.clone(),
+                types,
+                functions,
+            });
+        }
+    }
+    let functions = source_functions
+        .iter()
+        .map(|function| {
+            let f = basic(
+                function.name.clone(),
+                function.formal_args.iter().map(|v| v.typ.clone()).collect(),
+                function.typ.clone(),
+            );
+            mapped_function(&f, &Default::default(), None, model, program, converter)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    struct Context<'a> {
+        domains: &'a [DomainEntry],
+        functions: &'a [ExtractedFunction],
+        heap: &'a ExtractedHeap,
+        model: &'a Model,
+    }
+    impl InterpretationContext for Context<'_> {
+        type Error = EvaluationError;
+        fn domains(&self) -> &[DomainEntry] {
+            self.domains
+        }
+        fn non_domain_functions(&self) -> &[ExtractedFunction] {
+            self.functions
+        }
+        fn extract_variable(
+            &self,
+            entry: &ExtractedModelEntry,
+        ) -> Result<ExtractedModelEntry, Self::Error> {
+            let sort = match entry {
+                ExtractedModelEntry::Var { sort, .. } => Some(sort),
+                _ => None,
+            };
+            let null = self
+                .model
+                .entries
+                .get("$Ref.null")
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "Ref!val!0".into());
+            map_local_var(
+                sort,
+                entry,
+                self.heap,
+                self.model,
+                &Default::default(),
+                &null,
+            )
+        }
+    }
+    let context = Context {
+        domains: &domains,
+        functions: &functions,
+        heap: &current_heap,
+        model,
+    };
+    let interpreter = GenericDomainInterpreter { context: &context };
+    let interpret = |value: ExtractedModel| -> Result<ExtractedModel, String> {
+        Ok(ExtractedModel {
+            entries: value
+                .entries
+                .into_iter()
+                .map(|(name, entry)| {
+                    Ok((
+                        name,
+                        interpreter
+                            .interpret(&entry, &vec![])
+                            .map_err(|e| format!("{e:?}"))?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, String>>()?,
+        })
+    };
+    let current_interpreted = interpret(current.clone())?;
+    let old = old
+        .into_iter()
+        .map(|(name, value)| Ok((name, interpret(value)?)))
+        .collect::<Result<Vec<_>, String>>()?;
+    // Source function display replaces model reference names with current store names
+    // and consistently aliases heap snapshots across all functions.
+    let names: std::collections::HashMap<String, String> = current
+        .entries
+        .iter()
+        .filter_map(|(name, entry)| match entry {
+            ExtractedModelEntry::Ref { name: raw, .. } | ExtractedModelEntry::NullRef(raw) => {
+                Some((raw.clone(), name.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    let mut heaps: std::collections::HashMap<ValueEntry, String> = Default::default();
+    let mut rename = |entry: &ExtractedModelEntry| -> ExtractedModelEntry {
+        match entry {
+            ExtractedModelEntry::Var { name, sort } => ExtractedModelEntry::Var {
+                name: names.get(name).cloned().unwrap_or_else(|| name.clone()),
+                sort: sort.clone(),
+            },
+            ExtractedModelEntry::Unprocessed(value)
+                if matches!(value, ValueEntry::Constant(s) if s == "$Snap.unit")
+                    || matches!(value, ValueEntry::Application { name, .. } if name == "$Snap.combine") =>
+            {
+                let next = format!("hp_{}", heaps.len());
+                ExtractedModelEntry::Unprocessed(ValueEntry::Constant(
+                    heaps.entry(value.clone()).or_insert(next).clone(),
+                ))
+            }
+            _ => entry.clone(),
+        }
+    };
+    let mut rename_function = |function: &mut ExtractedFunction| {
+        let mut renamed: Vec<(Vec<ExtractedModelEntry>, ExtractedModelEntry)> = Vec::new();
+        for (args, value) in &function.options {
+            let args = args.iter().map(&mut rename).collect::<Vec<_>>();
+            let value = rename(value);
+            if let Some((_, old)) = renamed.iter_mut().find(|(existing, _)| *existing == args) {
+                *old = value;
+            } else {
+                renamed.push((args, value));
+            }
+        }
+        function.options = renamed;
+        function.default = rename(&function.default);
+    };
+    for domain in &mut domains {
+        for function in &mut domain.functions {
+            rename_function(function);
+        }
+    }
+    let mut functions = functions;
+    for function in &mut functions {
+        rename_function(function);
+    }
+    Ok(MappedModel {
+        current: current_interpreted,
+        old,
+        domains,
+        functions,
+    })
+}
+
+impl MappedModel {
+    pub fn render(&self) -> Result<String, String> {
+        let old = self
+            .old
+            .iter()
+            .map(|(label, model)| format!("model at label {label}:\n{model}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let domains = if self.domains.is_empty() {
+            String::new()
+        } else {
+            let values = self
+                .domains
+                .iter()
+                .map(|domain| {
+                    let name = domain.value_name().map_err(|e| format!("{e:?}"))?;
+                    Ok(format!(
+                        "domain {name}{{\n {}\n}}",
+                        domain
+                            .functions
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    ))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            format!("\nDomain: \n{}", values.join("\n"))
+        };
+        let functions = if self.functions.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\nFunctions: \n{}",
+                self.functions
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        };
+        Ok(format!(
+            "{old}\non return: \n{} {domains} {functions}",
+            self.current
+        ))
+    }
 }

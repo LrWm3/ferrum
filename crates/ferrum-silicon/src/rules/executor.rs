@@ -234,6 +234,7 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
     fn consume_call_preconditions(
         &mut self,
         state: State<P, D, J>,
+        caller_store: &Arc<crate::state::store::MapBackedStore>,
         call: &Stmt,
         method: &ferrum_silver::ast::program::Method,
         return_snapshot: bool,
@@ -424,7 +425,7 @@ where
                         if ferrum_silver::ast::utility::visitor::exists_defined(&ferrum_silver::ast::utility::nodes::Node::Exp(post.clone()),&ferrum_silver::ast::utility::nodes::subnodes,&mut |node| matches!(node, ferrum_silver::ast::utility::nodes::Node::Exp(exp) if matches!(exp.kind(),ExpKind::Old(..)))).map_err(ExecutionError::Traversal)? { needs_old = true; break; }
                     }
                 }
-                context.consume_call_preconditions(pre_state,statement,&method,needs_old,&mut |context,mut state,snapshot| {
+                context.consume_call_preconditions(pre_state,&caller.g,statement,&method,needs_old,&mut |context,mut state,snapshot| {
                     let mut returns = Vec::new();
                     for decl in &method.formal_returns {
                         let var = decl.local_var(); let value = context.fresh_local(&var).map_err(ExecutionError::Context)?;

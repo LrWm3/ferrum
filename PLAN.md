@@ -60,6 +60,10 @@ native profile remains single-worker; nested branch parallelism, cancellation
 and advanced reporting/configuration profiles still require integration.
 Source consolidation, chunk-order and cache options now reach the same context,
 as do method filters with an explicitly restricted regular-expression grammar.
+Ordinary failure contexts now capture and render source counterexample views,
+caller-store transformations and branch conditions. Alternative function
+verification order is connected; debugger and remaining reporting profiles are
+still incomplete.
 Full compatibility and comparative performance remain unmeasured.
 
 ## Upstream baseline and scope

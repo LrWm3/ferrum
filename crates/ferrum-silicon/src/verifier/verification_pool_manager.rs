@@ -1119,7 +1119,6 @@ impl<
     W: ThreadBoundWorker<Broadcast = WorkerPreambleCommand, BroadcastResult = Option<String>>,
 > crate::interfaces::decider::prover::Prover for BroadcastingProver<P, W>
 {
-    type Model = P::Model;
     type Version = P::Version;
     fn start(&mut self, args: Option<&str>) -> Result<(), Self::Error> {
         self.require_main_only()?;
@@ -1170,7 +1169,9 @@ impl<
     fn is_model_valid(&self) -> bool {
         self.main.is_model_valid()
     }
-    fn get_model(&mut self) -> Result<Self::Model, Self::Error> {
+    fn get_model(
+        &mut self,
+    ) -> Result<ferrum_silver::verifier::verification_error::Model, Self::Error> {
         self.main.get_model().map_err(BroadcastingProverError::Main)
     }
     fn get_reason_unknown(&mut self) -> Result<String, Self::Error> {

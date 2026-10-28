@@ -106,7 +106,11 @@ fn main() -> std::process::ExitCode {
         }
         RunOutcome::Verified(VerificationResult::Failure(errors)) => {
             for error in &errors {
-                eprintln!("{}", error.render().unwrap_or_else(|_| error.full_id()));
+                eprintln!(
+                    "[{}] {}",
+                    error.full_id(),
+                    error.readable_message().unwrap_or_else(|_| error.full_id())
+                );
             }
             eprintln!("Verification failed with {} error(s){time}.", errors.len());
             std::process::ExitCode::from(1)

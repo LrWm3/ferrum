@@ -48,6 +48,32 @@ fn check(source: &str, expected: i32) {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn parallel_counterexamples_retain_variable_and_heap_values() {
+    let source = "field f: Int
+        method m(x: Int, r: Ref) requires x == 3 && acc(r.f) && r.f == 1 {
+            assert r.f == 2;
+        }";
+    let output = run(
+        source,
+        &[
+            "--counterexample",
+            "mapped",
+            "--exhaleMode",
+            "1",
+            "--numberOfParallelVerifiers",
+            "2",
+        ],
+    );
+    let text = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{text}");
+    assert!(text.contains("counterexample:"), "{text}");
+    assert!(text.contains("x <- 3"), "{text}");
+    assert!(text.contains("f(perm: 1/1) <- 1"), "{text}");
+    assert!(!text.contains("variable not found"), "{text}");
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn quantified_wand_transfers_preserve_permissions_and_values() {
     let source = "field f: Int
         method m(x: Ref) requires (forall y: Ref :: y == x ==> acc(y.f)) && x.f == 7 {

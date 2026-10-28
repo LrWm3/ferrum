@@ -522,7 +522,9 @@ impl<P: Prover> DefaultDecider<P> {
     pub fn is_model_valid(&self) -> bool {
         self.prover.is_model_valid()
     }
-    pub fn get_model(&mut self) -> Result<P::Model, DeciderError<P::Error>> {
+    pub fn get_model(
+        &mut self,
+    ) -> Result<ferrum_silver::verifier::verification_error::Model, DeciderError<P::Error>> {
         self.prover.get_model().map_err(DeciderError::Prover)
     }
     pub fn clear_model(&mut self) {

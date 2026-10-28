@@ -1562,7 +1562,7 @@ repository = "silicon"
 upstream = "src/main/scala/reporting/SiliconResolvedCounterexample.scala"
 destination = "crates/ferrum-silicon/src/reporting/silicon_resolved_counterexample.rs"
 status = "skeleton"
-remaining = ["Native model evaluation, collection/heap reconstruction and rendering/interpreter contracts exist; automatic raw model assembly, domain/function discovery, complete source printers and backend counterexample integration remain."]
+remaining = ["Source counterexample views, stores, heaps, labels, mapped values and transformations connect native failure capture. Additional model/heap forms and source printing compatibility remain incomplete."]
 
 [[modules]]
 repository = "silicon"
@@ -2568,7 +2568,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Native context connects source heap, quantified-resource and wand transfers, complete-exhale and CFG execution, with shared worker analysis and scoped diagnostics. Nested branch parallelism, CFG-only contributor analysis and advanced profiles remain incomplete."]
+remaining = ["Native context connects source heap, quantified-resource and wand transfers, complete-exhale/CFG execution, counterexample/caller-store capture, branch diagnostics and function-order policies. Nested branch parallelism, CFG-only contributor analysis, cancellation/deadlines and debug profiles remain incomplete."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"
