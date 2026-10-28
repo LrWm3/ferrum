@@ -379,3 +379,12 @@ injection, result/report ordering, error-warning delivery and active cancellatio
 coverage remain. A path-stack identity token changes on start/reset/replacement
 and remains stable across scope operations, matching the source reference check;
 future code must use the replacement API rather than assign the public field.
+
+The AST and reformatter providers now create their source no-op construction
+verifier, apply supported shared configuration and rebuild configured plugins on
+reset. The reformatter keeps macros unexpanded; ordinary parsing still expands
+them. Parse-only construction completion emits the source success/failure messages
+and never starts a solver. Plugin disabling, duplicate warnings and configuration
+errors retain source ordering. Provider checks cover reset, macro retention,
+parse errors and construction reporting. Reporter manager rebinding/configuration,
+custom plugin resolution and full command-line orchestration remain incomplete.

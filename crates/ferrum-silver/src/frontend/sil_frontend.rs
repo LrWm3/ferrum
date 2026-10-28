@@ -183,6 +183,8 @@ pub struct SilFrontendPhases {
     pub backend_type_format: Option<String>,
     pub respect_function_pre_perm_amounts: bool,
     pub select: Option<String>,
+    /// Reformatter parsing retains macro definitions and calls.
+    pub expand_macros: bool,
     pub parsing_warnings: Vec<ParseReport>,
     pub typechecking_warnings: Vec<FrontendError>,
 }
@@ -198,6 +200,7 @@ impl SilFrontendPhases {
             backend_type_format: None,
             respect_function_pre_perm_amounts: false,
             select: None,
+            expand_macros: true,
             parsing_warnings: vec![],
             typechecking_warnings: vec![],
         }
@@ -270,8 +273,11 @@ impl FrontendPhases for SilFrontendPhases {
                 error.position,
             )))]
         })?;
-        let macro_error =
-            crate::parser::macro_expander::expand_global_expression_macros(&program).err();
+        let macro_error = if self.expand_macros {
+            crate::parser::macro_expander::expand_global_expression_macros(&program).err()
+        } else {
+            None
+        };
         let snapshot = match &program.node().read().expect("poisoned parse node").kind {
             crate::parser::parse_ast::PNodeKind::Program(snapshot) => snapshot.clone(),
             _ => unreachable!("typed program handle"),

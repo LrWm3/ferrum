@@ -302,7 +302,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ReformatterAstProvider.scala"
 destination = "crates/ferrum-silver/src/frontend/reformatter_ast_provider.rs"
 status = "skeleton"
-remaining = ["Provider phase/result rules exist; macro toggle and concrete reformatter/frontend integration remain."]
+remaining = ["Parse-only macro preservation, construction verifier, configuration/plugin reset and completion reports are connected. Shared reporter reset hooks, custom plugins and full command-line orchestration remain."]
 
 [[modules]]
 repository = "silver"
@@ -323,7 +323,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ViperAstProvider.scala"
 destination = "crates/ferrum-silver/src/frontend/viper_ast_provider.rs"
 status = "skeleton"
-remaining = ["Provider phase/result/finish rules exist; concrete frontend and parser integration remain."]
+remaining = ["Concrete construction verifier, configuration/plugin reset and phase/result/finish paths are connected. Shared reporter reset hooks, custom plugin resolution and full command-line orchestration remain."]
 
 [[modules]]
 repository = "silver"
