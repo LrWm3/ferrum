@@ -1088,7 +1088,7 @@ repository = "silicon"
 upstream = "src/main/scala/Config.scala"
 destination = "crates/ferrum-silicon/src/config.rs"
 status = "skeleton"
-remaining = ["Source mode enums exist; complete CLI options, defaults and validation remain."]
+remaining = ["Source options, defaults, converters, incompatibility checks, saturation policies and stdio settings are ported; Scallop help/abbreviation compatibility and execution-wide policy wiring remain."]
 
 [[modules]]
 repository = "silicon"
