@@ -30,6 +30,50 @@ pub trait StateRenderer {
 /// Other families fail explicitly until their source renderers are ported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UnsupportedTermRendering;
+fn render_resource(
+    resource: &crate::state::terms::ResourceKey,
+) -> Result<String, UnsupportedTermRendering> {
+    use crate::state::terms::ResourceKey;
+    use ferrum_silver::ast::{
+        pretty::pretty_printer::pretty_node, program::Member, utility::nodes::Node,
+    };
+    let member = match resource {
+        ResourceKey::Field(field) => Member::Field((**field).clone()),
+        ResourceKey::Predicate(predicate) => Member::Predicate((**predicate).clone()),
+        ResourceKey::Wand(wand) => return Ok(wand.to_string()),
+    };
+    pretty_node(&Node::Member(member)).map_err(|_| UnsupportedTermRendering)
+}
+fn render_applicable(
+    target: &crate::state::terms::ApplicationTarget,
+) -> Result<String, UnsupportedTermRendering> {
+    use crate::state::terms::{ApplicableKind, ApplicationTarget};
+    match target {
+        ApplicationTarget::Variable(v) => render_term(v),
+        ApplicationTarget::Function(f) => {
+            let data = f.data();
+            if data.kind == ApplicableKind::Macro {
+                // Macro's flyweight product includes a Scala sequence whose concrete
+                // collection representation is not retained by this model.
+                return Err(UnsupportedTermRendering);
+            }
+            if data.arg_sorts.is_empty() {
+                Ok(format!("{}: {}", data.id, data.result_sort))
+            } else {
+                Ok(format!(
+                    "{}: {} -> {}",
+                    data.id,
+                    data.arg_sorts
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(" x "),
+                    data.result_sort
+                ))
+            }
+        }
+    }
+}
 pub fn render_term(term: &Term) -> Result<String, UnsupportedTermRendering> {
     use TermKind::*;
     let binary = |a: &Term, op: &str, b: &Term| -> Result<String, UnsupportedTermRendering> {
@@ -47,6 +91,14 @@ pub fn render_term(term: &Term) -> Result<String, UnsupportedTermRendering> {
         True => "True".into(),
         False => "False".into(),
         Var(v) => v.id.to_string(),
+        AppHint(applicable) => format!("AppHint({})", render_applicable(applicable)?),
+        Let(bindings, body) => {
+            let entries = bindings
+                .iter()
+                .map(|(var, value)| Ok(format!("{} = {}", render_term(var)?, render_term(value)?)))
+                .collect::<Result<Vec<_>, UnsupportedTermRendering>>()?;
+            format!("let List({}) in {}", entries.join(", "), render_term(body)?)
+        }
         App { applicable, args } => {
             let id = applicable.id().to_string();
             if args.is_empty() {
@@ -290,6 +342,74 @@ pub fn render_term(term: &Term) -> Result<String, UnsupportedTermRendering> {
             )
         }
         GoodFieldMask(a, bound) => format!("GoodFieldMask({}, {})", render_term(a)?, bound),
+        // ConditionalFlyweight prints the product elements of a single Product
+        // equality member, rather than that member's own `toString`.
+        GoodMask(mask) => match mask.kind() {
+            AppHint(applicable) => format!("GoodMask({})", render_applicable(applicable)?),
+            Unit | Null | ZeroMask | PredZeroMask | True | False | NoPerm | FullPerm => {
+                "GoodMask()".into()
+            }
+            _ => unary("GoodMask", mask)?,
+        },
+        MaskMapTerm(entries) | HeapMapTerm(entries) => {
+            let kind = if matches!(term.kind(), MaskMapTerm(_)) {
+                "MaskMapTerm"
+            } else {
+                "HeapMapTerm"
+            };
+            let entries = entries
+                .iter()
+                .map(|(resource, value)| {
+                    Ok(format!(
+                        "{} -> {}",
+                        render_resource(resource)?,
+                        render_term(value)?
+                    ))
+                })
+                .collect::<Result<Vec<_>, UnsupportedTermRendering>>()?;
+            format!("{kind}(ListMap({}))", entries.join(", "))
+        }
+        HeapToSnap(heap, mask, resource) => format!(
+            "HeapToSnap({}, {}, {})",
+            render_term(heap)?,
+            render_term(mask)?,
+            render_resource(resource)?
+        ),
+        SnapToHeap(snap, resource, sort) => format!(
+            "SnapToHeap({}, {}, {})",
+            render_term(snap)?,
+            render_resource(resource)?,
+            sort
+        ),
+        DummyHeap(sort) => {
+            use crate::state::terms::Sort;
+            let members = match sort {
+                Sort::Seq(s) | Sort::Set(s) | Sort::Multiset(s) | Sort::Heap(s) => s.to_string(),
+                Sort::Map(k, v) => format!("{k}, {v}"),
+                Sort::UserSort(id) | Sort::SmtSort(id) => id.to_string(),
+                Sort::FieldValueFunction {
+                    codomain,
+                    field_name,
+                } => format!("{codomain}, {field_name}"),
+                Sort::PredicateSnapFunction {
+                    codomain,
+                    predicate_name,
+                } => format!("{codomain}, {predicate_name}"),
+                Sort::Snap
+                | Sort::Int
+                | Sort::Bool
+                | Sort::Ref
+                | Sort::Perm
+                | Sort::Unit
+                | Sort::MagicWandSnapFunction
+                | Sort::FieldPermFunction
+                | Sort::PredicatePermFunction
+                | Sort::WandHeap
+                | Sort::PredHeap
+                | Sort::PredMask => String::new(),
+            };
+            format!("DummyHeap({members})")
+        }
         HeapSingleton(a, b, sort) => format!(
             "HeapSingleton({}, {}, {})",
             render_term(a)?,
@@ -303,7 +423,7 @@ pub fn render_term(term: &Term) -> Result<String, UnsupportedTermRendering> {
     })
 }
 
-/// Source non-quantified chunk rendering; quantified and mask heaps use separate handling.
+/// Source non-quantified and mask-heap chunk rendering; quantified chunks use separate handling.
 pub fn render_chunk(chunk: &Chunk) -> Result<String, UnsupportedTermRendering> {
     match chunk {
         Chunk::Basic(chunk) => {
@@ -330,6 +450,20 @@ pub fn render_chunk(chunk: &Chunk) -> Result<String, UnsupportedTermRendering> {
                     format!("{}({}; {}) # {}", chunk.id, snapshot, args, permission)
                 }
             })
+        }
+        Chunk::MaskHeap(chunk) => {
+            use crate::resources::resources::ResourceId;
+            let id = match chunk.resource_id {
+                ResourceId::Field => "FieldID",
+                ResourceId::Predicate => "PredicateID",
+                ResourceId::MagicWand => "MagicWandID",
+            };
+            Ok(format!(
+                "BasicMaskHeapChunk({id},{},{},{})",
+                render_resource(&chunk.resource)?,
+                render_term(&chunk.mask)?,
+                render_term(&chunk.heap)?
+            ))
         }
         Chunk::MagicWand(chunk) => {
             let pos = &chunk.id.ghost_free_wand.metadata().position;
@@ -602,6 +736,95 @@ mod tests {
         identifiers::Identifier,
         terms::{Sort, TermFactory, TermOptions},
     };
+    #[test]
+    fn renders_source_let_hint_and_mask_terms() {
+        let f = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: true,
+        });
+        let x = f.var(Identifier::new("x"), Sort::Int, false);
+        let y = f.var(Identifier::new("y"), Sort::Int, false);
+        let term = f.let_term(
+            [(x.clone(), f.int_literal(1)), (y.clone(), f.int_literal(2))],
+            x.clone(),
+        );
+        assert_eq!(render_term(&term).unwrap(), "let List(x = 1, y = 2) in x");
+        assert_eq!(render_term(&f.app_hint_var(x)).unwrap(), "AppHint(x)");
+        let function = f.applicable(crate::state::terms::ApplicableData {
+            kind: crate::state::terms::ApplicableKind::Fun,
+            id: Identifier::new("fun"),
+            arg_sorts: vec![Sort::Int, Sort::Bool],
+            result_sort: Sort::Ref,
+        });
+        assert_eq!(
+            render_term(&f.app_hint(function)).unwrap(),
+            "AppHint(fun: Int x Bool -> Ref)"
+        );
+        assert_eq!(
+            render_term(&f.mask_map_term([])).unwrap(),
+            "MaskMapTerm(ListMap())"
+        );
+        assert_eq!(
+            render_term(&f.heap_map_term([])).unwrap(),
+            "HeapMapTerm(ListMap())"
+        );
+        let mask = f.var(Identifier::new("m"), Sort::PredMask, false);
+        assert_eq!(render_term(&f.good_mask(mask)).unwrap(), "GoodMask(m)");
+        assert_eq!(
+            render_term(&f.dummy_heap(Sort::PredHeap)).unwrap(),
+            "DummyHeap()"
+        );
+        assert_eq!(
+            render_term(&f.dummy_heap(Sort::Heap(Box::new(Sort::Int)))).unwrap(),
+            "DummyHeap(Int)"
+        );
+    }
+    #[test]
+    fn renders_resource_maps_and_snapshot_conversions() {
+        use crate::state::terms::ResourceKey;
+        use ferrum_silver::ast::{
+            ast::Metadata,
+            program::{Field, FieldData},
+            r#type::Type,
+        };
+        use std::sync::Arc;
+        let f = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: true,
+        });
+        let field = ResourceKey::Field(Arc::new(Field::new(FieldData {
+            name: "f".into(),
+            typ: Type::Int,
+            meta: Metadata::default(),
+        })));
+        let chunk = Chunk::MaskHeap(crate::state::chunks::BasicMaskHeapChunk {
+            resource_id: crate::resources::resources::ResourceId::Field,
+            resource: field.clone(),
+            mask: f.zero_mask(),
+            heap: f.dummy_heap(Sort::Heap(Box::new(Sort::Int))),
+        });
+        assert_eq!(
+            render_chunk(&chunk).unwrap(),
+            "BasicMaskHeapChunk(FieldID,field f: Int,ZeroMask,DummyHeap(Int))"
+        );
+        let map = f.mask_map_term([(field.clone(), f.zero_mask())]);
+        assert_eq!(
+            render_term(&map).unwrap(),
+            "MaskMapTerm(ListMap(field f: Int -> ZeroMask))"
+        );
+        let heap = f.var(Identifier::new("h"), Sort::Heap(Box::new(Sort::Int)), false);
+        let snap = f.var(Identifier::new("s"), Sort::Snap, false);
+        assert_eq!(
+            render_term(&f.heap_to_snap(heap, f.zero_mask(), field.clone())).unwrap(),
+            "HeapToSnap(h, ZeroMask, field f: Int)"
+        );
+        assert_eq!(
+            render_term(&f.snap_to_heap(snap, field, Sort::Heap(Box::new(Sort::Int)))).unwrap(),
+            "SnapToHeap(s, field f: Int, Hp[Int])"
+        );
+    }
     #[test]
     fn native_rendering_matches_source_for_basic_field_and_conditions() {
         let f = TermFactory::new(TermOptions {

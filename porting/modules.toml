@@ -1534,7 +1534,7 @@ repository = "silicon"
 upstream = "src/main/scala/reporting/Formatters.scala"
 destination = "crates/ferrum-silicon/src/reporting/formatters.rs"
 status = "skeleton"
-remaining = ["Native model evaluation, collection/heap reconstruction and rendering/interpreter contracts exist; automatic raw model assembly, domain/function discovery, complete source printers and backend counterexample integration remain."]
+remaining = ["Core term/state/error rendering plus let/hints, mask resource maps/snapshots and basic mask chunks exist; erased Scala collection provenance, other source product renderers and full reporting integration remain."]
 
 [[modules]]
 repository = "silicon"

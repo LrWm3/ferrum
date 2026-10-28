@@ -358,3 +358,10 @@ products consequently use the same source formatter, including its `}derives`
 spacing quirk. Seventeen focused ADT parser/type/encoding checks and three JVM
 formatter comparisons cover generic parameters, constructors, derivations, comments,
 empty lists and annotations; broader compatibility remains open.
+
+Native reporting now renders source let/application-hint terms, mask predicates
+and dummy heaps, resource maps, heap/snapshot wrappers and basic mask chunks.
+Retained Silver field/predicate nodes use their source pretty printer; wand IDs
+and insertion order remain intact. JVM oracle examples and focused formatter
+checks cover these products. Renderers still reject cases requiring erased Scala
+collection provenance or unsupported AST products.
