@@ -984,19 +984,19 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/Config.scala"
 destination = "crates/ferrum-silicon/src/config.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/Silicon.scala"
 destination = "crates/ferrum-silicon/src/silicon.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/Utils.scala"
 destination = "crates/ferrum-silicon/src/utils.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
@@ -1026,67 +1026,67 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/decider/CVC5ProverStdIO.scala"
 destination = "crates/ferrum-silicon/src/decider/cvc5_prover_std_io.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/decider/Decider.scala"
 destination = "crates/ferrum-silicon/src/decider/decider.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/decider/PathConditions.scala"
 destination = "crates/ferrum-silicon/src/decider/path_conditions.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/decider/ProverStdIO.scala"
 destination = "crates/ferrum-silicon/src/decider/prover_std_io.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/decider/SMTLib2PreambleReader.scala"
 destination = "crates/ferrum-silicon/src/decider/smt_lib2_preamble_reader.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/decider/SmtlibNameGenerator.scala"
 destination = "crates/ferrum-silicon/src/decider/smtlib_name_generator.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/decider/TermToSMTLib2Converter.scala"
 destination = "crates/ferrum-silicon/src/decider/term_to_smt_lib2_converter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/decider/TermToZ3APIConverter.scala"
 destination = "crates/ferrum-silicon/src/decider/term_to_z3_api_converter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/decider/Z3ProverAPI.scala"
 destination = "crates/ferrum-silicon/src/decider/z3_prover_api.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/decider/Z3ProverStdIO.scala"
 destination = "crates/ferrum-silicon/src/decider/z3_prover_std_io.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/decider/package.scala"
 destination = "crates/ferrum-silicon/src/decider/package.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
@@ -1350,7 +1350,7 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/package.scala"
 destination = "crates/ferrum-silicon/src/package.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
@@ -1800,31 +1800,31 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/verifier/BaseVerifier.scala"
 destination = "crates/ferrum-silicon/src/verifier/base_verifier.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/verifier/DefaultMainVerifier.scala"
 destination = "crates/ferrum-silicon/src/verifier/default_main_verifier.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/verifier/VerificationPoolManager.scala"
 destination = "crates/ferrum-silicon/src/verifier/verification_pool_manager.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/verifier/Verifier.scala"
 destination = "crates/ferrum-silicon/src/verifier/verifier.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/verifier/WorkerVerifier.scala"
 destination = "crates/ferrum-silicon/src/verifier/worker_verifier.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
