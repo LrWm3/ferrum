@@ -331,7 +331,8 @@ status = "ported"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/FastParser.scala"
 destination = "crates/ferrum-silver/src/parser/fast_parser.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Expression/type grammar entry points and typed AST construction exist; full program grammar, imports/recovery, plugin hooks, remaining expression families and chained-comparison copying remain."]
 
 [[modules]]
 repository = "silver"
