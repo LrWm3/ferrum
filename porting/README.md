@@ -510,3 +510,8 @@ failures still deliver warnings already collected. Real-Z3 checks cover success,
 failed proofs, reuse and reporter failures with one/two workers. Native buffered
 warnings currently lack source category/position provenance and are emitted as
 generic verification warnings; plugin-aware reporter rebinding remains open.
+
+The injected native verifier now exposes the pinned source's static Z3 and cvc5
+dependency descriptors in source order, independent of the selected transport.
+Its version identifies the native Ferrum package build rather than pretending
+to reproduce JVM BuildInfo. This metadata path starts no solver.

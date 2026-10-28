@@ -1026,8 +1026,22 @@ impl Drop for Session {
 struct SessionVerifier {
     session: Option<Session>,
     reporter: Arc<dyn silver::reporter::reporter::Reporter>,
+    dependencies: Vec<silver::verifier::verifier::DefaultDependency>,
 }
 impl SessionVerifier {
+    fn solver_dependencies() -> Vec<silver::verifier::verifier::DefaultDependency> {
+        [
+            silicon::decider::z3_prover_std_io::profile(),
+            silicon::decider::cvc5_prover_std_io::profile(),
+        ]
+        .into_iter()
+        .map(|profile| silver::verifier::verifier::DefaultDependency {
+            name: profile.name,
+            version: profile.minimum_version.version,
+            location: profile.dependency_url,
+        })
+        .collect()
+    }
     fn stop_session(&mut self) -> Result<(), silver::verifier::verifier::VerifierError> {
         let Some(mut session) = self.session.take() else {
             return Ok(());
@@ -1048,6 +1062,7 @@ impl silver::verifier::verifier::Verifier for SessionVerifier {
         "Silicon"
     }
     fn version(&self) -> &str {
+        // This identifies the native Ferrum build, not the upstream JVM build.
         env!("CARGO_PKG_VERSION")
     }
     fn build_version(&self) -> &str {
@@ -1058,7 +1073,10 @@ impl silver::verifier::verifier::Verifier for SessionVerifier {
     }
     fn debug_info(&mut self, _: Vec<(String, Box<dyn std::any::Any + Send + Sync>)>) {}
     fn dependencies(&self) -> Vec<&dyn silver::verifier::verifier::Dependency> {
-        vec![]
+        self.dependencies
+            .iter()
+            .map(|dependency| dependency as &dyn silver::verifier::verifier::Dependency)
+            .collect()
     }
     fn parse_command_line(&mut self, _: &[String]) {} // The factory already parsed backend arguments.
     fn verify(
@@ -1145,6 +1163,7 @@ impl NativeFrontendApi {
                     let verifier = SessionVerifier {
                         session: Some(session),
                         reporter: factory_reporter,
+                        dependencies: SessionVerifier::solver_dependencies(),
                     };
                     Ok((Box::new(verifier), shared))
                 },
@@ -1329,5 +1348,33 @@ mod deadline_tests {
         }));
         assert!(result.is_err());
         assert!(c.is_cancelled());
+    }
+}
+
+#[cfg(test)]
+mod native_verifier_metadata_tests {
+    use super::*;
+    use silver::verifier::verifier::Verifier;
+
+    #[test]
+    fn native_verifier_reports_both_pinned_solver_dependencies() {
+        let verifier = SessionVerifier {
+            session: None,
+            reporter: Arc::new(silver::reporter::reporter::NoopReporter),
+            dependencies: SessionVerifier::solver_dependencies(),
+        };
+        let dependencies = verifier.dependencies();
+        let actual: Vec<_> = dependencies
+            .iter()
+            .map(|d| (d.name(), d.version(), d.location()))
+            .collect();
+        assert_eq!(
+            actual,
+            vec![
+                ("Z3", "4.5.0", "https://github.com/Z3Prover/z3"),
+                ("cvc5", "1.0.0", "https://github.com/cvc5/cvc5")
+            ]
+        );
+        assert_eq!(verifier.version(), env!("CARGO_PKG_VERSION"));
     }
 }
