@@ -337,7 +337,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ViperPAstProvider.scala"
 destination = "crates/ferrum-silver/src/frontend/viper_p_ast_provider.rs"
 status = "skeleton"
-remaining = ["Provider phase/result rules exist; concrete frontend and parser integration remain."]
+remaining = ["Concrete no-solver verifier, configuration/plugin reset, parse/semantic lifecycle and inherited finish reporting exist. Shared reporter reset hooks and full command-line orchestration remain."]
 
 [[modules]]
 repository = "silver"

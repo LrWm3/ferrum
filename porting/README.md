@@ -394,3 +394,10 @@ statements, members, terms and chunks. It retains source positions and concrete
 node downcasts for reporter consumers; unsupported node printers still return
 errors. This completes the ordinary rendering boundary, while timed polling and
 member execution hooks remain to be connected.
+
+The PAST provider now constructs its no-solver verifier, applies supported
+configuration and plugins, and runs parsing plus semantic analysis without
+translation or verification. Its inherited finish path transforms diagnostics,
+runs plugin finish hooks, keeps the first duplicate readable error, stores the
+result and emits the source overall message. Shared reporter reset hooks and
+complete command-line orchestration remain open.
