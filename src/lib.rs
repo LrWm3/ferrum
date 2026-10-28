@@ -282,7 +282,7 @@ impl SiliconBackend for NativeBackend {
                         version.0, version.1, version.2, version.3
                     )));
                 }
-                let prover = LinkedZ3Prover::new(
+                let mut prover = LinkedZ3Prover::new(
                     "main",
                     factory.clone(),
                     LinkedProverOptions {
@@ -306,6 +306,13 @@ impl SiliconBackend for NativeBackend {
                             == silicon::config::AssertionMode::SoftConstraints,
                     },
                 );
+                let warnings = self.warnings.clone();
+                prover.set_warning_reporter(move |warning| {
+                    warnings
+                        .lock()
+                        .expect("poisoned warning buffer")
+                        .push(warning.to_owned());
+                });
                 let identifiers = prover.identifier_factory();
                 self.context = Some(OwnedContext::Api(Box::new(start_context(
                     prover,

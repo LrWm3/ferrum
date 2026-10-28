@@ -169,8 +169,10 @@ with a mismatched library. Assertion handling proves a goal only on UNSAT and
 attempts scope restoration on error. Structured failure models retain their Z3
 context. Non-reference-counted contexts keep AST allocations until their last
 handle is dropped, a memory-lifetime difference from the Java binding.
-Unknown startup parameters currently produce errors rather than source warnings;
-random seed values use the source range with a native sequence. These choices
+Unknown solver parameters warn and are skipped, matching the source; invalid
+typed values remain errors. Context arguments are restricted to documented Z3
+context keys because the C configuration API cannot report unknown keys reliably.
+Random seed values use the source range with a native sequence. These choices
 and focused solver checks do not establish complete native API parity.
 
 Debug tokens retain the source ASCII grammar. `debug@` is lexically accepted

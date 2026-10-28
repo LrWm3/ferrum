@@ -5,8 +5,9 @@
 //! quantifiers, SMT-LIB preamble parsing and parse-based interpreted sorts/functions
 //! are implemented. Structured model extraction is available; the complete Prover
 //! adapter covers push/pop and soft-constraint verification, typed solver options,
-//! seed randomization and trigger repair. Context arguments and source internal
-//! warning reporting remain pending. Source default options are available
+//! seed randomization and trigger repair. Warning callback and buffering are available;
+//! host reporting and context options beyond documented Z3 keys remain pending.
+//! Source default options are available
 //! through `new_with_source_options`. The linked library is selected at build/run time;
 //! pinned Silicon requires Z3 4.16.0.0, independently of the stdio executable.
 //!
@@ -263,13 +264,53 @@ pub struct LinkedZ3 {
 }
 impl LinkedZ3 {
     pub fn new() -> Result<Self, NativeZ3Error> {
-        Self::create(false)
+        Self::create(false, &[])
     }
     /// Initialize the solver with the pinned Z3ProverAPI's standard options.
     pub fn new_with_source_options() -> Result<Self, NativeZ3Error> {
-        Self::create(true)
+        Self::create(true, &[])
     }
-    fn create(source_options: bool) -> Result<Self, NativeZ3Error> {
+    fn create(
+        source_options: bool,
+        context_options: &[(String, String)],
+    ) -> Result<Self, NativeZ3Error> {
+        // Z3_set_param_value has no error return. Restrict this native boundary to
+        // context keys documented by the linked Z3 C API, rather than silently
+        // accepting global/module parameters which must be configured elsewhere.
+        let mut options = Vec::new();
+        for (name, value) in context_options {
+            match name.as_str() {
+                "proof" | "debug_ref_count" | "trace" | "well_sorted_check" | "auto_config"
+                | "type_check" | "model" | "model_validate" | "unsat_core" => {
+                    if value != "true" && value != "false" {
+                        return Err(NativeZ3Error::Solver(format!(
+                            "invalid Boolean Z3 context option {name}={value}"
+                        )));
+                    }
+                }
+                "timeout" => {
+                    value.parse::<u32>().map_err(|_| {
+                        NativeZ3Error::Solver(format!("invalid Z3 context timeout {value}"))
+                    })?;
+                }
+                "trace_file_name" => (),
+                "encoding" if matches!(value.as_str(), "unicode" | "bmp" | "ascii") => (),
+                "encoding" => {
+                    return Err(NativeZ3Error::Solver(format!(
+                        "invalid Z3 encoding {value}"
+                    )));
+                }
+                _ => {
+                    return Err(NativeZ3Error::Unsupported(
+                        "Z3 context option outside documented context configuration",
+                    ));
+                }
+            }
+            options.push((
+                CString::new(name.as_str()).map_err(|_| NativeZ3Error::InvalidString)?,
+                CString::new(value.as_str()).map_err(|_| NativeZ3Error::InvalidString)?,
+            ));
+        }
         unsafe {
             let config = Z3_mk_config();
             if config.is_null() {
@@ -278,6 +319,9 @@ impl LinkedZ3 {
             if source_options {
                 Z3_set_param_value(config, c"auto_config".as_ptr(), c"false".as_ptr());
                 Z3_set_param_value(config, c"type_check".as_ptr(), c"true".as_ptr());
+            }
+            for (name, value) in &options {
+                Z3_set_param_value(config, name.as_ptr(), value.as_ptr());
             }
             let raw = Z3_mk_context(config);
             Z3_del_config(config);
@@ -310,7 +354,7 @@ impl LinkedZ3 {
         &self,
         custom: &[(String, String)],
         disable_nonlinear: bool,
-    ) -> Result<(), NativeZ3Error> {
+    ) -> Result<Vec<String>, NativeZ3Error> {
         struct Params {
             context: Rc<Context>,
             raw: Raw,
@@ -356,10 +400,15 @@ impl LinkedZ3 {
         }
         let descrs = unsafe { Z3_solver_get_param_descrs(c, self.solver) };
         self.checked()?;
+        let mut warnings = Vec::new();
         for (original, value) in custom {
             let key = original.strip_prefix("smt.").unwrap_or(original);
             let name = self.symbol(key)?;
             let kind = unsafe { Z3_param_descrs_get_kind(c, descrs, name) };
+            if kind > 4 {
+                warnings.push(format!("Z3 error: unknown parameter{key}"));
+                continue;
+            }
             self.checked()?;
             let invalid = || {
                 NativeZ3Error::Solver(format!(
@@ -368,21 +417,35 @@ impl LinkedZ3 {
             };
             unsafe {
                 match kind {
-                    0 => Z3_params_set_uint(c, raw, name, value.parse().map_err(|_| invalid())?),
-                    1 => Z3_params_set_bool(c, raw, name, value.parse().map_err(|_| invalid())?),
+                    0 => Z3_params_set_uint(
+                        c,
+                        raw,
+                        name,
+                        value.parse::<i32>().map_err(|_| invalid())? as u32,
+                    ),
+                    1 => {
+                        let parsed = if value.eq_ignore_ascii_case("true") {
+                            true
+                        } else if value.eq_ignore_ascii_case("false") {
+                            false
+                        } else {
+                            return Err(invalid());
+                        };
+                        Z3_params_set_bool(c, raw, name, parsed)
+                    }
                     2 => Z3_params_set_double(c, raw, name, value.parse().map_err(|_| invalid())?),
                     4 => Z3_params_set_symbol(c, raw, name, self.symbol(value)?),
                     _ => {
-                        return Err(NativeZ3Error::Solver(format!(
-                            "unknown or unsupported Z3 parameter {original}"
-                        )));
+                        warnings.push(format!("Z3 error: unknown parameter{key}"));
+                        continue;
                     }
                 }
             }
             self.checked()?;
         }
         unsafe { Z3_solver_set_params(c, self.solver, raw) };
-        self.checked()
+        self.checked()?;
+        Ok(warnings)
     }
     fn randomize_seed(&self) -> Result<(), NativeZ3Error> {
         use std::hash::{BuildHasher, Hasher};
@@ -1361,6 +1424,18 @@ pub enum LinkedProverError {
     },
 }
 impl LinkedProverError {
+    fn z3_message(&self) -> Option<&str> {
+        use super::term_to_z3_api_converter::NativeConversionError;
+        use super::z3_prover_api::ApiProverError;
+        match self {
+            Self::Native(NativeZ3Error::Solver(message))
+            | Self::Session(ApiProverError::Driver(NativeZ3Error::Solver(message)))
+            | Self::Session(ApiProverError::Conversion(NativeConversionError::Context(
+                NativeZ3Error::Solver(message),
+            ))) => Some(message),
+            _ => None,
+        }
+    }
     fn is_z3_failure(&self) -> bool {
         use super::term_to_z3_api_converter::NativeConversionError;
         use super::z3_prover_api::ApiProverError;
@@ -1393,6 +1468,8 @@ pub struct LinkedZ3Prover {
     last_model: Option<RetainedModel>,
     last_reason_unknown: Option<String>,
     randomize_options: Vec<String>,
+    warnings: Vec<String>,
+    warning_reporter: Option<Box<dyn FnMut(&str)>>,
 }
 impl LinkedZ3Prover {
     pub fn new(
@@ -1408,7 +1485,23 @@ impl LinkedZ3Prover {
             last_model: None,
             last_reason_unknown: None,
             randomize_options: vec!["RANDOMIZE_SEEDS".into()],
+            warnings: Vec::new(),
+            warning_reporter: None,
         }
+    }
+    /// Install a sink for future internal warnings; warnings are also retained until drained.
+    pub fn set_warning_reporter(&mut self, reporter: impl FnMut(&str) + 'static) {
+        self.warning_reporter = Some(Box::new(reporter));
+    }
+    /// Drain warnings even when no reporter was installed at the time they occurred.
+    pub fn take_warnings(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.warnings)
+    }
+    fn report_warning(&mut self, message: String) {
+        if let Some(reporter) = &mut self.warning_reporter {
+            reporter(&message);
+        }
+        self.warnings.push(message);
     }
     /// Share the source fresh-name counter with the verifier's decider.
     pub fn identifier_factory(&self) -> crate::state::identifiers::DefaultIdentifierFactory {
@@ -1514,7 +1607,12 @@ impl LinkedZ3Prover {
                 if clean == *term {
                     return Err(error);
                 }
-                self.active()?.assume(&clean).map_err(Into::into)
+                self.active()?.assume(&clean)?;
+                self.report_warning(format!(
+                    "Z3 error: {}",
+                    error.z3_message().unwrap_or("unknown solver error")
+                ));
+                Ok(())
             }
             Err(error) => Err(error),
         }
@@ -1605,16 +1703,28 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
         if self.session.is_some() {
             return Err(LinkedProverError::AlreadyStarted);
         }
-        if user_args.is_some_and(|s| !s.is_empty()) {
-            return Err(LinkedProverError::Unsupported(
-                "Z3 API command-line arguments",
-            ));
+        let mut context_options = Vec::new();
+        if let Some(args) = user_args {
+            for arg in args.split_whitespace() {
+                let (key, value) = arg
+                    .split_once('=')
+                    .filter(|(key, value)| {
+                        !key.is_empty() && !value.is_empty() && !value.contains('=')
+                    })
+                    .ok_or(LinkedProverError::Unsupported(
+                        "malformed Z3 context argument",
+                    ))?;
+                context_options.push((key.to_owned(), value.to_owned()));
+            }
         }
-        let driver = LinkedZ3::new_with_source_options()?;
-        driver.set_source_solver_options(
+        let driver = LinkedZ3::create(true, &context_options)?;
+        let warnings = driver.set_source_solver_options(
             &self.options.custom_options,
             self.options.disable_nonlinear,
         )?;
+        for warning in warnings {
+            self.report_warning(warning);
+        }
         let converter = super::term_to_z3_api_converter::TermToZ3ApiConverter::new(
             driver,
             self.factory.clone(),
@@ -2040,8 +2150,15 @@ mod tests {
             "raw invalid pattern should provoke Z3 error"
         );
         let mut p = LinkedZ3Prover::new("retry", factory.clone(), options);
+        let reported = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let sink = reported.clone();
+        p.set_warning_reporter(move |warning| sink.borrow_mut().push(warning.to_owned()));
         p.start(None).unwrap();
         p.assume(&q).unwrap();
+        let warnings = p.take_warnings();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].starts_with("Z3 error: "));
+        assert_eq!(*reported.borrow(), warnings);
         assert!(p.assert_goal(&clean, None).unwrap());
     }
     #[test]
@@ -2092,12 +2209,84 @@ mod tests {
         }
     }
     #[test]
+    fn documented_context_args_enable_proofs_and_reject_unknown_options() {
+        use crate::interfaces::decider::prover::Prover;
+        use crate::state::terms::{TermFactory, TermOptions};
+        unsafe extern "C" {
+            fn Z3_solver_get_proof(context: Raw, solver: Raw) -> Raw;
+        }
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let options = LinkedProverOptions {
+            timeout: super::super::z3_prover_api::ApiTimeoutSettings {
+                default_timeout_ms: 0,
+                use_time_bounds: true,
+                resources_per_millisecond: 1,
+            },
+            counterexamples: false,
+            report_reason_unknown: false,
+            debug: false,
+            soft_assertions: false,
+            custom_options: vec![],
+            disable_nonlinear: false,
+        };
+        let mut p = LinkedZ3Prover::new("context", factory, options);
+        assert!(p.start(Some("unknown=true")).is_err());
+        assert!(p.start(Some("proof=maybe")).is_err());
+        assert!(p.start(Some("malformed")).is_err());
+        p.start(Some("proof=true auto_config=false")).unwrap();
+        let z = &mut p.active().unwrap().converter.context;
+        let bool_sort = z.sort(NativeSort::Bool).unwrap();
+        let no = z.literal(NativeLiteral::Bool(false), &bool_sort).unwrap();
+        z.add(&no).unwrap();
+        assert_eq!(z.check().unwrap(), SatResult::Unsat);
+        let proof = unsafe { Z3_solver_get_proof(z.context.0, z.solver) };
+        z.checked().unwrap();
+        assert!(!proof.is_null());
+    }
+    #[test]
+    fn unknown_custom_option_is_reported_at_start() {
+        use crate::interfaces::decider::prover::Prover;
+        use crate::state::terms::{TermFactory, TermOptions};
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let options = LinkedProverOptions {
+            timeout: super::super::z3_prover_api::ApiTimeoutSettings {
+                default_timeout_ms: 0,
+                use_time_bounds: true,
+                resources_per_millisecond: 1,
+            },
+            counterexamples: false,
+            report_reason_unknown: false,
+            debug: false,
+            soft_assertions: false,
+            custom_options: vec![("smt.ferrum_unknown_option".into(), "true".into())],
+            disable_nonlinear: false,
+        };
+        let mut p = LinkedZ3Prover::new("unknown", factory, options);
+        let received = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let sink = received.clone();
+        p.set_warning_reporter(move |message| sink.borrow_mut().push(message.to_owned()));
+        p.start(None).unwrap();
+        assert_eq!(
+            p.take_warnings(),
+            vec!["Z3 error: unknown parameterferrum_unknown_option"]
+        );
+        assert_eq!(received.borrow().len(), 1);
+    }
+    #[test]
     fn linked_z3_custom_solver_options_validate_types() {
         let mut z = LinkedZ3::new_with_source_options().unwrap();
         z.set_source_solver_options(
             &[
-                ("smt.mbqi".into(), "true".into()),
-                ("random_seed".into(), "123".into()),
+                ("smt.mbqi".into(), "TRUE".into()),
+                ("random_seed".into(), "-1".into()),
                 ("qi.eager_threshold".into(), "5.5".into()),
             ],
             true,
@@ -2109,8 +2298,13 @@ mod tests {
                 .is_err()
         );
         assert!(
-            z.set_source_solver_options(&[("ferrum_unknown_option".into(), "true".into())], false)
+            z.set_source_solver_options(&[("random_seed".into(), "2147483648".into())], false)
                 .is_err()
+        );
+        assert_eq!(
+            z.set_source_solver_options(&[("ferrum_unknown_option".into(), "true".into())], false)
+                .unwrap(),
+            vec!["Z3 error: unknown parameterferrum_unknown_option"]
         );
     }
     #[test]

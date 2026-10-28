@@ -108,10 +108,11 @@ The reviewed Linux library came from the official
 `z3-4.16.0-x64-glibc-2.39.zip`, with SHA-256
 `7288c49a5bd6dbafd7b0b0d1f65956b91672da24b08f09242919af159be3418e`.
 This archive is platform specific; Ferrum does not download or install it.
-Both assertion modes, startup solver parameters and invalid-trigger retry are
-connected. Context arguments, logging and richer runtime reporting are unfinished
-and return errors where requested. Dynamic options remain unsupported, as in the
-source API backend. A non-reference-counted Z3
+Both assertion modes, typed startup solver parameters and invalid-trigger retry are
+connected. Documented Z3 context keys can be supplied with `--proverArgs key=value`;
+unsupported context keys return errors. Source solver warnings reach the CLI.
+Logging and richer runtime reporting remain unfinished. Dynamic options remain
+unsupported, as in the source API backend. A non-reference-counted Z3
 context retains AST allocations until the context and its last handle are dropped;
 long-lived API contexts can therefore retain more memory than the Java binding.
 

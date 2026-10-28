@@ -2583,4 +2583,4 @@ remaining = ["General user-domain/collection assembly and source interpreted bac
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/decider/native_z3.rs"
 status = "skeleton"
-remaining = ["Linked C API and Prover adapter connect both assertion modes, startup solver options, random seeds and source invalid-trigger retry. Context arguments, source warnings, richer reporting and broad parity remain incomplete; dynamic setOption is unsupported upstream."]
+remaining = ["Linked C API and Prover adapter connect both assertion modes, typed startup solver options, documented context keys, source coercions, seed randomization and invalid-trigger retry. Source warnings reach an optional reporter callback. Broad parity and richer runtime reporting remain incomplete; dynamic setOption is unsupported upstream."]
