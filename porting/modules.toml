@@ -1410,43 +1410,43 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/resources/NonQuantifiedPropertyInterpreter.scala"
 destination = "crates/ferrum-silicon/src/resources/non_quantified_property_interpreter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/resources/Property.scala"
 destination = "crates/ferrum-silicon/src/resources/property.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/resources/PropertyExpressions.scala"
 destination = "crates/ferrum-silicon/src/resources/property_expressions.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/resources/PropertyInterpreter.scala"
 destination = "crates/ferrum-silicon/src/resources/property_interpreter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/resources/QuantifiedPropertyInterpreter.scala"
 destination = "crates/ferrum-silicon/src/resources/quantified_property_interpreter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/resources/ResourceDescriptions.scala"
 destination = "crates/ferrum-silicon/src/resources/resource_descriptions.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/resources/Resources.scala"
 destination = "crates/ferrum-silicon/src/resources/resources.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
@@ -1650,151 +1650,151 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/supporters/AnnotationSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/annotation_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/BuiltinDomainsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/builtin_domains_contributor.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/CfgSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/cfg_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/DefaultMapsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/default_maps_contributor.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/DefaultMultisetsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/default_multisets_contributor.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/DefaultSequencesContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/default_sequences_contributor.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/DefaultSetsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/default_sets_contributor.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/Domains.scala"
 destination = "crates/ferrum-silicon/src/supporters/domains.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/ExpressionTranslator.scala"
 destination = "crates/ferrum-silicon/src/supporters/expression_translator.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/MagicWandSnapFunctionsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/magic_wand_snap_functions_contributor.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/MaskHeapSnapshotSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/mask_heap_snapshot_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/MethodSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/method_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/PredicateVerificationUnit.scala"
 destination = "crates/ferrum-silicon/src/supporters/predicate_verification_unit.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/QuantifierSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/quantifier_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/SnapshotSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/snapshot_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/functions/FunctionData.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/function_data.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/functions/FunctionEncoding.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/function_encoding.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/functions/FunctionRecorder.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/function_recorder.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/functions/FunctionVerificationUnit.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/function_verification_unit.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/functions/HeapAccessReplacingExpressionTranslator.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/heap_access_replacing_expression_translator.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/functions/MaskHeapFunctionEncoding.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/mask_heap_function_encoding.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/qps/FieldValueFunctionsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/qps/field_value_functions_contributor.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/qps/MaskHeapFunctionsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/qps/mask_heap_functions_contributor.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/qps/PredicateAndWandSnapFunctionsContributor.scala"
 destination = "crates/ferrum-silicon/src/supporters/qps/predicate_and_wand_snap_functions_contributor.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/supporters/qps/PredicateSnapGenerator.scala"
 destination = "crates/ferrum-silicon/src/supporters/qps/predicate_snap_generator.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
