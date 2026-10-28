@@ -1,8 +1,8 @@
-//! Ferrum native contributor assembly described in PLAN.md.
-//! Source domain contributor integration for the native verifier.
+//! Ferrum native verifier domain contributor assembly, as described in PLAN.md.
 //! Upstream: https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/supporters/Domains.scala
-//! Status: non-generic, axiom-free user domains and their uninterpreted functions are
-//! analyzed and emitted; generic instances, domain axioms and collection domains fail explicitly.
+//! Status: non-generic user domains and supported axioms are analyzed; restricted
+//! atomic generic instances and same-domain axioms are supported. Broader generic
+//! dependencies and unsupported collection domains fail explicitly.
 //
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -28,6 +28,7 @@ pub enum NativePreambleError<E> {
     GroundTypes(DomainInstanceError),
     Symbol(SymbolConversionError),
     Domain(DomainCollectionError),
+    Translation(String),
     Sink(E),
 }
 /// Collected source-order declarations and uniqueness assumptions for later emission.
@@ -36,6 +37,40 @@ pub struct NativePreambleData {
     domains: DefaultDomainsContributor,
 }
 impl NativePreambleData {
+    /// Ground sorts in the same order as the contributor declarations.
+    pub fn sorts(&self) -> impl Iterator<Item = &crate::state::terms::Sort> {
+        self.domains.sorts.iter()
+    }
+    pub fn declare_sorts<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.domains
+            .declare_sorts(factory, prover)
+            .map_err(NativePreambleError::Sink)
+    }
+    pub fn declare_symbols<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.domains
+            .declare_symbols(factory, prover)
+            .map_err(NativePreambleError::Sink)
+    }
+    pub fn emit_axioms<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.domains
+            .emit_axioms(prover)
+            .map_err(NativePreambleError::Sink)?;
+        self.domains
+            .emit_uniqueness(factory, prover)
+            .map_err(NativePreambleError::Sink)
+    }
     pub fn emit<P: ProverLike>(
         &self,
         factory: &TermFactory,
@@ -62,49 +97,341 @@ pub fn analyze(
     program: &Program,
     converter: &DefaultSymbolConverter,
 ) -> Result<NativePreambleData, NativePreambleError<std::convert::Infallible>> {
-    if program.domains.iter().any(|d| !d.type_vars.is_empty()) {
-        return Err(NativePreambleError::Unsupported(
-            "generic domain instantiation",
-        ));
+    analyze_domain_slice(program, converter, None, false, false, false, false, false)
+}
+/// Analyze and translate the supported non-generic user-domain axioms.
+pub fn analyze_with_axioms(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+) -> Result<NativePreambleData, NativePreambleError<std::convert::Infallible>> {
+    analyze_domain_slice(
+        program,
+        converter,
+        Some(factory),
+        false,
+        false,
+        false,
+        false,
+        false,
+    )
+}
+/// Analyze non-generic axioms and simple generic domains instantiated with
+/// atomic types. Generic axioms and recursive generic signatures remain errors.
+pub fn analyze_simple_generics(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+) -> Result<NativePreambleData, NativePreambleError<std::convert::Infallible>> {
+    analyze_domain_slice(
+        program,
+        converter,
+        Some(factory),
+        true,
+        false,
+        false,
+        false,
+        false,
+    )
+}
+/// User-domain analysis when a separate sequence contributor supplies all ground Seq sorts.
+pub fn analyze_with_sequences(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+) -> Result<NativePreambleData, NativePreambleError<std::convert::Infallible>> {
+    analyze_domain_slice(
+        program,
+        converter,
+        Some(factory),
+        true,
+        true,
+        false,
+        false,
+        false,
+    )
+}
+/// User-domain analysis when separate sequence and set contributors supply sorts.
+pub fn analyze_with_sequences_and_sets(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+) -> Result<NativePreambleData, NativePreambleError<std::convert::Infallible>> {
+    analyze_domain_slice(
+        program,
+        converter,
+        Some(factory),
+        true,
+        true,
+        true,
+        false,
+        false,
+    )
+}
+/// User-domain analysis when sequence, set and map contributors supply their sorts.
+pub fn analyze_with_maps(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+) -> Result<NativePreambleData, NativePreambleError<std::convert::Infallible>> {
+    analyze_domain_slice(
+        program,
+        converter,
+        Some(factory),
+        true,
+        true,
+        true,
+        true,
+        false,
+    )
+}
+/// Restricted generic axioms: atomic type instances, no foreign-domain calls,
+/// collection types or heap-dependent functions.
+pub fn analyze_generic_axioms(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+) -> Result<NativePreambleData, NativePreambleError<std::convert::Infallible>> {
+    analyze_domain_slice(
+        program,
+        converter,
+        Some(factory),
+        true,
+        false,
+        false,
+        false,
+        true,
+    )
+}
+fn validate_generic_axiom(
+    node: &Node,
+    domain_name: &str,
+) -> Result<(), NativePreambleError<std::convert::Infallible>> {
+    use ferrum_silver::ast::{expression::ExpKind, utility::nodes::subnodes};
+    match node {
+        Node::Type(typ)
+            if matches!(
+                typ,
+                Type::Seq(_) | Type::Set(_) | Type::Multiset(_) | Type::Map(_) | Type::Extension(_)
+            ) =>
+        {
+            return Err(NativePreambleError::Unsupported(
+                "generic axiom collection type",
+            ));
+        }
+        Node::Type(Type::Domain(domain)) if domain.domain_name != domain_name => {
+            return Err(NativePreambleError::Unsupported(
+                "generic axiom foreign domain type",
+            ));
+        }
+        Node::Type(Type::Domain(domain))
+            if domain.type_arguments().iter().any(|typ| {
+                !matches!(
+                    typ,
+                    Type::Var(_) | Type::Int | Type::Bool | Type::Ref | Type::Perm
+                )
+            }) =>
+        {
+            return Err(NativePreambleError::Unsupported(
+                "generic axiom nested domain argument",
+            ));
+        }
+        Node::Exp(e) => match e.kind() {
+            ExpKind::FuncApp(..) | ExpKind::BackendFuncApp(..) => {
+                return Err(NativePreambleError::Unsupported(
+                    "generic axiom function call",
+                ));
+            }
+            ExpKind::DomainFuncApp(..) if e.0.extra.domain_name.as_deref() != Some(domain_name) => {
+                return Err(NativePreambleError::Unsupported(
+                    "generic axiom foreign domain function",
+                ));
+            }
+            _ => {}
+        },
+        _ => {}
     }
-    if program.domains.iter().any(|d| !d.axioms.is_empty()) {
+    for child in subnodes(node).map_err(|e| NativePreambleError::Translation(format!("{e:?}")))? {
+        validate_generic_axiom(&child, domain_name)?;
+    }
+    Ok(())
+}
+fn analyze_domain_slice(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: Option<&TermFactory>,
+    allow_simple_generics: bool,
+    allow_sequences: bool,
+    allow_sets: bool,
+    allow_maps: bool,
+    allow_generic_axioms: bool,
+) -> Result<NativePreambleData, NativePreambleError<std::convert::Infallible>> {
+    for domain in &program.domains {
+        if !domain.type_vars.is_empty() {
+            if !allow_simple_generics || (!allow_generic_axioms && !domain.axioms.is_empty()) {
+                return Err(NativePreambleError::Unsupported(
+                    "generic domain instantiation or axioms",
+                ));
+            }
+            if allow_generic_axioms {
+                for axiom in &domain.axioms {
+                    validate_generic_axiom(&Node::Exp(axiom.exp().clone()), &domain.name)?;
+                }
+            }
+            let simple = |typ: &Type| {
+                matches!(
+                    typ,
+                    Type::Var(_) | Type::Int | Type::Bool | Type::Ref | Type::Perm
+                )
+            };
+            if domain
+                .functions
+                .iter()
+                .any(|f| !simple(&f.typ) || f.formal_args.iter().any(|a| !simple(a.typ())))
+            {
+                return Err(NativePreambleError::Unsupported(
+                    "recursive or collection generic signature",
+                ));
+            }
+        }
+    }
+    if factory.is_none() && program.domains.iter().any(|d| !d.axioms.is_empty()) {
         return Err(NativePreambleError::Unsupported("domain axiom translation"));
     }
     let ground = collect_ground_types(&Node::Program(program.clone()), program)
         .map_err(NativePreambleError::GroundTypes)?;
-    if ground.iter().any(|t| {
-        matches!(
-            t,
-            Type::Seq(_) | Type::Set(_) | Type::Multiset(_) | Type::Map(_)
-        )
-    }) {
-        return Err(NativePreambleError::Unsupported(
-            "collection domain analysis",
-        ));
+    for root in &ground {
+        for typ in ferrum_silver::ast::utility::domain_instances::down_closure_ground(root)
+            .map_err(NativePreambleError::GroundTypes)?
+        {
+            if matches!(typ, Type::Multiset(_))
+                || (!allow_maps && matches!(typ, Type::Map(_)))
+                || (!allow_sequences && matches!(typ, Type::Seq(_)))
+                || (!allow_sets && matches!(typ, Type::Set(_)))
+            {
+                return Err(NativePreambleError::Unsupported(
+                    "collection domain analysis",
+                ));
+            }
+        }
     }
     let mut result = NativePreambleData::default();
     for domain in &program.domains {
-        let Some(typ) = ground
+        let instances = ground
             .iter()
-            .find(|t| matches!(t, Type::Domain(d) if d.domain_name == domain.name))
-        else {
-            continue;
-        };
-        let sort = converter
-            .to_sort(typ)
-            .map_err(NativePreambleError::Symbol)?;
-        result.domains.sorts = result.domains.sorts.incl(sort);
-        for function in &domain.functions {
-            if function.interpretation.is_some() {
-                continue;
+            .filter_map(|t| match t {
+                Type::Domain(d) if d.domain_name == domain.name => Some(d),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for instance in instances {
+            let substitution = instance.type_vars_map();
+            if substitution
+                .values()
+                .any(|t| !matches!(t, Type::Int | Type::Bool | Type::Ref | Type::Perm))
+            {
+                return Err(NativePreambleError::Unsupported(
+                    "non-atomic generic domain instance",
+                ));
             }
-            let applicable = converter
-                .domain_function(function, program)
+            let sort = converter
+                .to_sort(&Type::Domain(instance.clone()))
                 .map_err(NativePreambleError::Symbol)?;
-            result
-                .domains
-                .collect_function(applicable, function.unique)
-                .map_err(NativePreambleError::Domain)?;
+            result.domains.sorts = result.domains.sorts.incl(sort);
+            for function in &domain.functions {
+                if function.interpretation.is_some() {
+                    continue;
+                }
+                let instantiated = if substitution.is_empty() {
+                    function.clone()
+                } else {
+                    function.copy_with(|data| {
+                        data.typ = data.typ.substitute(&substitution);
+                        data.formal_args = data
+                            .formal_args
+                            .iter()
+                            .map(|arg| match arg {
+                                ferrum_silver::ast::program::AnyLocalVarDecl::Named(v) => {
+                                    ferrum_silver::ast::program::AnyLocalVarDecl::Named(
+                                        ferrum_silver::ast::program::LocalVarDecl::new(
+                                            v.name.clone(),
+                                            v.typ.substitute(&substitution),
+                                            v.meta.clone(),
+                                        ),
+                                    )
+                                }
+                                ferrum_silver::ast::program::AnyLocalVarDecl::Unnamed(v) => {
+                                    ferrum_silver::ast::program::AnyLocalVarDecl::Unnamed(
+                                        v.copy_with(|d| d.typ = d.typ.substitute(&substitution)),
+                                    )
+                                }
+                            })
+                            .collect();
+                    })
+                };
+                let applicable = converter
+                    .domain_function(&instantiated, program)
+                    .map_err(NativePreambleError::Symbol)?;
+                result
+                    .domains
+                    .collect_function(applicable, instantiated.unique)
+                    .map_err(NativePreambleError::Domain)?;
+            }
+            if let Some(factory) = factory {
+                let mut translator =
+                    crate::supporters::expression_translator::ExpressionTranslator::new(
+                        factory,
+                        converter,
+                        |sort: &crate::state::terms::Sort| {
+                            Ok::<_, std::convert::Infallible>(sort.to_string())
+                        },
+                    );
+                translator.type_substitution = Some(&substitution);
+                for axiom in &domain.axioms {
+                    let mut term = translator
+                        .translate(axiom.exp())
+                        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+                    if let crate::state::terms::TermKind::Quantification {
+                        quantifier,
+                        vars,
+                        body,
+                        triggers,
+                        name,
+                        weight,
+                        ..
+                    } = term.kind()
+                    {
+                        if name.is_empty() {
+                            let qid = match axiom.kind() {
+                                ferrum_silver::ast::program::DomainAxiomKind::Named {
+                                    name,
+                                    ..
+                                } => format!("prog.{name}"),
+                                _ => String::new(),
+                            };
+                            term = factory
+                                .quantification(
+                                    *quantifier,
+                                    vars.clone(),
+                                    body.clone(),
+                                    triggers.clone(),
+                                    qid,
+                                    false,
+                                    *weight,
+                                )
+                                .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+                        }
+                    }
+                    result
+                        .domains
+                        .collect_axiom(factory, term, &mut |_| {
+                            Err::<crate::state::terms::Applicable, _>(
+                                "heap-dependent function in domain axiom",
+                            )
+                        })
+                        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+                }
+            }
         }
     }
     Ok(result)
@@ -121,6 +448,219 @@ mod tests {
         },
         r#type::DomainType,
     };
+    #[test]
+    fn generic_domain_axiom_is_instantiated_for_atomic_type() {
+        let source = "domain D[T] { function id(x: T): T axiom identity { forall x: T :: { id(x) } id(x) == x } } method m(d: D[Int]) {}";
+        let parsed =
+            ferrum_silver::parser::fast_parser::parse_program(source, "generic.vpr").unwrap();
+        ferrum_silver::parser::parse_ast::init_properties(parsed.node()).unwrap();
+        assert!(
+            ferrum_silver::parser::resolver::NameAnalyser::default()
+                .run(parsed.node())
+                .unwrap()
+        );
+        ferrum_silver::parser::resolver::check_program_core(&parsed, &mut |_, _| {}).unwrap();
+        let program = ferrum_silver::parser::translator::translate_program_core(&parsed).unwrap();
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        assert!(matches!(
+            analyze_simple_generics(&program, &converter, &factory),
+            Err(NativePreambleError::Unsupported(_))
+        ));
+        let result = analyze_generic_axioms(&program, &converter, &factory).unwrap();
+        assert_eq!(result.domains.axioms.len(), 1);
+        let mut smt =
+            crate::decider::term_to_smt_lib2_converter::TermToSmtLib2Converter::new(factory);
+        for axiom in &result.domains.axioms {
+            smt.convert_term(axiom).unwrap();
+        }
+    }
+    #[test]
+    fn simple_generic_domain_instantiates_function_signature() {
+        use ferrum_silver::ast::{program::AnyLocalVarDecl, r#type::TypeVar};
+        let meta = Metadata::default();
+        let parameter = TypeVar::new("T");
+        let argument = LocalVarDecl::new("x".into(), Type::Var(parameter.clone()), meta.clone());
+        let function = DomainFunc::new(DomainFuncData {
+            name: "id".into(),
+            formal_args: vec![AnyLocalVarDecl::Named(argument)],
+            typ: Type::Var(parameter.clone()),
+            unique: false,
+            interpretation: None,
+            domain_name: "D".into(),
+            meta: meta.clone(),
+        });
+        let domain = Domain::new(DomainData {
+            name: "D".into(),
+            functions: vec![function],
+            axioms: vec![],
+            type_vars: vec![parameter.clone()],
+            interpretations: None,
+            meta: meta.clone(),
+        });
+        let typ = Type::Domain(DomainType::new(
+            "D",
+            [(parameter.clone(), Type::Int)].into_iter().collect(),
+            vec![parameter],
+        ));
+        let var = LocalVarDecl::new("d".into(), typ, meta.clone());
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![var],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(
+            vec![domain],
+            vec![],
+            vec![],
+            vec![],
+            vec![method],
+            vec![],
+            meta,
+        );
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        let analyzed = analyze_simple_generics(&program, &converter, &factory).unwrap();
+        let function = analyzed.domains.functions.iter().next().unwrap();
+        assert_eq!(function.data().arg_sorts, vec![Sort::Int]);
+        assert_eq!(function.data().result_sort, Sort::Int);
+    }
+    #[test]
+    fn translates_ground_domain_axiom_and_rejects_legacy_axiom_free_api() {
+        use ferrum_silver::ast::{
+            expression::{Exp, ExpExtra, ExpKind},
+            program::{DomainAxiom, DomainAxiomKind},
+        };
+        let meta = Metadata::default();
+        let function = DomainFunc::new(DomainFuncData {
+            name: "zero".into(),
+            formal_args: vec![],
+            typ: Type::Int,
+            unique: false,
+            interpretation: None,
+            domain_name: "D".into(),
+            meta: meta.clone(),
+        });
+        let app = Exp::with_extra(
+            ExpKind::DomainFuncApp("zero".into(), vec![], Default::default()),
+            meta.clone(),
+            ExpExtra {
+                typ: Some(Type::Int),
+                domain_name: Some("D".into()),
+                ..Default::default()
+            },
+        );
+        let expr = Exp::new(
+            ExpKind::EqCmp(app, Exp::new(ExpKind::IntLit(0.into()), meta.clone())),
+            meta.clone(),
+        );
+        let axiom = DomainAxiom::new(DomainAxiomKind::Named {
+            name: "zero_is_zero".into(),
+            exp: expr,
+            domain_name: "D".into(),
+            meta: meta.clone(),
+        });
+        let domain = Domain::new(DomainData {
+            name: "D".into(),
+            functions: vec![function],
+            axioms: vec![axiom],
+            type_vars: vec![],
+            interpretations: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(vec![domain], vec![], vec![], vec![], vec![], vec![], meta);
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        assert!(matches!(
+            analyze(&program, &converter),
+            Err(NativePreambleError::Unsupported("domain axiom translation"))
+        ));
+        let analyzed = analyze_with_axioms(&program, &converter, &factory).unwrap();
+        assert_eq!(analyzed.domains.sorts.len(), 1);
+        assert_eq!(analyzed.domains.functions.len(), 1);
+        assert_eq!(analyzed.domains.axioms.len(), 1);
+    }
+    #[test]
+    fn nullary_domain_application_induces_domain_instance() {
+        use ferrum_silver::ast::{
+            expression::{Exp, ExpExtra, ExpKind},
+            statement::{Stmt, StmtKind},
+        };
+        let meta = Metadata::default();
+        let function = DomainFunc::new(DomainFuncData {
+            name: "zero".into(),
+            formal_args: vec![],
+            typ: Type::Int,
+            unique: false,
+            interpretation: None,
+            domain_name: "D".into(),
+            meta: meta.clone(),
+        });
+        let domain = Domain::new(DomainData {
+            name: "D".into(),
+            functions: vec![function],
+            axioms: vec![],
+            type_vars: vec![],
+            interpretations: None,
+            meta: meta.clone(),
+        });
+        let app = Exp::with_extra(
+            ExpKind::DomainFuncApp("zero".into(), vec![], Default::default()),
+            meta.clone(),
+            ExpExtra {
+                typ: Some(Type::Int),
+                domain_name: Some("D".into()),
+                ..Default::default()
+            },
+        );
+        let assertion = Exp::new(
+            ExpKind::EqCmp(app, Exp::new(ExpKind::IntLit(0.into()), meta.clone())),
+            meta.clone(),
+        );
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: Some(Stmt::new(StmtKind::Assert(assertion), meta.clone())),
+            meta: meta.clone(),
+        });
+        let program = Program::new(
+            vec![domain],
+            vec![],
+            vec![],
+            vec![],
+            vec![method],
+            vec![],
+            meta,
+        );
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory, false);
+        let analyzed = analyze(&program, &converter).unwrap();
+        assert_eq!(analyzed.domains.sorts.len(), 1);
+        assert_eq!(analyzed.domains.functions.len(), 1);
+    }
     #[test]
     fn collects_ground_domain_symbols_and_unique_axioms() {
         let meta = Metadata::default();
@@ -181,5 +721,882 @@ mod tests {
             Sort::Int
         );
         assert_eq!(analyzed.domains.uniqueness_assumptions(&factory).len(), 1);
+    }
+}
+
+/// Parsed builtin sequence source, instantiated and translated before solver emission.
+/// Collection analysis is intentionally separate from the checked user-domain profile.
+pub struct NativeSequencePreamble {
+    contributor: crate::supporters::builtin_domains_contributor::BuiltinDomainsContributor,
+}
+impl NativeSequencePreamble {
+    pub fn sorts(&self) -> impl Iterator<Item = &crate::state::terms::Sort> {
+        self.contributor.sorts.iter()
+    }
+    pub fn declare_sorts<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .declare_sorts(factory, prover)
+            .map_err(NativePreambleError::Sink)
+    }
+    pub fn declare_symbols<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .declare_symbols(factory, prover)
+            .map_err(NativePreambleError::Sink)
+    }
+    pub fn emit_axioms<P: ProverLike>(
+        &self,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .emit_axioms(prover)
+            .map_err(NativePreambleError::Sink)
+    }
+    pub fn emit<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .declare_sorts(factory, prover)
+            .map_err(NativePreambleError::Sink)?;
+        self.contributor
+            .declare_symbols(factory, prover)
+            .map_err(NativePreambleError::Sink)?;
+        self.contributor
+            .emit_axioms(prover)
+            .map_err(NativePreambleError::Sink)
+    }
+}
+/// Build actual sequence axioms for direct ground sequence instances. Programs
+/// with user-defined generic domains are rejected until the full ground-instance
+/// fixed point is available. The source is parsed only when an instance exists.
+pub fn analyze_sequences(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+    old_axiomatization: bool,
+) -> Result<NativeSequencePreamble, NativePreambleError<std::convert::Infallible>> {
+    use crate::state::symbol_converter::BuiltinDomainSort;
+    use crate::supporters::{
+        builtin_domains_contributor::BuiltinDomainsContributor,
+        default_sequences_contributor as sequences,
+    };
+    use ferrum_silver::ast::{
+        program::{AnyLocalVarDecl, DomainAxiomKind, LocalVarDecl},
+        utility::domain_instances::down_closure_ground,
+    };
+    if program
+        .domains
+        .iter()
+        .any(|domain| !domain.type_vars.is_empty())
+    {
+        return Err(NativePreambleError::Unsupported(
+            "sequence ground instances with generic user domains",
+        ));
+    }
+    let ground = collect_ground_types(&Node::Program(program.clone()), program)
+        .map_err(NativePreambleError::GroundTypes)?;
+    fn supported_element(typ: &Type) -> bool {
+        match typ {
+            Type::Int | Type::Bool | Type::Ref | Type::Perm => true,
+            Type::Seq(inner) => supported_element(inner),
+            _ => false,
+        }
+    }
+    let mut instances = std::collections::HashSet::new();
+    for root in &ground {
+        for typ in down_closure_ground(root).map_err(NativePreambleError::GroundTypes)? {
+            if let Type::Seq(element) = typ {
+                if !supported_element(&element) {
+                    return Err(NativePreambleError::Unsupported(
+                        "sequence element requires another contributor",
+                    ));
+                }
+                instances.insert((*element).clone());
+            }
+        }
+    }
+    let mut contributor = BuiltinDomainsContributor::default();
+    if instances.is_empty() {
+        return Ok(NativeSequencePreamble { contributor });
+    }
+    let path = sequences::source_resource(old_axiomatization);
+    let source = crate::resources::bundled::get(path)
+        .ok_or(NativePreambleError::Unsupported("missing sequence source"))?;
+    let parsed = ferrum_silver::parser::fast_parser::parse_program(source, path)
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    ferrum_silver::parser::parse_ast::init_properties(parsed.node())
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    if !ferrum_silver::parser::resolver::NameAnalyser::default()
+        .run(parsed.node())
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?
+    {
+        return Err(NativePreambleError::Unsupported(
+            "sequence source name resolution",
+        ));
+    }
+    ferrum_silver::parser::resolver::check_program_core(&parsed, &mut |_, _| {})
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    let builtin_program = ferrum_silver::parser::translator::translate_program_core(&parsed)
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    let source_domain = builtin_program
+        .find_domain_optionally(sequences::SOURCE_DOMAIN_NAME)
+        .ok_or(NativePreambleError::Unsupported("sequence source domain"))?;
+    if source_domain.type_vars.len() != 1 {
+        return Err(NativePreambleError::Unsupported(
+            "sequence source domain arity",
+        ));
+    }
+    let builtin_converter = converter
+        .clone()
+        .with_builtin_domain(sequences::SOURCE_DOMAIN_NAME, BuiltinDomainSort::Sequence);
+    for element in instances {
+        let substitution = [(source_domain.type_vars[0].clone(), element.clone())]
+            .into_iter()
+            .collect();
+        let instantiated = sequences::transform_source_domain_instance(source_domain, &element);
+        let element_sort = builtin_converter
+            .to_sort(&element)
+            .map_err(NativePreambleError::Symbol)?;
+        contributor.sorts = contributor
+            .sorts
+            .incl(crate::state::terms::Sort::Seq(Box::new(
+                element_sort.clone(),
+            )));
+        for function in &instantiated.functions {
+            if function.interpretation.is_some() {
+                continue;
+            }
+            let function = function.copy_with(|data| {
+                data.typ = data.typ.substitute(&substitution);
+                data.formal_args = data
+                    .formal_args
+                    .iter()
+                    .map(|arg| match arg {
+                        AnyLocalVarDecl::Named(v) => AnyLocalVarDecl::Named(LocalVarDecl::new(
+                            v.name.clone(),
+                            v.typ.substitute(&substitution),
+                            v.meta.clone(),
+                        )),
+                        AnyLocalVarDecl::Unnamed(v) => AnyLocalVarDecl::Unnamed(
+                            v.copy_with(|d| d.typ = d.typ.substitute(&substitution)),
+                        ),
+                    })
+                    .collect();
+            });
+            let applicable = builtin_converter
+                .domain_function(&function, program)
+                .map_err(NativePreambleError::Symbol)?;
+            contributor.functions = contributor.functions.incl(applicable);
+        }
+        let mut translator = crate::supporters::expression_translator::ExpressionTranslator::new(
+            factory,
+            &builtin_converter,
+            |s: &crate::state::terms::Sort| Ok::<_, std::convert::Infallible>(s.to_string()),
+        );
+        translator.builtin = true;
+        translator.type_substitution = Some(&substitution);
+        for axiom in &instantiated.axioms {
+            let mut term = translator
+                .translate(axiom.exp())
+                .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+            if let crate::state::terms::TermKind::Quantification {
+                quantifier,
+                vars,
+                body,
+                triggers,
+                name,
+                weight,
+                ..
+            } = term.kind()
+            {
+                if name.is_empty() {
+                    let name = match axiom.kind() {
+                        DomainAxiomKind::Named { name, .. } => {
+                            format!("$Seq[{element_sort}]_prog.{name}")
+                        }
+                        _ => String::new(),
+                    };
+                    term = factory
+                        .quantification(
+                            *quantifier,
+                            vars.clone(),
+                            body.clone(),
+                            triggers.clone(),
+                            name,
+                            false,
+                            *weight,
+                        )
+                        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+                }
+            }
+            contributor.axioms = contributor.axioms.incl(term);
+        }
+    }
+    Ok(NativeSequencePreamble { contributor })
+}
+
+/// Parsed builtin set source, instantiated and translated before solver emission.
+/// Collection analysis is intentionally separate from the checked user-domain profile.
+pub struct NativeSetPreamble {
+    contributor: crate::supporters::builtin_domains_contributor::BuiltinDomainsContributor,
+}
+impl NativeSetPreamble {
+    pub fn sorts(&self) -> impl Iterator<Item = &crate::state::terms::Sort> {
+        self.contributor.sorts.iter()
+    }
+    pub fn declare_sorts<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .declare_sorts(factory, prover)
+            .map_err(NativePreambleError::Sink)
+    }
+    pub fn declare_symbols<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .declare_symbols(factory, prover)
+            .map_err(NativePreambleError::Sink)
+    }
+    pub fn emit_axioms<P: ProverLike>(
+        &self,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .emit_axioms(prover)
+            .map_err(NativePreambleError::Sink)
+    }
+    pub fn emit<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .declare_sorts(factory, prover)
+            .map_err(NativePreambleError::Sink)?;
+        self.contributor
+            .declare_symbols(factory, prover)
+            .map_err(NativePreambleError::Sink)?;
+        self.contributor
+            .emit_axioms(prover)
+            .map_err(NativePreambleError::Sink)
+    }
+}
+/// Build actual set axioms for direct ground set instances. Programs
+/// with user-defined generic domains are rejected until the full ground-instance
+/// fixed point is available. The source is parsed only when an instance exists.
+pub fn analyze_sets(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+    old_axiomatization: bool,
+) -> Result<NativeSetPreamble, NativePreambleError<std::convert::Infallible>> {
+    analyze_sets_inner(program, converter, factory, old_axiomatization, false)
+}
+/// Include set sorts induced by map domain/range when a map contributor is active.
+pub fn analyze_sets_with_maps(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+    old_axiomatization: bool,
+) -> Result<NativeSetPreamble, NativePreambleError<std::convert::Infallible>> {
+    analyze_sets_inner(program, converter, factory, old_axiomatization, true)
+}
+fn analyze_sets_inner(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+    old_axiomatization: bool,
+    allow_maps: bool,
+) -> Result<NativeSetPreamble, NativePreambleError<std::convert::Infallible>> {
+    use crate::state::symbol_converter::BuiltinDomainSort;
+    use crate::supporters::{
+        builtin_domains_contributor::BuiltinDomainsContributor, default_sets_contributor as sets,
+    };
+    use ferrum_silver::ast::{
+        program::{AnyLocalVarDecl, DomainAxiomKind, LocalVarDecl},
+        utility::domain_instances::down_closure_ground,
+    };
+    if program
+        .domains
+        .iter()
+        .any(|domain| !domain.type_vars.is_empty())
+    {
+        return Err(NativePreambleError::Unsupported(
+            "set ground instances with generic user domains",
+        ));
+    }
+    let ground = collect_ground_types(&Node::Program(program.clone()), program)
+        .map_err(NativePreambleError::GroundTypes)?;
+    fn supported_element(typ: &Type) -> bool {
+        match typ {
+            Type::Int | Type::Bool | Type::Ref | Type::Perm => true,
+            Type::Set(inner) => supported_element(inner),
+            _ => false,
+        }
+    }
+    let mut instances = std::collections::HashSet::new();
+    for root in &ground {
+        for typ in down_closure_ground(root).map_err(NativePreambleError::GroundTypes)? {
+            if let Type::Map(pair) = &typ {
+                if !allow_maps || !supported_element(&pair.0) || !supported_element(&pair.1) {
+                    return Err(NativePreambleError::Unsupported(
+                        "set instances induced by map domains",
+                    ));
+                }
+                instances.insert(pair.0.clone());
+                instances.insert(pair.1.clone());
+            }
+            if let Type::Set(element) = typ {
+                if !supported_element(&element) {
+                    return Err(NativePreambleError::Unsupported(
+                        "set element requires another contributor",
+                    ));
+                }
+                instances.insert((*element).clone());
+            }
+        }
+    }
+    let mut contributor = BuiltinDomainsContributor::default();
+    if instances.is_empty() {
+        return Ok(NativeSetPreamble { contributor });
+    }
+    let path = sets::source_resource(old_axiomatization);
+    let source = crate::resources::bundled::get(path)
+        .ok_or(NativePreambleError::Unsupported("missing set source"))?;
+    let parsed = ferrum_silver::parser::fast_parser::parse_program(source, path)
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    ferrum_silver::parser::parse_ast::init_properties(parsed.node())
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    if !ferrum_silver::parser::resolver::NameAnalyser::default()
+        .run(parsed.node())
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?
+    {
+        return Err(NativePreambleError::Unsupported(
+            "set source name resolution",
+        ));
+    }
+    ferrum_silver::parser::resolver::check_program_core(&parsed, &mut |_, _| {})
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    let builtin_program = ferrum_silver::parser::translator::translate_program_core(&parsed)
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    let source_domain = builtin_program
+        .find_domain_optionally(sets::SOURCE_DOMAIN_NAME)
+        .ok_or(NativePreambleError::Unsupported("set source domain"))?;
+    if source_domain.type_vars.len() != 1 {
+        return Err(NativePreambleError::Unsupported("set source domain arity"));
+    }
+    let builtin_converter = converter
+        .clone()
+        .with_builtin_domain(sets::SOURCE_DOMAIN_NAME, BuiltinDomainSort::Set);
+    for element in instances {
+        let substitution = [(source_domain.type_vars[0].clone(), element.clone())]
+            .into_iter()
+            .collect();
+        let instantiated = source_domain.clone();
+        let element_sort = builtin_converter
+            .to_sort(&element)
+            .map_err(NativePreambleError::Symbol)?;
+        contributor.sorts = contributor
+            .sorts
+            .incl(crate::state::terms::Sort::Set(Box::new(
+                element_sort.clone(),
+            )));
+        for function in &instantiated.functions {
+            if function.interpretation.is_some() {
+                continue;
+            }
+            let function = function.copy_with(|data| {
+                data.typ = data.typ.substitute(&substitution);
+                data.formal_args = data
+                    .formal_args
+                    .iter()
+                    .map(|arg| match arg {
+                        AnyLocalVarDecl::Named(v) => AnyLocalVarDecl::Named(LocalVarDecl::new(
+                            v.name.clone(),
+                            v.typ.substitute(&substitution),
+                            v.meta.clone(),
+                        )),
+                        AnyLocalVarDecl::Unnamed(v) => AnyLocalVarDecl::Unnamed(
+                            v.copy_with(|d| d.typ = d.typ.substitute(&substitution)),
+                        ),
+                    })
+                    .collect();
+            });
+            let applicable = builtin_converter
+                .domain_function(&function, program)
+                .map_err(NativePreambleError::Symbol)?;
+            contributor.functions = contributor.functions.incl(applicable);
+        }
+        let mut translator = crate::supporters::expression_translator::ExpressionTranslator::new(
+            factory,
+            &builtin_converter,
+            |s: &crate::state::terms::Sort| Ok::<_, std::convert::Infallible>(s.to_string()),
+        );
+        translator.builtin = true;
+        translator.type_substitution = Some(&substitution);
+        for axiom in &instantiated.axioms {
+            let mut term = translator
+                .translate(axiom.exp())
+                .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+            if let crate::state::terms::TermKind::Quantification {
+                quantifier,
+                vars,
+                body,
+                triggers,
+                name,
+                weight,
+                ..
+            } = term.kind()
+            {
+                if name.is_empty() {
+                    let name = match axiom.kind() {
+                        DomainAxiomKind::Named { name, .. } => {
+                            format!("$Set[{element_sort}]_prog.{name}")
+                        }
+                        _ => String::new(),
+                    };
+                    term = factory
+                        .quantification(
+                            *quantifier,
+                            vars.clone(),
+                            body.clone(),
+                            triggers.clone(),
+                            name,
+                            false,
+                            *weight,
+                        )
+                        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+                }
+            }
+            contributor.axioms = contributor.axioms.incl(term);
+        }
+    }
+    Ok(NativeSetPreamble { contributor })
+}
+
+/// Parsed builtin map source, instantiated and translated before solver emission.
+/// Collection analysis is intentionally separate from the checked user-domain profile.
+pub struct NativeMapPreamble {
+    contributor: crate::supporters::builtin_domains_contributor::BuiltinDomainsContributor,
+}
+impl NativeMapPreamble {
+    pub fn sorts(&self) -> impl Iterator<Item = &crate::state::terms::Sort> {
+        self.contributor.sorts.iter()
+    }
+    pub fn declare_sorts<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .declare_sorts(factory, prover)
+            .map_err(NativePreambleError::Sink)
+    }
+    pub fn declare_symbols<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .declare_symbols(factory, prover)
+            .map_err(NativePreambleError::Sink)
+    }
+    pub fn emit_axioms<P: ProverLike>(
+        &self,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .emit_axioms(prover)
+            .map_err(NativePreambleError::Sink)
+    }
+    pub fn emit<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .declare_sorts(factory, prover)
+            .map_err(NativePreambleError::Sink)?;
+        self.contributor
+            .declare_symbols(factory, prover)
+            .map_err(NativePreambleError::Sink)?;
+        self.contributor
+            .emit_axioms(prover)
+            .map_err(NativePreambleError::Sink)
+    }
+}
+/// Build actual map axioms for direct ground map instances. Programs
+/// with user-defined generic domains are rejected until the full ground-instance
+/// fixed point is available. The source is parsed only when an instance exists.
+pub fn analyze_maps(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+    old_axiomatization: bool,
+) -> Result<NativeMapPreamble, NativePreambleError<std::convert::Infallible>> {
+    use crate::state::symbol_converter::BuiltinDomainSort;
+    use crate::supporters::{
+        builtin_domains_contributor::BuiltinDomainsContributor, default_maps_contributor as maps,
+    };
+    use ferrum_silver::ast::{
+        program::{AnyLocalVarDecl, DomainAxiomKind, LocalVarDecl},
+        utility::domain_instances::down_closure_ground,
+    };
+    if program
+        .domains
+        .iter()
+        .any(|domain| !domain.type_vars.is_empty())
+    {
+        return Err(NativePreambleError::Unsupported(
+            "map ground instances with generic user domains",
+        ));
+    }
+    let ground = collect_ground_types(&Node::Program(program.clone()), program)
+        .map_err(NativePreambleError::GroundTypes)?;
+    fn supported_element(typ: &Type) -> bool {
+        matches!(typ, Type::Int | Type::Bool | Type::Ref | Type::Perm)
+    }
+    let mut instances = std::collections::HashSet::new();
+    for root in &ground {
+        for typ in down_closure_ground(root).map_err(NativePreambleError::GroundTypes)? {
+            if let Type::Map(pair) = typ {
+                if !supported_element(&pair.0) || !supported_element(&pair.1) {
+                    return Err(NativePreambleError::Unsupported(
+                        "map key/value requires another contributor",
+                    ));
+                }
+                instances.insert((pair.0.clone(), pair.1.clone()));
+            }
+        }
+    }
+    let mut contributor = BuiltinDomainsContributor::default();
+    if instances.is_empty() {
+        return Ok(NativeMapPreamble { contributor });
+    }
+    let path = maps::source_resource(old_axiomatization);
+    let source = crate::resources::bundled::get(path)
+        .ok_or(NativePreambleError::Unsupported("missing map source"))?;
+    let parsed = ferrum_silver::parser::fast_parser::parse_program(source, path)
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    ferrum_silver::parser::parse_ast::init_properties(parsed.node())
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    if !ferrum_silver::parser::resolver::NameAnalyser::default()
+        .run(parsed.node())
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?
+    {
+        return Err(NativePreambleError::Unsupported(
+            "map source name resolution",
+        ));
+    }
+    ferrum_silver::parser::resolver::check_program_core(&parsed, &mut |_, _| {})
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    let builtin_program = ferrum_silver::parser::translator::translate_program_core(&parsed)
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    let source_domain = builtin_program
+        .find_domain_optionally(maps::SOURCE_DOMAIN_NAME)
+        .ok_or(NativePreambleError::Unsupported("map source domain"))?;
+    if source_domain.type_vars.len() != 2 {
+        return Err(NativePreambleError::Unsupported("map source domain arity"));
+    }
+    let builtin_converter = converter
+        .clone()
+        .with_builtin_domain(maps::SOURCE_DOMAIN_NAME, BuiltinDomainSort::Map);
+    for (key, value) in instances {
+        let substitution = [
+            (source_domain.type_vars[0].clone(), key.clone()),
+            (source_domain.type_vars[1].clone(), value.clone()),
+        ]
+        .into_iter()
+        .collect();
+        let instantiated = source_domain.clone();
+        let key_sort = builtin_converter
+            .to_sort(&key)
+            .map_err(NativePreambleError::Symbol)?;
+        let value_sort = builtin_converter
+            .to_sort(&value)
+            .map_err(NativePreambleError::Symbol)?;
+        contributor.sorts = contributor.sorts.incl(crate::state::terms::Sort::Map(
+            Box::new(key_sort.clone()),
+            Box::new(value_sort.clone()),
+        ));
+        for function in &instantiated.functions {
+            if function.interpretation.is_some() {
+                continue;
+            }
+            let function = function.copy_with(|data| {
+                data.typ = data.typ.substitute(&substitution);
+                data.formal_args = data
+                    .formal_args
+                    .iter()
+                    .map(|arg| match arg {
+                        AnyLocalVarDecl::Named(v) => AnyLocalVarDecl::Named(LocalVarDecl::new(
+                            v.name.clone(),
+                            v.typ.substitute(&substitution),
+                            v.meta.clone(),
+                        )),
+                        AnyLocalVarDecl::Unnamed(v) => AnyLocalVarDecl::Unnamed(
+                            v.copy_with(|d| d.typ = d.typ.substitute(&substitution)),
+                        ),
+                    })
+                    .collect();
+            });
+            let applicable = builtin_converter
+                .domain_function(&function, program)
+                .map_err(NativePreambleError::Symbol)?;
+            contributor.functions = contributor.functions.incl(applicable);
+        }
+        let mut translator = crate::supporters::expression_translator::ExpressionTranslator::new(
+            factory,
+            &builtin_converter,
+            |s: &crate::state::terms::Sort| Ok::<_, std::convert::Infallible>(s.to_string()),
+        );
+        translator.builtin = true;
+        translator.type_substitution = Some(&substitution);
+        for axiom in &instantiated.axioms {
+            let mut term = translator
+                .translate(axiom.exp())
+                .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+            if let crate::state::terms::TermKind::Quantification {
+                quantifier,
+                vars,
+                body,
+                triggers,
+                name,
+                weight,
+                ..
+            } = term.kind()
+            {
+                if name.is_empty() {
+                    let name = match axiom.kind() {
+                        DomainAxiomKind::Named { name, .. } => {
+                            format!("$Map[{key_sort},{value_sort}]_prog.{name}")
+                        }
+                        _ => String::new(),
+                    };
+                    term = factory
+                        .quantification(
+                            *quantifier,
+                            vars.clone(),
+                            body.clone(),
+                            triggers.clone(),
+                            name,
+                            false,
+                            *weight,
+                        )
+                        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+                }
+            }
+            contributor.axioms = contributor.axioms.incl(term);
+        }
+    }
+    Ok(NativeMapPreamble { contributor })
+}
+
+#[cfg(test)]
+mod sequence_tests {
+    use super::*;
+    use crate::state::terms::{Sort, TermOptions};
+    use ferrum_silver::ast::{
+        ast::Metadata,
+        program::{LocalVarDecl, Method, MethodData},
+    };
+    use std::sync::Arc;
+    #[test]
+    fn non_integer_sequences_do_not_emit_range_symbols() {
+        let meta = Metadata::default();
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![LocalVarDecl::new(
+                "s".into(),
+                Type::Seq(Arc::new(Type::Bool)),
+                meta.clone(),
+            )],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta);
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        let data = analyze_sequences(&program, &converter, &factory, false).unwrap();
+        assert!(
+            data.contributor
+                .sorts
+                .contains(&Sort::Seq(Box::new(Sort::Bool)))
+        );
+        assert!(
+            data.contributor
+                .functions
+                .iter()
+                .all(|function| function.data().id.name() != "Seq_range")
+        );
+        let mut converter =
+            crate::decider::term_to_smt_lib2_converter::TermToSmtLib2Converter::new(factory);
+        for axiom in &data.contributor.axioms {
+            converter.convert_term(axiom).unwrap();
+        }
+    }
+    #[test]
+    fn bundled_sequence_axioms_are_instantiated_for_int() {
+        let meta = Metadata::default();
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![LocalVarDecl::new(
+                "s".into(),
+                Type::Seq(Arc::new(Type::Int)),
+                meta.clone(),
+            )],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta);
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        let data = analyze_sequences(&program, &converter, &factory, false).unwrap();
+        assert!(
+            data.contributor
+                .sorts
+                .contains(&Sort::Seq(Box::new(Sort::Int)))
+        );
+        assert!(!data.contributor.functions.is_empty());
+        assert!(!data.contributor.axioms.is_empty());
+        let mut converter =
+            crate::decider::term_to_smt_lib2_converter::TermToSmtLib2Converter::new(factory);
+        for axiom in &data.contributor.axioms {
+            converter.convert_term(axiom).unwrap();
+        }
+    }
+}
+
+#[cfg(test)]
+mod set_tests {
+    use super::*;
+    use crate::state::terms::{Sort, TermOptions};
+    use ferrum_silver::ast::{
+        ast::Metadata,
+        program::{LocalVarDecl, Method, MethodData},
+    };
+    use std::sync::Arc;
+    #[test]
+    fn bundled_set_axioms_are_instantiated_for_int() {
+        let meta = Metadata::default();
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![LocalVarDecl::new(
+                "s".into(),
+                Type::Set(Arc::new(Type::Int)),
+                meta.clone(),
+            )],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta);
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        let data = analyze_sets(&program, &converter, &factory, false).unwrap();
+        assert!(
+            data.contributor
+                .sorts
+                .contains(&Sort::Set(Box::new(Sort::Int)))
+        );
+        assert!(!data.contributor.functions.is_empty());
+        assert!(!data.contributor.axioms.is_empty());
+        let mut converter =
+            crate::decider::term_to_smt_lib2_converter::TermToSmtLib2Converter::new(factory);
+        for axiom in &data.contributor.axioms {
+            converter.convert_term(axiom).unwrap();
+        }
+    }
+}
+
+#[cfg(test)]
+mod map_tests {
+    use super::*;
+    use crate::state::terms::{Sort, TermOptions};
+    use ferrum_silver::ast::{
+        ast::Metadata,
+        program::{LocalVarDecl, Method, MethodData},
+    };
+    #[test]
+    fn bundled_map_axioms_and_induced_sets_are_instantiated() {
+        let meta = Metadata::default();
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![LocalVarDecl::new(
+                "m".into(),
+                Type::map(Type::Int, Type::Bool),
+                meta.clone(),
+            )],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta);
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        let sets = analyze_sets_with_maps(&program, &converter, &factory, false).unwrap();
+        assert!(
+            sets.contributor
+                .sorts
+                .contains(&Sort::Set(Box::new(Sort::Int)))
+        );
+        assert!(
+            sets.contributor
+                .sorts
+                .contains(&Sort::Set(Box::new(Sort::Bool)))
+        );
+        let data = analyze_maps(&program, &converter, &factory, false).unwrap();
+        assert!(
+            data.contributor
+                .sorts
+                .contains(&Sort::Map(Box::new(Sort::Int), Box::new(Sort::Bool)))
+        );
+        assert!(!data.contributor.functions.is_empty());
+        assert!(!data.contributor.axioms.is_empty());
+        let mut converter =
+            crate::decider::term_to_smt_lib2_converter::TermToSmtLib2Converter::new(factory);
+        for axiom in &data.contributor.axioms {
+            converter.convert_term(axiom).unwrap();
+        }
     }
 }

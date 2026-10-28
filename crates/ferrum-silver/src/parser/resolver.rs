@@ -1124,6 +1124,24 @@ pub fn check_expression(
         PExpressionKind::OldExp { exp, .. } => {
             check_operator(input, None, vec![exp.inner().clone()], expected, false)?
         }
+        PExpressionKind::EmptySeq(collection) | PExpressionKind::EmptySet(collection) | PExpressionKind::EmptyMultiset(collection) => {
+            if let Some(typ) = &collection.annotated_type { check_supported_type(typ.inner())?; }
+            check_operator(input, None, vec![], expected, false)?
+        }
+        PExpressionKind::ExplicitSeq(collection) | PExpressionKind::ExplicitSet(collection) | PExpressionKind::ExplicitMultiset(collection) => {
+            let args = collection.call_args().inner().to_seq().into_iter().cloned().collect();
+            check_operator(input, None, args, expected, false)?
+        }
+        PExpressionKind::MapDomain { base, .. } | PExpressionKind::MapRange { base, .. } => check_operator(input, None, vec![base.inner().clone()], expected, false)?,
+        PExpressionKind::EmptyMap { annotated_type, .. } => {
+            if let Some(types) = &annotated_type { check_supported_type(types.inner().first())?; check_supported_type(types.inner().second())?; }
+            check_operator(input, None, vec![], expected, false)?
+        }
+        PExpressionKind::ExplicitMap(collection) => {
+            let args = collection.call_args.inner().to_seq().into_iter().cloned().collect();
+            check_operator(input, None, args, expected, false)?
+        }
+        PExpressionKind::Maplet { key, value, .. } => check_operator(input, None, vec![key, value], expected, false)?,
         PExpressionKind::RangeSeq { low, high, .. } => {
             check_operator(input, None, vec![low, high], expected, false)?
         }
@@ -1195,6 +1213,20 @@ pub fn check_expression(
                         "predicate instance substitutions",
                     ))?,
             )
+        }
+        PExpressionKind::ForPerm { vars, trigger, body, .. } => {
+            for var in vars.to_seq() {
+                let typ = match &var.node().read().expect("poisoned parse node").kind { PNodeKind::Declaration(d) => d.typ.clone(), _ => return Err(TypeCheckError::Unsupported("forperm variable")) };
+                check_supported_type(&typ)?;
+            }
+            let boolean = type_from_signature(&super::parse_ast_keyword::SignatureType::Bool);
+            check_expression_context(&body, false, true, false)?;
+            check_top_expression(&body, Some(&boolean), |_, _| {})?;
+            let access = trigger.access().inner();
+            check_top_expression(access, None, |_, _| {})?;
+            ensure_location_access(access, true)?;
+            let substitutions = body.type_subs_distinct().ok_or(TypeCheckError::Unsupported("forperm substitutions"))?;
+            (boolean, substitutions)
         }
         PExpressionKind::Forall(q) | PExpressionKind::Exists(q) => {
             use super::parse_ast_keyword::SignatureType;
@@ -1743,25 +1775,6 @@ fn check_program_expression(
     expected: Option<&PTypeHandle>,
     warn: &mut impl FnMut(&PNodeHandle, &str),
 ) -> Result<PTypeHandle, TypeCheckError> {
-    fn ensure_supported(node: &PNodeHandle) -> Result<(), TypeCheckError> {
-        let kind = node.read().expect("poisoned parse node").kind.clone();
-        if matches!(
-            kind,
-            PNodeKind::Expression(super::parse_ast::PExpression {
-                kind: PExpressionKind::ForPerm { .. },
-                ..
-            })
-        ) {
-            return Err(TypeCheckError::Unsupported("forperm typechecking"));
-        }
-        for child in
-            subnodes(node).map_err(|_| TypeCheckError::Unsupported("expression traversal"))?
-        {
-            ensure_supported(&child)?;
-        }
-        Ok(())
-    }
-    ensure_supported(input.node())?;
     check_top_expression(input, expected, warn)
 }
 /// Source restrictions on permissions in specifications and wands in function
@@ -1790,6 +1803,28 @@ fn check_expression_context(
                     return Err(TypeCheckError::Unsupported(
                         "permission introspection is not allowed in this specification",
                     ));
+                }
+                PExpressionKind::ForPerm { trigger, body, .. } => {
+                    if ban_all_perm || (forbid_spec_perm && !inside_inex) {
+                        return Err(TypeCheckError::Unsupported(
+                            "forperm is not allowed in this specification",
+                        ));
+                    }
+                    visit(
+                        body.node(),
+                        inside_inex,
+                        forbid_spec_perm,
+                        true,
+                        forbid_wand,
+                    )?;
+                    visit(
+                        trigger.node(),
+                        inside_inex,
+                        forbid_spec_perm,
+                        ban_all_perm,
+                        forbid_wand,
+                    )?;
+                    return Ok(());
                 }
                 PExpressionKind::MagicWandExp { .. } if forbid_wand => {
                     return Err(TypeCheckError::Unsupported(

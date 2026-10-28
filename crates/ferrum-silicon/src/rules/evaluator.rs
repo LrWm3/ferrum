@@ -67,6 +67,7 @@ pub enum EvaluationError<E> {
     ExpressionType(ferrum_silver::ast::expression::ExpressionTypeError),
     ExpectedSetType,
     EmptyExplicitCollection,
+    InvalidMapLiteral,
     MissingOldState(String),
     MissingDomainFunction(String),
     MissingFunction(String),
@@ -1482,6 +1483,43 @@ where
                         };
                         continuation(context, state, term, rebuilt)
                     },
+                )
+            },
+        );
+    }
+    if let ExpKind::ExplicitMap(entries) = expression.kind() {
+        let Some(first) = entries.first() else {
+            return Err(EvaluationError::EmptyExplicitCollection);
+        };
+        let ExpKind::Maplet(first_key, first_value) = first.kind() else {
+            return Err(EvaluationError::InvalidMapLiteral);
+        };
+        let key_type = first_key.typ().map_err(EvaluationError::ExpressionType)?;
+        let value_type = first_value.typ().map_err(EvaluationError::ExpressionType)?;
+        let mut desugared = Exp::new(
+            ExpKind::EmptyMap(key_type, value_type),
+            expression.metadata().clone(),
+        );
+        for entry in entries {
+            let ExpKind::Maplet(key, value) = entry.kind() else {
+                return Err(EvaluationError::InvalidMapLiteral);
+            };
+            desugared = Exp::new(
+                ExpKind::MapUpdate(desugared, key.clone(), value.clone()),
+                expression.metadata().clone(),
+            );
+        }
+        return evaluate(
+            context,
+            state,
+            &desugared,
+            error,
+            &mut |context, state, term, _| {
+                continuation(
+                    context,
+                    state,
+                    term,
+                    context.debugging().then(|| expression.clone()),
                 )
             },
         );

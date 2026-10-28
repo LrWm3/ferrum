@@ -656,6 +656,16 @@ fn translate_expression_with_fields(
             translate_expression_with_fields(&inhale, fields)?,
             translate_expression_with_fields(&exhale, fields)?,
         ),
+        PExpressionKind::ForPerm { vars, trigger, body, .. } => {
+            let declarations = vars.to_seq().into_iter().map(formal_declaration).collect::<Result<Vec<_>, _>>()?;
+            let access = translate_expression_with_fields(trigger.access().inner(), fields)?;
+            let access = match access.kind() {
+                ExpKind::PredicateAccessPredicate(pred) => Exp::new(ExpKind::PredicateAccess(pred.location.clone()), access.metadata().clone()),
+                ExpKind::PredicateAccess(_) | ExpKind::FieldAccess(_) | ExpKind::MagicWand(..) => access,
+                _ => return Err(TranslationError::Unsupported("forperm resource")),
+            };
+            ExpKind::ForPerm(declarations, access, translate_expression_with_fields(&body, fields)?)
+        }
         PExpressionKind::Forall(q) | PExpressionKind::Exists(q) => {
             let forall = matches!(q.keyword.value(), PKw::Forall);
             let vars = q
@@ -701,6 +711,17 @@ fn translate_expression_with_fields(
                 return Ok(combined);
             }
         }
+        PExpressionKind::EmptySeq(_) => match translate_type(&expression.typ)? { Type::Seq(element) => ExpKind::EmptySeq((*element).clone()), _ => return Err(TranslationError::InvalidType) },
+        PExpressionKind::EmptySet(_) => match translate_type(&expression.typ)? { Type::Set(element) => ExpKind::EmptySet((*element).clone()), _ => return Err(TranslationError::InvalidType) },
+        PExpressionKind::EmptyMultiset(_) => match translate_type(&expression.typ)? { Type::Multiset(element) => ExpKind::EmptyMultiset((*element).clone()), _ => return Err(TranslationError::InvalidType) },
+        PExpressionKind::ExplicitSeq(collection) => ExpKind::ExplicitSeq(collection.call_args().inner().to_seq().into_iter().map(|e| translate_expression_with_fields(e, fields)).collect::<Result<_, _>>()?),
+        PExpressionKind::ExplicitSet(collection) => ExpKind::ExplicitSet(collection.call_args().inner().to_seq().into_iter().map(|e| translate_expression_with_fields(e, fields)).collect::<Result<_, _>>()?),
+        PExpressionKind::ExplicitMultiset(collection) => ExpKind::ExplicitMultiset(collection.call_args().inner().to_seq().into_iter().map(|e| translate_expression_with_fields(e, fields)).collect::<Result<_, _>>()?),
+        PExpressionKind::MapDomain { base, .. } => ExpKind::MapDomain(translate_expression_with_fields(base.inner(), fields)?),
+        PExpressionKind::MapRange { base, .. } => ExpKind::MapRange(translate_expression_with_fields(base.inner(), fields)?),
+        PExpressionKind::EmptyMap { .. } => match translate_type(&expression.typ)? { Type::Map(types) => ExpKind::EmptyMap(types.0.clone(), types.1.clone()), _ => return Err(TranslationError::InvalidType) },
+        PExpressionKind::ExplicitMap(collection) => ExpKind::ExplicitMap(collection.call_args.inner().to_seq().into_iter().map(|e| translate_expression_with_fields(e, fields)).collect::<Result<_, _>>()?),
+        PExpressionKind::Maplet { key, value, .. } => ExpKind::Maplet(translate_expression_with_fields(&key, fields)?, translate_expression_with_fields(&value, fields)?),
         PExpressionKind::RangeSeq { low, high, .. } => ExpKind::RangeSeq(
             translate_expression_with_fields(&low, fields)?,
             translate_expression_with_fields(&high, fields)?,

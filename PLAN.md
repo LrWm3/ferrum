@@ -32,10 +32,12 @@ per-file progress and remaining gaps are tracked in [porting/modules.toml](porti
 [porting/README.md](porting/README.md) lists checks and current limitations.
 The native CLI now connects the frontend and default plugins to source-shaped
 Silicon execution rules and a native Z3 process. Ordinary methods, contracts,
-branches, field permissions and method calls have end-to-end smoke coverage.
-Functions, domains, loops, fold/unfold, quantified permissions, wands and advanced
-execution/reporting profiles still need concrete integration; unsupported paths
-return execution errors. Full compatibility and performance remain unmeasured.
+branches, loops, predicate permissions, unfolding and method calls have native
+smoke coverage. Heap-independent quantifiers, restricted generic domain axioms
+and primitive Seq/Set/Map instances now reach the solver. Heap-dependent functions,
+quantified resources, wands, general domain instances and advanced execution or
+reporting profiles remain incomplete; unsupported paths return execution errors.
+Full compatibility and comparative performance remain unmeasured.
 
 ## Upstream baseline and scope
 

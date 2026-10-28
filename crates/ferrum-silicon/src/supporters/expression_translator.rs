@@ -65,6 +65,8 @@ pub struct ExpressionTranslator<'a, R> {
     pub render_sort: R,
     pub builtin: bool,
     pub pure_function_snapshots: Vec<Term>,
+    /// Optional source domain instantiation applied before every sort conversion.
+    pub type_substitution: Option<&'a ferrum_silver::ast::r#type::TypeSubstitution>,
 }
 /// Override source-specific expression cases while retaining recursive pure translation.
 pub trait ExpressionOverrides<R, E>
@@ -105,6 +107,7 @@ where
             render_sort,
             builtin: false,
             pure_function_snapshots: vec![factory.unit()],
+            type_substitution: None,
         }
     }
     pub fn translate(&self, expression: &Exp) -> Result<Term, ExpressionTranslationError<E>> {
@@ -130,8 +133,11 @@ where
         let f = self.factory;
         let mut t = |exp: &Exp| self.translate_with(exp, overrides);
         let sort = |typ: &Type| {
+            let concrete = self
+                .type_substitution
+                .map_or_else(|| typ.clone(), |map| typ.substitute(map));
             self.converter
-                .to_sort(typ)
+                .to_sort(&concrete)
                 .map_err(ExpressionTranslationError::Sort)
         };
         let result = match expression.kind() {
@@ -145,8 +151,26 @@ where
             Or(a, b) => f.or([t(a)?, t(b)?]),
             Implies(a, b) => f.implies(t(a)?, t(b)?),
             CondExp(a, b, c) => f.ite(t(a)?, t(b)?, t(c)?),
-            EqCmp(a, b) => f.equals(t(a)?, t(b)?),
-            NeCmp(a, b) => f.not(f.equals(t(a)?, t(b)?)),
+            EqCmp(a, b) | NeCmp(a, b) => {
+                let equal = f.equals(t(a)?, t(b)?);
+                // Source first builds Equals (including its simplifications), then
+                // builtin-domain rewriting replaces any remaining Equals node.
+                let equal = if self.builtin {
+                    match equal.kind() {
+                        TermKind::BuiltinEquals(a, b) | TermKind::CustomEquals(a, b) => {
+                            f.builtin_equals(a.clone(), b.clone())
+                        }
+                        _ => equal,
+                    }
+                } else {
+                    equal
+                };
+                if matches!(expression.kind(), NeCmp(..)) {
+                    f.not(equal)
+                } else {
+                    equal
+                }
+            }
             Add(a, b) => f.plus(t(a)?, t(b)?),
             Sub(a, b) => f.minus(t(a)?, t(b)?),
             Mul(a, b) => f.times(t(a)?, t(b)?),
@@ -393,6 +417,42 @@ mod tests {
     use crate::state::terms::TermOptions;
     use ferrum_silver::ast::ast::Metadata;
     use ferrum_silver::ast::expression::LocalVar;
+    #[test]
+    fn builtin_translation_substitutes_types_and_preserves_equals_simplification() {
+        use ferrum_silver::ast::r#type::TypeVar;
+        use std::sync::Arc;
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        let tv = TypeVar::new("E");
+        let substitution = [(tv.clone(), Type::Int)].into_iter().collect();
+        let typ = Type::Seq(Arc::new(Type::Var(tv)));
+        let local = |name: &str| {
+            Exp::new(
+                ExpKind::LocalVar(LocalVar::new(name.into(), typ.clone(), Metadata::default())),
+                Metadata::default(),
+            )
+        };
+        let mut translator =
+            ExpressionTranslator::new(&factory, &converter, |s: &Sort| Ok::<_, ()>(s.to_string()));
+        translator.builtin = true;
+        translator.type_substitution = Some(&substitution);
+        let x = local("x");
+        let y = local("y");
+        let same = Exp::new(ExpKind::EqCmp(x.clone(), x.clone()), Metadata::default());
+        let distinct = Exp::new(ExpKind::EqCmp(x, y), Metadata::default());
+        assert!(matches!(
+            translator.translate(&same).unwrap().kind(),
+            TermKind::True
+        ));
+        assert!(matches!(
+            translator.translate(&distinct).unwrap().kind(),
+            TermKind::BuiltinEquals(..)
+        ));
+    }
     struct ReplaceLocal;
     impl<R> ExpressionOverrides<R, ()> for ReplaceLocal
     where

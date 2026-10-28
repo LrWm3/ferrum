@@ -111,7 +111,6 @@ impl NativeOptions {
             || config.multiset_axiomatization_file.is_some()
             || config.sequence_axiomatization_file.is_some()
             || config.map_axiomatization_file.is_some()
-            || config.enable_predicate_triggers_on_inhale
             || config.disable_value_map_caching
             || config.disable_isc_triggers
             || config.disable_chunk_order_heuristics
@@ -1061,12 +1060,77 @@ where
             EvaluationError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
-        Err(EvaluationError::Context(NativeError::Unsupported(
-            "evaluate_quantifier",
-        )))
+        let (quantifier, vars, triggers, body) = match expression.kind() {
+            ExpKind::Forall(vars, triggers, body) => (
+                crate::state::terms::Quantifier::Forall,
+                vars,
+                triggers,
+                body,
+            ),
+            ExpKind::Exists(vars, triggers, body) => (
+                crate::state::terms::Quantifier::Exists,
+                vars,
+                triggers,
+                body,
+            ),
+            _ => {
+                return Err(EvaluationError::Context(NativeError::Unsupported(
+                    "quantifier shape",
+                )));
+            }
+        };
+        crate::rules::evaluator::evaluate_quantified(
+            self,
+            state,
+            quantifier,
+            vars,
+            &[],
+            std::slice::from_ref(body),
+            Some(triggers),
+            name,
+            error,
+            &mut |ctx, state, data| {
+                let result = if let Some(second) = data.second {
+                    let mut terms = second.terms.into_iter();
+                    let body = terms.next().ok_or(EvaluationError::InvalidJoinEntries)?;
+                    if terms.next().is_some() {
+                        return Err(EvaluationError::InvalidJoinEntries);
+                    }
+                    Some(QuantifiedExpressionData {
+                        variables: data.variables,
+                        variable_expressions: data.variable_expressions,
+                        body,
+                        body_expression: second.expressions.and_then(|mut exps| {
+                            if exps.len() == 1 {
+                                Some(exps.remove(0))
+                            } else {
+                                None
+                            }
+                        }),
+                        triggers: second.triggers,
+                        auxiliary_globals: second.auxiliary_globals,
+                        auxiliary_non_globals: second.auxiliary_non_globals,
+                        auxiliary_debug: second.auxiliary_debug,
+                    })
+                } else {
+                    None
+                };
+                continuation(ctx, state, result)
+            },
+        )
     }
     fn heap_independent_auxiliaries(&mut self, terms: &[Term]) -> Result<Vec<Term>, Self::Error> {
-        Err(NativeError::Unsupported("heap_independent_auxiliaries"))
+        let factory = self.factory.clone();
+        let mut result = Vec::new();
+        for term in terms {
+            result.extend(
+                crate::supporters::quantifier_supporter::make_triggers_heap_independent(
+                    &factory, self, term,
+                )
+                .map_err(|e| NativeError::Evaluation(format!("{e:?}")))?,
+            );
+        }
+        Ok(result)
     }
     fn assume_quantifier_auxiliaries(
         &mut self,
@@ -1081,13 +1145,19 @@ where
             >,
         )>,
     ) -> Result<(), Self::Error> {
-        Err(NativeError::Unsupported("assume_quantifier_auxiliaries"))
+        for term in globals.iter().chain(non_globals) {
+            self.assume_term(term)?;
+        }
+        Ok(())
     }
     fn precondition_function(
         &mut self,
         function: &crate::state::terms::Applicable,
     ) -> Result<crate::state::terms::Applicable, Self::Error> {
-        Err(NativeError::Unsupported("precondition_function"))
+        Ok(crate::rules::function_supporter::precondition_version(
+            &self.factory,
+            function,
+        ))
     }
     fn assume_existential_preconditions(
         &mut self,
@@ -1100,7 +1170,7 @@ where
     fn check_smoke(&mut self) -> Result<bool, Self::Error> {
         self.base
             .decider
-            .check_smoke(false)
+            .check_smoke(true)
             .map_err(NativeError::Decider)
     }
     fn quantifier_failure(
@@ -1109,7 +1179,14 @@ where
         expression: &Exp,
         error: &Self::PartialError,
     ) -> Result<VerificationResult<VerificationError>, Self::Error> {
-        Err(NativeError::Unsupported("quantifier_failure"))
+        self.failure(
+            error,
+            ErrorReason::Internal {
+                node: ferrum_silver::ast::utility::nodes::Node::Exp(expression.clone()),
+                explanation: "Quantifier evaluation failed.".into(),
+            },
+            state.retry_level,
+        )
     }
     fn join_off(&self) -> JoinMode {
         JoinMode::Off
@@ -1705,9 +1782,24 @@ where
             ProductionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ProductionError<Self::Error>> {
-        Err(ProductionError::Context(NativeError::Unsupported(
-            "handle_let",
-        )))
+        let mut callback_error = None;
+        let result = self.handle_native_let(
+            state,
+            assertion,
+            error,
+            crate::state::store::MapBackedStore::default(),
+            &mut |ctx, state, bindings, body| match continuation(ctx, state, bindings, body) {
+                Ok(value) => Ok(value),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(EvaluationError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| ProductionError::Context(NativeError::Evaluation(format!("{e:?}"))))
     }
     fn evaluate_quantified_permission(
         &mut self,
@@ -2211,9 +2303,24 @@ where
             ConsumptionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>> {
-        Err(ConsumptionError::Context(NativeError::Unsupported(
-            "handle_let",
-        )))
+        let mut callback_error = None;
+        let result = self.handle_native_let(
+            state,
+            assertion,
+            error,
+            crate::state::store::MapBackedStore::default(),
+            &mut |ctx, state, bindings, body| match continuation(ctx, state, bindings, body) {
+                Ok(value) => Ok(value),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(EvaluationError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| ConsumptionError::Context(NativeError::Evaluation(format!("{e:?}"))))
     }
     fn evaluate_quantified_permission(
         &mut self,
@@ -3157,7 +3264,9 @@ where
         args: &[Term],
         debug_args: Option<&[Exp]>,
     ) -> Result<(), Self::Error> {
-        Err(NativeError::Unsupported("assume_predicate_trigger"))
+        crate::rules::predicate_supporter::PredicateExecutionServices::assume_unfold_trigger(
+            self, state, predicate, snapshot, &state.h, args, debug_args,
+        )
     }
 }
 
@@ -4834,6 +4943,11 @@ impl NativeContext {
             false,
             self.options.respect_function_pre_permission_amounts,
         );
+        if self.options.unsafe_wildcard_optimization {
+            if let Member::Method(method) = &member {
+                state.perm_locations = wildcard_permission_locations(program, method)?;
+            }
+        }
         state.current_member = Some(member);
         state.predicate_snap_map = analysis.snapshot_sorts.clone();
         state.predicate_formal_var_map = analysis.snapshot_formals.clone();
@@ -4861,35 +4975,77 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
                 "function or program extension analysis",
             ));
         }
-        crate::verifier::native_preamble::analyze(program, &self.base.symbol_converter)
+        native_domain_preamble(program, &self.base.symbol_converter, &self.factory)
+            .map_err(NativeError::Preamble)?;
+        let (has_sequence, has_set, has_map) =
+            collection_program(program).map_err(NativeError::Preamble)?;
+        if (has_sequence || has_set || has_map) && !program.domains.is_empty() {
+            return Err(NativeError::Unsupported(
+                "collections combined with user domains",
+            ));
+        }
+        if has_sequence {
+            crate::verifier::native_preamble::analyze_sequences(
+                program,
+                &self.base.symbol_converter,
+                &self.factory,
+                self.factory.options().use_old_axiomatization,
+            )
             .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        if program
-            .fields
-            .iter()
-            .any(|field| matches!(field.typ, Type::Domain(_)))
-        {
-            return Err(NativeError::Unsupported("domain-valued field snapshots"));
+        }
+        if has_set || has_map {
+            crate::verifier::native_preamble::analyze_sets_with_maps(
+                program,
+                &self.base.symbol_converter,
+                &self.factory,
+                self.factory.options().use_old_axiomatization,
+            )
+            .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        }
+        if has_map {
+            crate::verifier::native_preamble::analyze_maps(
+                program,
+                &self.base.symbol_converter,
+                &self.factory,
+                self.factory.options().use_old_axiomatization,
+            )
+            .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
         }
         if self.options.enable_simplified_unfolds {
             return Err(NativeError::Unsupported(
                 "simplified predicate unfold recorder",
             ));
         }
-        fn inspect(node: &Node) -> Result<(), &'static str> {
-            if matches!(node, Node::Type(typ) if matches!(typ,Type::Seq(_) | Type::Set(_) | Type::Multiset(_) | Type::Map(_) | Type::Backend(_) | Type::Extension(_)))
+        fn inspect(
+            node: &Node,
+            program: &ferrum_silver::ast::program::Program,
+        ) -> Result<(), &'static str> {
+            // Domain axioms are checked and translated by the native domain contributor.
+            if matches!(node, Node::DomainAxiom(_)) {
+                return Ok(());
+            }
+            if matches!(node, Node::Type(typ) if matches!(typ,Type::Multiset(_) | Type::Backend(_) | Type::Extension(_)))
             {
                 return Err("collection or domain preamble analysis");
             }
-            if matches!(node,Node::Exp(exp) if matches!(exp.kind(),ExpKind::Forall(..) | ExpKind::Exists(..) | ExpKind::ForPerm(..) | ExpKind::MagicWand(..) | ExpKind::Extension(_)))
+            if let Node::Exp(exp) = node {
+                if matches!(exp.kind(), ExpKind::Forall(..) | ExpKind::Exists(..))
+                    && ferrum_silver::ast::utility::expressions::is_heap_dependent(exp, program)
+                        .map_err(|_| "quantifier heap dependency")?
+                {
+                    return Err("heap-dependent quantifier");
+                }
+            }
+            if matches!(node,Node::Exp(exp) if matches!(exp.kind(),ExpKind::ForPerm(..) | ExpKind::MagicWand(..) | ExpKind::Extension(_)))
             {
                 return Err("quantifier, wand or extension preamble analysis");
             }
             for child in subnodes(node).map_err(|_| "program analysis traversal")? {
-                inspect(&child)?;
+                inspect(&child, program)?;
             }
             Ok(())
         }
-        inspect(&Node::Program(program.clone())).map_err(NativeError::Unsupported)?;
+        inspect(&Node::Program(program.clone()), program).map_err(NativeError::Unsupported)?;
         self.active_program = Some(program.clone());
         Ok(program.clone())
     }
@@ -4923,12 +5079,104 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         &mut self,
         program: &ferrum_silver::ast::program::Program,
     ) -> Result<NativeAnalysis, Self::Error> {
+        let (has_sequence, has_set, has_map) =
+            collection_program(program).map_err(NativeError::Preamble)?;
+        let sequence_preamble = if has_sequence {
+            Some(
+                crate::verifier::native_preamble::analyze_sequences(
+                    program,
+                    &self.base.symbol_converter,
+                    &self.factory,
+                    self.factory.options().use_old_axiomatization,
+                )
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?,
+            )
+        } else {
+            None
+        };
+        let set_preamble = if has_set || has_map {
+            Some(
+                crate::verifier::native_preamble::analyze_sets_with_maps(
+                    program,
+                    &self.base.symbol_converter,
+                    &self.factory,
+                    self.factory.options().use_old_axiomatization,
+                )
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?,
+            )
+        } else {
+            None
+        };
+        let map_preamble = if has_map {
+            Some(
+                crate::verifier::native_preamble::analyze_maps(
+                    program,
+                    &self.base.symbol_converter,
+                    &self.factory,
+                    self.factory.options().use_old_axiomatization,
+                )
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?,
+            )
+        } else {
+            None
+        };
         let domain_preamble =
-            crate::verifier::native_preamble::analyze(program, &self.base.symbol_converter)
-                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+            native_domain_preamble(program, &self.base.symbol_converter, &self.factory)
+                .map_err(NativeError::Preamble)?;
         domain_preamble
-            .emit(&self.factory, &mut self.base.decider.prover)
+            .declare_sorts(&self.factory, &mut self.base.decider.prover)
             .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        if let Some(preamble) = &sequence_preamble {
+            preamble
+                .declare_sorts(&self.factory, &mut self.base.decider.prover)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        }
+        if let Some(preamble) = &set_preamble {
+            preamble
+                .declare_sorts(&self.factory, &mut self.base.decider.prover)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        }
+        if let Some(preamble) = &map_preamble {
+            preamble
+                .declare_sorts(&self.factory, &mut self.base.decider.prover)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        }
+        domain_preamble
+            .declare_symbols(&self.factory, &mut self.base.decider.prover)
+            .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        if let Some(preamble) = &sequence_preamble {
+            preamble
+                .declare_symbols(&self.factory, &mut self.base.decider.prover)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        }
+        if let Some(preamble) = &set_preamble {
+            preamble
+                .declare_symbols(&self.factory, &mut self.base.decider.prover)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        }
+        if let Some(preamble) = &map_preamble {
+            preamble
+                .declare_symbols(&self.factory, &mut self.base.decider.prover)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        }
+        domain_preamble
+            .emit_axioms(&self.factory, &mut self.base.decider.prover)
+            .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        if let Some(preamble) = &sequence_preamble {
+            preamble
+                .emit_axioms(&mut self.base.decider.prover)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        }
+        if let Some(preamble) = &set_preamble {
+            preamble
+                .emit_axioms(&mut self.base.decider.prover)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        }
+        if let Some(preamble) = &map_preamble {
+            preamble
+                .emit_axioms(&mut self.base.decider.prover)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        }
         let predicates = crate::supporters::predicate_verification_unit::analyze_predicates(
             program,
             &self.base.symbol_converter,
@@ -4938,7 +5186,18 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         .map_err(NativeError::Sort)?;
         use crate::interfaces::{decider::prover::TextEmitter, preamble::PreambleReader};
         let reader = crate::decider::smt_lib2_preamble_reader::SmtLib2PreambleReader::default();
-        for sort in [Sort::Int, Sort::Bool, Sort::Ref, Sort::Perm] {
+        let mut wrapper_sorts = vec![Sort::Int, Sort::Bool, Sort::Ref, Sort::Perm];
+        wrapper_sorts.extend(domain_preamble.sorts().cloned());
+        if let Some(preamble) = &sequence_preamble {
+            wrapper_sorts.extend(preamble.sorts().cloned());
+        }
+        if let Some(preamble) = &set_preamble {
+            wrapper_sorts.extend(preamble.sorts().cloned());
+        }
+        if let Some(preamble) = &map_preamble {
+            wrapper_sorts.extend(preamble.sorts().cloned());
+        }
+        for sort in wrapper_sorts {
             for (from, to) in [(sort.clone(), Sort::Snap), (Sort::Snap, sort.clone())] {
                 let decl = self.factory.sort_wrapper_decl(from, to);
                 self.base
@@ -5691,4 +5950,461 @@ where
         let next = continuation(self, merged, value, debug)?;
         Ok(block.combine(|| next, false))
     }
+}
+
+impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    /// Source LetSupporter recursion, with evaluator continuations bound to this context.
+    fn handle_native_let(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        expression: &Exp,
+        error: &PartialVerificationError,
+        bindings: crate::state::store::MapBackedStore,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            crate::state::store::MapBackedStore,
+            Exp,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            EvaluationError<NativeError<S::Error>>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, EvaluationError<NativeError<S::Error>>> {
+        if let ExpKind::Let(variable, value, body) = expression.kind() {
+            let key = crate::state::store::AbstractLocalVar::new(Exp::new(
+                ExpKind::LocalVar(variable.local_var()),
+                variable.meta.clone(),
+            ));
+            crate::rules::evaluator::evaluate(
+                self,
+                state,
+                value,
+                error,
+                &mut |ctx, mut state, term, debug| {
+                    let value = (term, debug);
+                    let next = bindings.with_binding(key.clone(), value.clone());
+                    state.g = Arc::new(state.g.with_binding(key.clone(), value));
+                    ctx.handle_native_let(state, body, error, next, continuation)
+                },
+            )
+        } else {
+            continuation(self, state, bindings, expression.clone())
+        }
+    }
+}
+
+#[allow(unused_variables)]
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::evaluator::QuantifiedScopeContext<PD, FD, JoinMode, VerificationError>
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn fresh_quantified_variable(
+        &mut self,
+        decl: &LocalVarDecl,
+    ) -> Result<(Term, Option<Exp>), Self::Error> {
+        let sort = self
+            .base
+            .symbol_converter
+            .to_sort(&decl.typ)
+            .map_err(NativeError::Sort)?;
+        let term = self
+            .base
+            .decider
+            .fresh_variable(&self.factory, &decl.name, &sort, false, None)
+            .map_err(NativeError::Decider)?;
+        Ok((term, None))
+    }
+    fn locally_quantified(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        block: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            &mut dyn FnMut(
+                &mut Self,
+                crate::rules::evaluator::ScopedQuantifiedState<PD, FD, JoinMode>,
+            ) -> Result<
+                VerificationResult<VerificationError>,
+                EvaluationError<Self::Error>,
+            >,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            EvaluationError<Self::Error>,
+        >,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            crate::rules::evaluator::ScopedQuantifiedState<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            EvaluationError<Self::Error>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
+        self.base
+            .decider
+            .push_scope()
+            .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+        let mut data = None;
+        let block = block(self, state, &mut |_, value| {
+            if data.is_some() {
+                return Err(EvaluationError::Context(NativeError::Unsupported(
+                    "multiple local quantifier results",
+                )));
+            }
+            data = Some(value);
+            Ok(VerificationResult::success())
+        });
+        let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
+        let block = match (block, cleanup) {
+            (Ok(v), Ok(())) => v,
+            (Err(e), Err(cleanup)) => {
+                return Err(EvaluationError::TriggerCleanup {
+                    evaluation: Box::new(e),
+                    cleanup,
+                });
+            }
+            (Err(e), Ok(())) => return Err(e),
+            (Ok(_), Err(cleanup)) => return Err(EvaluationError::Context(cleanup)),
+        };
+        if block.is_fatal() {
+            return Ok(block);
+        }
+        if let Some(data) = data {
+            let next = continuation(self, data)?;
+            Ok(block.and_then(|| next))
+        } else {
+            Ok(block)
+        }
+    }
+    fn path_mark(&mut self) -> crate::decider::path_conditions::Mark {
+        self.base.decider.pcs.mark()
+    }
+    fn set_quantified_branch(
+        &mut self,
+        condition: Term,
+        original: Exp,
+        rewritten: Option<Exp>,
+    ) -> Result<(), Self::Error> {
+        self.base
+            .decider
+            .set_branch_condition(condition, (original, rewritten), None)
+            .map_err(NativeError::Decider)
+    }
+    fn path_after(
+        &mut self,
+        mark: crate::decider::path_conditions::Mark,
+    ) -> Result<crate::decider::path_conditions::RecordedPathConditions, Self::Error> {
+        self.base
+            .decider
+            .pcs
+            .after(mark)
+            .map_err(|e| NativeError::Decider(DeciderError::Path(e)))
+    }
+    fn evaluate_triggers(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        triggers: &[ferrum_silver::ast::expression::Trigger],
+        error: &Self::PartialError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Vec<crate::state::terms::Trigger>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            EvaluationError<Self::Error>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
+        crate::rules::evaluator::evaluate_triggers(self, state, triggers, error, continuation)
+    }
+    fn quantified_debug(
+        &mut self,
+        paths: &crate::decider::path_conditions::RecordedPathConditions,
+        quantifier: crate::state::terms::Quantifier,
+        variables: &[Term],
+        variable_expressions: &[Exp],
+        ast_triggers: &[ferrum_silver::ast::expression::Trigger],
+        term_triggers: &[crate::state::terms::Trigger],
+        condition: &Term,
+    ) -> Result<
+        (
+            crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<
+                crate::debugger::debug_exp::DebugExp,
+            >,
+            crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<
+                crate::debugger::debug_exp::DebugExp,
+            >,
+        ),
+        Self::Error,
+    > {
+        Err(NativeError::Unsupported("quantifier debugging"))
+    }
+}
+#[allow(unused_variables)]
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::evaluator::TriggerEvaluationContext<PD, FD, JoinMode, VerificationError>
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn cacheable_trigger(&self, expression: &Exp) -> bool {
+        expression.is_possible_trigger()
+            || matches!(
+                expression.kind(),
+                ExpKind::FieldAccess(_) | ExpKind::Old(_) | ExpKind::LabelledOld(..)
+            )
+    }
+    fn path_pop_until(
+        &mut self,
+        mark: crate::decider::path_conditions::Mark,
+    ) -> Result<(), Self::Error> {
+        self.base
+            .decider
+            .pcs
+            .pop_until_mark(mark)
+            .map_err(|e| NativeError::Decider(DeciderError::Path(e)))
+    }
+    fn reported_errors(&self) -> usize {
+        self.base.errors_reported.load(Ordering::SeqCst)
+    }
+    fn set_reported_errors(&mut self, count: usize) {
+        self.base.errors_reported.store(count, Ordering::SeqCst);
+    }
+    fn assume_trigger_delta(
+        &mut self,
+        paths: &crate::decider::path_conditions::RecordedPathConditions,
+    ) -> Result<(), Self::Error> {
+        self.base
+            .decider
+            .assume(
+                paths.assumptions().into_iter().map(|term| (term, None)),
+                false,
+                false,
+            )
+            .map_err(NativeError::Decider)
+    }
+    fn adapt_trigger_terms(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        terms: Vec<Term>,
+    ) -> Result<Vec<Term>, Self::Error> {
+        Ok(terms)
+    }
+    fn warn_trigger(&mut self, expression: &Exp) -> Result<(), Self::Error> {
+        self.warnings
+            .push(format!("Might not be able to use trigger: {expression:?}"));
+        Ok(())
+    }
+    fn handles_resource_trigger(&self, state: &State<PD, FD, JoinMode>, expression: &Exp) -> bool {
+        false
+    }
+    fn resource_trigger_variants(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        expression: &Exp,
+        error: &Self::PartialError,
+    ) -> Result<
+        (
+            State<PD, FD, JoinMode>,
+            Vec<Term>,
+            Vec<Vec<Term>>,
+            Vec<crate::rules::quantified_chunk_support::SnapshotMapDefinition>,
+        ),
+        Self::Error,
+    > {
+        Err(NativeError::Unsupported("heap resource trigger"))
+    }
+    fn assume_heap_trigger_axioms(
+        &mut self,
+        expressions: &[Exp],
+        axioms: &[Term],
+    ) -> Result<(), Self::Error> {
+        for term in axioms {
+            self.assume_term(term)?;
+        }
+        Ok(())
+    }
+}
+#[allow(unused_variables)]
+impl<S: Prover, PD, FD> crate::supporters::quantifier_supporter::QuantifierTriggerServices
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn generate_trigger_sets(
+        &mut self,
+        variables: &[Term],
+        body: &Term,
+    ) -> Result<Option<(Vec<crate::state::terms::Trigger>, Vec<Term>)>, Self::Error> {
+        Err(NativeError::Unsupported("automatic quantifier triggers"))
+    }
+    fn fresh_projection(&mut self, sort: &Sort) -> Result<Term, Self::Error> {
+        self.base
+            .decider
+            .fresh_variable(&self.factory, "proj", sort, false, None)
+            .map_err(NativeError::Decider)
+    }
+    fn render_term(&mut self, term: &Term) -> Result<String, Self::Error> {
+        self.base
+            .term_converter
+            .convert_term(term)
+            .map_err(|e| NativeError::Preamble(format!("{e:?}")))
+    }
+    fn render_trigger(
+        &mut self,
+        trigger: &crate::state::terms::Trigger,
+    ) -> Result<String, Self::Error> {
+        trigger
+            .terms
+            .iter()
+            .map(|term| {
+                self.base
+                    .term_converter
+                    .convert_term(term)
+                    .map_err(|e| NativeError::Preamble(format!("{e:?}")))
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|terms| terms.join(" "))
+    }
+}
+
+/// Source method-local resource scan for unsafe wildcard optimization. Contract projections
+/// differ at caller and callee boundaries, and called method bodies are not traversed.
+fn wildcard_permission_locations<E>(
+    program: &ferrum_silver::ast::program::Program,
+    method: &Method,
+) -> Result<Vec<ResourceKey>, NativeError<E>> {
+    use ferrum_silver::ast::{
+        statement::StmtKind,
+        utility::{
+            expressions::{when_exhaling, when_inhaling},
+            nodes::{Node, subnodes},
+        },
+    };
+    let Some(body) = &method.body else {
+        return Ok(Vec::new());
+    };
+    fn scan<E>(
+        program: &ferrum_silver::ast::program::Program,
+        node: &Node,
+        out: &mut Vec<ResourceKey>,
+        inspect_calls: bool,
+    ) -> Result<(), NativeError<E>> {
+        if let Node::Exp(exp) = node {
+            if let ExpKind::CurrentPerm(access) = exp.kind() {
+                let key = match access.kind() {
+                    ExpKind::FieldAccess(field) => {
+                        Some(ResourceKey::Field(Arc::new(field.field.clone())))
+                    }
+                    ExpKind::PredicateAccess(location) => Some(ResourceKey::Predicate(Arc::new(
+                        program
+                            .find_predicate(&location.predicate_name)
+                            .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?
+                            .clone(),
+                    ))),
+                    _ => None,
+                };
+                if let Some(key) = key {
+                    if !out.contains(&key) {
+                        out.push(key);
+                    }
+                }
+            }
+        }
+        if inspect_calls {
+            if let Node::Stmt(stmt) = node {
+                if let StmtKind::MethodCall { method_name, .. } = stmt.kind() {
+                    let called = program
+                        .find_method(method_name)
+                        .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+                    for exp in &called.pres {
+                        let exp = when_exhaling(exp)
+                            .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+                        scan(program, &Node::Exp(exp), out, false)?;
+                    }
+                    for exp in &called.posts {
+                        let exp = when_inhaling(exp)
+                            .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+                        scan(program, &Node::Exp(exp), out, false)?;
+                    }
+                }
+            }
+        }
+        for child in subnodes(node).map_err(|e| NativeError::Diagnostic(format!("{e:?}")))? {
+            scan(program, &child, out, inspect_calls)?;
+        }
+        Ok(())
+    }
+    let mut locations = Vec::new();
+    scan(program, &Node::Stmt(body.clone()), &mut locations, true)?;
+    for exp in &method.pres {
+        let exp = when_inhaling(exp).map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+        scan(program, &Node::Exp(exp), &mut locations, false)?;
+    }
+    for exp in &method.posts {
+        let exp = when_exhaling(exp).map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+        scan(program, &Node::Exp(exp), &mut locations, false)?;
+    }
+    Ok(locations)
+}
+
+/// Restrict collection element sorts until nested declaration order is wired.
+fn collection_program(
+    program: &ferrum_silver::ast::program::Program,
+) -> Result<(bool, bool, bool), String> {
+    use ferrum_silver::ast::{
+        r#type::Type,
+        utility::{domain_instances::collect_ground_types, nodes::Node},
+    };
+    let ground = collect_ground_types(&Node::Program(program.clone()), program)
+        .map_err(|e| format!("{e:?}"))?;
+    let (mut sequences, mut sets, mut maps) = (false, false, false);
+    let primitive = |t: &Type| matches!(t, Type::Int | Type::Bool | Type::Ref | Type::Perm);
+    for typ in ground {
+        match typ {
+            Type::Seq(element) => {
+                if !primitive(&element) {
+                    return Err(
+                        "nested or nonprimitive sequence element sort is not connected".into(),
+                    );
+                }
+                sequences = true;
+            }
+            Type::Set(element) => {
+                if !primitive(&element) {
+                    return Err("nested or nonprimitive set element sort is not connected".into());
+                }
+                sets = true;
+            }
+            Type::Map(pair) => {
+                if !primitive(&pair.0) || !primitive(&pair.1) {
+                    return Err("nonprimitive map key or value sort is not connected".into());
+                }
+                maps = true;
+            }
+            _ => {}
+        }
+    }
+    Ok((sequences, sets, maps))
+}
+
+fn native_domain_preamble(
+    program: &ferrum_silver::ast::program::Program,
+    converter: &crate::state::symbol_converter::DefaultSymbolConverter,
+    factory: &TermFactory,
+) -> Result<crate::verifier::native_preamble::NativePreambleData, String> {
+    let has_generic_axioms = program
+        .domains
+        .iter()
+        .any(|domain| !domain.type_vars.is_empty() && !domain.axioms.is_empty());
+    if has_generic_axioms {
+        crate::verifier::native_preamble::analyze_generic_axioms(program, converter, factory)
+    } else {
+        crate::verifier::native_preamble::analyze_with_maps(program, converter, factory)
+    }
+    .map_err(|e| format!("{e:?}"))
 }

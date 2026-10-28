@@ -2315,6 +2315,218 @@ impl ExpressionParser<'_> {
                     self.expr_node(kind, self.position(start), self.position(self.cursor));
                 return self.suffix(expression);
             }
+            if matches!(name, "domain" | "range") {
+                let base = self.parenthesized_expression()?;
+                let keyword = PReserved::new(
+                    if name == "domain" {
+                        PKwOp::Domain
+                    } else {
+                        PKwOp::Range
+                    },
+                    span,
+                );
+                let kind = if name == "domain" {
+                    PExpressionKind::MapDomain { keyword, base }
+                } else {
+                    PExpressionKind::MapRange { keyword, base }
+                };
+                let result = self.expr_node(kind, self.position(start), self.position(self.cursor));
+                return self.suffix(result);
+            }
+            if name == "Map" {
+                let annotated_type = if let Some(left) = self.take("[")? {
+                    let begin = left.0.clone();
+                    let key = self.typ()?;
+                    let comma = self
+                        .take(",")?
+                        .ok_or_else(|| self.error("expected ',' between map types"))?;
+                    let value = self.typ()?;
+                    let pair_begin = key
+                        .node()
+                        .read()
+                        .expect("poisoned parse node")
+                        .pos
+                        .0
+                        .clone();
+                    let pair_end = value
+                        .node()
+                        .read()
+                        .expect("poisoned parse node")
+                        .pos
+                        .1
+                        .clone();
+                    let pair = super::parse_ast::PPairArgument::new(
+                        key,
+                        PReserved::new(PSym::Comma, comma),
+                        value,
+                        (pair_begin, pair_end),
+                    );
+                    let right = self
+                        .take("]")?
+                        .ok_or_else(|| self.error("expected ']' after map types"))?;
+                    let end = right.1.clone();
+                    Some(PGrouped::new(
+                        PReserved::new(PSym::LBracket, left),
+                        pair,
+                        PReserved::new(PSym::RBracket, right),
+                        (begin, end),
+                    ))
+                } else {
+                    None
+                };
+                let left = self
+                    .take("(")?
+                    .ok_or_else(|| self.error("expected '(' after Map"))?;
+                let begin = left.0.clone();
+                self.trivia()?;
+                let list_begin = self.position(self.cursor);
+                let mut values = Vec::new();
+                if !self.source[self.cursor..].starts_with(')') {
+                    loop {
+                        let key = self.expression(0)?;
+                        let key_start = key
+                            .node()
+                            .read()
+                            .expect("poisoned parse node")
+                            .pos
+                            .0
+                            .clone();
+                        let assign = self
+                            .take(":=")?
+                            .ok_or_else(|| self.error("expected ':=' in map entry"))?;
+                        let value = self.expression(0)?;
+                        let value_end = value
+                            .node()
+                            .read()
+                            .expect("poisoned parse node")
+                            .pos
+                            .1
+                            .clone();
+                        let maplet = self.expr_node(
+                            PExpressionKind::Maplet {
+                                key,
+                                assign: PReserved::new(PSymOp::Assign, assign),
+                                value,
+                            },
+                            key_start,
+                            value_end,
+                        );
+                        let comma = self.take(",")?.map(|p| PReserved::new(PSym::Comma, p));
+                        let more = comma.is_some();
+                        values.push((maplet, comma));
+                        if !more {
+                            break;
+                        }
+                    }
+                }
+                let list = comma_pairs(values, (list_begin, self.position(self.cursor)));
+                let right = self
+                    .take(")")?
+                    .ok_or_else(|| self.error("expected ')' after map elements"))?;
+                let end = right.1.clone();
+                let args = PGrouped::new(
+                    PReserved::new(PSym::LParen, left),
+                    list,
+                    PReserved::new(PSym::RParen, right),
+                    (begin, end),
+                );
+                let op = PReserved::new(PKwOp::Map, span);
+                let kind = if args.inner().is_empty() {
+                    PExpressionKind::EmptyMap {
+                        op,
+                        annotated_type,
+                        call_args: args,
+                    }
+                } else {
+                    if annotated_type.is_some() {
+                        return Err(self.error("nonempty map cannot have type annotations"));
+                    }
+                    PExpressionKind::ExplicitMap(super::parse_ast::PExplicitMap {
+                        op,
+                        call_args: args,
+                    })
+                };
+                let result = self.expr_node(kind, self.position(start), self.position(self.cursor));
+                return self.suffix(result);
+            }
+            if matches!(name, "Seq" | "Set" | "Multiset") {
+                let op = match name {
+                    "Seq" => PKwOp::Seq,
+                    "Set" => PKwOp::Set,
+                    _ => PKwOp::Multiset,
+                };
+                let annotated_type = if let Some(left) = self.take("[")? {
+                    let begin = left.0.clone();
+                    let typ = self.typ()?;
+                    let right = self
+                        .take("]")?
+                        .ok_or_else(|| self.error("expected ']' after collection element type"))?;
+                    let end = right.1.clone();
+                    Some(PGrouped::new(
+                        PReserved::new(PSym::LBracket, left),
+                        typ,
+                        PReserved::new(PSym::RBracket, right),
+                        (begin, end),
+                    ))
+                } else {
+                    None
+                };
+                let left = self
+                    .take("(")?
+                    .ok_or_else(|| self.error("expected '(' after collection constructor"))?;
+                let begin = left.0.clone();
+                self.trivia()?;
+                let list_begin = self.position(self.cursor);
+                let first = if self.source[self.cursor..].starts_with(')') {
+                    None
+                } else {
+                    Some(self.expression(0)?)
+                };
+                let mut rest = Vec::new();
+                if first.is_some() {
+                    while let Some(comma) = self.take(",")? {
+                        rest.push((PReserved::new(PSym::Comma, comma), self.expression(0)?));
+                    }
+                }
+                let list =
+                    PDelimited::new(first, rest, None, (list_begin, self.position(self.cursor)));
+                let right = self
+                    .take(")")?
+                    .ok_or_else(|| self.error("expected ')' after collection elements"))?;
+                let end = right.1.clone();
+                let args = PGrouped::new(
+                    PReserved::new(PSym::LParen, left),
+                    list,
+                    PReserved::new(PSym::RParen, right),
+                    (begin, end),
+                );
+                let kind = if args.inner().is_empty() {
+                    let collection = super::parse_ast::PEmptyCollection {
+                        op: PReserved::new(op, span),
+                        annotated_type,
+                        call_args: args,
+                    };
+                    match op {
+                        PKwOp::Seq => PExpressionKind::EmptySeq(collection),
+                        PKwOp::Set => PExpressionKind::EmptySet(collection),
+                        _ => PExpressionKind::EmptyMultiset(collection),
+                    }
+                } else {
+                    if annotated_type.is_some() {
+                        return Err(self
+                            .error("nonempty collection cannot have an element type annotation"));
+                    }
+                    let collection =
+                        super::parse_ast::PExplicitCollection::new(PReserved::new(op, span), args);
+                    match op {
+                        PKwOp::Seq => PExpressionKind::ExplicitSeq(collection),
+                        PKwOp::Set => PExpressionKind::ExplicitSet(collection),
+                        _ => PExpressionKind::ExplicitMultiset(collection),
+                    }
+                };
+                let result = self.expr_node(kind, self.position(start), self.position(self.cursor));
+                return self.suffix(result);
+            }
             if name == "let" {
                 let variable = self.identifier_definition()?;
                 let equals = self
@@ -2346,7 +2558,7 @@ impl ExpressionParser<'_> {
                 );
                 return self.suffix(result);
             }
-            if matches!(name, "forall" | "exists") {
+            if matches!(name, "forall" | "exists" | "forperm") {
                 let first = self.binding(PDeclarationKind::LogicalVar)?;
                 let list_start = first
                     .node()
@@ -2373,6 +2585,51 @@ impl ExpressionParser<'_> {
                     .1
                     .clone();
                 let vars = PDelimited::new(Some(first), rest, None, (list_start, list_end));
+                if name == "forperm" {
+                    let left = self
+                        .take("[")?
+                        .ok_or_else(|| self.error("expected '[' before forperm resource"))?;
+                    let begin = left.0.clone();
+                    let access = self.expression(0)?;
+                    if !matches!(
+                        &access.node().read().expect("poisoned parse node").kind,
+                        PNodeKind::Expression(PExpression {
+                            kind: PExpressionKind::FieldAccess { .. }
+                                | PExpressionKind::Call { .. }
+                                | PExpressionKind::MagicWandExp { .. },
+                            ..
+                        })
+                    ) {
+                        return Err(self.error("expected forperm resource access"));
+                    }
+                    let right = self
+                        .take("]")?
+                        .ok_or_else(|| self.error("expected ']' after forperm resource"))?;
+                    let end = right.1.clone();
+                    let trigger = super::parse_ast::PPermTrigger::new(PGrouped::new(
+                        PReserved::new(PSym::LBracket, left),
+                        access,
+                        PReserved::new(PSym::RBracket, right),
+                        (begin, end),
+                    ));
+                    let colons = self
+                        .take("::")?
+                        .ok_or_else(|| self.error("expected '::' after forperm resource"))?;
+                    let body = self.expression(0)?;
+                    let result = self.expr_node(
+                        PExpressionKind::ForPerm {
+                            keyword: PReserved::new(PKw::Forperm, span),
+                            vars,
+                            trigger,
+                            colons: PReserved::new(PSym::ColonColon, colons),
+                            body,
+                            scope_id: fresh_scope_id(),
+                        },
+                        self.position(start),
+                        self.position(self.cursor),
+                    );
+                    return self.suffix(result);
+                }
                 let colons = self
                     .take("::")?
                     .ok_or_else(|| self.error("expected '::' after quantifier variables"))?;

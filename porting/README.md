@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 401 mapped and assembly modules. `described` files
+The Cargo workspace now has 403 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
@@ -10,9 +10,11 @@ The CLI connects configuration, parsing, default plugins, consistency checks and
 source-shaped Silicon rules to the native Z3 stdio transport. End-to-end smoke
 checks cover valid and invalid ordinary methods, contracts, branches, allocation,
 field permissions and method calls. Unsupported features return execution errors.
-The default runtime currently uses one worker; functions, domains, loops,
-fold/unfold, quantified permissions, wands, complete exhale and advanced reporting
-remain incomplete. No comparative speed improvement has been established.
+The default runtime currently uses one worker. Loops, fold/unfold, scoped
+unfolding, heap-independent quantifiers, selected generic domain axioms and
+primitive Seq/Set/Map instances now reach Z3. Heap-dependent functions, general
+domain instances, quantified resources, wands, complete exhale and advanced
+reporting remain incomplete. No comparative speed improvement has been established.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and

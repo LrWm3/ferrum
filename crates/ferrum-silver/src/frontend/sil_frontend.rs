@@ -538,6 +538,51 @@ impl FrontendPhases for SilFrontendPhases {
 mod tests {
     use super::*;
     #[test]
+    fn forperm_resource_and_binder_reach_verification_preparation() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases
+            .parse("field f: Int method m() { assert forperm r: Ref [r.f] :: true; }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+    }
+    #[test]
+    fn forperm_predicate_and_nested_permission_rules() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases
+            .parse(
+                "predicate p(r: Ref) { true } method m() { assert forperm r: Ref [p(r)] :: true; }",
+            )
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        let parsed = phases
+            .parse("field f: Int method m() { assert forperm r: Ref [r.f] :: perm(r.f) > none; }")
+            .unwrap();
+        assert!(phases.analyze(parsed).is_err());
+    }
+    #[test]
+    fn collection_literals_infer_element_types_and_reject_mixed_values() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("method m() { var s: Seq[Int] := Seq(1, 2); var e: Seq[Int] := Seq(); var t: Set[Bool] := Set(true, false); var u: Multiset[Int] := Multiset[Int](); var mp: Map[Int, Bool] := Map(1 := true, 2 := false); var em: Map[Int, Bool] := Map[Int, Bool](); var keys: Set[Int] := domain(mp); var values: Set[Bool] := range(mp); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        let parsed = phases
+            .parse("method m() { var s: Seq[Int] := Seq(1, true); }")
+            .unwrap();
+        assert!(phases.analyze(parsed).is_err());
+    }
+    #[test]
     fn native_termination_imports_sequence_order() {
         let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
         let mut phases = SilFrontendPhases::new(

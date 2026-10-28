@@ -24,6 +24,7 @@ pub enum SymbolConversionError {
     UnsupportedTypePrinter,
     EmptySorts,
     MissingHeapResources,
+    InvalidBuiltinArity,
 }
 impl std::fmt::Display for SymbolConversionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -32,12 +33,21 @@ impl std::fmt::Display for SymbolConversionError {
 }
 impl std::error::Error for SymbolConversionError {}
 
+/// Source builtin-domain specializations supported by the default contributors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BuiltinDomainSort {
+    Sequence,
+    Set,
+    Multiset,
+    Map,
+}
 pub type EmbeddingResolver = dyn Fn(&dyn ExtensionType) -> Option<Sort> + Send + Sync;
 #[derive(Clone)]
 pub struct DefaultSymbolConverter {
     factory: TermFactory,
     mask_heap_mode: bool,
     embedding: Option<Arc<EmbeddingResolver>>,
+    builtin_domain: Option<(String, BuiltinDomainSort)>,
 }
 impl DefaultSymbolConverter {
     pub fn new(factory: TermFactory, mask_heap_mode: bool) -> Self {
@@ -45,10 +55,16 @@ impl DefaultSymbolConverter {
             factory,
             mask_heap_mode,
             embedding: None,
+            builtin_domain: None,
         }
     }
     pub fn with_embedding_resolver(mut self, resolver: Arc<EmbeddingResolver>) -> Self {
         self.embedding = Some(resolver);
+        self
+    }
+    /// Source BuiltinDomainAwareSymbolConverter overrides one domain name per contributor.
+    pub fn with_builtin_domain(mut self, name: impl Into<String>, kind: BuiltinDomainSort) -> Self {
+        self.builtin_domain = Some((name.into(), kind));
         self
     }
     fn type_name(typ: &Type) -> Result<String, SymbolConversionError> {
@@ -99,6 +115,34 @@ impl DefaultSymbolConverter {
                 Box::new(self.to_sort(&pair.0)?),
                 Box::new(self.to_sort(&pair.1)?),
             ),
+            Type::Domain(d)
+                if self
+                    .builtin_domain
+                    .as_ref()
+                    .is_some_and(|(name, _)| *name == d.domain_name) =>
+            {
+                let args = d
+                    .type_arguments()
+                    .iter()
+                    .map(|t| self.to_sort(t))
+                    .collect::<Result<Vec<_>, _>>()?;
+                match (
+                    self.builtin_domain.as_ref().expect("checked builtin").1,
+                    args.as_slice(),
+                ) {
+                    (BuiltinDomainSort::Sequence, [element]) => {
+                        Sort::Seq(Box::new(element.clone()))
+                    }
+                    (BuiltinDomainSort::Set, [element]) => Sort::Set(Box::new(element.clone())),
+                    (BuiltinDomainSort::Multiset, [element]) => {
+                        Sort::Multiset(Box::new(element.clone()))
+                    }
+                    (BuiltinDomainSort::Map, [key, value]) => {
+                        Sort::Map(Box::new(key.clone()), Box::new(value.clone()))
+                    }
+                    _ => return Err(SymbolConversionError::InvalidBuiltinArity),
+                }
+            }
             Type::Domain(_) if !typ.is_concrete() => {
                 return Err(SymbolConversionError::NonConcreteDomain);
             }
@@ -270,6 +314,33 @@ mod tests {
     use super::*;
     use crate::state::terms::TermOptions;
     use ferrum_silver::ast::ast::Metadata;
+    #[test]
+    fn builtin_domain_override_uses_collection_sort_and_respects_parameter_order() {
+        use ferrum_silver::ast::r#type::{DomainType, TypeVar};
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let a = TypeVar::new("K");
+        let b = TypeVar::new("V");
+        let typ = Type::Domain(DomainType::new(
+            "$Map",
+            [(a.clone(), Type::Int), (b.clone(), Type::Bool)]
+                .into_iter()
+                .collect(),
+            vec![a, b],
+        ));
+        let ordinary = DefaultSymbolConverter::new(factory.clone(), false);
+        let builtin = ordinary
+            .clone()
+            .with_builtin_domain("$Map", BuiltinDomainSort::Map);
+        assert!(matches!(ordinary.to_sort(&typ).unwrap(), Sort::UserSort(_)));
+        assert_eq!(
+            builtin.to_sort(&typ).unwrap(),
+            Sort::Map(Box::new(Sort::Int), Box::new(Sort::Bool))
+        );
+    }
     #[test]
     fn backend_smt_name_and_uninterpreted_function_signature_are_preserved() {
         let factory = TermFactory::new(TermOptions {
