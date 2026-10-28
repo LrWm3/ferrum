@@ -1053,10 +1053,7 @@ where
                 let cleanup = this.base.decider.pop_scope().map_err(NativeError::Decider);
                 match (result, cleanup) {
                     (Ok(result), Ok(())) => Ok(result),
-                    (Err(e), Err(cleanup)) => Err(EvaluationError::TriggerCleanup {
-                        evaluation: Box::new(e),
-                        cleanup,
-                    }),
+                    (Err(e), Err(cleanup)) => Err(coalesce_evaluation_cleanup(e, cleanup)),
                     (Err(e), Ok(())) => Err(e),
                     (Ok(_), Err(cleanup)) => Err(EvaluationError::Context(cleanup)),
                 }
@@ -1075,10 +1072,7 @@ where
         let (entries, result) = match (block, cleanup) {
             (Ok(value), Ok(())) => value,
             (Err(e), Err(cleanup)) => {
-                return Err(EvaluationError::TriggerCleanup {
-                    evaluation: Box::new(e),
-                    cleanup,
-                });
+                return Err(coalesce_evaluation_cleanup(e, cleanup));
             }
             (Err(e), Ok(())) => return Err(e),
             (Ok(_), Err(cleanup)) => return Err(EvaluationError::Context(cleanup)),
@@ -1461,10 +1455,7 @@ where
             (Ok(value), Ok(())) => value,
             (Err(e), Ok(())) => return Err(e),
             (Err(e), Err(cleanup)) => {
-                return Err(EvaluationError::TriggerCleanup {
-                    evaluation: Box::new(e),
-                    cleanup,
-                });
+                return Err(coalesce_evaluation_cleanup(e, cleanup));
             }
             (Ok(_), Err(cleanup)) => return Err(EvaluationError::Context(cleanup)),
         };
@@ -8400,10 +8391,7 @@ where
         let block = match (block, cleanup) {
             (Ok(v), Ok(())) => v,
             (Err(e), Err(cleanup)) => {
-                return Err(EvaluationError::TriggerCleanup {
-                    evaluation: Box::new(e),
-                    cleanup,
-                });
+                return Err(coalesce_evaluation_cleanup(e, cleanup));
             }
             (Err(e), Ok(())) => return Err(e),
             (Ok(_), Err(cleanup)) => return Err(EvaluationError::Context(cleanup)),
@@ -8553,10 +8541,7 @@ where
         let block = match (block, cleanup) {
             (Ok(v), Ok(())) => v,
             (Err(e), Err(cleanup)) => {
-                return Err(EvaluationError::TriggerCleanup {
-                    evaluation: Box::new(e),
-                    cleanup,
-                });
+                return Err(coalesce_evaluation_cleanup(e, cleanup));
             }
             (Err(e), Ok(())) => return Err(e),
             (Ok(_), Err(cleanup)) => return Err(EvaluationError::Context(cleanup)),
@@ -8742,10 +8727,7 @@ where
         let block = match (block, cleanup) {
             (Ok(v), Ok(())) => v,
             (Err(e), Err(cleanup)) => {
-                return Err(EvaluationError::TriggerCleanup {
-                    evaluation: Box::new(e),
-                    cleanup,
-                });
+                return Err(coalesce_evaluation_cleanup(e, cleanup));
             }
             (Err(e), Ok(())) => return Err(e),
             (Ok(_), Err(cleanup)) => return Err(EvaluationError::Context(cleanup)),
@@ -13785,5 +13767,56 @@ where
             return Err(e);
         }
         result.map_err(|e| PE::Service(NativeError::Production(format!("{e:?}"))))
+    }
+}
+
+/// Avoid nesting the same solver cleanup failure once per unwound branch scope.
+/// Distinct cleanup failures remain attached in source order.
+fn coalesce_evaluation_cleanup<E: std::fmt::Debug>(
+    evaluation: EvaluationError<E>,
+    cleanup: E,
+) -> EvaluationError<E> {
+    if let EvaluationError::TriggerCleanup { cleanup: prior, .. } = &evaluation {
+        if format!("{prior:?}") == format!("{cleanup:?}") {
+            return evaluation;
+        }
+    }
+    EvaluationError::TriggerCleanup {
+        evaluation: Box::new(evaluation),
+        cleanup,
+    }
+}
+
+#[cfg(test)]
+mod cleanup_coalescing_tests {
+    use super::{EvaluationError, coalesce_evaluation_cleanup};
+
+    #[test]
+    fn coalesces_only_adjacent_equal_cleanup_failures() {
+        let primary = EvaluationError::Context("primary".to_string());
+        let first = coalesce_evaluation_cleanup(primary, "closed".to_string());
+        let duplicate = coalesce_evaluation_cleanup(first, "closed".to_string());
+        let distinct = coalesce_evaluation_cleanup(duplicate, "different".to_string());
+        match distinct {
+            EvaluationError::TriggerCleanup {
+                evaluation,
+                cleanup,
+            } => {
+                assert_eq!(cleanup, "different");
+                match *evaluation {
+                    EvaluationError::TriggerCleanup {
+                        evaluation,
+                        cleanup,
+                    } => {
+                        assert_eq!(cleanup, "closed");
+                        assert!(
+                            matches!(*evaluation, EvaluationError::Context(ref e) if e == "primary")
+                        );
+                    }
+                    _ => panic!("original cleanup was lost"),
+                }
+            }
+            _ => panic!("distinct cleanup was lost"),
+        }
     }
 }
