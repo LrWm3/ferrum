@@ -47,6 +47,8 @@
 //! direct assertions, selected implications and fold/unfold checks. Unsupported relational
 //! contexts fail explicitly. Optimized loops, return/break/continue/exception control,
 //! try/catch/finally, inlined calls, dynamic checks and Low comparators are connected.
+//! Relational unfolding, impure forall, direct Assume and all-low calls are connected;
+//! alternate generation/configuration profiles remain incomplete.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -412,6 +414,170 @@ mod tests {
         };
         let StmtKind::Inhale(exp) = statements[0].kind() else {
             panic!("expected inhale")
+        };
+        let ExpKind::Implies(active, equality) = exp.kind() else {
+            panic!("expected guarded equality")
+        };
+        assert!(matches!(active.kind(), ExpKind::And(a, b) if a == &first && b == &second));
+        assert!(
+            matches!(equality.kind(), ExpKind::EqCmp(a, b) if matches!(a.kind(), ExpKind::LocalVar(v) if v.name == "x") && matches!(b.kind(), ExpKind::LocalVar(v) if v.name == "x_0"))
+        );
+    }
+
+    #[test]
+    fn all_low_helper_call_requires_both_executions_without_priming_call() {
+        use crate::ast::{ast::Metadata, expression::LocalVar, r#type::Type};
+        let meta = Metadata::default();
+        let var = |name: &str| {
+            Exp::new(
+                ExpKind::LocalVar(LocalVar::new(name.into(), Type::Bool, meta.clone())),
+                meta.clone(),
+            )
+        };
+        let first = var("p1");
+        let second = var("p2");
+        let call = Exp::new(
+            ExpKind::FuncApp("P$_all_low".into(), vec![var("x")]),
+            meta.clone(),
+        );
+        let product = sif_assertion(
+            &call,
+            &first,
+            &second,
+            &HashMap::new(),
+            &HashMap::new(),
+            &Program::new(vec![], vec![], vec![], vec![], vec![], vec![], meta),
+            &HashSet::new(),
+        )
+        .unwrap();
+        let ExpKind::Implies(guard, retained) = product.kind() else {
+            panic!("expected guarded helper")
+        };
+        assert!(matches!(guard.kind(), ExpKind::And(a, b) if a == &first && b == &second));
+        assert!(retained.same_node(&call));
+    }
+
+    #[test]
+    fn impure_forall_with_relational_predicate_keeps_two_quantifiers() {
+        use crate::ast::{
+            ast::Metadata,
+            expression::{LocalVar, PredicateAccess},
+            statement::PredicateAccessPredicate,
+            r#type::Type,
+        };
+        let meta = Metadata::default();
+        let boolean = |name: &str| {
+            Exp::new(
+                ExpKind::LocalVar(LocalVar::new(name.into(), Type::Bool, meta.clone())),
+                meta.clone(),
+            )
+        };
+        let first = boolean("p1");
+        let second = boolean("p2");
+        let access = PredicateAccess::new(vec![], "P".into(), meta.clone());
+        let body = Exp::new(
+            ExpKind::PredicateAccessPredicate(PredicateAccessPredicate::new(
+                access,
+                None,
+                meta.clone(),
+            )),
+            meta.clone(),
+        );
+        let quantified = Exp::new(ExpKind::Forall(vec![], vec![], body), meta.clone());
+        assert!(!quantified.is_pure());
+        let product = sif_assertion(
+            &quantified,
+            &first,
+            &second,
+            &HashMap::from([("P".into(), "P_0".into())]),
+            &HashMap::new(),
+            &Program::new(vec![], vec![], vec![], vec![], vec![], vec![], meta),
+            &HashSet::from(["P".into()]),
+        )
+        .unwrap();
+        let ExpKind::And(left, right) = product.kind() else {
+            panic!("expected two guarded quantifiers")
+        };
+        assert!(
+            matches!(left.kind(), ExpKind::Implies(flag, q) if flag == &first && matches!(q.kind(), ExpKind::Forall(..)))
+        );
+        assert!(
+            matches!(right.kind(), ExpKind::Implies(flag, q) if flag == &second && matches!(q.kind(), ExpKind::Forall(..)))
+        );
+        let ExpKind::Implies(_, q) = right.kind() else {
+            unreachable!()
+        };
+        let ExpKind::Forall(_, _, body) = q.kind() else {
+            unreachable!()
+        };
+        assert!(
+            matches!(body.kind(), ExpKind::PredicateAccessPredicate(access) if access.location.predicate_name == "P_0")
+        );
+    }
+
+    #[test]
+    fn assume_translates_relational_assertion_with_both_activation_flags() {
+        use super::super::sif_ast_extensions::{SifExpression, SifExpressionKind};
+        use crate::ast::{
+            ast::Metadata,
+            expression::LocalVar,
+            statement::{Stmt, StmtKind},
+            r#type::Type,
+        };
+        let meta = Metadata::default();
+        let variable = |name: &str, typ| {
+            Exp::new(
+                ExpKind::LocalVar(LocalVar::new(name.into(), typ, meta.clone())),
+                meta.clone(),
+            )
+        };
+        let first = variable("p1", Type::Bool);
+        let second = variable("p2", Type::Bool);
+        let low = SifExpression {
+            kind: SifExpressionKind::Low {
+                exp: variable("x", Type::Int),
+                comparator: None,
+                type_variables: Default::default(),
+            },
+            meta: meta.clone(),
+        }
+        .expression()
+        .unwrap();
+        let block = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![Stmt::new(StmtKind::Assume(low), meta.clone())],
+                declarations: vec![],
+            },
+            meta,
+        );
+        let product = sif_assertion_block(
+            &block,
+            &first,
+            &second,
+            &mut HashMap::from([("x".into(), "x_0".into())]),
+            &HashMap::new(),
+            &Program::new(
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                Default::default(),
+            ),
+            &HashSet::new(),
+            None,
+            None,
+            None,
+            None,
+            &mut NameTransformer::default(),
+        )
+        .unwrap();
+        let StmtKind::Seqn { statements, .. } = product.kind() else {
+            panic!("expected block")
+        };
+        let StmtKind::Assume(exp) = statements[0].kind() else {
+            panic!("expected assume")
         };
         let ExpKind::Implies(active, equality) = exp.kind() else {
             panic!("expected guarded equality")
@@ -845,6 +1011,34 @@ mod tests {
         let (mut checks, mut loops) = (0, 0);
         visit(&Node::Program(output), &mut checks, &mut loops);
         assert_eq!((checks, loops), (2, 1));
+    }
+
+    #[test]
+    fn unfolding_with_relational_body_reaches_nested_product_unfoldings() {
+        use super::super::sif_plugin::SifTransformer;
+        use crate::parser::{
+            fast_parser::{ParserFeature, parse_program_with_features},
+            parse_ast::init_properties,
+            resolver::{NameAnalyser, check_program_core},
+            translator::translate_program_core,
+        };
+        let parsed = parse_program_with_features("field f: Int predicate P(r: Ref) { acc(r.f) } method m(r: Ref) requires acc(P(r)) { assert unfolding acc(P(r)) in low(r.f); }", "test.vpr", &[ParserFeature::Sif]).unwrap();
+        init_properties(parsed.node()).unwrap();
+        assert!(NameAnalyser::default().run(parsed.node()).unwrap());
+        check_program_core(&parsed, &mut |_, _| {}).unwrap();
+        let input = translate_program_core(&parsed).unwrap();
+        let output = NativeSifTransformer.transform(input, false).unwrap();
+        fn unfoldings(node: &Node) -> usize {
+            let here = usize::from(
+                matches!(node, Node::Exp(exp) if matches!(exp.kind(), ExpKind::Unfolding(..))),
+            );
+            here + subnodes(node)
+                .unwrap()
+                .iter()
+                .map(unfoldings)
+                .sum::<usize>()
+        }
+        assert_eq!(unfoldings(&Node::Program(output)), 2);
     }
 
     #[test]
@@ -2841,6 +3035,17 @@ fn sif_assertion_with_flags(
             crate::ast::utility::triggers::auto_trigger(&quantified)
                 .map_err(|e| format!("SIF automatic trigger: {e:?}"))
         }
+        ExpKind::Forall(..) => {
+            let normal = sif_pure_expression(exp, false, names, fields)?;
+            let prime = sif_pure_expression(exp, true, names, fields)?;
+            Ok(Exp::new(
+                ExpKind::And(
+                    Exp::new(ExpKind::Implies(first.clone(), normal), forwarded()),
+                    Exp::new(ExpKind::Implies(second.clone(), prime), forwarded()),
+                ),
+                forwarded(),
+            ))
+        }
         ExpKind::Implies(left, right)
             if !is_directly_unary(exp, &SifConfig::default())
                 .map_err(|e| format!("SIF expression traversal: {e:?}"))? =>
@@ -2905,6 +3110,35 @@ fn sif_assertion_with_flags(
         {
             predicate_low_assertion(exp, first, second, names, fields)
         }
+        ExpKind::Unfolding(access, body)
+            if !is_directly_unary(body, &SifConfig::default())
+                .map_err(|e| format!("SIF unfolding traversal: {e:?}"))? =>
+        {
+            let normal_access = sif_pure_expression(access, false, names, fields)?;
+            let primed_access = sif_pure_expression(access, true, names, fields)?;
+            let translated = sif_assertion_with_flags(
+                body,
+                first,
+                second,
+                names,
+                fields,
+                program,
+                low_predicates,
+                event_flags,
+            )?;
+            let inner = Exp::new(
+                ExpKind::Unfolding(primed_access, translated),
+                exp.metadata().clone(),
+            );
+            let outer = Exp::new(
+                ExpKind::Unfolding(normal_access, inner),
+                exp.metadata().clone(),
+            );
+            Ok(Exp::new(
+                ExpKind::Implies(make(ExpKind::And(first.clone(), second.clone())), outer),
+                exp.metadata().clone(),
+            ))
+        }
         ExpKind::Old(inner) => Ok(Exp::new(
             ExpKind::Old(sif_assertion_with_flags(
                 inner,
@@ -2918,6 +3152,12 @@ fn sif_assertion_with_flags(
             )?),
             exp.metadata().clone(),
         )),
+        ExpKind::FuncApp(name, _) if NameTransformer::is_predicate_all_low_name(name) => {
+            Ok(make(ExpKind::Implies(
+                make(ExpKind::And(first.clone(), second.clone())),
+                exp.clone(),
+            )))
+        }
         ExpKind::Extension(extension) => {
             let Some(sif) = extension.0.as_any().downcast_ref::<SifExpression>() else {
                 return Err("unsupported SIF assertion extension".into());
@@ -4338,6 +4578,22 @@ fn sif_assertion_block(
                         declarations,
                     },
                     Metadata::default(),
+                ));
+            }
+            StmtKind::Assume(exp) => {
+                flush(&mut normal, &mut primed, &mut result);
+                result.push(Stmt::new(
+                    StmtKind::Assume(sif_assertion_with_flags(
+                        exp,
+                        first,
+                        second,
+                        names,
+                        fields,
+                        program,
+                        low_predicates,
+                        controls,
+                    )?),
+                    sif_forward_meta(Node::Stmt(current.clone()), current.metadata()),
                 ));
             }
             StmtKind::Assert(exp) => {

@@ -141,6 +141,13 @@ lookup, type substitution and traversal order. A 66-case constructed-program
 suite passes through both transports, including controls, dynamic assertions,
 relational predicates and direct/nested comparators. Nested `Low` within `Low`
 and alternate SIF configurations retain explicit unsupported boundaries.
+Relational unfolding, impure quantified predicates, direct programmatic Assume
+and direct all-low helper calls now follow source activation guards and priming.
+Sixteen focused CLI/AST cases pass per transport, including inactive branches,
+permission consumption and failing assertions; 25 SIF unit tests and existing
+loop/inactive-inhale regressions pass. The programmatic Assume probe lowers
+assumptions after product construction; the normal textual frontend lowers them
+earlier. All-low function generation remains gated.
 
 Frontend parsing now retains sibling import failures, macro name/proof-script
 reports and warnings in source order, and uses source-aware node rendering for
