@@ -953,6 +953,27 @@ impl Session {
         silicon.start().map_err(execution)?;
         Ok(Self { silicon })
     }
+    /// Share the backend warning sink from construction onward, including failed startup.
+    fn new_with_warning_sink(
+        config: Config,
+        warnings: SharedWarnings,
+    ) -> Result<Self, FerrumError> {
+        let mut backend = NativeBackend::new(config);
+        backend.warnings = warnings;
+        let mut silicon = Silicon::new(backend);
+        silicon.configure(&[]).map_err(execution)?;
+        if let Err(error) = silicon.start() {
+            let primary = execution(error);
+            return match silicon.stop() {
+                Ok(()) => Err(primary),
+                Err(cleanup) => Err(FerrumError::Cleanup {
+                    primary: Box::new(primary),
+                    cleanup: Box::new(execution(cleanup)),
+                }),
+            };
+        }
+        Ok(Self { silicon })
+    }
     pub fn verify(
         &mut self,
         program: &Program,
@@ -986,6 +1007,165 @@ impl Session {
 impl Drop for Session {
     fn drop(&mut self) {
         let _ = self.stop();
+    }
+}
+
+/// Thread-owned adapter from the Silver verifier interface to a native Session.
+struct SessionVerifier {
+    session: Option<Session>,
+    reporter: Arc<dyn silver::reporter::reporter::Reporter>,
+}
+impl SessionVerifier {
+    fn stop_session(&mut self) -> Result<(), silver::verifier::verifier::VerifierError> {
+        let Some(mut session) = self.session.take() else {
+            return Ok(());
+        };
+        let result = session.stop();
+        result
+            .map_err(|error| silver::verifier::verifier::VerifierError::Backend(error.to_string()))
+    }
+}
+impl silver::components::components::LifetimeComponent for SessionVerifier {
+    fn start(&mut self) {} // Session::new already configured and started the owner-thread backend.
+    fn stop(&mut self) {
+        let _ = self.stop_session();
+    }
+}
+impl silver::verifier::verifier::Verifier for SessionVerifier {
+    fn name(&self) -> &str {
+        "Silicon"
+    }
+    fn version(&self) -> &str {
+        env!("CARGO_PKG_VERSION")
+    }
+    fn build_version(&self) -> &str {
+        "<unknown-build-version>"
+    }
+    fn copyright(&self) -> &str {
+        "(c) Copyright ETH Zurich 2012 - 2026"
+    }
+    fn debug_info(&mut self, _: Vec<(String, Box<dyn std::any::Any + Send + Sync>)>) {}
+    fn dependencies(&self) -> Vec<&dyn silver::verifier::verifier::Dependency> {
+        vec![]
+    }
+    fn parse_command_line(&mut self, _: &[String]) {} // The factory already parsed backend arguments.
+    fn verify(
+        &mut self,
+        program: &Program,
+    ) -> Result<VerificationResult, silver::verifier::verifier::VerifierError> {
+        let Some(mut session) = self.session.take() else {
+            return Err(silver::verifier::verifier::VerifierError::Backend(
+                "native session is stopped".into(),
+            ));
+        };
+        let result = session.verify(program, &[]);
+        self.session = Some(session);
+        result
+            .map_err(|error| silver::verifier::verifier::VerifierError::Backend(error.to_string()))
+    }
+    fn reporter(&self) -> &dyn silver::reporter::reporter::Reporter {
+        self.reporter.as_ref()
+    }
+    fn try_stop(&mut self) -> Result<(), silver::verifier::verifier::VerifierError> {
+        self.stop_session()
+    }
+}
+impl Drop for SessionVerifier {
+    fn drop(&mut self) {
+        let _ = self.stop_session();
+    }
+}
+
+/// Injected-AST frontend with source plugin processing and an owner-thread native session.
+/// It follows ViperFrontendAPI's starting state, which skips the frontend consistency phase;
+/// Session still performs Silicon's mandatory backend consistency check. Create and use this
+/// value on the same thread, using [`VERIFICATION_STACK_SIZE`] for recursive programs.
+pub struct NativeFrontendApi {
+    frontend: silver::frontend::viper_frontend_api::ViperFrontendApi<SilFrontendPhases>,
+    warnings: Arc<Mutex<Vec<String>>>,
+}
+impl NativeFrontendApi {
+    pub fn new(
+        args: &[String],
+        reporter: Arc<dyn silver::reporter::reporter::Reporter>,
+        minimal: bool,
+    ) -> Result<Self, FerrumError> {
+        Self::new_with_warning_sink(args, reporter, minimal, Arc::new(Mutex::new(Vec::new())))
+    }
+    /// Use a caller-owned sink to retain warnings even if plugin initialization fails.
+    pub fn new_with_warning_sink(
+        args: &[String],
+        reporter: Arc<dyn silver::reporter::reporter::Reporter>,
+        minimal: bool,
+        warnings: Arc<Mutex<Vec<String>>>,
+    ) -> Result<Self, FerrumError> {
+        use silver::frontend::{frontend::DefaultFrontend, viper_frontend_api::ViperFrontendApi};
+        let mut phases = SilFrontendPhases::new(
+            silver::frontend::viper_frontend_api::DUMMY_INPUT_FILENAME.into(),
+            silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+        );
+        phases.backend_type_format = Some("SMTLIB".into());
+        let mut frontend = ViperFrontendApi::new(DefaultFrontend::new(phases), minimal);
+        let mut complete_args = args.to_vec();
+        complete_args.push("--ignoreFile".into());
+        complete_args.push(silver::frontend::viper_frontend_api::DUMMY_INPUT_FILENAME.into());
+        let native_config = Config::parse(&complete_args)
+            .map_err(|error| FerrumError::Configuration(error.to_string()))?;
+        if native_config.frontend.exit() {
+            return Err(FerrumError::Configuration(
+                "frontend configuration requested exit".into(),
+            ));
+        }
+        let factory_reporter = reporter.clone();
+        let factory_warnings = warnings.clone();
+        frontend
+            .initialize_with_factory(
+                args,
+                reporter.as_ref(),
+                move |_, _| {
+                    let shared = native_config.frontend.clone();
+                    let session = Session::new_with_warning_sink(native_config, factory_warnings)
+                        .map_err(|error| error.to_string())?;
+                    let verifier = SessionVerifier {
+                        session: Some(session),
+                        reporter: factory_reporter,
+                    };
+                    Ok((Box::new(verifier), shared))
+                },
+                |name| {
+                    Ok(match name {
+                        "viper.silicon.extensions.TryBlockParserPlugin" => Some(Box::new(
+                            silicon::extensions::try_block_parser_plugin::TryBlockParserPlugin,
+                        )
+                            as Box<dyn silver::plugin::silver_plugin::SilverPlugin>),
+                        _ => None,
+                    })
+                },
+            )
+            .map_err(|error| match error {
+                silver::frontend::viper_frontend_api::FrontendApiInitError::Backend(message) => {
+                    FerrumError::Execution(message)
+                }
+                silver::frontend::viper_frontend_api::FrontendApiInitError::Reporter(error) => {
+                    FerrumError::Execution(format!("reporting: {error:?}"))
+                }
+                other => FerrumError::Configuration(format!("{other:?}")),
+            })?;
+        Ok(Self { frontend, warnings })
+    }
+    pub fn verify(&mut self, program: &Program) -> Result<VerificationResult, FerrumError> {
+        self.frontend.verify(program.clone()).map_err(execution)
+    }
+    pub fn stop(&mut self) -> Result<(), FerrumError> {
+        self.frontend.stop().map_err(execution)
+    }
+    pub fn take_warnings(&mut self) -> Vec<String> {
+        std::mem::take(
+            &mut *self
+                .warnings
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
     }
 }
 

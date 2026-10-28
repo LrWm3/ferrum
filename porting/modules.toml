@@ -330,7 +330,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ViperFrontendAPI.scala"
 destination = "crates/ferrum-silver/src/frontend/viper_frontend_api.rs"
 status = "skeleton"
-remaining = ["Injected AST execution, configured backend factory and standard/custom plugin initialization exist. Concrete Silicon verifier adapter and full reporter reset integration remain."]
+remaining = ["Configured injected-AST API and concrete native Session adapter preserve backend consistency, owner-thread reuse and fallible stop. Full dependency metadata, exact reporter events and reporter reset integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -2586,5 +2586,10 @@ remaining = ["Linked C API and Prover adapter connect both assertion modes, type
 
 [[scaffolding]]
 destination = "crates/ferrum-silicon/tests/context_log_hooks.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "tests/native_frontend_api.rs"
 status = "wired"
 role = "assembly"

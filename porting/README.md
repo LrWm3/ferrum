@@ -465,3 +465,14 @@ logging without a factory returns an error; disabled logging preserves existing
 behavior. Local hook checks inspect record types, retained state and disabled/error
 paths. Run/member installation, worker migration and remaining progress events
 are still incomplete, so public reporting profiles remain gated.
+
+The public `NativeFrontendApi` now connects injected Silver programs and source
+plugin processing to an owner-thread native Session. Backend-aware configuration
+is parsed once, Silicon's mandatory backend consistency check is retained, and
+explicit stop errors propagate through a new fallible verifier lifecycle hook.
+A caller-owned warning sink captures initialization, verification and cleanup
+warnings; plugin-initialization failure drops and stops the new session. Real
+Z3 checks cover positive/negative programs, repeated calls, consistency rejection,
+shutdown, initialization warnings and process cleanup, including linked Z3.
+The caller supplies a thread with sufficient verification stack space. Dependency
+metadata, exact reporter events and plugin-aware reporter rebinding remain open.

@@ -171,7 +171,7 @@ impl<F: FrontendPhases> ViperFrontendApi<F> {
             return Err(FrontendError::NotInitialized);
         }
         if let Some(verifier) = self.frontend.verifier.as_mut() {
-            verifier.stop();
+            verifier.try_stop().map_err(FrontendError::Verifier)?;
         }
         Ok(())
     }
@@ -358,6 +358,50 @@ mod tests {
             matches!(api.verify(empty_program()).unwrap(), VerificationResult::Failure(errors) if !errors.is_empty())
         );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn stop_propagates_backend_cleanup_error() {
+        struct StopFailure(NoopReporter);
+        impl LifetimeComponent for StopFailure {
+            fn start(&mut self) {}
+            fn stop(&mut self) {}
+        }
+        impl Verifier for StopFailure {
+            fn name(&self) -> &str {
+                "test"
+            }
+            fn version(&self) -> &str {
+                ""
+            }
+            fn build_version(&self) -> &str {
+                ""
+            }
+            fn copyright(&self) -> &str {
+                ""
+            }
+            fn debug_info(&mut self, _: Vec<(String, Box<dyn Any + Send + Sync>)>) {}
+            fn dependencies(&self) -> Vec<&dyn Dependency> {
+                vec![]
+            }
+            fn parse_command_line(&mut self, _: &[String]) {}
+            fn verify(&mut self, _: &Program) -> Result<VerificationResult, VerifierError> {
+                Ok(VerificationResult::Success)
+            }
+            fn reporter(&self) -> &dyn Reporter {
+                &self.0
+            }
+            fn try_stop(&mut self) -> Result<(), VerifierError> {
+                Err(VerifierError::Backend("stop failed".into()))
+            }
+        }
+        let phases = SilFrontendPhases::new("unused.vpr".into(), SilverPluginManager::new(vec![]));
+        let mut api = ViperFrontendApi::new(DefaultFrontend::new(phases), false);
+        api.frontend.init(Box::new(StopFailure(NoopReporter)));
+        api.initialized = true;
+        assert!(
+            matches!(api.stop(), Err(FrontendError::Verifier(VerifierError::Backend(message))) if message == "stop failed")
+        );
     }
 
     #[test]

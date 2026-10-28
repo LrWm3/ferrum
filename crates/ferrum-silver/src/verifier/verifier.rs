@@ -60,6 +60,11 @@ pub trait Verifier: LifetimeComponent {
     fn parse_command_line(&mut self, args: &[String]);
     fn verify(&mut self, program: &Program) -> Result<VerificationResult, VerifierError>;
     fn reporter(&self) -> &dyn Reporter;
+    /// Fallible lifecycle seam for native backends; the source lifecycle interface is infallible.
+    fn try_stop(&mut self) -> Result<(), VerifierError> {
+        self.stop();
+        Ok(())
+    }
 }
 
 #[derive(Default)]
