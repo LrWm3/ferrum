@@ -1830,193 +1830,193 @@ status = "mapped"
 repository = "silicon"
 upstream = "src/test/scala/ARPPluginTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/arp_plugin_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/AdtPluginTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/adt_plugin_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/ConcurrentInstantiationTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/concurrent_instantiation_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/ErrorMessageTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/error_message_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/GeneralCounterexampleTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/general_counterexample_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/MappedCounterexampleTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/mapped_counterexample_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/MemoryConsumptionTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/memory_consumption_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/NodeBacktranslationTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/node_backtranslation_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/PortableSiliconTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/portable_silicon_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconBackendTypeTest.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_backend_type_test.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconCounterexampleVariablesTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_counterexample_variables_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconQuantifierWeightTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_quantifier_weight_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconTestsConditionalizePermissions.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_conditionalize_permissions.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconTestsGreedyQP.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_greedy_qp.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconTestsMaskHeapMode.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_mask_heap_mode.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconTestsMoreCompleteExhale.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_more_complete_exhale.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconTestsMoreJoins.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_more_joins.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconTestsOldAxiomatization.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_old_axiomatization.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconTestsOldPermSemantics.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_old_perm_semantics.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconTestsParallelBranches.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_parallel_branches.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconTestsQuasihavoc.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_quasihavoc.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconTestsSIFPlugin.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_sif_plugin.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconTestsSimplifiedUnfold.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_simplified_unfold.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SiliconTestsSmokeDetection.scala"
 destination = "crates/ferrum-silicon/tests/upstream/silicon_tests_smoke_detection.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SimpleArithmeticTermSolverTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/simple_arithmetic_term_solver_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/StateReportingTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/state_reporting_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/SymbExLoggerTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/symb_ex_logger_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/TriggerGeneratorTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/trigger_generator_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/TriggerRewriterTests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/trigger_rewriter_tests.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/ViperTutorialExamples.scala"
 destination = "crates/ferrum-silicon/tests/upstream/viper_tutorial_examples.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/test/scala/tests.scala"
 destination = "crates/ferrum-silicon/tests/upstream/tests.rs"
-status = "mapped"
+status = "described"
 
 [[scaffolding]]
 destination = "src/lib.rs"
