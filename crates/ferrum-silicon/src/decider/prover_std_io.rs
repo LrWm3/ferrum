@@ -175,6 +175,10 @@ pub struct ProverStdIo {
     pub preamble_assumptions: Vec<(String, InsertionOrderedSet<Term>)>,
 }
 impl ProverStdIo {
+    /// Share the source verifier's identifier stream with its prover.
+    pub fn identifier_factory(&self) -> DefaultIdentifierFactory {
+        self.identifiers.clone()
+    }
     pub fn new(
         unique_id: String,
         settings: ProverSettings,

@@ -83,8 +83,27 @@ impl<P: Prover> BaseVerifier<P> {
         mask_heap: bool,
         configured_consolidation: StateConsolidationMode,
     ) -> Self {
+        let identifiers = DefaultIdentifierFactory::new(unique_id.clone());
+        Self::new_with_identifiers(
+            unique_id,
+            decider,
+            factory,
+            mask_heap,
+            configured_consolidation,
+            identifiers,
+        )
+    }
+    /// Use the very same fresh identifier stream as the owned prover.
+    pub fn new_with_identifiers(
+        unique_id: String,
+        decider: DefaultDecider<P>,
+        factory: TermFactory,
+        mask_heap: bool,
+        configured_consolidation: StateConsolidationMode,
+        identifiers: DefaultIdentifierFactory,
+    ) -> Self {
         Self {
-            identifiers: DefaultIdentifierFactory::new(unique_id.clone()),
+            identifiers,
             unique_id,
             decider,
             term_converter: TermToSmtLib2Converter::new(factory.clone()),

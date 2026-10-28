@@ -182,6 +182,7 @@ impl SiliconBackend for NativeBackend {
             }
         };
         let prover = ProverStdIo::new("main".into(), settings, profile, factory.clone(), |_| {});
+        let identifiers = prover.identifier_factory();
         let decider = DefaultDecider::new(
             prover,
             config.enable_debugging,
@@ -189,12 +190,13 @@ impl SiliconBackend for NativeBackend {
             Some(config.check_timeout),
             Some(config.push_timeout),
         );
-        let base = BaseVerifier::new(
+        let base = BaseVerifier::new_with_identifiers(
             "main".into(),
             decider,
             factory.clone(),
             config.mask_heap_mode,
             config.state_consolidation_mode,
+            identifiers,
         );
         let mut context = NativeContext::new(base, factory, options);
         let settings: Vec<_> = config

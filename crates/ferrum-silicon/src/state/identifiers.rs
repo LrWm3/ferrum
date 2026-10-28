@@ -128,19 +128,19 @@ pub trait IdentifierFactory {
 #[derive(Clone, Debug)]
 pub struct DefaultIdentifierFactory {
     namespace: String,
-    next: i32,
+    next: std::sync::Arc<std::sync::atomic::AtomicI32>,
 }
 
 impl DefaultIdentifierFactory {
     pub fn new(namespace: impl Into<String>) -> Self {
         Self {
             namespace: namespace.into(),
-            next: 0,
+            next: std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0)),
         }
     }
     pub fn start(&mut self) {}
     pub fn reset(&mut self) {
-        self.next = 0;
+        self.next.store(0, std::sync::atomic::Ordering::Relaxed);
     }
     pub fn stop(&mut self) {}
 }
@@ -150,8 +150,7 @@ impl IdentifierFactory for DefaultIdentifierFactory {
         DEFAULT_SEPARATOR
     }
     fn fresh(&mut self, name: &str) -> Identifier {
-        let current = self.next;
-        self.next = self.next.wrapping_add(1);
+        let current = self.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Identifier::suffixed(
             Identifier::new(name),
             DEFAULT_SEPARATOR,
