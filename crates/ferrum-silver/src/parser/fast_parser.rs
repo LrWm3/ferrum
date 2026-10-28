@@ -32,8 +32,8 @@
 //! Parser strategy, extension API, position encoding and mutable parser ownership require
 //! agreement with parse_ast, plugin and reformatter.
 //!
-//! Status: partial; native expression parsing is implemented for a subset. Program parsing,
-//! imports, macro expansion, extensions, recovery and remaining expression forms are pending.
+//! Status: partial; common expressions, types, fields, functions, predicates and methods are
+//! implemented. Imports, macro expansion, extensions, recovery and remaining forms are pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -46,8 +46,20 @@ use super::parse_ast::{
     PBinaryOp, PDeclarationClass, PDomainTypeKind, PExpHandle, PExpression, PExpressionBrackets,
     PExpressionKind, PIdnRef, PNode, PNodeKind, PPairArgument, PTypeHandle, PTypeKind,
 };
-use super::parse_ast_keyword::{PDelimited, PGrouped, PKw, PKwOp, PReserved, PSym, PSymOp, Span};
+use super::parse_ast::{
+    PBracedExp, PDeclarationHandle, PDeclarationKind, PIdnDef, PIdnTypeBinding, PMember,
+    PMemberHandle, PMemberKind, PNodeHandle, PProgram, PProgramHandle, PSpecification, PSpecs,
+};
+use super::parse_ast::{
+    PExpGroup, PMethodReturns, PStatement, PStatementKind, PStmtHandle, fresh_scope_id,
+};
+use super::parse_ast::{PMaybePairArgument, POldLabel};
+use super::parse_ast::{PQuantifier, PTrigger};
+use super::parse_ast_keyword::{
+    ND, PDelimited, PGrouped, PKw, PKwOp, PReserved, PSym, PSymOp, Span,
+};
 use crate::ast::position::{FilePosition, LineColumn, Position, SourcePosition};
+use crate::verifier::verification_result::ParseReport;
 use crate::verifier::verification_result::ParseWarning;
 
 /// A syntax failure at the point where the native parser stopped.
@@ -110,6 +122,61 @@ pub fn parse_type(source: &str, file: impl AsRef<Path>) -> Result<ParsedType, Sy
         typ,
         warnings: parser.warnings,
     })
+}
+
+/// Parse a complete program containing the currently supported declarations.
+/// Imports, domains and macros are rejected until their grammar and processing
+/// are connected, so an unsupported program is never accepted as a partial program.
+pub fn parse_program(source: &str, file: impl AsRef<Path>) -> Result<PProgramHandle, SyntaxError> {
+    let mut parser = ExpressionParser {
+        source,
+        file: file.as_ref().to_owned(),
+        cursor: 0,
+        warnings: Vec::new(),
+    };
+    let mut members = Vec::new();
+    loop {
+        parser.trivia()?;
+        if parser.cursor == source.len() {
+            break;
+        }
+        members.push(parser.member()?);
+    }
+    let mut offsets = Vec::new();
+    if !source.is_empty() {
+        offsets.push(0);
+        let mut utf16 = 0i32;
+        let mut chars = source.chars().peekable();
+        while let Some(ch) = chars.next() {
+            utf16 = utf16.wrapping_add(ch.len_utf16() as i32);
+            if ch == '\r' {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                    utf16 = utf16.wrapping_add(1);
+                }
+                if chars.peek().is_some() {
+                    offsets.push(utf16);
+                }
+            } else if ch == '\n' && chars.peek().is_some() {
+                offsets.push(utf16);
+            }
+        }
+    }
+    let pos = parser.span(0, source.len());
+    Ok(PProgramHandle::new(
+        PProgram {
+            imported: Vec::new(),
+            members,
+            local_errors: parser
+                .warnings
+                .into_iter()
+                .map(|w| ParseReport::Warning(w))
+                .collect(),
+            offsets,
+            raw_program: source.into(),
+        },
+        pos,
+    ))
 }
 
 struct ExpressionParser<'a> {
@@ -352,6 +419,567 @@ impl ExpressionParser<'_> {
         }
         None
     }
+    fn identifier_definition(&mut self) -> Result<PNodeHandle, SyntaxError> {
+        self.trivia()?;
+        let start = self.cursor;
+        let bytes = self.source.as_bytes();
+        if start >= bytes.len()
+            || !(bytes[start].is_ascii_alphabetic() || matches!(bytes[start], b'_' | b'$'))
+        {
+            return Err(self.error("expected identifier"));
+        }
+        self.cursor = self.identifier_end(start);
+        let name = &self.source[start..self.cursor];
+        if is_keyword(name) {
+            return Err(self.error("expected identifier"));
+        }
+        Ok(PNode::new(
+            PNodeKind::IdnDef(PIdnDef { name: name.into() }),
+            self.span(start, self.cursor),
+        ))
+    }
+    fn binding(&mut self, kind: PDeclarationKind) -> Result<PDeclarationHandle, SyntaxError> {
+        let idndef = self.identifier_definition()?;
+        let start = idndef.read().expect("poisoned parse node").pos.0.clone();
+        let colon = self
+            .take(":")?
+            .ok_or_else(|| self.error("expected ':' after declaration name"))?;
+        let typ = self.typ()?;
+        let end = typ
+            .node()
+            .read()
+            .expect("poisoned parse node")
+            .pos
+            .1
+            .clone();
+        Ok(PDeclarationHandle::from_binding(
+            kind,
+            PIdnTypeBinding {
+                idndef,
+                colon: PReserved::new(PSym::Colon, colon),
+                typ,
+                pos: (start, end),
+            },
+        ))
+    }
+    fn formal_args(
+        &mut self,
+        kind: PDeclarationKind,
+    ) -> Result<super::parse_ast::PFormalArgs, SyntaxError> {
+        let left_span = self
+            .take("(")?
+            .ok_or_else(|| self.error("expected '(' before arguments"))?;
+        let start = left_span.0.clone();
+        self.trivia()?;
+        let list_start = self.position(self.cursor);
+        let first = if self.source[self.cursor..].starts_with(')') {
+            None
+        } else {
+            Some(self.binding(kind.clone())?)
+        };
+        let mut rest = Vec::new();
+        if first.is_some() {
+            while let Some(comma) = self.take(",")? {
+                rest.push((
+                    PReserved::new(PSym::Comma, comma),
+                    self.binding(kind.clone())?,
+                ));
+            }
+        }
+        let end = if let Some((_, last)) = rest.last() {
+            last.node()
+                .read()
+                .expect("poisoned parse node")
+                .pos
+                .1
+                .clone()
+        } else if let Some(first) = &first {
+            first
+                .node()
+                .read()
+                .expect("poisoned parse node")
+                .pos
+                .1
+                .clone()
+        } else {
+            list_start.clone()
+        };
+        let list = PDelimited::new(first, rest, None, (list_start, end));
+        let right_span = self
+            .take(")")?
+            .ok_or_else(|| self.error("expected ')' after arguments"))?;
+        let group_end = right_span.1.clone();
+        Ok(PGrouped::new(
+            PReserved::new(PSym::LParen, left_span),
+            list,
+            PReserved::new(PSym::RParen, right_span),
+            (start, group_end),
+        ))
+    }
+    fn specifications(&mut self, name: &str, keyword: PKw) -> Result<PSpecs, SyntaxError> {
+        self.trivia()?;
+        let start = self.position(self.cursor);
+        let mut pairs = Vec::new();
+        loop {
+            self.trivia()?;
+            let at = self.cursor;
+            if !self.source[at..].starts_with(name) || self.identifier_end(at) != at + name.len() {
+                break;
+            }
+            self.cursor += name.len();
+            let token = PReserved::new(keyword, self.span(at, self.cursor));
+            let expression = self.expression(0)?;
+            let end = expression
+                .node()
+                .read()
+                .expect("poisoned parse node")
+                .pos
+                .1
+                .clone();
+            let spec = PSpecification::new(token, expression, (self.position(at), end));
+            let semi = self.take(";")?.map(|span| PReserved::new(PSym::Semi, span));
+            pairs.push((spec, ND(semi)));
+        }
+        let end = self.position(self.cursor);
+        let span = (start, end);
+        Ok(PSpecs::new(
+            PDelimited::from_pairs(pairs, span.clone()),
+            span,
+        ))
+    }
+    fn braced_expression(&mut self) -> Result<Option<PBracedExp>, SyntaxError> {
+        let Some(left_span) = self.take("{")? else {
+            return Ok(None);
+        };
+        let start = left_span.0.clone();
+        let expression = self.expression(0)?;
+        let right_span = self
+            .take("}")?
+            .ok_or_else(|| self.error("expected '}' after expression"))?;
+        let end = right_span.1.clone();
+        let group = PGrouped::new(
+            PReserved::new(PSym::LBrace, left_span),
+            expression,
+            PReserved::new(PSym::RBrace, right_span),
+            (start.clone(), end.clone()),
+        );
+        Ok(Some(PBracedExp::new(group, (start, end))))
+    }
+    fn parenthesized_expression(&mut self) -> Result<PExpGroup, SyntaxError> {
+        let left = self.take("(")?.ok_or_else(|| self.error("expected '('"))?;
+        let start = left.0.clone();
+        let exp = self.expression(0)?;
+        let right = self.take(")")?.ok_or_else(|| self.error("expected ')'"))?;
+        let end = right.1.clone();
+        Ok(PGrouped::new(
+            PReserved::new(PSym::LParen, left),
+            exp,
+            PReserved::new(PSym::RParen, right),
+            (start, end),
+        ))
+    }
+    fn statement_block(&mut self) -> Result<Option<PStmtHandle>, SyntaxError> {
+        let Some(left) = self.take("{")? else {
+            return Ok(None);
+        };
+        let start = left.0.clone();
+        self.trivia()?;
+        let list_start = self.position(self.cursor);
+        let mut pairs = Vec::new();
+        while !self.source[self.cursor..].starts_with('}') {
+            if self.cursor >= self.source.len() {
+                return Err(self.error("expected '}' after statements"));
+            }
+            let statement = self.statement()?;
+            let semi = self.take(";")?.map(|span| PReserved::new(PSym::Semi, span));
+            pairs.push((statement, ND(semi)));
+            self.trivia()?;
+        }
+        let list_end = self.position(self.cursor);
+        let list = PDelimited::from_pairs(pairs, (list_start, list_end));
+        let right = self
+            .take("}")?
+            .ok_or_else(|| self.error("expected '}' after statements"))?;
+        let end = right.1.clone();
+        let group = PGrouped::new(
+            PReserved::new(PSym::LBrace, left),
+            list,
+            PReserved::new(PSym::RBrace, right),
+            (start.clone(), end.clone()),
+        );
+        Ok(Some(PStmtHandle::new(
+            PStatement {
+                kind: PStatementKind::Seqn {
+                    statements: group,
+                    scope_id: fresh_scope_id(),
+                },
+            },
+            (start, end),
+        )))
+    }
+    fn statement(&mut self) -> Result<PStmtHandle, SyntaxError> {
+        self.trivia()?;
+        let start = self.cursor;
+        if self.source[start..].starts_with('{') {
+            return self
+                .statement_block()?
+                .ok_or_else(|| self.error("expected block"));
+        }
+        let end = self.identifier_end(start);
+        let name = &self.source[start..end];
+        let keyword = match name {
+            "assert" => Some(PKw::Assert),
+            "assume" => Some(PKw::Assume),
+            "inhale" => Some(PKw::Inhale),
+            "exhale" => Some(PKw::Exhale),
+            "var" => Some(PKw::Var),
+            "if" => Some(PKw::If),
+            "while" => Some(PKw::While),
+            "goto" => Some(PKw::Goto),
+            "label" => Some(PKw::Label),
+            _ => None,
+        };
+        let kind = if let Some(keyword) = keyword {
+            self.cursor = end;
+            let token = PReserved::new(keyword, self.span(start, end));
+            match keyword {
+                PKw::Assert | PKw::Assume | PKw::Inhale | PKw::Exhale => {
+                    let exp = self.expression(0)?;
+                    match keyword {
+                        PKw::Assert => PStatementKind::Assert {
+                            keyword: token,
+                            exp,
+                        },
+                        PKw::Assume => PStatementKind::Assume {
+                            keyword: token,
+                            exp,
+                        },
+                        PKw::Inhale => PStatementKind::Inhale {
+                            keyword: token,
+                            exp,
+                        },
+                        _ => PStatementKind::Exhale {
+                            keyword: token,
+                            exp,
+                        },
+                    }
+                }
+                PKw::Var => {
+                    let first = self.binding(PDeclarationKind::LocalVar)?;
+                    let list_start = first
+                        .node()
+                        .read()
+                        .expect("poisoned parse node")
+                        .pos
+                        .0
+                        .clone();
+                    let mut rest = Vec::new();
+                    while let Some(comma) = self.take(",")? {
+                        rest.push((
+                            PReserved::new(PSym::Comma, comma),
+                            self.binding(PDeclarationKind::LocalVar)?,
+                        ));
+                    }
+                    let list_end = rest
+                        .last()
+                        .map(|(_, n)| n)
+                        .unwrap_or(&first)
+                        .node()
+                        .read()
+                        .expect("poisoned parse node")
+                        .pos
+                        .1
+                        .clone();
+                    let vars = PDelimited::new(Some(first), rest, None, (list_start, list_end));
+                    let init = if let Some(assign) = self.take(":=")? {
+                        Some((PReserved::new(PSymOp::Assign, assign), self.expression(0)?))
+                    } else {
+                        None
+                    };
+                    PStatementKind::Vars {
+                        keyword: token,
+                        vars,
+                        init,
+                    }
+                }
+                PKw::If => {
+                    let cond = self.parenthesized_expression()?;
+                    let thn = self
+                        .statement_block()?
+                        .ok_or_else(|| self.error("expected if body"))?;
+                    self.trivia()?;
+                    let at = self.cursor;
+                    let els = if self.source[at..].starts_with("else")
+                        && self.identifier_end(at) == at + 4
+                    {
+                        self.cursor += 4;
+                        let else_token = PReserved::new(PKw::Else, self.span(at, self.cursor));
+                        let body = self
+                            .statement_block()?
+                            .ok_or_else(|| self.error("expected else body"))?;
+                        Some(PStmtHandle::new(
+                            PStatement {
+                                kind: PStatementKind::Else {
+                                    keyword: else_token,
+                                    els: body,
+                                },
+                            },
+                            self.span(at, self.cursor),
+                        ))
+                    } else {
+                        None
+                    };
+                    PStatementKind::If {
+                        keyword: token,
+                        cond,
+                        thn,
+                        els,
+                    }
+                }
+                PKw::While => {
+                    let cond = self.parenthesized_expression()?;
+                    let invs = self.specifications("invariant", PKw::Invariant)?;
+                    let body = self
+                        .statement_block()?
+                        .ok_or_else(|| self.error("expected while body"))?;
+                    PStatementKind::While {
+                        keyword: token,
+                        cond,
+                        invs,
+                        body,
+                    }
+                }
+                PKw::Goto => {
+                    let idndef = self.identifier_definition()?;
+                    let node = idndef.read().expect("poisoned parse node");
+                    let PNodeKind::IdnDef(id) = &node.kind else {
+                        unreachable!()
+                    };
+                    let target = PNode::new(
+                        PNodeKind::IdnRef(PIdnRef::with_class(&id.name, PDeclarationClass::Label)),
+                        node.pos.clone(),
+                    );
+                    PStatementKind::Goto {
+                        keyword: token,
+                        target,
+                    }
+                }
+                PKw::Label => {
+                    let idndef = self.identifier_definition()?;
+                    let invs = self.specifications("invariant", PKw::Invariant)?.specs;
+                    PStatementKind::Label {
+                        keyword: token,
+                        idndef,
+                        invs,
+                    }
+                }
+                _ => unreachable!(),
+            }
+        } else {
+            let first = self.atom()?;
+            let first_kind = first
+                .node()
+                .read()
+                .expect("poisoned parse node")
+                .kind
+                .clone();
+            if !matches!(
+                &first_kind,
+                PNodeKind::Expression(PExpression {
+                    kind: PExpressionKind::IdnUse { .. }
+                        | PExpressionKind::FieldAccess { .. }
+                        | PExpressionKind::Call { .. },
+                    ..
+                })
+            ) {
+                return Err(self.error("expected assignment target or call"));
+            }
+            let list_start = first
+                .node()
+                .read()
+                .expect("poisoned parse node")
+                .pos
+                .0
+                .clone();
+            let mut rest = Vec::new();
+            while let Some(comma) = self.take(",")? {
+                let target = self.atom()?;
+                if !matches!(
+                    &target.node().read().expect("poisoned parse node").kind,
+                    PNodeKind::Expression(PExpression {
+                        kind: PExpressionKind::IdnUse { .. }
+                            | PExpressionKind::FieldAccess { .. }
+                            | PExpressionKind::Call { .. },
+                        ..
+                    })
+                ) {
+                    return Err(self.error("expected assignment target"));
+                }
+                rest.push((PReserved::new(PSym::Comma, comma), target));
+            }
+            if let Some(assign) = self.take(":=")? {
+                let list_end = rest
+                    .last()
+                    .map(|(_, n)| n)
+                    .unwrap_or(&first)
+                    .node()
+                    .read()
+                    .expect("poisoned parse node")
+                    .pos
+                    .1
+                    .clone();
+                let targets = PDelimited::new(Some(first), rest, None, (list_start, list_end));
+                PStatementKind::Assign {
+                    targets,
+                    op: Some(PReserved::new(PSymOp::Assign, assign)),
+                    rhs: self.expression(0)?,
+                }
+            } else {
+                if !rest.is_empty()
+                    || matches!(
+                        first_kind,
+                        PNodeKind::Expression(PExpression {
+                            kind: PExpressionKind::FieldAccess { .. },
+                            ..
+                        })
+                    )
+                {
+                    return Err(self.error("expected ':=' after assignment targets"));
+                }
+                PStatementKind::Assign {
+                    targets: PDelimited::empty(),
+                    op: None,
+                    rhs: first,
+                }
+            }
+        };
+        Ok(PStmtHandle::new(
+            PStatement { kind },
+            self.span(start, self.cursor),
+        ))
+    }
+    fn member(&mut self) -> Result<PMemberHandle, SyntaxError> {
+        self.trivia()?;
+        let start = self.cursor;
+        let end = self.identifier_end(start);
+        if end == start {
+            return Err(self.error("expected declaration"));
+        }
+        let name = &self.source[start..end];
+        self.cursor = end;
+        let keyword_span = self.span(start, end);
+        let kind = match name {
+            "field" => {
+                let keyword = PReserved::new(PKw::Field, keyword_span);
+                let first = self.binding(PDeclarationKind::field())?;
+                let list_start = first
+                    .node()
+                    .read()
+                    .expect("poisoned parse node")
+                    .pos
+                    .0
+                    .clone();
+                let mut rest = Vec::new();
+                while let Some(comma) = self.take(",")? {
+                    rest.push((
+                        PReserved::new(PSym::Comma, comma),
+                        self.binding(PDeclarationKind::field())?,
+                    ));
+                }
+                let list_end = rest
+                    .last()
+                    .map(|(_, n)| n)
+                    .unwrap_or(&first)
+                    .node()
+                    .read()
+                    .expect("poisoned parse node")
+                    .pos
+                    .1
+                    .clone();
+                let fields = PDelimited::new(Some(first), rest, None, (list_start, list_end));
+                let semi = self.take(";")?.map(|span| PReserved::new(PSym::Semi, span));
+                PMemberKind::Fields {
+                    keyword,
+                    fields,
+                    semi,
+                }
+            }
+            "function" => {
+                let keyword = PReserved::new(PKw::Function, keyword_span);
+                let idndef = self.identifier_definition()?;
+                let args = self.formal_args(PDeclarationKind::FormalArg)?;
+                let colon = self
+                    .take(":")?
+                    .ok_or_else(|| self.error("expected ':' before return type"))?;
+                let result_type = self.typ()?;
+                let pres = self.specifications("requires", PKw::Requires)?;
+                let posts = self.specifications("ensures", PKw::Ensures)?;
+                let body = self.braced_expression()?;
+                PMemberKind::Function {
+                    keyword,
+                    idndef,
+                    args,
+                    colon: PReserved::new(PSym::Colon, colon),
+                    result_type,
+                    pres,
+                    posts,
+                    body,
+                }
+            }
+            "method" => {
+                let keyword = PReserved::new(PKw::Method, keyword_span);
+                let idndef = self.identifier_definition()?;
+                let args = self.formal_args(PDeclarationKind::FormalArg)?;
+                self.trivia()?;
+                let at = self.cursor;
+                let returns = if self.source[at..].starts_with("returns")
+                    && self.identifier_end(at) == at + 7
+                {
+                    self.cursor += 7;
+                    let token = PReserved::new(PKw::Returns, self.span(at, self.cursor));
+                    let formal_returns = self.formal_args(PDeclarationKind::FormalReturn)?;
+                    Some(PMethodReturns::new(
+                        token,
+                        formal_returns,
+                        self.span(at, self.cursor),
+                    ))
+                } else {
+                    None
+                };
+                let pres = self.specifications("requires", PKw::Requires)?;
+                let posts = self.specifications("ensures", PKw::Ensures)?;
+                let body = self.statement_block()?;
+                PMemberKind::Method {
+                    keyword,
+                    idndef,
+                    args,
+                    returns,
+                    pres,
+                    posts,
+                    body,
+                }
+            }
+            "predicate" => {
+                let keyword = PReserved::new(PKw::Predicate, keyword_span);
+                let idndef = self.identifier_definition()?;
+                let args = self.formal_args(PDeclarationKind::FormalArg)?;
+                let body = self.braced_expression()?;
+                PMemberKind::Predicate {
+                    keyword,
+                    idndef,
+                    args,
+                    body,
+                }
+            }
+            _ => {
+                return Err(self.error(format!("declaration form '{name}' is not yet implemented")));
+            }
+        };
+        Ok(PMemberHandle::new(
+            PMember::new(Vec::new(), kind),
+            self.span(start, self.cursor),
+        ))
+    }
     fn typ(&mut self) -> Result<PTypeHandle, SyntaxError> {
         self.trivia()?;
         let start = self.cursor;
@@ -553,6 +1181,58 @@ impl ExpressionParser<'_> {
             expression.set_brackets(group);
             return self.suffix(expression);
         }
+        if self.source[start..].starts_with('|') && !self.source[start..].starts_with("||") {
+            self.cursor += 1;
+            let left = PReserved::new(PSymOp::Or, self.span(start, self.cursor));
+            let seq = self.expression(0)?;
+            let right_span = self
+                .take("|")?
+                .ok_or_else(|| self.error("expected '|' after size expression"))?;
+            let expression = self.expr_node(
+                PExpressionKind::Size {
+                    left,
+                    seq,
+                    right: PReserved::new(PSymOp::Or, right_span),
+                },
+                self.position(start),
+                self.position(self.cursor),
+            );
+            return self.suffix(expression);
+        }
+        if self.source[start..].starts_with('[') {
+            self.cursor += 1;
+            let left = PReserved::new(PSymOp::LBracket, self.span(start, self.cursor));
+            let first = self.expression(0)?;
+            let kind = if let Some(comma) = self.take(",")? {
+                let exhale = self.expression(0)?;
+                let right = self
+                    .take("]")?
+                    .ok_or_else(|| self.error("expected ']' after inhale/exhale expression"))?;
+                PExpressionKind::InhaleExhale {
+                    left,
+                    inhale: first,
+                    comma: PReserved::new(PSymOp::Comma, comma),
+                    exhale,
+                    right: PReserved::new(PSymOp::RBracket, right),
+                }
+            } else if let Some(dots) = self.take("..")? {
+                let high = self.expression(0)?;
+                let right = self
+                    .take(")")?
+                    .ok_or_else(|| self.error("expected ')' after sequence range"))?;
+                PExpressionKind::RangeSeq {
+                    left,
+                    low: first,
+                    dots: PReserved::new(PSymOp::DotDot, dots),
+                    high,
+                    right: PReserved::new(PSymOp::RParen, right),
+                }
+            } else {
+                return Err(self.error("expected ',' or '..' in bracket expression"));
+            };
+            let expression = self.expr_node(kind, self.position(start), self.position(self.cursor));
+            return self.suffix(expression);
+        }
         if self.source[start..].starts_with('-') || self.source[start..].starts_with('!') {
             self.cursor += 1;
             let op = if self.source.as_bytes()[start] == b'-' {
@@ -610,6 +1290,234 @@ impl ExpressionParser<'_> {
                 "epsilon" => Some(PKw::Epsilon),
                 _ => None,
             };
+            if matches!(name, "forall" | "exists") {
+                let first = self.binding(PDeclarationKind::LogicalVar)?;
+                let list_start = first
+                    .node()
+                    .read()
+                    .expect("poisoned parse node")
+                    .pos
+                    .0
+                    .clone();
+                let mut rest = Vec::new();
+                while let Some(comma) = self.take(",")? {
+                    rest.push((
+                        PReserved::new(PSym::Comma, comma),
+                        self.binding(PDeclarationKind::LogicalVar)?,
+                    ));
+                }
+                let list_end = rest
+                    .last()
+                    .map(|(_, n)| n)
+                    .unwrap_or(&first)
+                    .node()
+                    .read()
+                    .expect("poisoned parse node")
+                    .pos
+                    .1
+                    .clone();
+                let vars = PDelimited::new(Some(first), rest, None, (list_start, list_end));
+                let colons = self
+                    .take("::")?
+                    .ok_or_else(|| self.error("expected '::' after quantifier variables"))?;
+                let mut triggers = Vec::new();
+                while let Some(left) = self.take("{")? {
+                    let group_start = left.0.clone();
+                    self.trivia()?;
+                    let list_start = self.position(self.cursor);
+                    let first = if self.source[self.cursor..].starts_with('}') {
+                        None
+                    } else {
+                        Some(self.expression(0)?)
+                    };
+                    let mut rest = Vec::new();
+                    if first.is_some() {
+                        while let Some(comma) = self.take(",")? {
+                            rest.push((PReserved::new(PSym::Comma, comma), self.expression(0)?));
+                        }
+                    }
+                    let list_end = rest
+                        .last()
+                        .map(|(_, e)| e)
+                        .or(first.as_ref())
+                        .map(|e| e.node().read().expect("poisoned parse node").pos.1.clone())
+                        .unwrap_or(list_start.clone());
+                    let list = PDelimited::new(first, rest, None, (list_start, list_end));
+                    let right = self
+                        .take("}")?
+                        .ok_or_else(|| self.error("expected '}' after trigger"))?;
+                    let group_end = right.1.clone();
+                    let group = PGrouped::new(
+                        PReserved::new(PSym::LBrace, left),
+                        list,
+                        PReserved::new(PSym::RBrace, right),
+                        (group_start.clone(), group_end.clone()),
+                    );
+                    triggers.push(PTrigger::new(group, (group_start, group_end)));
+                }
+                let body = self.expression(0)?;
+                let quantifier = PQuantifier {
+                    keyword: PReserved::new(
+                        if name == "forall" {
+                            PKw::Forall
+                        } else {
+                            PKw::Exists
+                        },
+                        span.clone(),
+                    ),
+                    vars,
+                    colons: PReserved::new(PSym::ColonColon, colons),
+                    triggers,
+                    body,
+                    scope_id: fresh_scope_id(),
+                };
+                let kind = if name == "forall" {
+                    PExpressionKind::Forall(quantifier)
+                } else {
+                    PExpressionKind::Exists(quantifier)
+                };
+                let expression =
+                    self.expr_node(kind, self.position(start), self.position(self.cursor));
+                return self.suffix(expression);
+            }
+            if matches!(name, "acc" | "perm" | "old") {
+                let kind = if name == "old" {
+                    let op = PReserved::new(PKwOp::Old, span.clone());
+                    let label = if let Some(left) = self.take("[")? {
+                        let group_start = left.0.clone();
+                        self.trivia()?;
+                        let at = self.cursor;
+                        let end = self.identifier_end(at);
+                        let first = self.source.as_bytes().get(at).copied();
+                        if !first
+                            .is_some_and(|b| b.is_ascii_alphabetic() || matches!(b, b'_' | b'$'))
+                        {
+                            return Err(self.error("expected old label"));
+                        }
+                        self.cursor = end;
+                        let label_span = self.span(at, end);
+                        let label = if &self.source[at..end] == "lhs" {
+                            POldLabel::Lhs(PReserved::new(PKw::Lhs, label_span))
+                        } else {
+                            if is_keyword(&self.source[at..end]) {
+                                return Err(self.error("expected old label"));
+                            }
+                            POldLabel::Label(PNode::new(
+                                PNodeKind::IdnRef(PIdnRef::with_class(
+                                    &self.source[at..end],
+                                    PDeclarationClass::Label,
+                                )),
+                                label_span,
+                            ))
+                        };
+                        let right = self
+                            .take("]")?
+                            .ok_or_else(|| self.error("expected ']' after old label"))?;
+                        let group_end = right.1.clone();
+                        Some(PGrouped::new(
+                            PReserved::new(PSym::LBracket, left),
+                            label,
+                            PReserved::new(PSym::RBracket, right),
+                            (group_start, group_end),
+                        ))
+                    } else {
+                        None
+                    };
+                    PExpressionKind::OldExp {
+                        op,
+                        label,
+                        exp: self.parenthesized_expression()?,
+                    }
+                } else {
+                    let left = self
+                        .take("(")?
+                        .ok_or_else(|| self.error("expected '(' after permission operator"))?;
+                    let group_start = left.0.clone();
+                    let resource = self.expression(0)?;
+                    let resource_kind = resource
+                        .node()
+                        .read()
+                        .expect("poisoned parse node")
+                        .kind
+                        .clone();
+                    let valid = matches!(
+                        &resource_kind,
+                        PNodeKind::Expression(PExpression {
+                            kind: PExpressionKind::FieldAccess { .. }
+                                | PExpressionKind::Call { .. },
+                            ..
+                        })
+                    ) || (name == "perm"
+                        && matches!(
+                            &resource_kind,
+                            PNodeKind::Expression(PExpression {
+                                kind: PExpressionKind::MagicWandExp { .. },
+                                ..
+                            })
+                        ));
+                    if !valid {
+                        return Err(self.error("expected resource access"));
+                    }
+                    if name == "acc" {
+                        let pair_start = resource
+                            .node()
+                            .read()
+                            .expect("poisoned parse node")
+                            .pos
+                            .0
+                            .clone();
+                        let second = if let Some(comma) = self.take(",")? {
+                            Some((PReserved::new(PSym::Comma, comma), self.expression(0)?))
+                        } else {
+                            None
+                        };
+                        let pair_end = second
+                            .as_ref()
+                            .map(|(_, e)| e)
+                            .unwrap_or(&resource)
+                            .node()
+                            .read()
+                            .expect("poisoned parse node")
+                            .pos
+                            .1
+                            .clone();
+                        let pair =
+                            PMaybePairArgument::new(resource, second, (pair_start, pair_end));
+                        let right = self
+                            .take(")")?
+                            .ok_or_else(|| self.error("expected ')' after access predicate"))?;
+                        let group_end = right.1.clone();
+                        let amount = PGrouped::new(
+                            PReserved::new(PSym::LParen, left),
+                            pair,
+                            PReserved::new(PSym::RParen, right),
+                            (group_start, group_end),
+                        );
+                        PExpressionKind::AccPred {
+                            op: PReserved::new(PKwOp::Acc, span.clone()),
+                            amount,
+                        }
+                    } else {
+                        let right = self.take(")")?.ok_or_else(|| {
+                            self.error("expected ')' after permission expression")
+                        })?;
+                        let group_end = right.1.clone();
+                        let resource = PGrouped::new(
+                            PReserved::new(PSym::LParen, left),
+                            resource,
+                            PReserved::new(PSym::RParen, right),
+                            (group_start, group_end),
+                        );
+                        PExpressionKind::CurrentPerm {
+                            op: PReserved::new(PKwOp::Perm, span.clone()),
+                            resource,
+                        }
+                    }
+                };
+                let expression =
+                    self.expr_node(kind, self.position(start), self.position(self.cursor));
+                return self.suffix(expression);
+            }
             let kind = if let Some(kw) = keyword {
                 let token = PReserved::new(kw, span.clone());
                 match kw {
@@ -722,6 +1630,77 @@ impl ExpressionParser<'_> {
         loop {
             self.trivia()?;
             let start = self.cursor;
+            if self.source[start..].starts_with('[') {
+                self.cursor += 1;
+                let left = PReserved::new(PSymOp::LBracket, self.span(start, self.cursor));
+                let begin = base
+                    .node()
+                    .read()
+                    .expect("poisoned parse node")
+                    .pos
+                    .0
+                    .clone();
+                let kind = if let Some(dots) = self.take("..")? {
+                    let end = self.expression(0)?;
+                    let right = self
+                        .take("]")?
+                        .ok_or_else(|| self.error("expected ']' after slice"))?;
+                    PExpressionKind::SeqSlice {
+                        seq: base,
+                        left,
+                        start: None,
+                        dots: PReserved::new(PSymOp::DotDot, dots),
+                        end: Some(end),
+                        right: PReserved::new(PSymOp::RBracket, right),
+                    }
+                } else {
+                    let key = self.expression(0)?;
+                    if let Some(assign) = self.take(":=")? {
+                        let value = self.expression(0)?;
+                        let right = self
+                            .take("]")?
+                            .ok_or_else(|| self.error("expected ']' after update"))?;
+                        PExpressionKind::Update {
+                            base,
+                            left,
+                            key,
+                            assign: PReserved::new(PSymOp::Assign, assign),
+                            value,
+                            right: PReserved::new(PSymOp::RBracket, right),
+                        }
+                    } else if let Some(dots) = self.take("..")? {
+                        self.trivia()?;
+                        let end = if self.source[self.cursor..].starts_with(']') {
+                            None
+                        } else {
+                            Some(self.expression(0)?)
+                        };
+                        let right = self
+                            .take("]")?
+                            .ok_or_else(|| self.error("expected ']' after slice"))?;
+                        PExpressionKind::SeqSlice {
+                            seq: base,
+                            left,
+                            start: Some(key),
+                            dots: PReserved::new(PSymOp::DotDot, dots),
+                            end,
+                            right: PReserved::new(PSymOp::RBracket, right),
+                        }
+                    } else {
+                        let right = self
+                            .take("]")?
+                            .ok_or_else(|| self.error("expected ']' after index"))?;
+                        PExpressionKind::Lookup {
+                            base,
+                            left,
+                            index: key,
+                            right: PReserved::new(PSymOp::RBracket, right),
+                        }
+                    }
+                };
+                base = self.expr_node(kind, begin, self.position(self.cursor));
+                continue;
+            }
             if !self.source[start..].starts_with('.') || self.source[start..].starts_with("..") {
                 return Ok(base);
             }
@@ -878,5 +1857,100 @@ mod tests {
         assert!(parse_type("Domain[,Int]", "test.vpr").is_err());
         assert!(parse_expression("f()", "test.vpr").is_ok());
         assert!(parse_type("D[]", "test.vpr").is_ok());
+    }
+    #[test]
+    fn bracket_forms_preserve_typed_expression_nodes() {
+        for (text, tag) in [
+            ("a[1]", 0),
+            ("a[1 := 2]", 1),
+            ("a[..3]", 2),
+            ("a[1..]", 2),
+            ("[1..3)", 3),
+            ("[true, false]", 4),
+            ("|a|", 5),
+        ] {
+            let parsed = parse_expression(text, "test.vpr").unwrap();
+            let PNodeKind::Expression(exp) = parsed.expression.node().read().unwrap().kind.clone()
+            else {
+                panic!("expression")
+            };
+            assert!(
+                match tag {
+                    0 => matches!(exp.kind, PExpressionKind::Lookup { .. }),
+                    1 => matches!(exp.kind, PExpressionKind::Update { .. }),
+                    2 => matches!(exp.kind, PExpressionKind::SeqSlice { .. }),
+                    3 => matches!(exp.kind, PExpressionKind::RangeSeq { .. }),
+                    4 => matches!(exp.kind, PExpressionKind::InhaleExhale { .. }),
+                    _ => matches!(exp.kind, PExpressionKind::Size { .. }),
+                },
+                "{text}"
+            );
+        }
+        assert!(parse_expression("a[..]", "test.vpr").is_err());
+    }
+    #[test]
+    fn programs_retain_fields_functions_predicates_and_warnings() {
+        let program = parse_program("field f: Int, g: Ref;\nfunction foo(x: Rational): Int requires x > 0 ensures result > 0 { 1 }\npredicate p()", "test.vpr").unwrap();
+        let PNodeKind::Program(p) = program.node().read().unwrap().kind.clone() else {
+            panic!("program")
+        };
+        assert_eq!(p.members.len(), 3);
+        assert_eq!(p.local_errors.len(), 1);
+        assert!(matches!(
+            p.members[0].node().read().unwrap().kind,
+            PNodeKind::Member(PMember {
+                kind: PMemberKind::Fields { .. },
+                ..
+            })
+        ));
+        assert!(parse_program("field f: Int domain D {}", "test.vpr").is_err());
+    }
+    #[test]
+    fn method_with_statements_is_a_typed_parse_tree() {
+        let text = "method m(x: Int) returns (y: Int) requires x > 0 ensures y > 0 { var z: Int := x; y := z; if (y > 1) { assert true; } else { inhale false; } while (y > 0) invariant y >= 0 { y := y - 1; } }";
+        let p = parse_program(text, "test.vpr").unwrap();
+        let PNodeKind::Program(p) = p.node().read().unwrap().kind.clone() else {
+            panic!("program")
+        };
+        assert_eq!(p.members.len(), 1);
+        assert!(matches!(
+            p.members[0].node().read().unwrap().kind,
+            PNodeKind::Member(PMember {
+                kind: PMemberKind::Method { body: Some(_), .. },
+                ..
+            })
+        ));
+    }
+    #[test]
+    fn permissions_and_old_expressions_require_resources() {
+        for text in [
+            "acc(x.f)",
+            "acc(x.f, write)",
+            "perm(x.f)",
+            "old[lhs](x.f)",
+            "old[here](x)",
+        ] {
+            parse_expression(text, "test.vpr").unwrap();
+        }
+        assert!(parse_expression("acc(x)", "test.vpr").is_err());
+        assert!(parse_expression("old[123](x)", "test.vpr").is_err());
+    }
+    #[test]
+    fn quantifiers_retain_variables_and_ordered_triggers() {
+        let parsed = parse_expression(
+            "forall x: Int, y: Ref :: {f(x), g(y)} {h(x)} x > 0",
+            "test.vpr",
+        )
+        .unwrap();
+        let PNodeKind::Expression(exp) = parsed.expression.node().read().unwrap().kind.clone()
+        else {
+            panic!("expression")
+        };
+        let PExpressionKind::Forall(q) = exp.kind else {
+            panic!("quantifier")
+        };
+        assert_eq!(q.vars.len(), 2);
+        assert_eq!(q.triggers.len(), 2);
+        assert!(parse_expression("forall :: true", "test.vpr").is_err());
     }
 }

@@ -821,7 +821,7 @@ pub enum PBinaryOp {
     Keyword(super::parse_ast_keyword::PKwOp),
 }
 impl super::parse_ast_keyword::PReservedString for PBinaryOp {
-    fn token(&self) -> &'static str {
+    fn token(&self) -> &str {
         match self {
             Self::Symbol(op) => op.token(),
             Self::Keyword(op) => op.token(),

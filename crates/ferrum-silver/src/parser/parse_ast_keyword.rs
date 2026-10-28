@@ -56,7 +56,7 @@ impl<T: PGraphElement> PGraphElement for Vec<T> {
 }
 
 pub trait PReservedString {
-    fn token(&self) -> &'static str;
+    fn token(&self) -> &str;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,9 +65,47 @@ pub enum PToken {
     Symbol(PSym),
     SymbolOperator(PSymOp),
     KeywordOperator(PKwOp),
+    ExtensionKeyword(PExtensionKeyword),
+}
+/// Runtime plugin keywords retain spelling and their source keyword category.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PExtensionKeywordCategory {
+    Language,
+    Statement,
+    Type,
+    Constant,
+    Other,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct PExtensionKeyword {
+    pub spelling: String,
+    pub category: PExtensionKeywordCategory,
+}
+impl PReservedString for PExtensionKeyword {
+    fn token(&self) -> &str {
+        &self.spelling
+    }
+}
+impl PFormatting for PExtensionKeyword {
+    fn formatting(&self) -> Formatting {
+        Formatting {
+            right: match self.category {
+                PExtensionKeywordCategory::Language | PExtensionKeywordCategory::Statement => {
+                    Some(Pad::Space)
+                }
+                _ => None,
+            },
+            ..Formatting::default()
+        }
+    }
 }
 pub trait PTokenValue: Clone {
     fn graph_token(&self) -> PToken;
+}
+impl PTokenValue for PExtensionKeyword {
+    fn graph_token(&self) -> PToken {
+        PToken::ExtensionKeyword(self.clone())
+    }
 }
 impl PTokenValue for PKw {
     fn graph_token(&self) -> PToken {
@@ -144,7 +182,7 @@ impl<T: PTokenValue> PReserved<T> {
     }
 }
 impl<T: PReservedString> PReserved<T> {
-    pub fn display(&self) -> &'static str {
+    pub fn display(&self) -> &str {
         self.rs.token()
     }
 }

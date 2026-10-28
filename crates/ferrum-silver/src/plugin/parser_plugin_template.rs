@@ -27,4 +27,77 @@
 //! Agree on extension parser interface and native registration with fast_parser and
 //! silver_plugin_manager.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; ordered native hook protocols implemented. FastParser integration,
+//! annotation-position constructors and typed specification wrappers remain pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2019 ETH Zurich.
+
+use crate::parser::parse_ast::{PExpHandle, PMemberHandle, PStmtHandle};
+
+/// Hook input uses a byte cursor into UTF-8 source; positions are constructed by the parser.
+pub struct HookContext<'a> {
+    pub source: &'a str,
+    pub cursor: usize,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HookError {
+    Committed { offset: usize, message: String },
+}
+/// `None` denotes an unmatched alternative. A committed parse failure is distinct.
+pub type HookResult<T> = Result<Option<T>, HookError>;
+pub type Hook<T> = Box<dyn for<'a> Fn(&mut HookContext<'a>) -> HookResult<T> + Send + Sync>;
+/// Ordered parser alternative, restoring the cursor when the left alternative does not match.
+pub fn combine<T: 'static>(left: Hook<T>, right: Hook<T>) -> Hook<T> {
+    Box::new(move |ctx| {
+        let checkpoint = ctx.cursor;
+        match left(ctx)? {
+            Some(value) => Ok(Some(value)),
+            None => {
+                ctx.cursor = checkpoint;
+                right(ctx)
+            }
+        }
+    })
+}
+pub fn default_extension<T: 'static>() -> Hook<T> {
+    Box::new(|_| Ok(None))
+}
+
+/// Optional hooks are tried before and after the built-in grammar in source order.
+/// Pre/post/invariant hooks produce their underlying expression; the parser constructs
+/// the implied `requires`, `ensures`, or `invariant` specification token.
+pub trait ParserPluginTemplate: Send + Sync {
+    fn new_decl_at_start(&self) -> Hook<PMemberHandle> {
+        default_extension()
+    }
+    fn new_decl_at_end(&self) -> Hook<PMemberHandle> {
+        default_extension()
+    }
+    fn new_stmt_at_start(&self) -> Hook<PStmtHandle> {
+        default_extension()
+    }
+    fn new_stmt_at_end(&self) -> Hook<PStmtHandle> {
+        default_extension()
+    }
+    fn new_exp_at_start(&self) -> Hook<PExpHandle> {
+        default_extension()
+    }
+    fn new_exp_at_end(&self) -> Hook<PExpHandle> {
+        default_extension()
+    }
+    fn pre_specification(&self) -> Hook<PExpHandle> {
+        default_extension()
+    }
+    fn post_specification(&self) -> Hook<PExpHandle> {
+        default_extension()
+    }
+    fn inv_specification(&self) -> Hook<PExpHandle> {
+        default_extension()
+    }
+    fn extended_keywords(&self) -> Vec<String> {
+        Vec::new()
+    }
+}

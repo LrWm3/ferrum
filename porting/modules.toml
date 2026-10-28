@@ -339,7 +339,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/FastParser.scala"
 destination = "crates/ferrum-silver/src/parser/fast_parser.rs"
 status = "skeleton"
-remaining = ["Expression/type grammar entry points and typed AST construction exist; full program grammar, imports/recovery, plugin hooks, remaining expression families and chained-comparison copying remain."]
+remaining = ["Common program/method/control-flow grammar, typed expressions, types and quantifiers exist; imports, domains/macros, extensions/recovery and remaining syntax remain."]
 
 [[modules]]
 repository = "silver"
@@ -352,14 +352,14 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ParseAst.scala"
 destination = "crates/ferrum-silver/src/parser/parse_ast.rs"
 status = "skeleton"
-remaining = ["Typed graph, substitutions, expression equality, macro types and traversal exist; copying/rewriting, grammar/resolution and plugin equality remain. Strong declaration links can cycle; raw bracket and weak navigation/owner identities can detach. Typed brackets retain expressions and linked fields share immutable annotations."]
+remaining = ["Typed graph, expression equality, substitutions and macro types exist; universal graph reconstruction/ownership and full resolver integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ParseAstKeyword.scala"
 destination = "crates/ferrum-silver/src/parser/parse_ast_keyword.rs"
 status = "skeleton"
-remaining = ["Tokens, delimiters, formatting metadata and type signatures exist; complete formatter and parser integration remain."]
+remaining = ["Fixed/dynamic keyword tokens, categories, graph identity, delimiters and signatures exist; full parser/plugin/formatter integration remains."]
 
 [[modules]]
 repository = "silver"
@@ -371,19 +371,22 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/Resolver.scala"
 destination = "crates/ferrum-silver/src/parser/resolver.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Core declaration scopes, name resolution, ordered substitution and partial expression inference exist; whole-program checking/grounding, domains/macros/extensions and remaining inference remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/Translator.scala"
 destination = "crates/ferrum-silver/src/parser/translator.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Core typed expressions/types/statements with source metadata exist; whole-program declarations/signatures, remaining statements and plugin translation remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/ParserPluginTemplate.scala"
 destination = "crates/ferrum-silver/src/plugin/parser_plugin_template.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Ordered native extension parsing hook protocol exists; concrete grammar registry integration remains."]
 
 [[modules]]
 repository = "silver"
@@ -511,7 +514,8 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/refute/RefuteASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/refute/refute_ast_extension.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed refute AST node, metadata, structural equality and adapters exist; whole-program plugin lowering remains."]
 
 [[modules]]
 repository = "silver"
@@ -523,7 +527,8 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/refute/RefutePASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/refute/refute_past_extension.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed refute syntax node and check/translation adapters exist; parser registry and resolver/translator extension integration remain."]
 
 [[modules]]
 repository = "silver"
