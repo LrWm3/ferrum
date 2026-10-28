@@ -59,8 +59,8 @@ pub enum DeciderError<E> {
 }
 
 /// Owner-local attachment for source symbolic events. The caller supplies the
-/// Java-compatible double formatter used by logger statistics; there is no
-/// implicit Rust-format substitution for source output.
+/// double formatter used by logger statistics, choosing explicitly between a
+/// source-compatible formatter and the documented native diagnostic form.
 #[derive(Clone)]
 pub struct DeciderLogging {
     pub member: std::sync::Arc<crate::logger::symb_ex_logger::MemberSymbExLog>,

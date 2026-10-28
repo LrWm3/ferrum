@@ -570,6 +570,21 @@ mod tests {
         );
     }
 }
+/// Native diagnostic formatting for statistics deltas. Finite values use Rust's
+/// Debug round-tripping decimal representation; Java 17 can choose different
+/// digits or exponent spelling. Special values use Java-compatible spelling.
+pub fn native_statistics_double(value: f64) -> String {
+    if value.is_nan() {
+        "NaN".into()
+    } else if value == f64::INFINITY {
+        "Infinity".into()
+    } else if value == f64::NEG_INFINITY {
+        "-Infinity".into()
+    } else {
+        format!("{value:?}")
+    }
+}
+
 /// Parse the decimal and special-value subset of Java Double.parseDouble.
 /// Hexadecimal floating literals are deliberately unsupported until their exact
 /// binary rounding is ported; native solver statistics ordinarily use decimal.
@@ -935,6 +950,29 @@ mod java_decimal_statistics_tests {
             .unwrap();
         assert_eq!(delta.get("time-delta").map(String::as_str), Some("2"));
         assert!(!delta.contains_key("invalid-delta"));
+    }
+
+    #[test]
+    fn native_double_diagnostics_round_trip_java_decimal_subset() {
+        use super::{native_statistics_double as format, parse_java_decimal_double as parse};
+        for value in [
+            0.0,
+            -0.0,
+            1.0,
+            -1.5,
+            1e23,
+            f64::MIN_POSITIVE,
+            f64::from_bits(1),
+            f64::MAX,
+            f64::MIN,
+        ] {
+            let text = format(value);
+            assert_eq!(parse(&text).unwrap().to_bits(), value.to_bits(), "{text}");
+        }
+        assert_eq!(format(f64::NAN), "NaN");
+        assert_eq!(format(f64::INFINITY), "Infinity");
+        assert_eq!(format(f64::NEG_INFINITY), "-Infinity");
+        assert_eq!(format(-0.0), "-0.0");
     }
 
     #[test]

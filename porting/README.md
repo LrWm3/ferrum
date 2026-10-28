@@ -767,3 +767,9 @@ paths. Let definitions retain their grouped equality records, and existential
 precondition assumptions retain their forall expressions. Focused real-Z3
 checks exercise these expression paths, replay definitions and missing-payload
 errors. Production debug configuration remains disabled.
+
+A supplied native statistics formatter now emits round-tripping Rust decimals,
+preserves signed zero and uses Java's NaN/Infinity spellings. This removes the
+need for a JVM-dependent formatting implementation in native reporting setup.
+Finite digit/exponent spelling can differ from Java 17; exact-format injection
+remains available and integer-delta handling is unchanged.

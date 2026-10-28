@@ -385,7 +385,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             _state_types: PhantomData,
         }
     }
-    /// Supply the source-compatible floating-point formatter required for decider statistics.
+    /// Supply an explicit floating-point formatter for decider statistics.
     /// None disables decider event logging without changing the installed member log.
     pub fn set_decider_logging_formatter(&mut self, formatter: Option<fn(f64) -> String>) {
         self.decider_log_formatter = formatter;

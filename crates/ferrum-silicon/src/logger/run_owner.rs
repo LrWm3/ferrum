@@ -2,7 +2,8 @@
 //! Upstream: https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/Silicon.scala
 //! The backend retains the root across verifier resets and closes it after workers stop.
 //! Status: partial; explicit ownership and worker attachment are connected.
-//! Timeout traces are connected; public configuration and formatter parity remain gated.
+//! Timeout traces are connected; public configuration remains gated. Native statistics
+//! formatting is an explicit diagnostic adaptation, with exact-format injection retained.
 
 use std::{rc::Rc, sync::Arc};
 
@@ -28,8 +29,9 @@ pub struct RunLogAttachment {
     trace: bool,
 }
 impl RunLogOwner {
-    /// Trace requires a recording root and an explicitly supplied Java-compatible
-    /// double formatter. No formatter leaves Decider statistics inactive.
+    /// Trace requires a recording root and an explicitly supplied double formatter.
+    /// Callers may inject an exact JVM formatter or the documented native diagnostic
+    /// formatter. No formatter leaves Decider statistics inactive.
     pub fn new(
         root: Arc<NativeSymbExLogger>,
         formatter: Option<fn(f64) -> String>,

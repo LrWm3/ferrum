@@ -350,3 +350,13 @@ The adaptation is restricted to diagnostic rendering. Counterexample model looku
 strict chunk rendering used to compare debug heaps, term identity and SMT emission
 keep their existing paths. This avoids changing verification or model lookup to
 recover incidental collection display provenance.
+
+## Native statistics numbers
+
+The native statistics formatter uses Rust's finite floating-point debug notation,
+which round-trips to the same binary value, including negative zero. NaN and
+infinities use Java-compatible spellings. Java 17 FloatingDecimal may choose
+different digits or exponent notation (for example, `1e23` and the minimum
+subnormal), so this is a declared diagnostic adaptation rather than byte-for-byte
+JVM formatting. Callers can still supply an exact formatter. Integer deltas retain
+the source path; Java hexadecimal floating-point input remains unsupported.
