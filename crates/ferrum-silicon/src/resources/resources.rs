@@ -20,7 +20,7 @@
 //! Open decisions:
 //! Agree on resource IDs with state and chunk interfaces.
 //!
-//! Status: resource IDs implemented; property-description registry remains pending.
+//! Status: resource IDs and property-description registry implemented.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -45,6 +45,16 @@ impl From<BaseId> for ResourceId {
         match id {
             BaseId::Field => Self::Field,
             BaseId::Predicate => Self::Predicate,
+        }
+    }
+}
+impl ResourceId {
+    pub fn description(self) -> super::resource_descriptions::ResourceDescription {
+        use super::resource_descriptions::ResourceDescription;
+        match self {
+            Self::Field => ResourceDescription::Field,
+            Self::Predicate => ResourceDescription::Predicate,
+            Self::MagicWand => ResourceDescription::MagicWand,
         }
     }
 }

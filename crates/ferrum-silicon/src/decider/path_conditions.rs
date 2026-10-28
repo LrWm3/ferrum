@@ -492,6 +492,10 @@ impl LayeredPathConditionStack {
             layers: self.layers[target..].to_vec(),
         })
     }
+    /// Branch-worker replay visits the source stack from oldest layer to newest.
+    pub fn replay_layers(&self) -> Vec<OrderedSet<Term>> {
+        self.layers.iter().map(Layer::assumptions).collect()
+    }
     pub fn recorded(&self) -> RecordedPathConditions {
         RecordedPathConditions {
             layers: self.layers.clone(),

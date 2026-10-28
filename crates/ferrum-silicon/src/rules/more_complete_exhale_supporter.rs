@@ -33,4 +33,24 @@
 //! Open decisions:
 //! Summarising cache identity, fresh symbols and continuation context.
 //!
-//! Status: description only; implementation has not started.
+//! Status: tagged summarising snapshot data implemented; execution rules remain pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2019 ETH Zurich.
+
+use crate::state::terms::Term;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TaggedSummarisingSnapshot {
+    Fresh(Term),
+    Reused(Term),
+}
+impl TaggedSummarisingSnapshot {
+    pub fn snapshot(&self) -> &Term {
+        match self {
+            Self::Fresh(t) | Self::Reused(t) => t,
+        }
+    }
+}

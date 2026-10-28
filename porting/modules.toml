@@ -1069,14 +1069,15 @@ status = "ported"
 repository = "silicon"
 upstream = "src/main/scala/decider/Decider.scala"
 destination = "crates/ferrum-silicon/src/decider/decider.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Scoped assumptions, replay, facts, queries, lifecycle and declaration transfer exist; solver selection/version reporting, fresh variable/macros, logging and converter-warning integration remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/decider/PathConditions.scala"
 destination = "crates/ferrum-silicon/src/decider/path_conditions.rs"
 status = "skeleton"
-remaining = ["Layered assumptions, scopes, marks and quantified/debug projections exist; real Silver simplifier callback integration remains."]
+remaining = ["Layered assumptions, scopes/marks and projections exist; real Silver simplifier callback integration remains. Invalid stale marks report an explicit error."]
 
 [[modules]]
 repository = "silicon"
@@ -1451,44 +1452,46 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/resources/NonQuantifiedPropertyInterpreter.scala"
 destination = "crates/ferrum-silicon/src/resources/non_quantified_property_interpreter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Proof-based Check and source chunk permutations exist; debug-expression reconstruction remains."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/resources/Property.scala"
 destination = "crates/ferrum-silicon/src/resources/property.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/resources/PropertyExpressions.scala"
 destination = "crates/ferrum-silicon/src/resources/property_expressions.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/resources/PropertyInterpreter.scala"
 destination = "crates/ferrum-silicon/src/resources/property_interpreter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed resource property evaluation exists; debug-expression reconstruction and source rendering remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/resources/QuantifiedPropertyInterpreter.scala"
 destination = "crates/ferrum-silicon/src/resources/quantified_property_interpreter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Conditional Check, substitutions and triggers exist; debug-expression reconstruction remains."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/resources/ResourceDescriptions.scala"
 destination = "crates/ferrum-silicon/src/resources/resource_descriptions.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/resources/Resources.scala"
 destination = "crates/ferrum-silicon/src/resources/resources.rs"
-status = "skeleton"
-remaining = ["ResourceId and BaseId are implemented; resource-description registry remains."]
+status = "ported"
 
 [[modules]]
 repository = "silicon"
@@ -1512,7 +1515,7 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/rules/ConsumptionResult.scala"
 destination = "crates/ferrum-silicon/src/rules/consumption_result.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
@@ -1578,7 +1581,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/rules/MoreCompleteExhaleSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/more_complete_exhale_supporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Tagged snapshot data exists; complete exhale heuristics and verification rules remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1654,7 +1658,8 @@ status = "ported"
 repository = "silicon"
 upstream = "src/main/scala/state/State.scala"
 destination = "crates/ferrum-silicon/src/state/state.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Actual strict/conditional merges, branch helpers, caches and source reference identities exist; concrete supporter owner types and configuration/engine integration remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1666,7 +1671,8 @@ status = "ported"
 repository = "silicon"
 upstream = "src/main/scala/state/SymbolConverter.scala"
 destination = "crates/ferrum-silicon/src/state/symbol_converter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native sort/function conversion exists; Silver Sanitizer callback, mask-resource discovery and embedding resolution remain to connect."]
 
 [[modules]]
 repository = "silicon"
@@ -1686,13 +1692,14 @@ repository = "silicon"
 upstream = "src/main/scala/state/Utils.scala"
 destination = "crates/ferrum-silicon/src/state/utils.rs"
 status = "skeleton"
-remaining = ["Subterms entry point delegates to terms.rs, which holds specialized traversal/reconstruction bodies; general pre/post transform and reference-disjointness helpers remain."]
+remaining = ["Subterms and reference-disjointness helpers exist; full pre/post transformation strategy and source-renderer integrations remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/state/package.scala"
 destination = "crates/ferrum-silicon/src/state/package.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source helper operations and conflict-free union exist; downstream state/rule integration remains."]
 
 [[modules]]
 repository = "silicon"
@@ -1800,7 +1807,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/supporters/functions/FunctionRecorder.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/function_recorder.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Actual/noop recorders, depth/context guards and branch merges exist; full function-verification integration remains."]
 
 [[modules]]
 repository = "silicon"
