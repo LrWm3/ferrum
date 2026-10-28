@@ -515,3 +515,10 @@ The injected native verifier now exposes the pinned source's static Z3 and cvc5
 dependency descriptors in source order, independent of the selected transport.
 Its version identifies the native Ferrum package build rather than pretending
 to reproduce JVM BuildInfo. This metadata path starts no solver.
+
+Configured AST/PAST provider resets now pass their shared configuration to
+reporters after rebuilding plugins, matching the source reset order. StdIO partial
+result output follows the latest configuration while retaining its standalone
+public setting when no configuration is installed. Configuration failures
+propagate. Injected API initialization retains its distinct source path and does
+not perform this reset hook; live plugin-manager reporter rebinding remains open.

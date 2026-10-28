@@ -158,11 +158,14 @@ pub(crate) fn reset_configured(
         }
         let manager = super::sil_frontend::standard_plugin_manager(config)
             .map_err(ProviderSetupError::Plugin)?;
-        frontend.phases.plugins = if disable_plugins {
-            crate::plugin::silver_plugin_manager::SilverPluginManager::new(vec![])
-        } else {
-            manager
-        };
+        frontend.phases.plugins = manager;
+        reporter
+            .set_config(Some(config))
+            .map_err(ProviderSetupError::Reporter)?;
+        if disable_plugins {
+            frontend.phases.plugins =
+                crate::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]);
+        }
     } else if disable_plugins {
         frontend.phases.plugins =
             crate::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]);
@@ -304,6 +307,55 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn reset_reconfigures_reporter_and_propagates_failure() {
+        struct ConfigReporter(std::sync::Mutex<Vec<bool>>);
+        impl Reporter for ConfigReporter {
+            fn name(&self) -> &str {
+                "config"
+            }
+            fn report(&self, _: Message) -> Result<(), ReportError> {
+                Ok(())
+            }
+            fn set_config(
+                &self,
+                config: Option<&super::super::sil_front_end_config::SilFrontendConfig>,
+            ) -> Result<(), ReportError> {
+                let enabled = config.unwrap().report_partial_results;
+                self.0.lock().unwrap().push(enabled);
+                if enabled {
+                    Err(ReportError::Unsupported("config failure"))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        let reporter = Arc::new(ConfigReporter(std::sync::Mutex::new(Vec::new())));
+        let phases = super::super::sil_frontend::SilFrontendPhases::new(
+            "test.vpr".into(),
+            crate::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+        );
+        let mut provider =
+            ViperAstProvider::new(DefaultFrontend::new(phases), reporter.clone(), false);
+        provider
+            .initialize_configured(&["--ignoreFile".into(), "test.vpr".into()])
+            .unwrap();
+        provider
+            .reset(std::path::Path::new("test.vpr"), |_| {
+                Ok("method m() {}".into())
+            })
+            .unwrap();
+        provider.config.as_mut().unwrap().report_partial_results = true;
+        assert!(matches!(
+            provider.reset(std::path::Path::new("test.vpr"), |_| Ok(
+                "method m() {}".into()
+            )),
+            Err(ProviderSetupError::Reporter(ReportError::Unsupported(
+                "config failure"
+            )))
+        ));
+        assert_eq!(*reporter.0.lock().unwrap(), vec![false, true]);
+    }
     #[test]
     fn ast_constructor_retains_shared_command_line_config() {
         let mut verifier =

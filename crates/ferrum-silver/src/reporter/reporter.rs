@@ -72,6 +72,13 @@ impl From<crate::ast::pretty::pretty_printer::PrintError> for ReportError {
 pub trait Reporter: Send + Sync {
     fn name(&self) -> &str;
     fn report(&self, message: Message) -> Result<(), ReportError>;
+    /// Called by a configured Silver frontend reset; most reporters ignore configuration.
+    fn set_config(
+        &self,
+        _config: Option<&crate::frontend::sil_front_end_config::SilFrontendConfig>,
+    ) -> Result<(), ReportError> {
+        Ok(())
+    }
 }
 #[derive(Default)]
 pub struct NoopReporter;
@@ -698,6 +705,8 @@ pub struct StdIoReporter<W: Write + Send> {
     pub name: String,
     pub time_info: bool,
     pub report_partial_results: bool,
+    // 0: standalone field, 1: configured false, 2: configured true.
+    configured_partial_results: std::sync::atomic::AtomicU8,
     writer: Mutex<W>,
     counter: std::sync::atomic::AtomicI32,
 }
@@ -707,6 +716,7 @@ impl<W: Write + Send> StdIoReporter<W> {
             name: "stdout_reporter".into(),
             time_info,
             report_partial_results: false,
+            configured_partial_results: std::sync::atomic::AtomicU8::new(0),
             writer: Mutex::new(writer),
             counter: std::sync::atomic::AtomicI32::new(0),
         }
@@ -720,6 +730,18 @@ impl<W: Write + Send> StdIoReporter<W> {
     }
 }
 impl<W: Write + Send> Reporter for StdIoReporter<W> {
+    fn set_config(
+        &self,
+        config: Option<&crate::frontend::sil_front_end_config::SilFrontendConfig>,
+    ) -> Result<(), ReportError> {
+        let value = config.map_or(
+            0,
+            |config| if config.report_partial_results { 2 } else { 1 },
+        );
+        self.configured_partial_results
+            .store(value, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
     fn name(&self) -> &str {
         &self.name
     }
@@ -905,7 +927,14 @@ impl<W: Write + Send> Reporter for StdIoReporter<W> {
             message @ (Message::EntitySuccess { .. }
             | Message::EntityFailure { .. }
             | Message::BranchFailure { .. })
-                if self.report_partial_results =>
+                if match self
+                    .configured_partial_results
+                    .load(std::sync::atomic::Ordering::Relaxed)
+                {
+                    1 => false,
+                    2 => true,
+                    _ => self.report_partial_results,
+                } =>
             {
                 writeln!(writer, "{}", render_entity_message(&message)?)?;
             }
@@ -1092,6 +1121,33 @@ mod tests {
             Err(ReportError::Io(_))
         ));
         assert_eq!(reporter.counter(), 0);
+    }
+    #[test]
+    fn configured_partial_results_override_and_restore_standalone_field() {
+        let mut reporter = StdIoReporter::new(Vec::new(), false);
+        reporter.report_partial_results = true;
+        let message = || Message::EntitySuccess {
+            verifier: "Silicon".into(),
+            concerning: method(),
+            time: 0,
+            cached: false,
+        };
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::parse_shared(
+            "test",
+            &["--ignoreFile".into(), "test.vpr".into()],
+        );
+        reporter.set_config(Some(&config)).unwrap();
+        reporter.report(message()).unwrap();
+        assert!(reporter.writer.lock().unwrap().is_empty());
+        let mut config = config;
+        config.report_partial_results = true;
+        reporter.set_config(Some(&config)).unwrap();
+        reporter.report(message()).unwrap();
+        assert!(!reporter.writer.lock().unwrap().is_empty());
+        reporter.writer.lock().unwrap().clear();
+        reporter.set_config(None).unwrap();
+        reporter.report(message()).unwrap();
+        assert!(!reporter.writer.lock().unwrap().is_empty());
     }
     #[test]
     fn partial_entity_and_branch_results_use_source_message_forms() {
