@@ -30,8 +30,8 @@ prove code correct or replace the broader testing pass in [PLAN.md](../PLAN.md).
 
 The implementation pass has activated every module, embedded the pinned resources,
 and added core AST/parser representations, source type and name utilities, generic
-CFG algorithms, and early Silicon term/state support. Most source modules still
-contain descriptions only. Parser ownership and rewriting, verification rules,
+CFG algorithms and lowering, and Silicon terms, stores and heap/chunk support.
+Most source modules still contain descriptions only. Parser ownership and rewriting, verification rules,
 solver orchestration and complete frontend assembly remain open. Targeted
 regressions cover specific identity and translation issues; no end-to-end
 verification or performance improvement has been demonstrated.

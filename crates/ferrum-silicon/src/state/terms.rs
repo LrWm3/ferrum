@@ -10,12 +10,14 @@
 //! Status: sorts, identity, variables, applications, literals, arithmetic, boolean,
 //! comparisons, permissions, collections and selected snapshot/heap constructors are
 //! implemented, along with declarations and partial quantifier/traversal support.
-//! Resource-keyed nodes and dispatch are implemented; chunk-backed wand terms,
-//! parts of traversal and display remain incomplete.
+//! Resource-keyed nodes and chunk-backed wand terms are implemented; portions of
+//! generic traversal and display remain incomplete. Immediate subterm ordering and
+//! reconstruction additionally follow
+//! https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/state/Utils.scala.
 
 use std::fmt;
 
-use super::chunks::MagicWandIdentifier;
+use super::chunks::{MagicWandChunk, MagicWandIdentifier};
 use super::identifiers::Identifier;
 use crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet;
 use ferrum_silver::ast::program::{Field, Predicate};
@@ -211,6 +213,7 @@ pub enum TermKind {
     First(Term),
     Second(Term),
     MagicWandSnapshot(Term),
+    MagicWandChunkTerm(Arc<MagicWandChunk>),
     MwsfLookup(Term, Term),
     MagicWandToken(Term, Term),
     Lookup(String, Term, Term),
@@ -1613,6 +1616,19 @@ impl TermFactory {
             .map(|(part, target)| self.sort_wrapper(part, target.sort().clone()))
             .collect()
     }
+    pub fn magic_wand_chunk_term(&self, chunk: MagicWandChunk) -> Term {
+        chunk.validate();
+        self.check(&[&chunk.snap, &chunk.perm]);
+        self.check(&chunk.args.iter().collect::<Vec<_>>());
+        self.check(
+            &chunk
+                .bindings
+                .iter()
+                .map(|(_, (term, _))| term)
+                .collect::<Vec<_>>(),
+        );
+        self.create(TermKind::MagicWandChunkTerm(Arc::new(chunk)), Sort::Unit)
+    }
     pub fn magic_wand_snapshot(&self, mwsf: Term) -> Term {
         self.check(&[&mwsf]);
         assert_eq!(mwsf.sort(), &Sort::MagicWandSnapFunction);
@@ -2231,6 +2247,7 @@ impl Term {
             | TermKind::EmptySet(_)
             | TermKind::EmptyMultiset(_)
             | TermKind::DummyHeap(_)
+            | TermKind::MagicWandChunkTerm(_)
             | TermKind::EmptyMap(_, _) => vec![],
             TermKind::Not(a)
             | TermKind::IsValidPermVal(a)
@@ -2418,6 +2435,7 @@ impl TermFactory {
             | TermKind::EmptySet(_)
             | TermKind::EmptyMultiset(_)
             | TermKind::DummyHeap(_)
+            | TermKind::MagicWandChunkTerm(_)
             | TermKind::AppHint(_)
             | TermKind::EmptyMap(_, _) => t.clone(),
             TermKind::Not(a) => self.not(go(a)?),
@@ -2822,10 +2840,26 @@ impl TermFactory {
 
 impl TermFactory {
     pub fn predef_snapshot_var(&self) -> Term {
-        self.var(Identifier::new("s@$"), Sort::Snap, false)
+        static FLY: OnceLock<Term> = OnceLock::new();
+        static STRUCTURAL: OnceLock<Term> = OnceLock::new();
+        let slot = if self.options.use_flyweight {
+            &FLY
+        } else {
+            &STRUCTURAL
+        };
+        slot.get_or_init(|| self.var(Identifier::new("s@$"), Sort::Snap, false))
+            .clone()
     }
     pub fn predef_receiver_var(&self) -> Term {
-        self.var(Identifier::new("r"), Sort::Ref, false)
+        static FLY: OnceLock<Term> = OnceLock::new();
+        static STRUCTURAL: OnceLock<Term> = OnceLock::new();
+        let slot = if self.options.use_flyweight {
+            &FLY
+        } else {
+            &STRUCTURAL
+        };
+        slot.get_or_init(|| self.var(Identifier::new("r"), Sort::Ref, false))
+            .clone()
     }
     pub fn is_positive_perm(&self, term: Term) -> Term {
         self.check(&[&term]);

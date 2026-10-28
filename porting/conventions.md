@@ -11,8 +11,11 @@ distinguish semantic requirements, adopted interfaces and open design choices.
   uncertain. Resolve them against callers and the later differential test pass.
 - Keep one upstream source per initial Rust destination. Module comments own the
   local symbol outline; `modules.toml` owns mappings and reviewed stage status.
-  `sources.toml` owns revisions. `non_rust_files.tsv` inventories other tracked
-  paths with provisional dispositions; this does not mean those assets are ported.
+  `sources.toml` owns revisions. Silicon Utils retains a source-shaped entry point,
+  while its immediate subterm/reconstruction bodies currently live in Terms
+  inherent methods; both module comments attribute this split.
+  `non_rust_files.tsv` inventories other tracked paths with provisional
+  dispositions; this does not mean those assets are ported.
 - Files still marked `described` contain only `//!` comments. `skeleton` means
   implementation is partial, with gaps recorded in the inventory and source.
   A compiled interface is not a correctness result. Incomplete executable entry

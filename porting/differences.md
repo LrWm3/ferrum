@@ -57,8 +57,27 @@ Silicon's term equality consults the global flyweight configuration. Rust terms
 will retain the mode chosen at construction, with process-wide strong flyweight
 pooling and structural nonflyweight equality. Mixing modes in one graph is rejected
 to preserve a stable, symmetric `Eq`/`Hash` contract. Configuration remains explicit;
-this does not normalize formulas or change solver encodings. Focused tests cover singleton identity, declaration equivalence and mixed-mode
-rejection. Full term/cache and solver integration checks remain.
+this does not normalize formulas or change solver encodings. Focused tests cover
+singleton identity, declaration equivalence and mixed-mode rejection. Full term/cache and solver integration checks remain.
+
+## Chunk context and rendering boundaries
+
+Silicon `state/Chunks.scala` obtains the debug flag from global configuration
+when constructing quantified field chunks, including copies. The current Rust
+chunk captures that flag explicitly, excludes it from structural equality and
+retains it during copy operations. Reconstructing with a changed context remains
+possible through its constructor. The configuration/lifecycle port must reconcile
+callers that change debugging mode between construction and copying before this
+boundary can be considered equivalent.
+
+Basic mask resources use the known field, predicate and wand `ResourceKey`
+variants in place of Scala's `Any`. Supporting other extension resources requires
+an explicit typed variant or extension contract.
+
+Heap `equalChunks` currently accepts a source-rendering adapter because complete
+term/chunk formatting is not ported. It preserves stable sorting by Java UTF-16
+string order, including ties, then compares chunks. Supplying Rust Debug output
+would not establish source compatibility; default rendering remains a tracked gap.
 
 ## Native resource loading
 

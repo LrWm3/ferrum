@@ -20,4 +20,31 @@
 //! Open decisions:
 //! Agree on resource IDs with state and chunk interfaces.
 //!
-//! Status: description only; implementation has not started.
+//! Status: resource IDs implemented; property-description registry remains pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2019 ETH Zurich.
+
+/// Resource categories. Field and predicate are the source's `BaseID` cases;
+/// magic wands form a separate resource category.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ResourceId {
+    Field,
+    Predicate,
+    MagicWand,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BaseId {
+    Field,
+    Predicate,
+}
+impl From<BaseId> for ResourceId {
+    fn from(id: BaseId) -> Self {
+        match id {
+            BaseId::Field => Self::Field,
+            BaseId::Predicate => Self::Predicate,
+        }
+    }
+}

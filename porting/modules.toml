@@ -1158,7 +1158,7 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/interfaces/state/Chunks.scala"
 destination = "crates/ferrum-silicon/src/interfaces/state/chunks.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
@@ -1464,7 +1464,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/resources/Resources.scala"
 destination = "crates/ferrum-silicon/src/resources/resources.rs"
-status = "described"
+status = "skeleton"
+remaining = ["ResourceId and BaseId are implemented; resource-description registry remains."]
 
 [[modules]]
 repository = "silicon"
@@ -1578,7 +1579,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/rules/QuantifiedChunkSupport.scala"
 destination = "crates/ferrum-silicon/src/rules/quantified_chunk_support.rs"
-status = "described"
+status = "skeleton"
+remaining = ["InverseFunctions data and substitution contract exists; snapshot/permission definitions, quantified execution rules and proof obligations remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1597,7 +1599,7 @@ repository = "silicon"
 upstream = "src/main/scala/state/Chunks.scala"
 destination = "crates/ferrum-silicon/src/state/chunks.rs"
 status = "skeleton"
-remaining = ["Chunk and magic-wand identifiers exist, using actual AST canonicalization and cached program structures; chunk representations and operations remain."]
+remaining = ["Concrete basic, mask, quantified and wand chunks, updates and substitutions exist; source display and verifier rule integration remain; captured debug context needs lifecycle reconciliation."]
 
 [[modules]]
 repository = "silicon"
@@ -1609,7 +1611,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/state/Heap.scala"
 destination = "crates/ferrum-silicon/src/state/heap.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Ordered heap append/remove exists; equalChunks requires a caller-supplied source renderer until term/chunk display is ported."]
 
 [[modules]]
 repository = "silicon"
@@ -1634,7 +1637,7 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/state/Store.scala"
 destination = "crates/ferrum-silicon/src/state/store.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
@@ -1647,7 +1650,7 @@ repository = "silicon"
 upstream = "src/main/scala/state/Terms.scala"
 destination = "crates/ferrum-silicon/src/state/terms.rs"
 status = "skeleton"
-remaining = ["Sorts, term factories, declarations, collections, resource-keyed nodes and partial quantifier/traversal operations exist; chunk-backed wand terms, complete transform controls and display remain. Traversal helpers from state/utils.scala currently reside here and require reconciliation."]
+remaining = ["Chunk-backed wand terms, source sorts/factories and partial traversal are implemented; general transform controls and source display remain. Inherent traversal/reconstruction methods also implement part of state/Utils.scala via state/utils.rs entry point."]
 
 [[modules]]
 repository = "silicon"
@@ -1659,7 +1662,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/state/Utils.scala"
 destination = "crates/ferrum-silicon/src/state/utils.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Subterms entry point delegates to terms.rs, which holds specialized traversal/reconstruction bodies; general pre/post transform and reference-disjointness helpers remain."]
 
 [[modules]]
 repository = "silicon"
