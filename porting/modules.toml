@@ -1463,7 +1463,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/reporting/Exceptions.scala"
 destination = "crates/ferrum-silicon/src/reporting/exceptions.rs"
-status = "described"
+status = "skeleton"
+remaining = ["External tool and prover diagnostic conversion exist; concrete process/verifier error adapters remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1475,19 +1476,22 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/reporting/MultiRunCountingRecorder.scala"
 destination = "crates/ferrum-silicon/src/reporting/multi_run_counting_recorder.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Counting, source-boundary output and lifecycle exist; concrete verifier registry callsites remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/reporting/MultiRunLineRecorder.scala"
 destination = "crates/ferrum-silicon/src/reporting/multi_run_line_recorder.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source-boundary line output and lifecycle exist; concrete verifier registry callsites remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/reporting/MultiRunRecorder.scala"
 destination = "crates/ferrum-silicon/src/reporting/multi_run_recorder.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source tracking, native typed registry and lifecycle exist; verifier config and lifecycle wiring remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1499,7 +1503,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/reporting/package.scala"
 destination = "crates/ferrum-silicon/src/reporting/package.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Result aggregation and explicit exception-wrapper conversion exist; native worker/panic and stack-trace adapters remain."]
 
 [[modules]]
 repository = "silicon"
