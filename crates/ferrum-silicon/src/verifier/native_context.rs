@@ -852,10 +852,14 @@ where
                     (Ok(_), Err(cleanup)) => Err(EvaluationError::Context(cleanup)),
                 }
             };
-            // A synchronous source else future runs eagerly before the then branch.
-            let else_result = run(self, decision.execute_else, false, no)?;
+            // The synchronous else future is lazy and is forced by combine after the then branch.
             let then_result = run(self, decision.execute_then, true, yes)?;
-            let branch_result = then_result.combine(|| else_result, false);
+            let branch_result = if then_result.continue_verification() {
+                let else_result = run(self, decision.execute_else, false, no)?;
+                then_result.combine(|| else_result, false)
+            } else {
+                then_result
+            };
             Ok((entries, branch_result))
         })();
         let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
@@ -3721,8 +3725,11 @@ where
                 ))),
             }
         };
-        let else_result = run(self, decision.execute_else, false, no)?;
         let then_result = run(self, decision.execute_then, true, yes)?;
+        if !then_result.continue_verification() {
+            return Ok(then_result);
+        }
+        let else_result = run(self, decision.execute_else, false, no)?;
         Ok(then_result.combine(|| else_result, false))
     }
     fn all_cfg_joins(&self, state: &State<PD, FD, JoinMode>) -> bool {
