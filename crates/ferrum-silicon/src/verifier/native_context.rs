@@ -296,6 +296,8 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     debug_heap_recorder: crate::verifier::verifier::DebugHeapRecorder,
     #[cfg(test)]
     evaluator_debug_for_test: bool,
+    #[cfg(test)]
+    executor_debug_for_test: bool,
     /// Owner-local symbolic logger and record constructor. Both are inactive until
     /// the verification lifecycle explicitly installs a member log.
     pub(crate) logging_root: Option<Arc<crate::logger::symb_ex_logger::NativeSymbExLogger>>,
@@ -350,6 +352,8 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             debug_heap_recorder: Default::default(),
             #[cfg(test)]
             evaluator_debug_for_test: false,
+            #[cfg(test)]
+            executor_debug_for_test: false,
             logging_root: None,
             trace_reporting_enabled: false,
             member_log: None,
@@ -2481,17 +2485,7 @@ where
         &mut self,
         declaration: &ferrum_silver::ast::program::LocalVarDecl,
     ) -> Result<(Term, Option<Exp>), Self::Error> {
-        let sort = self
-            .base
-            .symbol_converter
-            .to_sort(&declaration.typ)
-            .map_err(NativeError::Sort)?;
-        let term = self
-            .base
-            .decider
-            .fresh_variable(&self.factory, &declaration.name, &sort, false, None)
-            .map_err(NativeError::Decider)?;
-        Ok((term, None))
+        self.fresh_debuggable_local(&declaration.local_var())
     }
     fn for_perm_conditions(
         &mut self,
@@ -6871,7 +6865,14 @@ where
         &self.factory
     }
     fn debugging(&self) -> bool {
-        false
+        #[cfg(test)]
+        {
+            return self.executor_debug_for_test;
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
     fn fresh_ssa(
         &mut self,
@@ -6879,19 +6880,8 @@ where
         typ: &ferrum_silver::ast::r#type::Type,
         source: &Exp,
     ) -> Result<StoreValue, Self::Error> {
-        {
-            let sort = self
-                .base
-                .symbol_converter
-                .to_sort(typ)
-                .map_err(NativeError::Sort)?;
-            let term = self
-                .base
-                .decider
-                .fresh_variable(&self.factory, name, &sort, false, None)
-                .map_err(NativeError::Decider)?;
-            Ok((term, None))
-        }
+        let local = LocalVar::new(name.into(), typ.clone(), source.metadata().clone());
+        self.fresh_debuggable_local(&local)
     }
     fn assume_ssa_definition(
         &mut self,
@@ -6902,7 +6892,50 @@ where
         rewritten: Option<&Exp>,
         new_variable: Option<&Exp>,
     ) -> Result<(), Self::Error> {
-        self.assume_term(equation)
+        self.checkpoint()?;
+        let debug = if self.base.decider.debug_mode {
+            let rewritten = rewritten.ok_or(NativeError::Unsupported(
+                "missing debug SSA right-hand side",
+            ))?;
+            let variable =
+                new_variable.ok_or(NativeError::Unsupported("missing debug SSA variable"))?;
+            let original_local = Exp::new(
+                ExpKind::LocalVar(LocalVar::new(name.into(), typ.clone(), Default::default())),
+                Default::default(),
+            );
+            let original = Exp::new(
+                ExpKind::EqCmp(original_local, source.clone()),
+                source.metadata().clone(),
+            );
+            let final_exp = Exp::new(
+                ExpKind::EqCmp(variable.clone(), rewritten.clone()),
+                Default::default(),
+            );
+            let simplify = |e: &Exp| {
+                ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                    Ok::<_, std::convert::Infallible>(true)
+                })
+            };
+            Some(
+                crate::debugger::debug_exp::DebugExp::create(
+                    None,
+                    Some(original),
+                    Some(final_exp),
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .map_err(|e| NativeError::Diagnostic(format!("debug SSA simplification: {e:?}")))?,
+            )
+        } else {
+            None
+        };
+        self.base
+            .decider
+            .assume([(equation.clone(), debug)], false, true)
+            .map_err(NativeError::Decider)
     }
     fn assign_field(
         &mut self,
@@ -11831,17 +11864,7 @@ where
         &mut self,
         decl: &LocalVarDecl,
     ) -> Result<(Term, Option<Exp>), Self::Error> {
-        let sort = self
-            .base
-            .symbol_converter
-            .to_sort(&decl.typ)
-            .map_err(NativeError::Sort)?;
-        let term = self
-            .base
-            .decider
-            .fresh_variable(&self.factory, &decl.name, &sort, false, None)
-            .map_err(NativeError::Decider)?;
-        Ok((term, None))
+        self.fresh_debuggable_local(&decl.local_var())
     }
     fn locally_quantified(
         &mut self,
@@ -18257,6 +18280,7 @@ where
 mod owned_branch_worker_tests {
     use super::*;
     use crate::rules::executor::ExecutionContext;
+    use crate::state::store::Store;
     use crate::supporters::method_supporter::MethodVerificationServices;
     use crate::{
         config::Config,
@@ -18485,6 +18509,140 @@ mod owned_branch_worker_tests {
         let recorded = worker.context.base.decider.pcs.recorded().assumption_exps();
         assert!(recorded.iter().any(|item| item.is_internal()
             && item.description() == Some(format!("{name} > none").as_str())));
+        worker.context.executor_debug_for_test = true;
+        let rhs_local = local.clone();
+        let (rhs_term, rhs_debug) = worker.context.fresh_local(&rhs_local).unwrap();
+        let rhs_exp = Exp::new(ExpKind::LocalVar(rhs_local.clone()), rhs_local.meta.clone());
+        let mut assignment_state = state.clone();
+        assignment_state.g = Arc::new(assignment_state.g.with_binding(
+            crate::state::store::AbstractLocalVar::new(rhs_exp.clone()),
+            (rhs_term.clone(), rhs_debug),
+        ));
+        let target = LocalVar::new(
+            "assigned".into(),
+            ferrum_silver::ast::r#type::Type::Int,
+            Default::default(),
+        );
+        let rhs = Exp::new(
+            ExpKind::Add(
+                rhs_exp,
+                Exp::new(ExpKind::IntLit(1.into()), Default::default()),
+            ),
+            Default::default(),
+        );
+        let assignment = Stmt::new(
+            ferrum_silver::ast::statement::StmtKind::LocalVarAssign {
+                lhs: target.clone(),
+                rhs,
+            },
+            Default::default(),
+        );
+        let mut assigned = None;
+        crate::rules::executor::execute(
+            &mut worker.context,
+            assignment_state,
+            &assignment,
+            &mut |_, state| {
+                assigned = Some(state);
+                Ok(VerificationResult::success())
+            },
+        )
+        .unwrap();
+        let assigned = assigned.unwrap();
+        let key = crate::state::store::AbstractLocalVar::new(Exp::new(
+            ExpKind::LocalVar(target),
+            Default::default(),
+        ));
+        assert!(matches!(
+            assigned.g.get_exp(&key).unwrap().kind(),
+            ExpKind::LocalVarWithVersion(..)
+        ));
+        let assigned_term = assigned.g.get(&key).unwrap().clone();
+        let rhs_term = factory.plus(rhs_term, factory.int_literal(1));
+        let equation = factory.builtin_equals(assigned_term, rhs_term);
+        let definitions = worker
+            .context
+            .base
+            .decider
+            .pcs
+            .recorded()
+            .definitions_only()
+            .defining_assumptions();
+        assert!(definitions.contains(&equation));
+        let assumptions = worker.context.base.decider.pcs.recorded().assumption_exps();
+        assert!(assumptions.iter().any(|entry| matches!(
+            entry.original_exp().map(Exp::kind),
+            Some(ExpKind::EqCmp(..))
+        ) && matches!(
+            entry.final_exp().map(Exp::kind),
+            Some(ExpKind::EqCmp(..))
+        )));
+        use crate::rules::evaluator::QuantifiedScopeContext;
+        let binder = LocalVarDecl::new(
+            "bound".into(),
+            ferrum_silver::ast::r#type::Type::Int,
+            local.meta.clone(),
+        );
+        let (bound, bound_debug) = worker.context.fresh_quantified_variable(&binder).unwrap();
+        let crate::state::terms::TermKind::Var(bound_var) = bound.kind() else {
+            panic!("expected quantified variable");
+        };
+        assert!(Arc::ptr_eq(
+            worker
+                .context
+                .base
+                .decider
+                .debug_variable_types
+                .get(&bound_var.id.name())
+                .unwrap()
+                .node(),
+            parsed_type.node()
+        ));
+        assert!(matches!(
+            bound_debug.unwrap().kind(),
+            ExpKind::LocalVarWithVersion(..)
+        ));
+        let (for_perm, for_perm_debug) = worker.context.fresh_for_perm(&binder).unwrap();
+        let crate::state::terms::TermKind::Var(for_perm_var) = for_perm.kind() else {
+            panic!("expected forperm variable");
+        };
+        assert!(Arc::ptr_eq(
+            worker
+                .context
+                .base
+                .decider
+                .debug_variable_types
+                .get(&for_perm_var.id.name())
+                .unwrap()
+                .node(),
+            parsed_type.node()
+        ));
+        assert!(matches!(
+            for_perm_debug.unwrap().kind(),
+            ExpKind::LocalVarWithVersion(..)
+        ));
+        let quantified = Exp::new(
+            ExpKind::Forall(
+                vec![binder],
+                vec![],
+                Exp::new(ExpKind::TrueLit, Default::default()),
+            ),
+            Default::default(),
+        );
+        let result = crate::rules::evaluator::evaluate(
+            &mut worker.context,
+            state.clone(),
+            &quantified,
+            &error,
+            &mut |_, _, _, _| Ok(VerificationResult::success()),
+        );
+        assert!(matches!(
+            result,
+            Err(EvaluationError::Context(NativeError::Unsupported(
+                "quantifier debugging"
+            )))
+        ));
+        worker.context.executor_debug_for_test = false;
         worker.context.evaluator_debug_for_test = false;
         worker.context.base.decider.debug_mode = false;
         worker.context.base.decider.pcs =
@@ -18547,7 +18705,7 @@ mod owned_branch_worker_tests {
             .context
             .debug_old_label(&state, &expression.metadata().position)
             .unwrap();
-        assert_eq!(label, "debug@0#l:unknown");
+        assert_eq!(label, "debug@1#l:unknown");
         let state = worker
             .context
             .record_intermediate_heap(state, &expression)
@@ -18564,7 +18722,7 @@ mod owned_branch_worker_tests {
         );
         let state = worker.context.finish_key_heap(state).unwrap();
         assert!(state.temporary_heap_record.is_none());
-        let record = state.debug_old_heaps.get(&"debug@0".to_string()).unwrap();
+        let record = state.debug_old_heaps.get(&"debug@1".to_string()).unwrap();
         assert_eq!(record.parent_label, "old");
         let state = worker
             .context

@@ -714,3 +714,10 @@ solver and logger cleanup errors. An outstanding internal pool borrow keeps the
 context alive for a later stop retry. Real Z3 checks cover one/two workers, reset,
 trace-report failure and retry; public profile construction and timeout traces
 remain incomplete.
+
+SSA assignments now record their source defining equations rather than ordinary
+assumptions, preserving them for definition-only replay. Injected debug execution
+retains the original and rewritten equality and typed/versioned SSA, quantified
+and ForPerm locals. The actual assignment fixture checks replay membership; the
+quantifier path still reports its missing auxiliary debug service explicitly.
+Production debugging remains disabled pending the remaining services.
