@@ -1002,25 +1002,25 @@ status = "mapped"
 repository = "silicon"
 upstream = "src/main/scala/debugger/DebugExp.scala"
 destination = "crates/ferrum-silicon/src/debugger/debug_exp.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/debugger/DebugParser.scala"
 destination = "crates/ferrum-silicon/src/debugger/debug_parser.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/debugger/DebugTypechecker.scala"
 destination = "crates/ferrum-silicon/src/debugger/debug_typechecker.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/debugger/SiliconDebugger.scala"
 destination = "crates/ferrum-silicon/src/debugger/silicon_debugger.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
@@ -1092,19 +1092,19 @@ status = "mapped"
 repository = "silicon"
 upstream = "src/main/scala/extensions/ConditionalPermissionRewriter.scala"
 destination = "crates/ferrum-silicon/src/extensions/conditional_permission_rewriter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/extensions/TryBlockParserPlugin.scala"
 destination = "crates/ferrum-silicon/src/extensions/try_block_parser_plugin.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/extensions/TryBlockStmt.scala"
 destination = "crates/ferrum-silicon/src/extensions/try_block_stmt.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
@@ -1146,205 +1146,205 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/logger/LogConfig.scala"
 destination = "crates/ferrum-silicon/src/logger/log_config.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/StateReporting.scala"
 destination = "crates/ferrum-silicon/src/logger/state_reporting.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/SymbExLogger.scala"
 destination = "crates/ferrum-silicon/src/logger/symb_ex_logger.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/RecordData.scala"
 destination = "crates/ferrum-silicon/src/logger/records/record_data.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/SymbolicRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/symbolic_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/CommentRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/comment_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/CondExpRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/cond_exp_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/ConditionalEdgeRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/conditional_edge_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/ConsumeRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/consume_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/DataRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/data_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/DeciderAssertRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/decider_assert_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/DeciderAssumeRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/decider_assume_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/EvaluateRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/evaluate_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/ExecuteRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/execute_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/FunctionRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/function_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/ImpliesRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/implies_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/MemberRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/member_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/MethodCallRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/method_call_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/MethodRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/method_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/PredicateRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/predicate_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/ProduceRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/produce_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/ProverAssertRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/prover_assert_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/SingleMergeRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/single_merge_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/data/WellformednessCheckRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/data/wellformedness_check_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/scoping/CloseScopeRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/scoping/close_scope_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/scoping/OpenScopeRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/scoping/open_scope_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/scoping/ScopingRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/scoping/scoping_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/structural/BranchingRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/structural/branching_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/structural/JoiningRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/structural/joining_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/records/structural/StructuralRecord.scala"
 destination = "crates/ferrum-silicon/src/logger/records/structural/structural_record.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/renderer/Renderer.scala"
 destination = "crates/ferrum-silicon/src/logger/renderer/renderer.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/renderer/SimpleTreeRenderer.scala"
 destination = "crates/ferrum-silicon/src/logger/renderer/simple_tree_renderer.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/writer/SymbExLogReportWriter.scala"
 destination = "crates/ferrum-silicon/src/logger/writer/symb_ex_log_report_writer.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/writer/TermWriter.scala"
 destination = "crates/ferrum-silicon/src/logger/writer/term_writer.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
@@ -1356,55 +1356,55 @@ status = "mapped"
 repository = "silicon"
 upstream = "src/main/scala/reporting/Converter.scala"
 destination = "crates/ferrum-silicon/src/reporting/converter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/reporting/DomainInterpreter.scala"
 destination = "crates/ferrum-silicon/src/reporting/domain_interpreter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/reporting/Exceptions.scala"
 destination = "crates/ferrum-silicon/src/reporting/exceptions.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/reporting/Formatters.scala"
 destination = "crates/ferrum-silicon/src/reporting/formatters.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/reporting/MultiRunCountingRecorder.scala"
 destination = "crates/ferrum-silicon/src/reporting/multi_run_counting_recorder.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/reporting/MultiRunLineRecorder.scala"
 destination = "crates/ferrum-silicon/src/reporting/multi_run_line_recorder.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/reporting/MultiRunRecorder.scala"
 destination = "crates/ferrum-silicon/src/reporting/multi_run_recorder.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/reporting/SiliconResolvedCounterexample.scala"
 destination = "crates/ferrum-silicon/src/reporting/silicon_resolved_counterexample.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/reporting/package.scala"
 destination = "crates/ferrum-silicon/src/reporting/package.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
