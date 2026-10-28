@@ -24,7 +24,11 @@ implementation should retain its rules, representations, and control flow rather
 than introduce a smaller verification algorithm. Difficult features remain on the
 porting list even when their implementations arrive later in the sequence.
 
-This document is the plan only. Writing it does not start the implementation.
+The description pass is complete and implementation is underway. Reviewed
+per-file progress and remaining gaps are tracked in [porting/modules.toml](porting/modules.toml);
+[porting/README.md](porting/README.md) lists checks and current limitations.
+The native CLI currently rejects verification with `PortIncomplete` until the
+frontend, solver and verification pipeline are connected.
 
 ## Upstream baseline and scope
 
@@ -41,9 +45,9 @@ that pairing fixed while porting. Upstream updates should be separate, deliberat
 changes so behavioral differences can be traced to a particular baseline.
 
 The sibling checkouts in `../silver`, `../silicon`, and `../helium` are available
-for development. Record source URLs and revisions in a future
-`porting/sources.toml`; provide a bootstrap command for obtaining the same
-references on another machine. Ferrum must not require these local absolute
+for development. [porting/sources.toml](porting/sources.toml) records source URLs
+and revisions. A bootstrap command for obtaining those references on another
+machine remains to be added. Ferrum must not require these local absolute
 paths to build or run.
 
 The port includes executable Silver and Silicon code, solver resources, built-in

@@ -20,6 +20,21 @@ checks the correct result, guarding a graph relation needed by loop detection.
 This is an explicit correctness fix, not a claim that every CFG algorithm has
 been broadly validated.
 
+## CFG block iteration
+
+Silver `cfg/silver/CfgGenerator.scala` emits its Phase 2 block list from a
+Scala mutable HashMap. Ferrum currently emits values from Rust's HashMap;
+neither API specifies statement or insertion order, and Rust iteration can
+vary across runs. Edges retain their source construction order. This does
+not reproduce Scala's incidental hash-table layout. CFG listing order and
+any downstream solver-emission effects need attention in differential and
+performance testing; no blanket sorting policy is applied.
+
+Loop augmentation also retains an explicit error for upstream's invalid
+`Kind.asInstanceOf` branch when an edge enters multiple loop boundaries.
+This is a translated failure path, not a completed correction. The separate
+AST loop-info projection overload remains unimplemented.
+
 ## Canonical rational hashing
 
 Silver `utility/Common.scala` compares normalized rational values but hashes its
