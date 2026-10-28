@@ -1105,19 +1105,22 @@ remaining = ["Debug identity, construction, classification and editing exist; re
 repository = "silicon"
 upstream = "src/main/scala/debugger/DebugParser.scala"
 destination = "crates/ferrum-silicon/src/debugger/debug_parser.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Debug tokens, type overrides, proof state and solver/assumption operations have native implementations; interactive IO, complete rendering, failure extraction and concrete parser/worker/evaluator services remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/debugger/DebugTypechecker.scala"
 destination = "crates/ferrum-silicon/src/debugger/debug_typechecker.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Debug tokens, type overrides, proof state and solver/assumption operations have native implementations; interactive IO, complete rendering, failure extraction and concrete parser/worker/evaluator services remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/debugger/SiliconDebugger.scala"
 destination = "crates/ferrum-silicon/src/debugger/silicon_debugger.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Debug tokens, type overrides, proof state and solver/assumption operations have native implementations; interactive IO, complete rendering, failure extraction and concrete parser/worker/evaluator services remain."]
 
 [[modules]]
 repository = "silicon"
