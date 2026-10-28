@@ -184,7 +184,8 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/rewriter/RegexStrategy.scala"
 destination = "crates/ferrum-silver/src/ast/utility/rewriter/regex_strategy.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Generic matching/context combination and reconstruction exist; concrete AST/parser adapters and callback noRec integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -204,13 +205,14 @@ remaining = ["Context-aware top-down/bottom-up/innermost traversal, noRec, repet
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/rewriter/TRegex.scala"
 destination = "crates/ferrum-silver/src/ast/utility/rewriter/t_regex.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Predicates, actions and regex combinators exist; context builders and concrete strategy adapters remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/rewriter/TRegexAutomaton.scala"
 destination = "crates/ferrum-silver/src/ast/utility/rewriter/t_regex_automaton.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
