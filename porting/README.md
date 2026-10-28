@@ -1,11 +1,15 @@
 # Port status and checks
 
-The description pass covered all 336 mapped Silver/Silicon source and test files
-and four Ferrum assembly files. Implementation is now underway in the Cargo
-workspace. `described` files remain comment-only; `skeleton` files contain partial
-implementations with explicit gaps, and `ported` files have translated bodies
-that compile. Most of the verifier is still unimplemented, and verification
-requests explicitly fail with `PortIncomplete`.
+The description pass covered all 336 mapped Silver/Silicon source and test files.
+The Cargo workspace now has 400 mapped and assembly modules. `described` files
+remain comment-only; `skeleton` files contain partial implementations with explicit
+gaps; `ported` means translated bodies compile, not that compatibility has been
+proved. Reviewed progress and remaining work are recorded per file.
+
+The CLI still returns `PortIncomplete` for verification. A native solver protocol
+round trip works, but the concrete execution services and complete verification
+pipeline are not connected. No end-to-end verification or speed improvement has
+been demonstrated.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and
@@ -28,13 +32,34 @@ plugin transformations, state merging, heap encodings, retries, continuations,
 quantified permissions, snapshot caches and function-axiom phases. This does not
 prove code correct or replace the broader testing pass in [PLAN.md](../PLAN.md).
 
-The implementation pass has activated every module, embedded the pinned resources,
-and added core AST/parser representations, source type and name utilities, generic
-CFG algorithms and lowering, and Silicon terms, stores and heap/chunk support.
-Most source modules still contain descriptions only. Parser ownership and rewriting, verification rules,
-solver orchestration and complete frontend assembly remain open. Targeted
-regressions cover specific identity and translation issues; no end-to-end
-verification or performance improvement has been demonstrated.
+Every one of the 269 mapped production source files now has a first Rust
+implementation, with remaining work recorded explicitly. The workspace has
+activated every module and embedded the pinned resources. It includes typed
+ASTs, checked parser/frontend subsets, CFG lowering,
+plugin transformations, terms and heap representations, solver process transport,
+and translated symbolic execution, permission, predicate and function algorithms.
+Several algorithms depend on explicit service traits that still need concrete
+implementations. Unsupported paths return errors; they must not imply successful
+verification.
+
+Focused checks cover specific identity, translation, traversal and solver-protocol
+questions. Review has already caught differences in rewrite recursion and AST
+location traversal; corresponding regressions accompany the fixes. These checks
+are not a substitute for the compatibility campaign in the plan.
+
+Of 67 source-mapped files under `tests/upstream/`, 66 intentionally remain briefs
+for the later broad testing pass in PLAN.md. `TestInput` already has grouping/tag
+helpers; it is not a completed suite. Production `testing/` helpers are part of
+the implementation pass. A source module having a Rust body marks first-pass
+coverage only; it does not close the gaps listed in its header
+and inventory entry.
+
+The final first-pass workspace checks, build and test-target compilation passed
+with the lockfile and offline dependencies. Clippy completed with warnings about
+source-shaped type/API complexity, nested conditionals, mutable key types and
+other cleanup items; these remain review work. A CLI smoke check returned exit 2
+and `PortIncomplete` for a verification request. Focused tests accompanied the
+reviewed semantic corrections; the broad upstream suite has not been run.
 
 Run the inventory and implementation checks from the repository root:
 

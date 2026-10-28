@@ -112,3 +112,61 @@ When adopting a deviation, record its pinned source location, upstream behavior,
 Rust behavior, reason, affected callers, and validation plan here. Moving files,
 changing representations, or replacing JVM mechanisms does not itself establish
 that behavior is equivalent.
+
+## Native ordering, counters and rendering boundaries
+
+Rust hash collections and heap ties do not reproduce Scala's incidental map or
+priority-queue order. Chopper equal-penalty cuts and quantified-permission tag
+selection need differential review. Ordered source collections retain explicit
+insertion order. Base-verifier counters use equality within a concrete Rust key
+type; Scala AnyRef keys can compare across runtime classes.
+
+Inverse-function name generation serializes the complete counter operation to
+avoid concurrent duplicate names. The source zero-variable field case still does
+not advance the counter. Method scoped declarations are computed through fallible
+native traversal rather than the source's eager cached field.
+
+Source AST reconstruction retains Scala's structural-equality behavior: an
+unforced parent copy can discard equal-syntax child metadata changes. The new
+bottom-up forced-copy traversal is used where extra return-type changes must be
+preserved; it does not silently change the existing preorder reconstruction rule.
+
+Complete source printers remain explicit dependencies where required. Native
+Debug strings are not accepted as equivalent AST/term rendering. Silver cache
+hashes preserve MD5 and the unusual decoded-binary-digest string, including Java's
+UTF-8 replacement handling; source class names, full pretty printing and other
+platform charsets still require adapters.
+
+## Native recorder ownership
+
+Recorder construction uses explicit typed factories instead of JVM reflection.
+Source providers and registry ownership are local-thread handles. File operations
+return native I/O errors and stop attempts all registered flushes, retaining the
+first error. Symbolic log records share identity across branch trees; source
+rendering and floating-point text conversion remain explicit boundaries. Progress
+reporting currently exposes ordered polling and scope/branch hooks; a native
+fixed-delay scheduler and automatic hook registration remain to be connected.
+
+## Counterexample reconstruction that cannot advance
+
+Silicon's set and multiset reconstruction can loop indefinitely when model
+operations refer to operands that are never seeded. Ferrum returns the explicit
+`NoProgress` error after a pass that resolves no pending operation. This changes
+an upstream nontermination case into a diagnostic; it does not fabricate a model.
+Model map/set iteration does not reproduce Scala's incidental order. Non-ASCII
+predicate name comparisons and unavailable source printers remain explicit
+unsupported paths instead of approximated output.
+
+## Native API and debugger boundaries
+
+The Z3 API conversion/session port uses typed native context and driver contracts;
+no concrete linked Z3 binding is selected yet. Assertion handling proves a goal
+only on UNSAT and attempts scope restoration on error. It is not an alias for the
+working stdio transport and does not establish native API parity.
+
+Debug tokens retain the source ASCII grammar. `debug@` is lexically accepted
+upstream but its split-index construction fails; native construction reports a
+specific error. Debugger input/worker/solver services propagate typed failures;
+the interactive loop, complete printing and failure-context assembly are pending.
+The dormant flyweight annotation has an explicit native pool rather than a new
+procedural macro. Concurrent creation returns the canonical stored handle.

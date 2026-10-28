@@ -24,7 +24,10 @@ implementation should retain its rules, representations, and control flow rather
 than introduce a smaller verification algorithm. Difficult features remain on the
 porting list even when their implementations arrive later in the sequence.
 
-The description pass is complete and implementation is underway. Reviewed
+The description pass and initial file-level production implementation pass are
+complete. All 269 mapped production sources now have native Rust code; many are
+partial and require concrete services or additional source cases. This does not
+mark language/backend assembly or compatibility milestones complete. Reviewed
 per-file progress and remaining gaps are tracked in [porting/modules.toml](porting/modules.toml);
 [porting/README.md](porting/README.md) lists checks and current limitations.
 The native CLI currently rejects verification with `PortIncomplete` until the
