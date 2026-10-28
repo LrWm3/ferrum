@@ -1086,7 +1086,8 @@ remaining = ["Source mode enums exist; complete CLI options, defaults and valida
 repository = "silicon"
 upstream = "src/main/scala/Silicon.scala"
 destination = "crates/ferrum-silicon/src/silicon.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source lifecycle, verification ordering and debug heap bookkeeping exist through required fallible services; concrete worker/solver execution assembly, configuration, timeout/cancellation, complete diagnostics and debugger wiring remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2016,7 +2017,8 @@ remaining = ["Owned native worker components, lifecycle and prover broadcasts ex
 repository = "silicon"
 upstream = "src/main/scala/verifier/DefaultMainVerifier.scala"
 destination = "crates/ferrum-silicon/src/verifier/default_main_verifier.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source lifecycle, verification ordering and debug heap bookkeeping exist through required fallible services; concrete worker/solver execution assembly, configuration, timeout/cancellation, complete diagnostics and debugger wiring remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2029,7 +2031,8 @@ remaining = ["Owned native worker components, lifecycle and prover broadcasts ex
 repository = "silicon"
 upstream = "src/main/scala/verifier/Verifier.scala"
 destination = "crates/ferrum-silicon/src/verifier/verifier.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source lifecycle, verification ordering and debug heap bookkeeping exist through required fallible services; concrete worker/solver execution assembly, configuration, timeout/cancellation, complete diagnostics and debugger wiring remain."]
 
 [[modules]]
 repository = "silicon"
