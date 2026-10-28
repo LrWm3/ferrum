@@ -607,3 +607,10 @@ as well; target lookup, conditional flag restoration, lazy path IDs and source
 combine/error order remain unchanged. The outer continuation is still borrowed,
 so these frames continue to execute synchronously while loop and rule frames
 are converted.
+
+Loop-head continuations now own the ordered condition checks, outgoing edges,
+join context and path identity. Condition checks retain their separate local
+solver scopes and fatal-result handling before edge execution. An owned
+loop-phase frame carries recorded states, paths, declarations and statements
+through invariant establishment and replay. The outer continuation and local
+cleanup callbacks remain borrowed, so loop execution remains synchronous.

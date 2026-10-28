@@ -1386,12 +1386,109 @@ where
     }
 }
 
+/// Continuation after loop-head statements: check conditions, then follow edges.
+struct LoopHeadSuccessorFrame {
+    conditions: Arc<[Exp]>,
+    edges: Arc<[SilverEdge]>,
+    join_point: Option<SilverBlock>,
+    path_id: i32,
+}
+
+fn execute_loop_head_successors<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    frame: &LoopHeadSuccessorFrame,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    context
+        .loop_comment("Loop head block: Check well-definedness of edge conditions")
+        .map_err(ExecutionError::Context)?;
+    let mut checked = VerificationResult::success();
+    for condition in frame.conditions.iter() {
+        if !checked.continue_verification() {
+            break;
+        }
+        let result = context.locally_loop(state.clone(), &mut |context, state| {
+            context.evaluate_edge(state, condition, true, &mut |_, _, _, _| {
+                Ok(VerificationResult::success())
+            })
+        })?;
+        checked = checked.combine(|| result, false);
+    }
+    context
+        .loop_comment("Loop head block: Follow loop-internal edges")
+        .map_err(ExecutionError::Context)?;
+    if !checked.continue_verification() {
+        return Ok(checked);
+    }
+    let followed = follow_edges(
+        context,
+        state,
+        &frame.edges,
+        frame.join_point.as_ref(),
+        frame.path_id,
+        continuation,
+    )?;
+    Ok(checked.combine(|| followed, false))
+}
+
 struct LoopPhase<P, D, J> {
     state: State<P, D, J>,
     paths: crate::decider::path_conditions::RecordedPathConditions,
     functions: Vec<crate::state::terms::Declaration>,
     macros: Vec<crate::state::terms::Declaration>,
 }
+struct LoopPhaseExecutionFrame<P, D, J> {
+    phases: Vec<LoopPhase<P, D, J>>,
+    statements: Arc<[Stmt]>,
+    successors: LoopHeadSuccessorFrame,
+}
+
+fn execute_loop_phases<C, P, D, J: Clone, V>(
+    context: &mut C,
+    leftover: State<P, D, J>,
+    frame: &LoopPhaseExecutionFrame<P, D, J>,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    let mut accumulated = VerificationResult::success();
+    for phase in &frame.phases {
+        if !accumulated.continue_verification() {
+            break;
+        }
+        let mut phase_state = phase.state.clone();
+        phase_state.invariant_contexts.insert(0, leftover.h.clone());
+        phase_state = context
+            .loop_merge_debug_heaps(phase_state, &leftover)
+            .map_err(ExecutionError::Context)?;
+        let result = context.locally_loop(phase_state, &mut |context, state| {
+            context
+                .replay_loop_path(&phase.paths, &phase.functions, &phase.macros)
+                .map_err(ExecutionError::Context)?;
+            context.loop_saturate().map_err(ExecutionError::Context)?;
+            if context.loop_smoke().map_err(ExecutionError::Context)? {
+                return Ok(VerificationResult::success());
+            }
+            execute_all(context, state, &frame.statements, &mut |context, state| {
+                execute_loop_head_successors(context, state, &frame.successors, continuation)
+            })
+        })?;
+        accumulated = accumulated.combine(|| result, false);
+    }
+    Ok(accumulated)
+}
+
 /// Execute the source two-phase loop rule: invariant framing in an empty heap,
 /// establishment in the incoming state, then replay each framed phase before following edges.
 fn execute_loop_head<C, P, D, J: Clone, V>(
@@ -1451,6 +1548,12 @@ where
             }
         }
     }
+    let successors = LoopHeadSuccessorFrame {
+        conditions: Arc::from(conditions),
+        edges: Arc::from(sorted),
+        join_point: join_point.cloned(),
+        path_id,
+    };
     let mut phases = Vec::<LoopPhase<P, D, J>>::new();
     let first = context.locally_loop(body_state, &mut |context, state| {
         context
@@ -1474,6 +1577,11 @@ where
     if !first.continue_verification() {
         return Ok(first);
     }
+    let frame = LoopPhaseExecutionFrame {
+        phases,
+        statements: Arc::from(statements),
+        successors,
+    };
     let second = context.locally_loop(state, &mut |context, state| {
         context
             .loop_comment("Loop head block: Establish invariant")
@@ -1484,66 +1592,7 @@ where
                     "Loop head block: Execute statements of loop head block (in invariant state)",
                 )
                 .map_err(ExecutionError::Context)?;
-            let mut accumulated = VerificationResult::success();
-            for phase in &phases {
-                if !accumulated.continue_verification() {
-                    break;
-                }
-                let mut phase_state = phase.state.clone();
-                phase_state.invariant_contexts.insert(0, leftover.h.clone());
-                phase_state = context
-                    .loop_merge_debug_heaps(phase_state, &leftover)
-                    .map_err(ExecutionError::Context)?;
-                let result = context.locally_loop(phase_state, &mut |context, state| {
-                    context
-                        .replay_loop_path(&phase.paths, &phase.functions, &phase.macros)
-                        .map_err(ExecutionError::Context)?;
-                    context.loop_saturate().map_err(ExecutionError::Context)?;
-                    if context.loop_smoke().map_err(ExecutionError::Context)? {
-                        return Ok(VerificationResult::success());
-                    }
-                    execute_all(context, state, statements, &mut |context, state| {
-                        context
-                            .loop_comment(
-                                "Loop head block: Check well-definedness of edge conditions",
-                            )
-                            .map_err(ExecutionError::Context)?;
-                        let mut checked = VerificationResult::success();
-                        for condition in &conditions {
-                            if !checked.continue_verification() {
-                                break;
-                            }
-                            let result =
-                                context.locally_loop(state.clone(), &mut |context, state| {
-                                    context.evaluate_edge(
-                                        state,
-                                        condition,
-                                        true,
-                                        &mut |_, _, _, _| Ok(VerificationResult::success()),
-                                    )
-                                })?;
-                            checked = checked.combine(|| result, false);
-                        }
-                        context
-                            .loop_comment("Loop head block: Follow loop-internal edges")
-                            .map_err(ExecutionError::Context)?;
-                        if !checked.continue_verification() {
-                            return Ok(checked);
-                        }
-                        let followed = follow_edges(
-                            context,
-                            state,
-                            &sorted,
-                            join_point,
-                            path_id,
-                            continuation,
-                        )?;
-                        Ok(checked.combine(|| followed, false))
-                    })
-                })?;
-                accumulated = accumulated.combine(|| result, false);
-            }
-            Ok(accumulated)
+            execute_loop_phases(context, leftover, &frame, continuation)
         })
     })?;
     Ok(first.combine(|| second, false))
