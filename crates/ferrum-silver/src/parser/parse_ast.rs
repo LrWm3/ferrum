@@ -1440,6 +1440,19 @@ pub type SymbolToken = super::parse_ast_keyword::PReserved<super::parse_ast_keyw
 pub type SymbolOperatorToken =
     super::parse_ast_keyword::PReserved<super::parse_ast_keyword::PSymOp>;
 pub type OptionalSemi = super::parse_ast_keyword::ND<Option<SymbolToken>>;
+#[derive(Clone, Debug)]
+pub enum PSpecificationKeyword {
+    Builtin(KeywordToken),
+    Extension(super::parse_ast_keyword::PReserved<super::parse_ast_keyword::PExtensionKeyword>),
+}
+impl PGraphElement for PSpecificationKeyword {
+    fn graph_nodes(&self) -> Vec<PNodeHandle> {
+        match self {
+            Self::Builtin(token) => token.graph_nodes(),
+            Self::Extension(token) => token.graph_nodes(),
+        }
+    }
+}
 pub type PStmtBlock = super::parse_ast_keyword::PGrouped<
     super::parse_ast_keyword::PSym,
     super::parse_ast_keyword::PDelimited<PStmtHandle, OptionalSemi>,
@@ -1447,7 +1460,7 @@ pub type PStmtBlock = super::parse_ast_keyword::PGrouped<
 >;
 #[derive(Clone, Debug)]
 pub struct PSpecification {
-    pub(crate) keyword: KeywordToken,
+    pub(crate) keyword: PSpecificationKeyword,
     pub(crate) exp: PExpHandle,
     pub(crate) pos: Span,
     pub(crate) node: PNodeHandle,
@@ -2157,7 +2170,7 @@ graph_record_new!(PAnnotation, Annotation,
     at: SymbolToken, key: PRawString,
     values: super::parse_ast_keyword::PGrouped<super::parse_ast_keyword::PSym, super::parse_ast_keyword::PDelimited<PStringLiteral, SymbolToken>, super::parse_ast_keyword::PSym>);
 graph_record_new!(PBracedExp, BracedExp, exp: PExpGroup);
-graph_record_new!(PSpecification, Specification, keyword: KeywordToken, exp: PExpHandle);
+graph_record_new!(PSpecification, Specification, keyword: PSpecificationKeyword, exp: PExpHandle);
 graph_record_new!(PSpecs, Specs, specs: super::parse_ast_keyword::PDelimited<PSpecification, OptionalSemi>);
 graph_record_new!(PTrigger, Trigger, expressions: PExpArguments);
 graph_record_new!(PDomainFunctionArg, DomainFunctionArg, name: Option<PNodeHandle>, colon: Option<SymbolToken>, typ: PTypeHandle);
@@ -3528,6 +3541,7 @@ impl PExpHandle {
                 if extension.as_any().is::<crate::plugin::standard::arp::arppast_extension::PRdPerm>() { Ok(()) }
                 else if let Some(sif) = extension.as_any().downcast_ref::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() { sif.force_substitution(substitution) }
                 else if let Some(instance) = extension.as_any().downcast_ref::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() { instance.force_substitution(substitution) }
+                else if let Some(clause) = extension.as_any().downcast_ref::<crate::plugin::standard::termination::termination_past_extension::PDecreasesClause>() { clause.force_substitution(substitution); Ok(()) }
                 else { Err(ForceSubstitutionError::ExtensionNotImplemented) }
             }
             IntLit(_)

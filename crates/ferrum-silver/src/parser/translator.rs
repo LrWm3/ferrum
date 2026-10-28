@@ -201,6 +201,10 @@ fn translate_expression_with_fields(
                 )?
                 .map_err(|_| TranslationError::InvalidType);
         }
+        PExpressionKind::Extension(extension) if extension.as_any().is::<crate::plugin::standard::termination::termination_past_extension::PDecreasesClause>() => {
+            let clause = extension.as_any().downcast_ref::<crate::plugin::standard::termination::termination_past_extension::PDecreasesClause>().expect("checked clause");
+            return clause.translate(|_| meta, |exp| translate_expression_with_fields(exp, fields));
+        }
         PExpressionKind::Extension(extension) => {
             let Some(instance) = extension.as_any().downcast_ref::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() else { return Err(TranslationError::Unsupported("expression extension translation")); };
             return instance.translate(

@@ -49,7 +49,8 @@ use super::parse_ast::{
 };
 use super::parse_ast::{
     PBracedExp, PDeclarationHandle, PDeclarationKind, PIdnDef, PIdnTypeBinding, PMember,
-    PMemberHandle, PMemberKind, PNodeHandle, PProgram, PProgramHandle, PSpecification, PSpecs,
+    PMemberHandle, PMemberKind, PNodeHandle, PProgram, PProgramHandle, PSpecification,
+    PSpecificationKeyword, PSpecs,
 };
 use super::parse_ast::{
     PExpGroup, PMethodReturns, PStatement, PStatementKind, PStmtHandle, fresh_scope_id,
@@ -135,6 +136,7 @@ pub enum ParserFeature {
     PredicateInstance,
     Sif,
     Arp,
+    Termination,
     StatementBlock {
         keyword: &'static str,
         factory: fn(
@@ -151,7 +153,8 @@ impl PartialEq for ParserFeature {
             | (Self::Unreachable, Self::Unreachable)
             | (Self::PredicateInstance, Self::PredicateInstance)
             | (Self::Sif, Self::Sif)
-            | (Self::Arp, Self::Arp) => true,
+            | (Self::Arp, Self::Arp)
+            | (Self::Termination, Self::Termination) => true,
             (
                 Self::StatementBlock {
                     keyword: a,
@@ -820,6 +823,87 @@ impl ExpressionParser<'_> {
         loop {
             self.trivia()?;
             let at = self.cursor;
+            if self.features.contains(&ParserFeature::Termination)
+                && self.source[at..].starts_with("decreases")
+                && self.identifier_end(at) == at + "decreases".len()
+            {
+                use crate::plugin::standard::termination::termination_past_extension::{
+                    PDecreasesClause, PDecreasesKind, PIfKeyword, PWildcardSym, decreases_keyword,
+                };
+                self.cursor += "decreases".len();
+                let keyword = decreases_keyword(self.span(at, self.cursor));
+                let clause_start = self.position(self.cursor);
+                let kind = if let Some(star) = self.take("*")? {
+                    PDecreasesKind::Star {
+                        star: PReserved::new(PSym::Star, star),
+                    }
+                } else {
+                    self.trivia()?;
+                    let wildcard = if self.source[self.cursor..].starts_with('_')
+                        && self.identifier_end(self.cursor) == self.cursor + 1
+                    {
+                        self.take("_")?
+                    } else {
+                        None
+                    };
+                    let mut first = None;
+                    let mut rest = Vec::new();
+                    let list_start = self.position(self.cursor);
+                    if wildcard.is_none() {
+                        let saved = self.cursor;
+                        match self.expression(0) {
+                            Ok(exp) => {
+                                first = Some(exp);
+                                while let Some(comma) = self.take(",")? {
+                                    rest.push((
+                                        PReserved::new(PSym::Comma, comma),
+                                        self.expression(0)?,
+                                    ));
+                                }
+                            }
+                            Err(_) => self.cursor = saved,
+                        }
+                    }
+                    let list_end = self.position(self.cursor);
+                    self.trivia()?;
+                    let condition = if self.source[self.cursor..].starts_with("if")
+                        && self.identifier_end(self.cursor) == self.cursor + 2
+                    {
+                        let begin = self.cursor;
+                        self.cursor += 2;
+                        Some((
+                            PReserved::new(PIfKeyword, self.span(begin, self.cursor)),
+                            self.expression(0)?,
+                        ))
+                    } else {
+                        None
+                    };
+                    match wildcard {
+                        Some(span) => PDecreasesKind::Wildcard {
+                            wildcard: PReserved::new(PWildcardSym, span),
+                            condition,
+                        },
+                        None => PDecreasesKind::Tuple {
+                            tuple: PDelimited::new(first, rest, None, (list_start, list_end)),
+                            condition,
+                        },
+                    }
+                };
+                let end = self.position(self.cursor);
+                let expression = PDecreasesClause {
+                    kind,
+                    pos: (clause_start, end.clone()),
+                }
+                .expression();
+                let spec = PSpecification::new(
+                    PSpecificationKeyword::Extension(keyword),
+                    expression,
+                    (self.position(at), end),
+                );
+                let semi = self.take(";")?.map(|span| PReserved::new(PSym::Semi, span));
+                pairs.push((spec, ND(semi)));
+                continue;
+            }
             if !self.source[at..].starts_with(name) || self.identifier_end(at) != at + name.len() {
                 break;
             }
@@ -833,7 +917,11 @@ impl ExpressionParser<'_> {
                 .pos
                 .1
                 .clone();
-            let spec = PSpecification::new(token, expression, (self.position(at), end));
+            let spec = PSpecification::new(
+                PSpecificationKeyword::Builtin(token),
+                expression,
+                (self.position(at), end),
+            );
             let semi = self.take(";")?.map(|span| PReserved::new(PSym::Semi, span));
             pairs.push((spec, ND(semi)));
         }

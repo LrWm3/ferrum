@@ -45,6 +45,24 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+fn adt_scala_type_map_hash(
+    map: &TypeSubstitution,
+) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
+    use crate::ast::utility::expressions::{
+        scala_map_hash, scala_product, scala_string_hash, scala_type_hash,
+    };
+    let entries = map
+        .iter()
+        .map(|(key, value)| {
+            Ok((
+                scala_product("TypeVar", &[scala_string_hash(&key.name)]),
+                scala_type_hash(value)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(scala_map_hash(entries))
+}
+
 #[derive(Clone, Debug)]
 pub struct AdtType {
     pub adt_name: String,
@@ -82,6 +100,16 @@ impl AdtType {
     }
 }
 impl ExtensionType for AdtType {
+    fn scala_hash(&self) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
+        Ok(crate::ast::utility::expressions::scala_product(
+            "AdtType",
+            &[
+                crate::ast::utility::expressions::scala_string_hash(&self.adt_name),
+                adt_scala_type_map_hash(&self.partial_type_vars)?,
+            ],
+        ))
+    }
+
     fn check_product_nodes(
         &self,
     ) -> Result<
@@ -569,6 +597,31 @@ impl AdtConstructorApp {
     }
 }
 impl ExtensionExp for AdtConstructorApp {
+    fn scala_hash(&self) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
+        Ok(crate::ast::utility::expressions::scala_product(
+            "AdtConstructorApp",
+            &[
+                crate::ast::utility::expressions::scala_string_hash(&self.name),
+                crate::ast::utility::expressions::scala_expression_sequence_hash(&self.args)?,
+                adt_scala_type_map_hash(&self.type_vars)?,
+            ],
+        ))
+    }
+    fn pretty_print(&self) -> Result<String, crate::ast::pretty::pretty_printer::PrintError> {
+        use crate::ast::pretty::pretty_printer::{pretty_expression, show_type};
+        let args = self
+            .args
+            .iter()
+            .map(pretty_expression)
+            .collect::<Result<Vec<_>, _>>()?;
+        let call = format!("{}({})", self.name, args.join(", "));
+        if self.type_vars.is_empty() {
+            Ok(call)
+        } else {
+            Ok(format!("({call}: {})", show_type(&self.typ)?))
+        }
+    }
+
     fn check_product_nodes(
         &self,
     ) -> Result<
@@ -689,6 +742,24 @@ impl AdtDestructorApp {
     }
 }
 impl ExtensionExp for AdtDestructorApp {
+    fn scala_hash(&self) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
+        Ok(crate::ast::utility::expressions::scala_product(
+            "AdtDestructorApp",
+            &[
+                crate::ast::utility::expressions::scala_string_hash(&self.name),
+                crate::ast::utility::expressions::scala_expression_hash(&self.receiver)?,
+                adt_scala_type_map_hash(&self.type_vars)?,
+            ],
+        ))
+    }
+    fn pretty_print(&self) -> Result<String, crate::ast::pretty::pretty_printer::PrintError> {
+        Ok(format!(
+            "{}.{}",
+            crate::ast::pretty::pretty_printer::pretty_expression(&self.receiver)?,
+            self.name
+        ))
+    }
+
     fn check_product_nodes(
         &self,
     ) -> Result<
@@ -784,6 +855,24 @@ impl AdtDiscriminatorApp {
     }
 }
 impl ExtensionExp for AdtDiscriminatorApp {
+    fn scala_hash(&self) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
+        Ok(crate::ast::utility::expressions::scala_product(
+            "AdtDiscriminatorApp",
+            &[
+                crate::ast::utility::expressions::scala_string_hash(&self.name),
+                crate::ast::utility::expressions::scala_expression_hash(&self.receiver)?,
+                adt_scala_type_map_hash(&self.type_vars)?,
+            ],
+        ))
+    }
+    fn pretty_print(&self) -> Result<String, crate::ast::pretty::pretty_printer::PrintError> {
+        Ok(format!(
+            "{}.is{}",
+            crate::ast::pretty::pretty_printer::pretty_expression(&self.receiver)?,
+            self.name
+        ))
+    }
+
     fn check_product_nodes(
         &self,
     ) -> Result<

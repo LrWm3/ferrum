@@ -132,6 +132,53 @@ impl DecreasesClause {
     }
 }
 impl ExtensionExp for DecreasesClause {
+    fn scala_hash(&self) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
+        use crate::ast::utility::expressions::{
+            scala_expression_hash, scala_expression_sequence_hash, scala_product, scala_string_hash,
+        };
+        let option = |condition: Option<&Exp>| -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
+            match condition { Some(value) => Ok(scala_product("Some", &[scala_expression_hash(value)?])), None => Ok(scala_string_hash("None")) }
+        };
+        Ok(match &self.kind {
+            DecreasesKind::Tuple { tuple, condition } => scala_product(
+                "DecreasesTuple",
+                &[
+                    scala_expression_sequence_hash(tuple)?,
+                    option(condition.as_ref())?,
+                ],
+            ),
+            DecreasesKind::Wildcard { condition } => {
+                scala_product("DecreasesWildcard", &[option(condition.as_ref())?])
+            }
+            DecreasesKind::Star => scala_product("DecreasesStar", &[]),
+        })
+    }
+    fn pretty_print(&self) -> Result<String, crate::ast::pretty::pretty_printer::PrintError> {
+        use crate::ast::pretty::pretty_printer::pretty_expression;
+        let (mut text, condition) = match &self.kind {
+            DecreasesKind::Tuple { tuple, condition } => {
+                let values = tuple
+                    .iter()
+                    .map(pretty_expression)
+                    .collect::<Result<Vec<_>, _>>()?;
+                (
+                    if values.is_empty() {
+                        "decreases".into()
+                    } else {
+                        format!("decreases {}", values.join(", "))
+                    },
+                    condition.as_ref(),
+                )
+            }
+            DecreasesKind::Wildcard { condition } => ("decreases _".into(), condition.as_ref()),
+            DecreasesKind::Star => ("decreases *".into(), None),
+        };
+        if let Some(condition) = condition {
+            text.push_str(&format!(" if {}", pretty_expression(condition)?));
+        }
+        Ok(text)
+    }
+
     fn check_product_nodes(
         &self,
     ) -> Result<

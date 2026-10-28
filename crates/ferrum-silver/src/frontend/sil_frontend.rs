@@ -48,6 +48,118 @@ use crate::verifier::verification_result::{
 };
 use std::path::PathBuf;
 
+const ADT_PLUGIN: &str = "viper.silver.plugin.standard.adt.AdtPlugin";
+const TERMINATION_PLUGIN: &str = "viper.silver.plugin.standard.termination.TerminationPlugin";
+const PREDICATE_INSTANCE_PLUGIN: &str =
+    "viper.silver.plugin.standard.predicateinstance.PredicateInstancePlugin";
+const REFUTE_PLUGIN: &str = "viper.silver.plugin.standard.refute.RefutePlugin";
+const SMOKE_PLUGIN: &str = "viper.silver.plugin.standard.smoke.SmokeDetectionPlugin";
+const ARP_PLUGIN: &str = "viper.silver.plugin.standard.arp.ARPPlugin";
+
+/// The exact source plugin sequence, including explicit duplicates. Callers can
+/// use this list to issue the source duplicate-plugin configuration warning.
+pub fn configured_plugin_names(
+    config: &crate::frontend::sil_front_end_config::SilFrontendConfig,
+) -> Vec<String> {
+    let mut names = Vec::new();
+    if config.enable_smoke_detection {
+        names.extend([SMOKE_PLUGIN.to_owned(), REFUTE_PLUGIN.to_owned()]);
+    }
+    if !config.disable_default_plugins {
+        for name in [
+            ADT_PLUGIN,
+            TERMINATION_PLUGIN,
+            PREDICATE_INSTANCE_PLUGIN,
+            REFUTE_PLUGIN,
+        ] {
+            if !names.iter().any(|existing| existing == name) {
+                names.push(name.into());
+            }
+        }
+    }
+    if let Some(explicit) = &config.plugin {
+        let mut parts: Vec<_> = explicit.split(':').collect();
+        if !explicit.is_empty() {
+            while parts.last() == Some(&"") {
+                parts.pop();
+            }
+        }
+        names.extend(parts.into_iter().map(str::to_owned));
+    }
+    names
+}
+
+#[derive(Debug)]
+struct NativeErrorRenderer;
+impl crate::verifier::verification_error::ErrorNodeRenderer for NativeErrorRenderer {
+    fn render_node(
+        &self,
+        node: &crate::ast::utility::nodes::Node,
+    ) -> Result<String, crate::verifier::verification_result::DiagnosticError> {
+        crate::ast::pretty::pretty_printer::pretty_node(node).map_err(|_| {
+            crate::verifier::verification_result::DiagnosticError::Unsupported(
+                "error node pretty printing",
+            )
+        })
+    }
+}
+
+/// Construct the configured built-in plugins in source order. Unknown plugins and
+/// known plugins lacking a native transformation return explicit errors.
+pub fn standard_plugin_manager(
+    config: &crate::frontend::sil_front_end_config::SilFrontendConfig,
+) -> Result<SilverPluginManager, crate::plugin::silver_plugin_manager::PluginResolutionError> {
+    use crate::plugin::silver_plugin::SilverPlugin;
+    use crate::plugin::silver_plugin_manager::PluginResolutionError;
+    use crate::plugin::standard::{
+        adt::adt_plugin::AdtPlugin,
+        arp::arp_plugin::ArpPlugin,
+        predicateinstance::predicate_instance_plugin::PredicateInstancePlugin,
+        refute::refute_plugin::RefutePlugin,
+        smoke::smoke_detection_plugin::SmokeDetectionPlugin,
+        termination::termination_plugin::{NativeTerminationTransformer, TerminationPlugin},
+    };
+    let names = configured_plugin_names(config);
+    let explicit: Vec<String> = config
+        .plugin
+        .as_ref()
+        .map(|s| s.split(':').map(str::to_owned).collect())
+        .unwrap_or_default();
+    let mut plugins: Vec<Box<dyn SilverPlugin>> = Vec::new();
+    for name in names {
+        let plugin: Box<dyn SilverPlugin> = match name.as_str() {
+            ADT_PLUGIN => {
+                let mut plugin = AdtPlugin::default();
+                plugin.has_config = true;
+                plugin.disabled = config.disable_adt_plugin;
+                plugin.disable_termination = config.disable_termination_plugin;
+                plugin.disable_default_plugins = config.disable_default_plugins;
+                plugin.explicit_plugins = explicit.clone();
+                Box::new(plugin)
+            }
+            TERMINATION_PLUGIN => Box::new(TerminationPlugin::new(
+                config.disable_termination_plugin,
+                config.respect_function_pre_perm_amounts,
+                Some(Box::new(NativeTerminationTransformer)),
+            )),
+            PREDICATE_INSTANCE_PLUGIN => Box::new(PredicateInstancePlugin),
+            REFUTE_PLUGIN => Box::new(RefutePlugin {
+                renderer: std::sync::Arc::new(NativeErrorRenderer),
+            }),
+            SMOKE_PLUGIN => Box::new(SmokeDetectionPlugin),
+            ARP_PLUGIN => Box::new(ArpPlugin),
+            "viper.silver.plugin.sif.SIFPlugin" => {
+                return Err(PluginResolutionError::Construction(
+                    "SIF transformation is not yet implemented".into(),
+                ));
+            }
+            _ => return Err(PluginResolutionError::NotFound(name)),
+        };
+        plugins.push(plugin);
+    }
+    Ok(SilverPluginManager::new(plugins))
+}
+
 /// Silver's native phase bodies. Unsupported semantic and consistency families
 /// produce errors until their complete checks are available.
 pub struct SilFrontendPhases {
@@ -66,7 +178,9 @@ impl SilFrontendPhases {
             file,
             plugins,
             local_loader: std::sync::Arc::new(crate::ast::utility::file_loader::DiskLoader),
-            standard_loader: None,
+            standard_loader: Some(std::sync::Arc::new(
+                crate::resources::bundled::BundledImportLoader,
+            )),
             backend_type_format: None,
             respect_function_pre_perm_amounts: false,
             parsing_warnings: vec![],
@@ -298,6 +412,117 @@ impl FrontendPhases for SilFrontendPhases {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn plugin_scala_product_hashes_match_scala_2_13() {
+        use crate::ast::ast::Metadata;
+        use crate::ast::expression::ExtensionExp;
+        let rd = crate::plugin::standard::arp::arpast_extension::RdPerm {
+            meta: Metadata::default(),
+        };
+        let instance = crate::plugin::standard::predicateinstance::predicate_instance_ast_extension::PredicateInstance { predicate: "p".into(), args: vec![], meta: Metadata::default() };
+        assert_eq!(rd.scala_hash().unwrap(), -1852540830);
+        assert_eq!(instance.scala_hash().unwrap(), -1322434817);
+    }
+    #[test]
+    fn native_default_plugins_prepare_method_and_load_bundled_import() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        assert_eq!(
+            configured_plugin_names(&config),
+            [
+                ADT_PLUGIN,
+                TERMINATION_PLUGIN,
+                PREDICATE_INSTANCE_PLUGIN,
+                REFUTE_PLUGIN
+            ]
+        );
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases.parse("method invalid() { assert false; }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+        phases
+            .parse("import <decreases/int.vpr> method m() {}")
+            .unwrap();
+    }
+    #[test]
+    fn native_smoke_plugins_prepare_marker() {
+        let mut config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        config.enable_smoke_detection = true;
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases
+            .parse("method m() { unreachable; inhale true; }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+    }
+    #[test]
+    fn native_default_plugins_prepare_heap_and_predicate() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases.parse("field f: Int predicate p(x: Ref) { acc(x.f) } method m(x: Ref) requires acc(p(x)) { unfold acc(p(x)); x.f := 1; fold acc(p(x)); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+    }
+    #[test]
+    fn native_termination_parses_and_extracts_wildcard() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases
+            .parse("method m(x: Int) decreases _ if x > 0 { assert true; }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+    }
+    #[test]
+    fn native_termination_keeps_tuple_and_star_when_checks_disabled() {
+        let mut config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        config.disable_termination_plugin = true;
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases
+            .parse("method m(x: Int) decreases x, x + 1 if x > 0 { while (false) decreases * {} }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+    }
+    #[test]
+    fn native_termination_missing_order_fails_closed() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases
+            .parse("method m(x: Int) decreases x { m(x - 1); }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        assert!(phases.prepare_verification(program).is_err());
+    }
     #[test]
     fn refute_plugin_parses_checks_translates_and_lowers() {
         use crate::ast::utility::nodes::Node;

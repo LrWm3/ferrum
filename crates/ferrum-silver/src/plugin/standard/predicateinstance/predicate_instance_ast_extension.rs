@@ -78,6 +78,24 @@ impl PredicateInstance {
     }
 }
 impl ExtensionExp for PredicateInstance {
+    fn scala_hash(&self) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
+        Ok(crate::ast::utility::expressions::scala_product(
+            "PredicateInstance",
+            &[
+                crate::ast::utility::expressions::scala_string_hash(&self.predicate),
+                crate::ast::utility::expressions::scala_expression_sequence_hash(&self.args)?,
+            ],
+        ))
+    }
+    fn pretty_print(&self) -> Result<String, crate::ast::pretty::pretty_printer::PrintError> {
+        let args = self
+            .args
+            .iter()
+            .map(crate::ast::pretty::pretty_printer::pretty_expression)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(format!("{}({})", self.predicate, args.join(", ")))
+    }
+
     fn check_product_nodes(
         &self,
     ) -> Result<

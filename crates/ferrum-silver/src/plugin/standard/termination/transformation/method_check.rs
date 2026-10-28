@@ -158,7 +158,7 @@ pub struct MethodCheck {
     pub program: Program,
     components: Vec<Vec<String>>,
     while_counter: i32,
-    pub nested: Option<Box<dyn FnMut(Stmt) -> Result<Stmt, MethodCheckError>>>,
+    pub nested: Option<Box<dyn FnMut(Stmt) -> Result<Stmt, MethodCheckError> + Send>>,
 }
 impl MethodCheck {
     pub fn new(program: Program) -> Result<Self, MethodCheckError> {

@@ -60,6 +60,13 @@ impl Refute {
     }
 }
 impl ExtensionStmt for Refute {
+    fn pretty_print(&self) -> Result<String, crate::ast::pretty::pretty_printer::PrintError> {
+        Ok(format!(
+            "refute {}",
+            crate::ast::pretty::pretty_printer::pretty_expression(&self.exp)?
+        ))
+    }
+
     fn check_product_nodes(
         &self,
     ) -> Result<
@@ -122,6 +129,9 @@ pub struct RefuteInfo {
     pub refute: Refute,
 }
 impl ExtensionInfo for RefuteInfo {
+    fn is_failure_expected(&self) -> bool {
+        true
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }

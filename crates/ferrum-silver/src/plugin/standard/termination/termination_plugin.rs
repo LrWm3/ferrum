@@ -32,9 +32,9 @@
 //! Agree on import ordering and provider lifecycle, parser extension registration and persistent
 //! decreasesClauses state with frontend and parser.
 //!
-//! Status: partial; decreases extraction/validation and verification-result mapping are implemented.
-//! Parsing, imports, recursive-postcondition validation and concrete lifecycle transformer remain
-//! pending; active verification requires an explicit validator/transformer.
+//! Status: partial; decreases extraction, recursive-postcondition validation, concrete proof
+//! generation and verification-result mapping are implemented. Parser registration and automatic
+//! order imports remain pending; unsupported proof shapes return explicit errors.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -304,6 +304,9 @@ impl TerminationPlugin {
     }
 }
 impl SilverPlugin for TerminationPlugin {
+    fn parser_features(&self) -> Vec<crate::parser::fast_parser::ParserFeature> {
+        vec![crate::parser::fast_parser::ParserFeature::Termination]
+    }
     fn errors(&self) -> &[AbstractError] {
         self.errors.errors()
     }
@@ -385,5 +388,162 @@ mod tests {
         );
         let mut plugin = TerminationPlugin::new(false, false, None);
         assert!(plugin.before_verify(program).is_err());
+    }
+}
+
+/// Native termination checker for already extracted, typed Silver programs.
+/// Resource imports and decreases parser registration still occur earlier in the frontend.
+#[derive(Default)]
+pub struct NativeTerminationTransformer;
+impl TerminationTransformer for NativeTerminationTransformer {
+    fn validate_and_transform(
+        &mut self,
+        program: Program,
+        respect: bool,
+    ) -> Result<Program, PluginHookError> {
+        use super::transformation::{
+            call_graph::{DirectedGraph, mutually_recursive_vertices},
+            function_check::{ConcreteFunctionProofEngine, FunctionProofGenerator},
+            method_check::MethodCheck,
+            program_manager::ProgramManager,
+            trafo::{TerminationChecks, Trafo},
+        };
+        use crate::ast::utility::consistency::transitive_scoped_names;
+        use std::sync::{Arc, Mutex};
+        fn calls(node: &Node, out: &mut Vec<String>) -> Result<(), PluginHookError> {
+            if let Node::Exp(exp) = node {
+                if let ExpKind::FuncApp(name, _) = exp.kind() {
+                    out.push(name.clone());
+                }
+            }
+            for child in nodes::subnodes(node)
+                .map_err(|e| PluginHookError(format!("termination call traversal: {e:?}")))?
+            {
+                calls(&child, out)?;
+            }
+            Ok(())
+        }
+        let mut graph = DirectedGraph::new();
+        for f in &program.functions {
+            graph.add_vertex(f.name.clone());
+        }
+        for f in &program.functions {
+            if let Some(body) = &f.body {
+                let mut names = Vec::new();
+                calls(&Node::Exp(body.clone()), &mut names)?;
+                for name in names {
+                    if program.find_function_optionally(&name).is_none() {
+                        return Err(PluginHookError(format!("unknown function {name}")));
+                    }
+                    graph.add_edge(f.name.clone(), name);
+                }
+            }
+        }
+        let components = mutually_recursive_vertices(&graph);
+        for function in &program.functions {
+            let spec = DecreasesSpecification::from_info(&function.meta.info)
+                .map_err(|e| PluginHookError(e.into()))?;
+            if spec.tuple.is_some() || spec.wildcard.is_some() || spec.star.is_some() {
+                continue;
+            }
+            let component = components
+                .iter()
+                .find(|c| c.contains(&function.name))
+                .ok_or_else(|| PluginHookError("function missing from termination graph".into()))?;
+            for post in &function.posts {
+                let mut names = Vec::new();
+                calls(&Node::Exp(post.clone()), &mut names)?;
+                if names.iter().any(|name| {
+                    name == &function.name || component.len() > 1 && component.contains(name)
+                }) {
+                    return Err(PluginHookError(format!(
+                        "Function {} has a recursive call in its postcondition and must be proven well-founded.",
+                        function.name
+                    )));
+                }
+            }
+        }
+        fn instrument(
+            program: &Program,
+            names: &Mutex<std::collections::HashSet<String>>,
+            statement: Stmt,
+        ) -> Result<Stmt, String> {
+            let hash = |args: &[Exp]| {
+                crate::ast::utility::expressions::scala_expression_sequence_hash(args)
+                    .map_err(|e| format!("predicate argument hash: {e:?}"))
+            };
+            let render = |args: &[Exp]| {
+                args.iter()
+                    .map(crate::ast::pretty::pretty_printer::expression_to_string)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(|v| v.join(","))
+                    .map_err(|e| format!("predicate argument rendering: {e:?}"))
+            };
+            let mut guard = names
+                .lock()
+                .map_err(|_| "poisoned nested-predicate names".to_string())?;
+            let mut nested = super::transformation::nested_predicates::NestedPredicates::new(
+                program, &hash, &render,
+            );
+            nested.replace_used_names(std::mem::take(&mut *guard));
+            let result = nested.add_nested_to_statement(&statement);
+            *guard = nested.take_used_names();
+            if !nested.errors.is_empty() {
+                return Err(format!("nested predicate diagnostics: {:?}", nested.errors));
+            }
+            result.map_err(|e| format!("nested predicate instrumentation: {e:?}"))
+        }
+        struct Checks {
+            function: FunctionProofGenerator,
+            engine: ConcreteFunctionProofEngine,
+            methods: MethodCheck,
+        }
+        impl TerminationChecks for Checks {
+            type Error = PluginHookError;
+            fn generate_proof_methods(
+                &mut self,
+                manager: &mut ProgramManager,
+                function: &crate::ast::program::Function,
+                respect: bool,
+            ) -> Result<Vec<crate::ast::program::Method>, Self::Error> {
+                self.function
+                    .generate(manager, &mut self.engine, function, respect)
+                    .map_err(|e| PluginHookError(format!("function termination: {e:?}")))
+            }
+            fn transform_method(
+                &mut self,
+                manager: &mut ProgramManager,
+                method: &crate::ast::program::Method,
+            ) -> Result<crate::ast::program::Method, Self::Error> {
+                self.methods
+                    .transform_method(manager, method)
+                    .map_err(|e| PluginHookError(format!("method termination: {e:?}")))
+            }
+        }
+        let names = transitive_scoped_names(&program)
+            .map_err(|e| PluginHookError(format!("termination scoped names: {e:?}")))?;
+        let manager = ProgramManager::new(program.clone(), names);
+        let mut engine = ConcreteFunctionProofEngine::new(&program)
+            .map_err(|e| PluginHookError(format!("function termination graph: {e:?}")))?;
+        let mut methods = MethodCheck::new(program.clone())
+            .map_err(|e| PluginHookError(format!("method termination graph: {e:?}")))?;
+        let shared_names = Arc::new(Mutex::new(std::collections::HashSet::new()));
+        let function_program = program.clone();
+        let function_names = shared_names.clone();
+        engine.nested = Some(Box::new(move |stmt| {
+            instrument(&function_program, &function_names, stmt)
+                .map_err(super::transformation::exp_transformer::ExpressionTransformError)
+        }));
+        let method_program = program.clone();
+        methods.nested = Some(Box::new(move |stmt| {
+            instrument(&method_program, &shared_names, stmt)
+                .map_err(super::transformation::method_check::MethodCheckError)
+        }));
+        let checks = Checks {
+            function: FunctionProofGenerator::default(),
+            engine,
+            methods,
+        };
+        Trafo::new(manager, checks, respect).get_transformed_program()
     }
 }

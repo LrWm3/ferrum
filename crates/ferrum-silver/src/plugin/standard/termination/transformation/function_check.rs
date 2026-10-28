@@ -866,7 +866,10 @@ pub fn function_call_graph(
 pub struct ConcreteFunctionProofEngine {
     components: Vec<Vec<String>>,
     pub nested: Option<
-        Box<dyn FnMut(Stmt) -> Result<Stmt, super::exp_transformer::ExpressionTransformError>>,
+        Box<
+            dyn FnMut(Stmt) -> Result<Stmt, super::exp_transformer::ExpressionTransformError>
+                + Send,
+        >,
     >,
 }
 impl ConcreteFunctionProofEngine {
@@ -880,8 +883,8 @@ impl ConcreteFunctionProofEngine {
     pub fn configure_nested_services(
         &mut self,
         program: crate::ast::program::Program,
-        hash: impl Fn(&[Exp]) -> Result<i32, String> + 'static,
-        render: impl Fn(&[Exp]) -> Result<String, String> + 'static,
+        hash: impl Fn(&[Exp]) -> Result<i32, String> + Send + 'static,
+        render: impl Fn(&[Exp]) -> Result<String, String> + Send + 'static,
     ) {
         let mut used = std::collections::HashSet::new();
         self.nested = Some(Box::new(move |statement| {

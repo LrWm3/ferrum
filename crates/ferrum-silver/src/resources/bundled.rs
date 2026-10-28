@@ -1,6 +1,31 @@
 //! Bundled upstream resources for the native Ferrum runtime.
 //! See PLAN.md and porting/resources.toml for provenance and checksums.
 
+/// Native replacement for FastParser.importStandard's class-loader resource lookup.
+/// The parser supplies a normalized path relative to the upstream import directory.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BundledImportLoader;
+
+impl crate::ast::utility::file_loader::FileLoader for BundledImportLoader {
+    fn load_content(&self, path: &std::path::Path) -> std::io::Result<String> {
+        let path = path.to_str().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "non-UTF-8 standard import",
+            )
+        })?;
+        let name = format!("import/{}", path.replace('\\', "/"));
+        let source = get(&name).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("file <{path}> does not exist"),
+            )
+        })?;
+        // Source.fromResource.getLines().mkString("\n") + "\n".
+        Ok(source.lines().collect::<Vec<_>>().join("\n") + "\n")
+    }
+}
+
 pub fn get(name: &str) -> Option<&'static str> {
     match name.trim_start_matches('/') {
         "import/adt/contains.vpr" => Some(include_str!(concat!(

@@ -430,7 +430,7 @@ fn visit_names(
             PExpressionKind::Forall(_)
             | PExpressionKind::Exists(_)
             | PExpressionKind::ForPerm { .. } => scope = Some(DeclarationMap::new(false, false)),
-            PExpressionKind::Extension(extension) if !extension.as_any().is::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() && !extension.as_any().is::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() && !extension.as_any().is::<crate::plugin::standard::arp::arppast_extension::PRdPerm>() => {
+            PExpressionKind::Extension(extension) if !extension.as_any().is::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() && !extension.as_any().is::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() && !extension.as_any().is::<crate::plugin::standard::arp::arppast_extension::PRdPerm>() && !extension.as_any().is::<crate::plugin::standard::termination::termination_past_extension::PDecreasesClause>() => {
                 return Err(NameAnalysisError::Unsupported("expression extension name analysis"));
             }
             PExpressionKind::Let { .. } => return Err(NameAnalysisError::Unsupported("let name analysis")),
@@ -962,6 +962,11 @@ pub fn check_expression(
                 sif.type_substitutions()
                     .ok_or(TypeCheckError::Unsupported("SIF substitutions"))?,
             )
+        }
+        PExpressionKind::Extension(extension) if extension.as_any().is::<crate::plugin::standard::termination::termination_past_extension::PDecreasesClause>() => {
+            let clause = extension.as_any().downcast_ref::<crate::plugin::standard::termination::termination_past_extension::PDecreasesClause>().expect("checked clause");
+            clause.typecheck(|exp, expected| check_top_expression(exp, expected, |_, _| {}).map(|_| ()))?;
+            (type_from_signature(&super::parse_ast_keyword::SignatureType::Bool), vec![PTypeSubstitution::default()])
         }
         PExpressionKind::Extension(extension) => {
             let Some(instance) = extension.as_any().downcast_ref::<crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance>() else { return Err(TypeCheckError::Unsupported("expression extension typechecking")); };
