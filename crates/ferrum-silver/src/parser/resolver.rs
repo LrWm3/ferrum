@@ -783,6 +783,7 @@ pub enum TypeCheckError {
     Unsupported(&'static str),
     Undeclared(String),
     AmbiguousIdentifier(String),
+    FunctionPreconditionInDomainAxiom(String),
     InvalidSifRelIndex(num_bigint::BigInt),
     Incompatible {
         expression: PNodeHandle,
@@ -2076,17 +2077,36 @@ pub fn check_program_core(
                         }) = &kind
                         {
                             let candidates = super::parse_ast::PIdnRef::decls(idnref, |_| true);
-                            if candidates.len() != 1
-                                || !matches!(
-                                    &candidates[0].read().expect("poisoned parse node").kind,
-                                    PNodeKind::DomainMember(
-                                        super::parse_ast::PDomainMember::Function { .. }
-                                    )
-                                )
-                            {
+                            if candidates.len() != 1 {
                                 return Err(TypeCheckError::Unsupported(
                                     "domain axiom call contextual rules",
                                 ));
+                            }
+                            let declaration = candidates[0].read().expect("poisoned parse node");
+                            match &declaration.kind {
+                                PNodeKind::DomainMember(
+                                    super::parse_ast::PDomainMember::Function { .. },
+                                ) => {}
+                                PNodeKind::Member(super::parse_ast::PMember {
+                                    kind: PMemberKind::Function { pres, .. },
+                                    ..
+                                }) => {
+                                    use super::parse_ast::PSpecificationKeyword;
+                                    use super::parse_ast_keyword::PKw;
+                                    if pres.specs().to_seq().iter().any(|spec| matches!(&spec.keyword,
+                                        PSpecificationKeyword::Builtin(token) if *token.value() == PKw::Requires)) {
+                                        let name = match &idnref.read().expect("poisoned parse node").kind {
+                                            PNodeKind::IdnRef(reference) => reference.name.clone(),
+                                            _ => return Err(TypeCheckError::Unsupported("call identifier")),
+                                        };
+                                        return Err(TypeCheckError::FunctionPreconditionInDomainAxiom(name));
+                                    }
+                                }
+                                _ => {
+                                    return Err(TypeCheckError::Unsupported(
+                                        "domain axiom call contextual rules",
+                                    ));
+                                }
                             }
                         }
                         if matches!(
@@ -2442,6 +2462,26 @@ pub fn check_statement_core(
 mod program_tests {
     use super::*;
     use crate::parser::fast_parser::parse_program;
+    #[test]
+    fn domain_axiom_allows_only_precondition_free_function_calls() {
+        for (precondition, expected_error) in [("", false), ("requires x > 0", true)] {
+            let source = format!(
+                "function f(x: Int): Int {precondition} {{ x + 1 }} domain D {{ function g(x: Int): Int axiom {{ forall x: Int :: {{g(x)}} g(x) == f(x) }} }}"
+            );
+            let program = parse_program(&source, "test.vpr").unwrap();
+            crate::parser::parse_ast::init_properties(program.node()).unwrap();
+            assert!(NameAnalyser::default().run(program.node()).unwrap());
+            let result = check_program_core(&program, &mut |_, _| {});
+            if expected_error {
+                assert!(
+                    matches!(result, Err(TypeCheckError::FunctionPreconditionInDomainAxiom(name)) if name == "f")
+                );
+            } else {
+                result.unwrap();
+                crate::parser::translator::translate_program_core(&program).unwrap();
+            }
+        }
+    }
     #[test]
     fn checks_signatures_before_bodies_and_rejects_invalid_assignment() {
         let program = parse_program("function f(x: Int): Int { x + 1 } method m(y: Int) { var z: Int := f(y); assert z > 0; }", "test.vpr").unwrap();

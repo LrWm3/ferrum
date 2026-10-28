@@ -163,6 +163,11 @@ Focused checks preserve permission reads, TryBlock fallback and later failures.
 ARP-generated method-call locals inside TryBlock still expose the pinned source's
 CFG/executor scope gap: these programs fail with a missing store value rather than
 verify. The port retains that limitation and records the source locations.
+Domain-axiom typechecking now allows ordinary function calls only when they have
+no actual `requires` clause, matching the pinned resolver. Two upstream fixtures
+advance through the frontend and the preconditioned fixture remains rejected.
+The native domain contributor still rejects these ordinary-function calls;
+end-to-end support remains unfinished.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and
