@@ -39,9 +39,10 @@ closure handles recursive domain dependencies and ADTs mixed with collections.
 The native context also connects impure branch joins and the two-phase function
 protocol, including heap snapshots and function contracts. Field and predicate
 quantified permissions, ForPerm, heap-dependent triggers and recursive-function
-predicate triggers now connect to the native context. Full trigger rewriting,
-wands and advanced execution or reporting profiles remain incomplete; unsupported
-paths return execution errors.
+predicate triggers now connect to the native context. Magic-wand packaging,
+application and applying expressions connect to reserve heaps and snapshots.
+Full trigger rewriting and advanced execution or reporting profiles remain
+incomplete; unsupported paths return execution errors.
 Interpreted backend types now preserve source SMT operations, including bitvectors
 and floating-point values.
 An optional `native-z3` Cargo feature links Z3 4.16 directly and exposes the

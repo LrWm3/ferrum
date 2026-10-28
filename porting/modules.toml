@@ -2568,7 +2568,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Concrete single and quantified heap havoc preserves framed chunks and permissions while replacing snapshots. Source call precondition heaps, arithmetic triggers and generic Prover orchestration are connected. Wand package/application services remain gated pending independent review; full joins, more-complete exhale, parallelism and advanced reporting remain incomplete."]
+remaining = ["Quantified permissions, heap havoc, magic-wand packaging/application and applying expressions connect to source snapshots and reserve heaps. Source call precondition heaps, arithmetic triggers and generic Prover orchestration are connected. Full joins, more-complete exhale, parallelism and advanced reporting remain gated or incomplete; broad compatibility is pending."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"

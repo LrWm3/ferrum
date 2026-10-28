@@ -9,8 +9,8 @@
 //! https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/verifier/BaseVerifier.scala
 //! Status: native execution connects the prover, basic heap and predicate operations,
 //! function phases and calls, branching, loop invariants, method calls, collection and
-//! domain preambles and field/predicate quantified resources. Advanced trigger rewrites,
-//! wand execution and other unsupported modes return errors.
+//! domain preambles, quantified resources and magic-wand packaging/application.
+//! Unsupported execution modes and resource operations return errors.
 
 use crate::rules::chunk_supporter::ChunkExecutionError;
 use crate::rules::consumer::ConsumptionError;
@@ -6798,9 +6798,8 @@ where
             if matches!(node, Node::Type(typ) if matches!(typ,Type::Extension(_))) {
                 return Err("collection or domain preamble analysis");
             }
-            if matches!(node,Node::Exp(exp) if matches!(exp.kind(),ExpKind::MagicWand(..) | ExpKind::Extension(_)))
-            {
-                return Err("quantifier, wand or extension preamble analysis");
+            if matches!(node,Node::Exp(exp) if matches!(exp.kind(),ExpKind::Extension(_))) {
+                return Err("extension preamble analysis");
             }
             for child in subnodes(node).map_err(|_| "program analysis traversal")? {
                 inspect(&child, program)?;

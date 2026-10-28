@@ -48,6 +48,31 @@ fn check(source: &str, expected: i32) {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn wand_packaging_transfers_permissions_and_application_consumes_the_wand() {
+    let prefix = "field first: Int field second: Int
+        method test(r: Ref)
+            requires acc(r.first) && acc(r.second) && r.second == 3
+        { package acc(r.first) --* acc(r.second) {}";
+    check(
+        &format!("{prefix} apply acc(r.first) --* acc(r.second); assert r.second == 3; }}"),
+        0,
+    );
+    check(&format!("{prefix} assert acc(r.second); }}"), 1);
+    let output = run(
+        "field value: Int method test(r: Ref) requires acc(r.value) {
+            package acc(r.value) --* acc(r.value) {}
+            apply acc(r.value) --* acc(r.value);
+            apply acc(r.value) --* acc(r.value);
+        }",
+        &[],
+    );
+    let errors = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{errors}");
+    assert!(errors.contains("wand.not.found"), "{errors}");
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn heap_havoc_forgets_selected_values_and_preserves_frames() {
     let prefix = "field value: Int
         method test(r: Ref, s: Ref)
