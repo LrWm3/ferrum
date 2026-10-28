@@ -32,6 +32,7 @@ use crate::ast::program::Program;
 use crate::verifier::verification_result::AbstractError;
 use std::collections::HashSet;
 
+#[derive(Clone)]
 pub struct ProgramManager {
     pub program: Program,
     used_names: HashSet<String>,

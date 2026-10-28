@@ -150,14 +150,14 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Simplifier.scala"
 destination = "crates/ferrum-silver/src/ast/utility/simplifier.rs"
 status = "skeleton"
-remaining = ["Expression rules and per-node cache exist; statement dispatch, extension reconstruction and integrated well-definedness analysis remain."]
+remaining = ["Source transformation, simplification and recursive function/method/loop termination checks exist; grammar/resource imports, recursive-postcondition validation, complete extension reconstruction and concrete plugin/naming services remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Statements.scala"
 destination = "crates/ferrum-silver/src/ast/utility/statements.rs"
 status = "skeleton"
-remaining = ["Native AST construction and traversal exist; complete source extension reconstruction, strategy integration and edge-case coverage remain."]
+remaining = ["Source transformation, simplification and recursive function/method/loop termination checks exist; grammar/resource imports, recursive-postcondition validation, complete extension reconstruction and concrete plugin/naming services remain."]
 
 [[modules]]
 repository = "silver"
@@ -620,7 +620,8 @@ remaining = ["Typed clauses, diagnostics and transformation helpers exist; compl
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/TerminationPlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/termination_plugin.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source transformation, simplification and recursive function/method/loop termination checks exist; grammar/resource imports, recursive-postcondition validation, complete extension reconstruction and concrete plugin/naming services remain."]
 
 [[modules]]
 repository = "silver"
@@ -647,32 +648,36 @@ remaining = ["Typed clauses, diagnostics and transformation helpers exist; compl
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/ExpTransformer.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/exp_transformer.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source transformation, simplification and recursive function/method/loop termination checks exist; grammar/resource imports, recursive-postcondition validation, complete extension reconstruction and concrete plugin/naming services remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/FunctionCheck.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/function_check.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source transformation, simplification and recursive function/method/loop termination checks exist; grammar/resource imports, recursive-postcondition validation, complete extension reconstruction and concrete plugin/naming services remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/MethodCheck.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/method_check.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source transformation, simplification and recursive function/method/loop termination checks exist; grammar/resource imports, recursive-postcondition validation, complete extension reconstruction and concrete plugin/naming services remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/NestedPredicates.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/nested_predicates.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source transformation, simplification and recursive function/method/loop termination checks exist; grammar/resource imports, recursive-postcondition validation, complete extension reconstruction and concrete plugin/naming services remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/ProgramManager.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/program_manager.rs"
 status = "skeleton"
-remaining = ["Typed clauses, diagnostics and transformation helpers exist; complete proof generation, grammar/lifecycle wiring and general reconstruction remain."]
+remaining = ["Source transformation, simplification and recursive function/method/loop termination checks exist; grammar/resource imports, recursive-postcondition validation, complete extension reconstruction and concrete plugin/naming services remain."]
 
 [[modules]]
 repository = "silver"

@@ -13,13 +13,18 @@ use crate::ast::ast::Metadata;
 use crate::ast::statement::{Stmt, StmtKind};
 
 pub fn empty_stmt() -> Stmt {
-    Stmt::new(
-        StmtKind::Seqn {
-            statements: Vec::new(),
-            declarations: Vec::new(),
-        },
-        Metadata::default(),
-    )
+    static EMPTY: std::sync::OnceLock<Stmt> = std::sync::OnceLock::new();
+    EMPTY
+        .get_or_init(|| {
+            Stmt::new(
+                StmtKind::Seqn {
+                    statements: Vec::new(),
+                    declarations: Vec::new(),
+                },
+                Metadata::default(),
+            )
+        })
+        .clone()
 }
 
 /// Flatten sequences while retaining branch and loop statements themselves.

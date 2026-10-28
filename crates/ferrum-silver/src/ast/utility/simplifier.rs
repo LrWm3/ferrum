@@ -582,3 +582,168 @@ mod tests {
         assert!(weak.upgrade().is_none());
     }
 }
+
+#[derive(Debug)]
+pub enum StatementSimplifyError<E> {
+    Expression(SimplifyError<E>),
+    Reconstruction(super::statements::StatementReplacementError),
+    Extension(crate::verifier::verification_result::DiagnosticError),
+    Unsupported(&'static str),
+}
+impl<E> From<super::statements::StatementReplacementError> for StatementSimplifyError<E> {
+    fn from(value: super::statements::StatementReplacementError) -> Self {
+        Self::Reconstruction(value)
+    }
+}
+/// Source bottom-up statement rules, with expression caching delegated to
+/// `simplify`. Unsupported declaration products and extension hooks fail closed.
+pub fn simplify_statement<E>(
+    statement: &crate::ast::statement::Stmt,
+    assume_well_defined: bool,
+    known_well_defined: &impl Fn(&Exp) -> Result<bool, E>,
+) -> Result<crate::ast::statement::Stmt, StatementSimplifyError<E>> {
+    use crate::ast::{
+        statement::{Stmt, StmtKind},
+        utility::{
+            nodes::Node,
+            statements::{empty_stmt, map_statement_tree_with_post},
+        },
+    };
+    use crate::verifier::verification_result::DiagnosticError;
+    let simplify_exp = |e: &Exp| {
+        simplify(e, assume_well_defined, known_well_defined)
+            .map_err(StatementSimplifyError::Expression)
+    };
+    let empty = empty_stmt();
+    let post = |node: &Node| -> Result<Node, StatementSimplifyError<E>> {
+        let Node::Stmt(stmt) = node else {
+            return Ok(node.clone());
+        };
+        let simplified = match stmt.kind() {
+            // The source's earlier `Seqn(EmptyStmt, _)` constant pattern compares
+            // a sequence with a statement and cannot match a Scala Seqn product.
+            StmtKind::Seqn {
+                statements,
+                declarations,
+            } if statements.contains(&empty) => Stmt::new(
+                StmtKind::Seqn {
+                    statements: statements
+                        .iter()
+                        .filter(|s| *s != &empty)
+                        .cloned()
+                        .collect(),
+                    declarations: declarations.clone(),
+                },
+                stmt.metadata().clone(),
+            ),
+            StmtKind::If {
+                then_branch,
+                else_branch,
+                ..
+            } if then_branch == &empty && else_branch == &empty => empty.clone(),
+            StmtKind::If {
+                condition,
+                then_branch,
+                ..
+            } if matches!(condition.kind(), ExpKind::TrueLit) => then_branch.clone(),
+            StmtKind::If {
+                condition,
+                else_branch,
+                ..
+            } if matches!(condition.kind(), ExpKind::FalseLit) => else_branch.clone(),
+            _ => stmt.clone(),
+        };
+        Ok(Node::Stmt(simplified))
+    };
+    let child = |node: &Node| -> Result<Node, StatementSimplifyError<E>> {
+        match node {
+            Node::LocalDecl(_)
+            | Node::UnnamedLocalDecl(_)
+            | Node::Member(crate::ast::program::Member::Field(_)) => Ok(node.clone()),
+            Node::LabelDecl(label) => {
+                let invariants = label
+                    .invariants
+                    .iter()
+                    .map(&simplify_exp)
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Node::LabelDecl(if invariants == label.invariants {
+                    label.clone()
+                } else {
+                    label.copy_with(|v| v.invariants = invariants)
+                }))
+            }
+            _ => Err(StatementSimplifyError::Unsupported(
+                "statement declaration product",
+            )),
+        }
+    };
+    let extension =
+        |extension: &crate::ast::statement::ExtensionStmtHandle,
+         _map: &dyn Fn(&Exp) -> Result<Exp, StatementSimplifyError<E>>| {
+            let failure = std::cell::RefCell::new(None);
+            let mapped = extension.0.map_expressions(&|e| match simplify_exp(e) {
+                Ok(value) => Ok(value),
+                Err(error) => {
+                    *failure.borrow_mut() = Some(error);
+                    Err(DiagnosticError::Unsupported("statement simplification"))
+                }
+            });
+            if let Some(error) = failure.into_inner() {
+                return Err(error);
+            }
+            mapped.map_err(StatementSimplifyError::Extension)
+        };
+    map_statement_tree_with_post(
+        statement,
+        &simplify_exp,
+        &|n| Ok(n.clone()),
+        &child,
+        &extension,
+        Some(&post),
+        false,
+    )
+}
+
+#[cfg(test)]
+mod statement_tests {
+    use super::*;
+    use crate::ast::{
+        program::{Declaration, LocalVarDecl},
+        statement::{Stmt, StmtKind},
+        r#type::Type,
+        utility::statements::empty_stmt,
+    };
+    #[test]
+    fn statement_simplification_keeps_scoped_declarations_and_removes_empty_children() {
+        let meta = Metadata::default();
+        let declaration =
+            Declaration::Local(LocalVarDecl::new("x".into(), Type::Int, meta.clone()));
+        let stmt = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![empty_stmt()],
+                declarations: vec![declaration],
+            },
+            meta,
+        );
+        let result =
+            simplify_statement(&stmt, false, &|_| Ok::<_, std::convert::Infallible>(true)).unwrap();
+        assert!(
+            matches!(result.kind(),StmtKind::Seqn{statements,declarations} if statements.is_empty()&&declarations.len()==1)
+        );
+    }
+    #[test]
+    fn empty_branches_use_shared_source_empty_statement() {
+        let meta = Metadata::default();
+        let stmt = Stmt::new(
+            StmtKind::If {
+                condition: Exp::new(ExpKind::TrueLit, meta.clone()),
+                then_branch: empty_stmt(),
+                else_branch: empty_stmt(),
+            },
+            meta,
+        );
+        let result =
+            simplify_statement(&stmt, false, &|_| Ok::<_, std::convert::Infallible>(true)).unwrap();
+        assert!(result.same_node(&empty_stmt()));
+    }
+}
