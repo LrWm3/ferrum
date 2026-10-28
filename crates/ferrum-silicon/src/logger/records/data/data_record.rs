@@ -110,6 +110,12 @@ pub trait NativeRecordFactory<P, D, J> {
         state: &crate::state::state::State<P, D, J>,
         paths: &crate::decider::path_conditions::LayeredPathConditionStack,
     ) -> std::sync::Arc<dyn DataRecord>;
+    fn conditional_edge(
+        &self,
+        expression: &ferrum_silver::ast::expression::Exp,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord>;
     fn joining(
         &self,
         state: &crate::state::state::State<P, D, J>,
@@ -224,6 +230,18 @@ where
                 Some(paths),
             ),
         )
+    }
+    fn conditional_edge(
+        &self,
+        expression: &ferrum_silver::ast::expression::Exp,
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord> {
+        std::sync::Arc::new(super::conditional_edge_record::ConditionalEdgeRecord::new(
+            Some(expression.clone()),
+            Some(state.clone()),
+            Some(paths),
+        ))
     }
     fn joining(
         &self,

@@ -652,3 +652,10 @@ merges can create aliases and solver assumptions. The unused PCS copy is skipped
 when debugging is disabled. Heap probes and actual recording retain source
 order, including separate evaluations during key-heap completion. Full debugging
 remains gated pending non-statement lifecycle and expression reconstruction.
+
+Synchronous branch exploration now records feasibility-selected arms, nested
+ordered edge folds and conditional-edge scopes with distinct IDs. Branch points
+end after normal results, including fatal verification results; service errors
+retain the source open-scope behavior. Conditional-edge records enclose Out-edge
+heap restoration and close in the branch continuation. Parallel logging and
+public profile activation remain pending.

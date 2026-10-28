@@ -262,6 +262,24 @@ fn context_scope_hooks_capture_full_state_and_reject_missing_factory() {
     assert_eq!(comment.comment.as_deref(), Some("Parameters"));
     worker.context.close_call_scope(parameter).unwrap();
     worker.context.close_call_scope(call).unwrap();
+    use ferrum_silicon::rules::executor::CfgContext;
+    let branch = worker.context.begin_edges_scope(2).unwrap();
+    worker.context.mark_edge_scope(branch).unwrap();
+    let inner = worker.context.begin_edges_scope(2).unwrap();
+    worker.context.mark_edge_scope(inner).unwrap();
+    worker.context.end_edges_scope(inner).unwrap();
+    worker.context.next_edge_scope(branch, 1).unwrap();
+    worker.context.mark_edge_scope(branch).unwrap();
+    worker.context.end_edges_scope(branch).unwrap();
+    let edge = worker
+        .context
+        .open_conditional_edge_scope(&state, &expr)
+        .unwrap();
+    let records = log.records().unwrap();
+    let record = records.iter().find(|r| r.id() == edge.unwrap()).unwrap().as_any().downcast_ref::<ferrum_silicon::logger::records::data::conditional_edge_record::ConditionalEdgeRecord<NativeBranchState>>().unwrap();
+    assert!(record.value.as_ref().unwrap().same_node(&expr));
+    assert!(record.state.as_ref().unwrap().under_join);
+    worker.context.close_conditional_edge_scope(edge).unwrap();
     let disabled = NativeSymbExLogger::of_config(
         &config,
         Arc::new(ferrum_silver::reporter::reporter::NoopReporter),

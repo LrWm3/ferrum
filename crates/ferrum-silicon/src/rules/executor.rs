@@ -907,6 +907,29 @@ pub trait CfgContext<P, D, J, V>: ExecutionContext<P, D, J, V> {
     fn next_edge(&mut self, index: usize) -> Result<(), Self::Error>;
     fn mark_edge_reachable(&mut self) -> Result<(), Self::Error>;
     fn end_edges(&mut self) -> Result<(), Self::Error>;
+    fn begin_edges_scope(&mut self, count: usize) -> Result<Option<i32>, Self::Error> {
+        self.begin_edges(count)?;
+        Ok(None)
+    }
+    fn next_edge_scope(&mut self, _id: Option<i32>, index: usize) -> Result<(), Self::Error> {
+        self.next_edge(index)
+    }
+    fn mark_edge_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
+        self.mark_edge_reachable()
+    }
+    fn end_edges_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
+        self.end_edges()
+    }
+    fn open_conditional_edge_scope(
+        &mut self,
+        _state: &State<P, D, J>,
+        _expression: &Exp,
+    ) -> Result<Option<i32>, Self::Error> {
+        Ok(None)
+    }
+    fn close_conditional_edge_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
+        Ok(())
+    }
     fn empty_heap(&mut self, state: &State<P, D, J>) -> Result<Arc<ListBackedHeap>, Self::Error>;
     fn locally_loop(
         &mut self,
@@ -1140,13 +1163,15 @@ fn execute_cfg_edge_sequence<C, P, D, J: Clone, V>(
 where
     C: CfgContext<P, D, J, V>,
 {
-    context
-        .begin_edges(frame.edges.len())
+    let branch_scope = context
+        .begin_edges_scope(frame.edges.len())
         .map_err(ExecutionError::Context)?;
     let mut result = VerificationResult::success();
     for (index, edge) in frame.edges.iter().enumerate() {
         if index != 0 {
-            context.next_edge(index).map_err(ExecutionError::Context)?;
+            context
+                .next_edge_scope(branch_scope, index)
+                .map_err(ExecutionError::Context)?;
         }
         let branch_path_id = if index == 0 {
             frame.path_id
@@ -1154,7 +1179,7 @@ where
             next_path_id()
         };
         context
-            .mark_edge_reachable()
+            .mark_edge_scope(branch_scope)
             .map_err(ExecutionError::Context)?;
         if result.continue_verification() {
             let next = follow_edge(
@@ -1168,7 +1193,9 @@ where
             result = result.combine(|| next, false);
         }
     }
-    context.end_edges().map_err(ExecutionError::Context)?;
+    context
+        .end_edges_scope(branch_scope)
+        .map_err(ExecutionError::Context)?;
     Ok(result)
 }
 
@@ -1383,6 +1410,16 @@ where
     C: CfgContext<P, D, J, V>,
 {
     use ferrum_silver::cfg::edge::{Edge, Kind};
+    let conditional_scope = if !join_point.is_some_and(|point| point == edge.target()) {
+        match edge {
+            Edge::Conditional { condition, .. } => context
+                .open_conditional_edge_scope(&state, condition)
+                .map_err(ExecutionError::Context)?,
+            _ => None,
+        }
+    } else {
+        None
+    };
     if edge.kind() == Kind::Out {
         let saved = state
             .invariant_contexts
@@ -1425,9 +1462,19 @@ where
                     rewritten.as_ref(),
                     &mut |context, mut state| {
                         state.parallelize_branches = parallel;
-                        execute_cfg_edge_target(context, state, &frame, continuation)
+                        execute_cfg_edge_target(context, state, &frame, &mut |context, state| {
+                            context
+                                .close_conditional_edge_scope(conditional_scope)
+                                .map_err(ExecutionError::Context)?;
+                            continuation(context, state)
+                        })
                     },
-                    &mut |_, _| Ok(VerificationResult::success()),
+                    &mut |context, _| {
+                        context
+                            .close_conditional_edge_scope(conditional_scope)
+                            .map_err(ExecutionError::Context)?;
+                        Ok(VerificationResult::success())
+                    },
                 )
             },
         ),

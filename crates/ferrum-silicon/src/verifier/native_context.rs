@@ -527,6 +527,47 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             .map(Some)
             .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
     }
+    fn open_branch_scope(
+        &self,
+        count: usize,
+        condition: Option<Term>,
+        expression: Option<Exp>,
+    ) -> Result<Option<i32>, NativeError<S::Error>> {
+        let Some(log) = &self.member_log else {
+            return Ok(None);
+        };
+        if log.when_enabled(|| ()).is_none() {
+            return Ok(None);
+        }
+        let count =
+            i32::try_from(count).map_err(|_| NativeError::Unsupported("branch count overflow"))?;
+        log.insert_branch_point(count, condition, expression)
+            .map(Some)
+            .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
+    }
+    fn update_branch_scope(
+        &self,
+        id: Option<i32>,
+        operation: u8,
+    ) -> Result<(), NativeError<S::Error>> {
+        match (&self.member_log, id) {
+            (None, None) => Ok(()),
+            (Some(log), None) if log.when_enabled(|| ()).is_none() => Ok(()),
+            (Some(log), Some(id)) => {
+                let result = match operation {
+                    0 => log.mark_reachable(id),
+                    1 => log.switch_to_next_branch(id),
+                    _ => log.end_branch_point(id),
+                };
+                result.map_err(|error| {
+                    NativeError::Diagnostic(format!("symbolic logging: {error:?}"))
+                })
+            }
+            _ => Err(NativeError::Unsupported(
+                "symbolic logger changed during branch",
+            )),
+        }
+    }
     fn close_logged_scope(&self, id: Option<i32>) -> Result<(), NativeError<S::Error>> {
         match (&self.member_log, id) {
             (None, None) => Ok(()),
@@ -1579,6 +1620,9 @@ where
                     EvaluationError::Context(NativeError::BranchTraversal(format!("{e:?}")))
                 }
             })?;
+            let branch_scope = self
+                .open_branch_scope(2, Some(condition.clone()), Some(original.clone()))
+                .map_err(EvaluationError::Context)?;
             let run =
                 |this: &mut Self,
                  active: bool,
@@ -1594,6 +1638,12 @@ where
                     if !active {
                         return Ok((VerificationResult::unreachable(), Vec::new()));
                     }
+                    if !positive {
+                        this.update_branch_scope(branch_scope, 1)
+                            .map_err(EvaluationError::Context)?;
+                    }
+                    this.update_branch_scope(branch_scope, 0)
+                        .map_err(EvaluationError::Context)?;
                     let mut entries = Vec::new();
                     this.base
                         .decider
@@ -1659,6 +1709,8 @@ where
             } else {
                 then_result
             };
+            self.update_branch_scope(branch_scope, 2)
+                .map_err(EvaluationError::Context)?;
             Ok((entries, branch_result))
         })();
         let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
@@ -8043,6 +8095,9 @@ where
                 ExecutionError::Context(NativeError::BranchTraversal(format!("{e:?}")))
             }
         })?;
+        let branch_scope = self
+            .open_branch_scope(2, Some(term.clone()), Some(condition.clone()))
+            .map_err(ExecutionError::Context)?;
         let run = |this: &mut Self,
                    active: bool,
                    positive: bool,
@@ -8060,6 +8115,12 @@ where
             if !active {
                 return Ok(VerificationResult::unreachable());
             }
+            if !positive {
+                this.update_branch_scope(branch_scope, 1)
+                    .map_err(ExecutionError::Context)?;
+            }
+            this.update_branch_scope(branch_scope, 0)
+                .map_err(ExecutionError::Context)?;
             this.base
                 .decider
                 .push_scope()
@@ -8100,11 +8161,15 @@ where
             }
         };
         let then_result = run(self, decision.execute_then, true, yes)?;
-        if !then_result.continue_verification() {
-            return Ok(then_result);
-        }
-        let else_result = run(self, decision.execute_else, false, no)?;
-        Ok(then_result.combine(|| else_result, false))
+        let result = if then_result.continue_verification() {
+            let else_result = run(self, decision.execute_else, false, no)?;
+            then_result.combine(|| else_result, false)
+        } else {
+            then_result
+        };
+        self.update_branch_scope(branch_scope, 2)
+            .map_err(ExecutionError::Context)?;
+        Ok(result)
     }
     fn all_cfg_joins(&self, state: &State<PD, FD, JoinMode>) -> bool {
         matches!(state.more_joins, JoinMode::All)
@@ -8211,6 +8276,46 @@ where
             return Err(error);
         }
         result.map_err(ExecutionError::Context)
+    }
+    fn begin_edges_scope(&mut self, count: usize) -> Result<Option<i32>, Self::Error> {
+        self.open_branch_scope(count, None, None)
+    }
+    fn next_edge_scope(&mut self, id: Option<i32>, _index: usize) -> Result<(), Self::Error> {
+        self.update_branch_scope(id, 1)
+    }
+    fn mark_edge_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
+        self.update_branch_scope(id, 0)
+    }
+    fn end_edges_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
+        self.update_branch_scope(id, 2)
+    }
+    fn open_conditional_edge_scope(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        expression: &Exp,
+    ) -> Result<Option<i32>, Self::Error> {
+        let Some(log) = &self.member_log else {
+            return Ok(None);
+        };
+        if log.when_enabled(|| ()).is_none() {
+            return Ok(None);
+        }
+        let factory = self
+            .record_factory
+            .as_ref()
+            .ok_or(NativeError::Unsupported(
+                "active symbolic logger requires record factory",
+            ))?;
+        let record = factory.conditional_edge(expression, state, &self.base.decider.pcs);
+        let renderer = crate::logger::state_reporting::NativeStateRecordRenderer {
+            factory: &self.factory,
+        };
+        log.open_scope(record, &renderer)
+            .map(Some)
+            .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
+    }
+    fn close_conditional_edge_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_logged_scope(id)
     }
     fn begin_edges(&mut self, count: usize) -> Result<(), Self::Error> {
         Ok(())
