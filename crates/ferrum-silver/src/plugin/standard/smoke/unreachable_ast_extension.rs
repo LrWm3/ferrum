@@ -51,11 +51,31 @@ impl Unreachable {
     }
 }
 impl ExtensionStmt for Unreachable {
+    fn metadata(&self) -> &Metadata {
+        &self.meta
+    }
+    fn with_metadata(&self, meta: Metadata) -> ExtensionStmtHandle {
+        let mut copy = self.clone();
+        copy.meta = meta;
+        ExtensionStmtHandle(Arc::new(copy))
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
     fn equals(&self, other: &dyn ExtensionStmt) -> bool {
         other.as_any().is::<Self>()
+    }
+    fn map_expressions(
+        &self,
+        _: &dyn Fn(
+            &crate::ast::expression::Exp,
+        ) -> Result<
+            crate::ast::expression::Exp,
+            crate::verifier::verification_result::DiagnosticError,
+        >,
+    ) -> Result<ExtensionStmtHandle, crate::verifier::verification_result::DiagnosticError> {
+        Ok(ExtensionStmtHandle(Arc::new(self.clone())))
     }
     fn subnodes(&self) -> Result<Vec<Node>, TraversalError> {
         Ok(Vec::new())

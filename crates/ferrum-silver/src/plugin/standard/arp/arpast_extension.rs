@@ -53,6 +53,15 @@ impl RdPerm {
     }
 }
 impl ExtensionExp for RdPerm {
+    fn metadata(&self) -> &Metadata {
+        &self.meta
+    }
+    fn with_metadata(&self, meta: Metadata) -> ExtensionExpHandle {
+        let mut copy = self.clone();
+        copy.meta = meta;
+        ExtensionExpHandle(Arc::new(copy))
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

@@ -60,6 +60,15 @@ impl Refute {
     }
 }
 impl ExtensionStmt for Refute {
+    fn metadata(&self) -> &Metadata {
+        &self.meta
+    }
+    fn with_metadata(&self, meta: Metadata) -> ExtensionStmtHandle {
+        let mut copy = self.clone();
+        copy.meta = meta;
+        ExtensionStmtHandle(Arc::new(copy))
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -68,6 +77,15 @@ impl ExtensionStmt for Refute {
             .as_any()
             .downcast_ref::<Self>()
             .is_some_and(|other| self.exp == other.exp)
+    }
+    fn map_expressions(
+        &self,
+        map: &dyn Fn(&Exp) -> Result<Exp, crate::verifier::verification_result::DiagnosticError>,
+    ) -> Result<ExtensionStmtHandle, crate::verifier::verification_result::DiagnosticError> {
+        Ok(ExtensionStmtHandle(Arc::new(Self {
+            exp: map(&self.exp)?,
+            meta: self.meta.clone(),
+        })))
     }
     fn subnodes(&self) -> Result<Vec<Node>, TraversalError> {
         Ok(vec![Node::Exp(self.exp.clone())])

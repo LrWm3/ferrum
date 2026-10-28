@@ -143,6 +143,8 @@ impl PartialEq for Trigger {
 impl Eq for Trigger {}
 
 pub trait ExtensionExp: Debug + Send + Sync {
+    fn metadata(&self) -> &Metadata;
+    fn with_metadata(&self, metadata: Metadata) -> ExtensionExpHandle;
     fn as_any(&self) -> &dyn Any;
     fn equals(&self, other: &dyn ExtensionExp) -> bool;
     fn typ(&self) -> Type;
@@ -225,6 +227,7 @@ impl Exp {
             ExpKind::PredicateAccessPredicate(a) => a.meta.clone(),
             ExpKind::FieldAccess(a) => a.meta.clone(),
             ExpKind::PredicateAccess(a) => a.meta.clone(),
+            ExpKind::Extension(a) => a.0.metadata().clone(),
             _ => meta,
         };
         Self(Arc::new(ExpNode {
@@ -250,6 +253,7 @@ impl Exp {
             }
             (ExpKind::FieldAccess(a), ExpKind::FieldAccess(b)) => a.same_node(b),
             (ExpKind::PredicateAccess(a), ExpKind::PredicateAccess(b)) => a.same_node(b),
+            (ExpKind::Extension(a), ExpKind::Extension(b)) => Arc::ptr_eq(&a.0, &b.0),
             _ => Arc::ptr_eq(&self.0, &other.0),
         }
     }

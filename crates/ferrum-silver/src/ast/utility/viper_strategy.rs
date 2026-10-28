@@ -22,7 +22,7 @@ pub enum MetadataError {
     UnsupportedNode(&'static str),
     MissingIdentity,
 }
-fn metadata(node: &Node) -> Result<&Metadata, MetadataError> {
+pub(crate) fn metadata(node: &Node) -> Result<&Metadata, MetadataError> {
     match node {
         Node::Program(p) => Ok(&p.meta),
         Node::Member(m) => match m {
@@ -31,8 +31,9 @@ fn metadata(node: &Node) -> Result<&Metadata, MetadataError> {
             Member::Function(v) => Ok(&v.meta),
             Member::Predicate(v) => Ok(&v.meta),
             Member::Method(v) => Ok(&v.meta),
-            Member::Extension(_) => {
-                Err(MetadataError::UnsupportedNode("extension member metadata"))
+            Member::Extension(v) => {
+                v.0.metadata()
+                    .map_err(|_| MetadataError::UnsupportedNode("extension member metadata"))
             }
         },
         Node::DomainFunc(v) => Ok(&v.meta),
@@ -70,9 +71,10 @@ fn with_metadata(node: &Node, meta: Metadata) -> Result<Node, MetadataError> {
             Member::Function(v) => Member::Function(v.copy_with(|data| data.meta = meta)),
             Member::Predicate(v) => Member::Predicate(v.copy_with(|data| data.meta = meta)),
             Member::Method(v) => Member::Method(v.copy_with(|data| data.meta = meta)),
-            Member::Extension(_) => {
-                return Err(MetadataError::UnsupportedNode("extension member metadata"));
-            }
+            Member::Extension(v) => Member::Extension(
+                v.0.with_metadata(meta)
+                    .map_err(|_| MetadataError::UnsupportedNode("extension member metadata"))?,
+            ),
         }),
         Node::DomainFunc(v) => Node::DomainFunc(v.copy_with(|data| data.meta = meta)),
         Node::DomainAxiom(v) => Node::DomainAxiom(v.copy_with(|kind| match kind {
@@ -99,6 +101,7 @@ fn with_metadata(node: &Node, meta: Metadata) -> Result<Node, MetadataError> {
         Node::Trigger(v) => Node::Trigger(Trigger::new(v.exps.clone(), meta)),
         Node::Exp(e) => {
             let kind = match e.kind() {
+                ExpKind::Extension(v) => ExpKind::Extension(v.0.with_metadata(meta.clone())),
                 ExpKind::LocalVar(v) => {
                     ExpKind::LocalVar(LocalVar::new(v.name.clone(), v.typ.clone(), meta.clone()))
                 }
@@ -125,6 +128,9 @@ fn with_metadata(node: &Node, meta: Metadata) -> Result<Node, MetadataError> {
         }
         Node::Stmt(s) => {
             let kind = match s.kind() {
+                crate::ast::statement::StmtKind::Extension(v) => {
+                    crate::ast::statement::StmtKind::Extension(v.0.with_metadata(meta.clone()))
+                }
                 crate::ast::statement::StmtKind::Label(v) => {
                     crate::ast::statement::StmtKind::Label(
                         v.copy_with(|data| data.meta = meta.clone()),
@@ -173,6 +179,39 @@ pub fn preserve_metadata(
 mod tests {
     use super::*;
     use crate::ast::{ast::ErrorTrafo, position::Position};
+    #[test]
+    fn extension_views_share_identity_and_metadata_copy_is_fresh() {
+        use crate::plugin::standard::predicateinstance::predicate_instance_ast_extension::PredicateInstance;
+        let e = PredicateInstance {
+            predicate: "p".into(),
+            args: vec![],
+            meta: Metadata::default(),
+        }
+        .expression();
+        let ExpKind::Extension(handle) = e.kind() else {
+            panic!("extension")
+        };
+        let view = Exp::new(ExpKind::Extension(handle.clone()), Metadata::default());
+        assert!(e.same_node(&view));
+        let old = Exp::new(
+            ExpKind::TrueLit,
+            Metadata {
+                position: Position::Virtual("old".into()),
+                ..Metadata::default()
+            },
+        );
+        let Node::Exp(copied) =
+            preserve_metadata(&Node::Exp(old), &Node::Exp(e.clone()), true).unwrap()
+        else {
+            panic!("expression")
+        };
+        assert!(!e.same_node(&copied));
+        assert_eq!(copied.metadata().position, Position::Virtual("old".into()));
+        let ExpKind::Extension(payload) = copied.kind() else {
+            panic!("extension")
+        };
+        assert_eq!(payload.0.metadata().position, copied.metadata().position);
+    }
     #[test]
     fn direct_rewrite_preserves_empty_metadata_and_adds_old_node_link() {
         let old = Exp::new(

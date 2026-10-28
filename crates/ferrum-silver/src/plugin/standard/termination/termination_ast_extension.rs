@@ -132,6 +132,13 @@ impl DecreasesClause {
     }
 }
 impl ExtensionExp for DecreasesClause {
+    fn metadata(&self) -> &Metadata {
+        &self.meta
+    }
+    fn with_metadata(&self, meta: Metadata) -> ExtensionExpHandle {
+        ExtensionExpHandle(Arc::new(Self::new(self.kind.clone(), meta)))
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

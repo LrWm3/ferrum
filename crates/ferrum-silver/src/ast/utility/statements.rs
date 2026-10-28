@@ -184,6 +184,9 @@ pub enum StatementReplacementError {
     InvalidPredicateAccess,
     InvalidAccessPredicate,
     InvalidMagicWand,
+    InvalidStatement,
+    InvalidDeclaration,
+    InvalidField,
     Extension,
     NestedDeclaration,
 }
@@ -593,6 +596,302 @@ pub fn map_expression_roots_with_extensions<E: From<StatementReplacementError>>(
             resource: r,
         } => StmtKind::Quasihavocall {
             variables: variables.clone(),
+            guard: guard.as_ref().map(exp).transpose()?,
+            resource: resource(r, replace)?,
+        },
+        StmtKind::Extension(value) => StmtKind::Extension(extension(value, replace)?),
+    };
+    Ok(if &kind == stmt.kind() {
+        stmt.clone()
+    } else {
+        Stmt::new(kind, stmt.metadata().clone())
+    })
+}
+
+/// Preorder statement/product-node rewriting with typed field and declaration slots.
+pub fn map_statement_tree_with_extensions<E: From<StatementReplacementError>>(
+    stmt: &Stmt,
+    replace: &dyn Fn(&crate::ast::expression::Exp) -> Result<crate::ast::expression::Exp, E>,
+    pre: &dyn Fn(&super::nodes::Node) -> Result<super::nodes::Node, E>,
+    child: &dyn Fn(&super::nodes::Node) -> Result<super::nodes::Node, E>,
+    extension: &dyn Fn(
+        &crate::ast::statement::ExtensionStmtHandle,
+        &dyn Fn(&crate::ast::expression::Exp) -> Result<crate::ast::expression::Exp, E>,
+    ) -> Result<crate::ast::statement::ExtensionStmtHandle, E>,
+) -> Result<Stmt, E> {
+    use crate::ast::expression::{Exp, ExpKind};
+    use crate::ast::statement::{PredicateAccessPredicate, ResourceAccess};
+    fn local<E: From<StatementReplacementError>>(
+        v: &LocalVar,
+        replace: &dyn Fn(&Exp) -> Result<Exp, E>,
+    ) -> Result<LocalVar, E> {
+        let e = Exp::new(ExpKind::LocalVar(v.clone()), v.meta.clone());
+        let result = replace(&e)?;
+        if let ExpKind::LocalVar(v) = result.kind() {
+            Ok(v.clone())
+        } else {
+            Err(StatementReplacementError::InvalidLocalVar.into())
+        }
+    }
+    fn field<E: From<StatementReplacementError>>(
+        v: &crate::ast::expression::FieldAccess,
+        replace: &dyn Fn(&Exp) -> Result<Exp, E>,
+    ) -> Result<crate::ast::expression::FieldAccess, E> {
+        let e = Exp::new(ExpKind::FieldAccess(v.clone()), v.meta.clone());
+        let result = replace(&e)?;
+        if let ExpKind::FieldAccess(v) = result.kind() {
+            Ok(v.clone())
+        } else {
+            Err(StatementReplacementError::InvalidFieldAccess.into())
+        }
+    }
+    fn predicate<E: From<StatementReplacementError>>(
+        v: &crate::ast::expression::PredicateAccess,
+        replace: &dyn Fn(&Exp) -> Result<Exp, E>,
+    ) -> Result<crate::ast::expression::PredicateAccess, E> {
+        let e = Exp::new(ExpKind::PredicateAccess(v.clone()), v.meta.clone());
+        let result = replace(&e)?;
+        if let ExpKind::PredicateAccess(v) = result.kind() {
+            Ok(v.clone())
+        } else {
+            Err(StatementReplacementError::InvalidPredicateAccess.into())
+        }
+    }
+    fn access<E: From<StatementReplacementError>>(
+        v: &PredicateAccessPredicate,
+        replace: &dyn Fn(&Exp) -> Result<Exp, E>,
+    ) -> Result<PredicateAccessPredicate, E> {
+        let e = Exp::new(ExpKind::PredicateAccessPredicate(v.clone()), v.meta.clone());
+        let result = replace(&e)?;
+        if let ExpKind::PredicateAccessPredicate(v) = result.kind() {
+            Ok(v.clone())
+        } else {
+            Err(StatementReplacementError::InvalidAccessPredicate.into())
+        }
+    }
+    fn wand<E: From<StatementReplacementError>>(
+        v: &Exp,
+        replace: &dyn Fn(&Exp) -> Result<Exp, E>,
+    ) -> Result<Exp, E> {
+        let result = replace(v)?;
+        if matches!(result.kind(), ExpKind::MagicWand(..)) {
+            Ok(result)
+        } else {
+            Err(StatementReplacementError::InvalidMagicWand.into())
+        }
+    }
+    fn resource<E: From<StatementReplacementError>>(
+        v: &ResourceAccess,
+        replace: &dyn Fn(&Exp) -> Result<Exp, E>,
+    ) -> Result<ResourceAccess, E> {
+        Ok(match v {
+            ResourceAccess::Field(v) => ResourceAccess::Field(field(v, replace)?),
+            ResourceAccess::Predicate(v) => ResourceAccess::Predicate(predicate(v, replace)?),
+            ResourceAccess::MagicWand(v) => ResourceAccess::MagicWand(wand(v, replace)?),
+        })
+    }
+    use super::nodes::Node;
+    use crate::ast::program::Member;
+    let view = match stmt.kind() {
+        StmtKind::Label(v) => Node::LabelDecl(v.clone()),
+        _ => Node::Stmt(stmt.clone()),
+    };
+    let mapped = match pre(&view)? {
+        Node::Stmt(stmt) => stmt,
+        Node::LabelDecl(label) => Stmt::new(StmtKind::Label(label.clone()), label.meta.clone()),
+        _ => return Err(StatementReplacementError::InvalidStatement.into()),
+    };
+    let stmt = &mapped;
+    let map_local_decl = |v: &crate::ast::program::LocalVarDecl| -> Result<_, E> {
+        match child(&Node::LocalDecl(v.clone()))? {
+            Node::LocalDecl(v) => Ok(v),
+            _ => Err(StatementReplacementError::InvalidDeclaration.into()),
+        }
+    };
+    let map_label = |v: &crate::ast::program::LabelDeclaration| -> Result<_, E> {
+        match child(&Node::LabelDecl(v.clone()))? {
+            Node::LabelDecl(v) => Ok(v),
+            Node::Stmt(s) => match s.kind() {
+                StmtKind::Label(v) => Ok(v.clone()),
+                _ => Err(StatementReplacementError::InvalidDeclaration.into()),
+            },
+            _ => Err(StatementReplacementError::InvalidDeclaration.into()),
+        }
+    };
+    let exp = |e: &Exp| replace(e);
+    let exps = |es: &[Exp]| es.iter().map(exp).collect::<Result<Vec<_>, _>>();
+    let kind = match stmt.kind() {
+        StmtKind::NewStmt { lhs, fields } => StmtKind::NewStmt {
+            lhs: local(lhs, replace)?,
+            fields: fields
+                .iter()
+                .map(|v| match child(&Node::Member(Member::Field(v.clone())))? {
+                    Node::Member(Member::Field(v)) => Ok(v),
+                    _ => Err(StatementReplacementError::InvalidField.into()),
+                })
+                .collect::<Result<Vec<_>, E>>()?,
+        },
+        StmtKind::LocalVarAssign { lhs, rhs } => StmtKind::LocalVarAssign {
+            lhs: local(lhs, replace)?,
+            rhs: exp(rhs)?,
+        },
+        StmtKind::FieldAssign { lhs, rhs } => StmtKind::FieldAssign {
+            lhs: field(lhs, replace)?,
+            rhs: exp(rhs)?,
+        },
+        StmtKind::MethodCall {
+            method_name,
+            args,
+            targets,
+        } => StmtKind::MethodCall {
+            method_name: method_name.clone(),
+            args: exps(args)?,
+            targets: targets
+                .iter()
+                .map(|v| local(v, replace))
+                .collect::<Result<_, _>>()?,
+        },
+        StmtKind::Exhale(e) => StmtKind::Exhale(exp(e)?),
+        StmtKind::Inhale(e) => StmtKind::Inhale(exp(e)?),
+        StmtKind::Assert(e) => StmtKind::Assert(exp(e)?),
+        StmtKind::Assume(e) => StmtKind::Assume(exp(e)?),
+        StmtKind::Fold(v) => StmtKind::Fold(access(v, replace)?),
+        StmtKind::Unfold(v) => StmtKind::Unfold(access(v, replace)?),
+        StmtKind::Package {
+            wand: w,
+            proof_script,
+        } => StmtKind::Package {
+            wand: wand(w, replace)?,
+            proof_script: map_statement_tree_with_extensions(
+                proof_script,
+                replace,
+                pre,
+                child,
+                extension,
+            )?,
+        },
+        StmtKind::Apply(w) => StmtKind::Apply(wand(w, replace)?),
+        StmtKind::Seqn {
+            statements,
+            declarations,
+        } => StmtKind::Seqn {
+            statements: statements
+                .iter()
+                .map(|s| map_statement_tree_with_extensions(s, replace, pre, child, extension))
+                .collect::<Result<_, _>>()?,
+            declarations: declarations
+                .iter()
+                .map(|d| -> Result<Declaration, E> {
+                    match d {
+                        Declaration::Local(v) => Ok(Declaration::Local(map_local_decl(v)?)),
+                        Declaration::Label(v) => Ok(Declaration::Label(map_label(v)?)),
+                        Declaration::Field(v) => {
+                            match child(&Node::Member(Member::Field(v.clone())))? {
+                                Node::Member(Member::Field(v)) => Ok(Declaration::Field(v)),
+                                _ => Err(StatementReplacementError::InvalidDeclaration.into()),
+                            }
+                        }
+                        Declaration::Predicate(v) => {
+                            match child(&Node::Member(Member::Predicate(v.clone())))? {
+                                Node::Member(Member::Predicate(v)) => Ok(Declaration::Predicate(v)),
+                                _ => Err(StatementReplacementError::InvalidDeclaration.into()),
+                            }
+                        }
+                        Declaration::Method(v) => {
+                            match child(&Node::Member(Member::Method(v.clone())))? {
+                                Node::Member(Member::Method(v)) => Ok(Declaration::Method(v)),
+                                _ => Err(StatementReplacementError::InvalidDeclaration.into()),
+                            }
+                        }
+                        Declaration::Function(v) => {
+                            match child(&Node::Member(Member::Function(v.clone())))? {
+                                Node::Member(Member::Function(v)) => Ok(Declaration::Function(v)),
+                                _ => Err(StatementReplacementError::InvalidDeclaration.into()),
+                            }
+                        }
+                        Declaration::Domain(v) => {
+                            match child(&Node::Member(Member::Domain(v.clone())))? {
+                                Node::Member(Member::Domain(v)) => Ok(Declaration::Domain(v)),
+                                _ => Err(StatementReplacementError::InvalidDeclaration.into()),
+                            }
+                        }
+                        Declaration::DomainFunc(v) => match child(&Node::DomainFunc(v.clone()))? {
+                            Node::DomainFunc(v) => Ok(Declaration::DomainFunc(v)),
+                            _ => Err(StatementReplacementError::InvalidDeclaration.into()),
+                        },
+                        Declaration::NamedDomainAxiom(v) => {
+                            match child(&Node::DomainAxiom(v.clone()))? {
+                                Node::DomainAxiom(v)
+                                    if matches!(
+                                        v.kind(),
+                                        crate::ast::program::DomainAxiomKind::Named { .. }
+                                    ) =>
+                                {
+                                    Ok(Declaration::NamedDomainAxiom(v))
+                                }
+                                _ => Err(StatementReplacementError::InvalidDeclaration.into()),
+                            }
+                        }
+                        Declaration::Extension(_) => {
+                            Err(StatementReplacementError::NestedDeclaration.into())
+                        }
+                    }
+                })
+                .collect::<Result<_, _>>()?,
+        },
+        StmtKind::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => StmtKind::If {
+            condition: exp(condition)?,
+            then_branch: map_statement_tree_with_extensions(
+                then_branch,
+                replace,
+                pre,
+                child,
+                extension,
+            )?,
+            else_branch: map_statement_tree_with_extensions(
+                else_branch,
+                replace,
+                pre,
+                child,
+                extension,
+            )?,
+        },
+        StmtKind::While {
+            condition,
+            invariants,
+            body,
+        } => StmtKind::While {
+            condition: exp(condition)?,
+            invariants: exps(invariants)?,
+            body: map_statement_tree_with_extensions(body, replace, pre, child, extension)?,
+        },
+        StmtKind::Label(label) => {
+            let invariants = exps(&label.invariants)?;
+            StmtKind::Label(if invariants == label.invariants {
+                label.clone()
+            } else {
+                label.copy_with(|d| d.invariants = invariants)
+            })
+        }
+        StmtKind::Goto(name) => StmtKind::Goto(name.clone()),
+        StmtKind::LocalVarDeclStmt(v) => StmtKind::LocalVarDeclStmt(map_local_decl(v)?),
+        StmtKind::Quasihavoc { guard, resource: r } => StmtKind::Quasihavoc {
+            guard: guard.as_ref().map(exp).transpose()?,
+            resource: resource(r, replace)?,
+        },
+        StmtKind::Quasihavocall {
+            variables,
+            guard,
+            resource: r,
+        } => StmtKind::Quasihavocall {
+            variables: variables
+                .iter()
+                .map(map_local_decl)
+                .collect::<Result<Vec<_>, _>>()?,
             guard: guard.as_ref().map(exp).transpose()?,
             resource: resource(r, replace)?,
         },

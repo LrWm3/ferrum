@@ -1,7 +1,7 @@
 //! Ordered Silver AST child dispatch.
 //! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/ast/utility/Nodes.scala
-//! Status: partial. Subnode dispatch, extension hooks and member references are implemented;
-//! product children and complete metadata-preserving reconstruction remain pending.
+//! Status: partial. Subnode dispatch, member references and a preorder typed-product mapper
+//! are implemented; generic strategy integration and extension declaration hooks remain pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -1060,10 +1060,674 @@ pub fn map_expression_roots_with_extensions<
     })
 }
 
+/// Apply one preorder rewrite/reconstruction pass over supported node products.
+/// Typed product fields are recursively rewritten. Replacements must fit their typed
+/// product slots; extension hooks and unsupported declarations fail explicitly. Map
+/// iteration order follows the host map, and strategy contexts/modes are separate.
+pub fn map_node_tree(
+    node: &Node,
+    rule: &dyn Fn(&Node) -> Result<Node, crate::verifier::verification_result::DiagnosticError>,
+) -> Result<Node, crate::verifier::verification_result::DiagnosticError> {
+    use crate::ast::{
+        expression::{Exp, ExpKind, FieldAccess, PredicateAccess, Trigger},
+        program::{LocalVarDecl, Member},
+        statement::{Stmt, StmtKind},
+        utility::statements,
+    };
+    use crate::verifier::verification_result::DiagnosticError;
+    struct Walker<'a> {
+        rule: &'a dyn Fn(&Node) -> Result<Node, DiagnosticError>,
+    }
+    impl Walker<'_> {
+        fn pre(&self, node: &Node) -> Result<Node, DiagnosticError> {
+            (self.rule)(node)
+        }
+        fn typ(
+            &self,
+            original: &crate::ast::r#type::Type,
+        ) -> Result<crate::ast::r#type::Type, DiagnosticError> {
+            use crate::ast::r#type::{DomainType, Type};
+            let Node::Type(current) = self.pre(&Node::Type(original.clone()))? else {
+                return Err(DiagnosticError::InvalidNode("type replacement"));
+            };
+            let rebuilt = match &current {
+                Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => {
+                    let child = self.typ(t)?;
+                    if child == **t {
+                        return Ok(current);
+                    }
+                    match &current {
+                        Type::Seq(_) => Type::Seq(std::sync::Arc::new(child)),
+                        Type::Set(_) => Type::Set(std::sync::Arc::new(child)),
+                        _ => Type::Multiset(std::sync::Arc::new(child)),
+                    }
+                }
+                Type::Map(pair) => {
+                    let key = self.typ(&pair.0)?;
+                    let value = self.typ(&pair.1)?;
+                    if key == pair.0 && value == pair.1 {
+                        return Ok(current);
+                    }
+                    Type::map(key, value)
+                }
+                Type::Domain(domain) => {
+                    let mut mappings = std::collections::HashMap::new();
+                    for (var, value) in &domain.partial_type_vars {
+                        let Type::Var(var) = self.typ(&Type::Var(var.clone()))? else {
+                            return Err(DiagnosticError::InvalidNode(
+                                "domain type variable replacement",
+                            ));
+                        };
+                        mappings.insert(var, self.typ(value)?);
+                    }
+                    if mappings == domain.partial_type_vars {
+                        return Ok(current);
+                    }
+                    Type::Domain(DomainType::new(
+                        domain.domain_name.clone(),
+                        mappings,
+                        domain.type_parameters.clone(),
+                    ))
+                }
+                Type::Extension(extension) => {
+                    let mapped = extension.map_types(&|t| self.typ(t))?;
+                    if extension.equals(mapped.as_ref()) {
+                        return Ok(current);
+                    }
+                    Type::Extension(mapped)
+                }
+                _ => return Ok(current),
+            };
+            Ok(rebuilt)
+        }
+        fn type_var(
+            &self,
+            var: &crate::ast::r#type::TypeVar,
+        ) -> Result<crate::ast::r#type::TypeVar, DiagnosticError> {
+            match self.typ(&crate::ast::r#type::Type::Var(var.clone()))? {
+                crate::ast::r#type::Type::Var(v) => Ok(v),
+                _ => Err(DiagnosticError::InvalidNode("type variable replacement")),
+            }
+        }
+        fn unnamed(
+            &self,
+            v: &crate::ast::program::UnnamedLocalVarDecl,
+        ) -> Result<crate::ast::program::UnnamedLocalVarDecl, DiagnosticError> {
+            let Node::UnnamedLocalDecl(v) = self.pre(&Node::UnnamedLocalDecl(v.clone()))? else {
+                return Err(DiagnosticError::InvalidNode(
+                    "unnamed declaration replacement",
+                ));
+            };
+            let typ = self.typ(&v.typ)?;
+            Ok(if typ == v.typ {
+                v
+            } else {
+                v.copy_with(|data| data.typ = typ)
+            })
+        }
+        fn as_exp(&self, n: Node) -> Result<Exp, DiagnosticError> {
+            Ok(match n {
+                Node::Exp(e) => e,
+                Node::LocalVar(v) => Exp::new(ExpKind::LocalVar(v.clone()), v.meta.clone()),
+                Node::FieldAccess(v) => Exp::new(ExpKind::FieldAccess(v.clone()), v.meta.clone()),
+                Node::PredicateAccess(v) => {
+                    Exp::new(ExpKind::PredicateAccess(v.clone()), v.meta.clone())
+                }
+                Node::PredicateAccessPredicate(v) => {
+                    Exp::new(ExpKind::PredicateAccessPredicate(v.clone()), v.meta.clone())
+                }
+                _ => return Err(DiagnosticError::InvalidNode("expression backlink")),
+            })
+        }
+        fn local(&self, v: &LocalVarDecl) -> Result<LocalVarDecl, DiagnosticError> {
+            let Node::LocalDecl(v) = self.pre(&Node::LocalDecl(v.clone()))? else {
+                return Err(DiagnosticError::InvalidNode("local declaration backlink"));
+            };
+            let typ = self.typ(&v.typ)?;
+            Ok(if typ == v.typ {
+                v
+            } else {
+                LocalVarDecl::new(v.name.clone(), typ, v.meta.clone())
+            })
+        }
+        fn trigger(&self, t: &Trigger) -> Result<Trigger, DiagnosticError> {
+            let Node::Trigger(current) = self.pre(&Node::Trigger(t.clone()))? else {
+                return Err(DiagnosticError::InvalidNode("trigger replacement"));
+            };
+            let t = &current;
+            let exps = t
+                .exps
+                .iter()
+                .map(|v| self.exp(v))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(if exps == t.exps {
+                t.clone()
+            } else {
+                Trigger::new(exps, t.meta.clone())
+            })
+        }
+        fn field(&self, f: &FieldAccess) -> Result<FieldAccess, DiagnosticError> {
+            let original = Exp::new(ExpKind::FieldAccess(f.clone()), f.meta.clone());
+            let mapped = self.exp(&original)?;
+            match mapped.kind() {
+                ExpKind::FieldAccess(v) => Ok(v.clone()),
+                _ => Err(DiagnosticError::InvalidNode("field access backlink")),
+            }
+        }
+        fn predicate(&self, p: &PredicateAccess) -> Result<PredicateAccess, DiagnosticError> {
+            let original = Exp::new(ExpKind::PredicateAccess(p.clone()), p.meta.clone());
+            let mapped = self.exp(&original)?;
+            match mapped.kind() {
+                ExpKind::PredicateAccess(v) => Ok(v.clone()),
+                _ => Err(DiagnosticError::InvalidNode("predicate access backlink")),
+            }
+        }
+        fn exp(&self, e: &Exp) -> Result<Exp, DiagnosticError> {
+            let view = match e.kind() {
+                ExpKind::LocalVar(v) => Node::LocalVar(v.clone()),
+                ExpKind::FieldAccess(v) => Node::FieldAccess(v.clone()),
+                ExpKind::PredicateAccess(v) => Node::PredicateAccess(v.clone()),
+                ExpKind::PredicateAccessPredicate(v) => Node::PredicateAccessPredicate(v.clone()),
+                _ => Node::Exp(e.clone()),
+            };
+            let current = self.as_exp(self.pre(&view)?)?;
+            let special = match current.kind() {
+                ExpKind::LocalVar(v) => {
+                    let typ = self.typ(&v.typ)?;
+                    if typ == v.typ {
+                        return Ok(current);
+                    }
+                    Some(ExpKind::LocalVar(crate::ast::expression::LocalVar::new(
+                        v.name.clone(),
+                        typ,
+                        v.meta.clone(),
+                    )))
+                }
+                ExpKind::Result(t) => {
+                    let typ = self.typ(t)?;
+                    if typ == *t {
+                        return Ok(current);
+                    }
+                    Some(ExpKind::Result(typ))
+                }
+                ExpKind::LocalVarWithVersion(name, t) => {
+                    let typ = self.typ(t)?;
+                    if typ == *t {
+                        return Ok(current);
+                    }
+                    Some(ExpKind::LocalVarWithVersion(name.clone(), typ))
+                }
+                ExpKind::BackendValueLit(value, t) => {
+                    let typ = self.typ(t)?;
+                    if typ == *t {
+                        return Ok(current);
+                    }
+                    Some(ExpKind::BackendValueLit(value.clone(), typ))
+                }
+                ExpKind::EmptySeq(t) | ExpKind::EmptySet(t) | ExpKind::EmptyMultiset(t) => {
+                    let typ = self.typ(t)?;
+                    if typ == *t {
+                        return Ok(current);
+                    }
+                    Some(match current.kind() {
+                        ExpKind::EmptySeq(_) => ExpKind::EmptySeq(typ),
+                        ExpKind::EmptySet(_) => ExpKind::EmptySet(typ),
+                        _ => ExpKind::EmptyMultiset(typ),
+                    })
+                }
+                ExpKind::EmptyMap(k, v) => {
+                    let nk = self.typ(k)?;
+                    let nv = self.typ(v)?;
+                    if nk == *k && nv == *v {
+                        return Ok(current);
+                    }
+                    Some(ExpKind::EmptyMap(nk, nv))
+                }
+                ExpKind::DomainFuncApp(name, args, substitutions) => {
+                    let args2 = args
+                        .iter()
+                        .map(|v| self.exp(v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let mut substitutions2 = std::collections::HashMap::new();
+                    for (k, v) in substitutions {
+                        substitutions2.insert(self.type_var(k)?, self.typ(v)?);
+                    }
+                    if args2 == *args && substitutions2 == *substitutions {
+                        return Ok(current);
+                    }
+                    Some(ExpKind::DomainFuncApp(name.clone(), args2, substitutions2))
+                }
+                ExpKind::FieldAccess(f) => {
+                    let receiver = self.exp(&f.receiver)?;
+                    let member = match self.member(&Member::Field(f.field.clone()))? {
+                        Member::Field(field) => field,
+                        _ => {
+                            return Err(DiagnosticError::InvalidNode("field declaration backlink"));
+                        }
+                    };
+                    if receiver == f.receiver && member == f.field {
+                        return Ok(current);
+                    }
+                    Some(ExpKind::FieldAccess(FieldAccess::new(
+                        receiver,
+                        member,
+                        f.meta.clone(),
+                    )))
+                }
+                ExpKind::Let(v, value, body) => {
+                    let nv = self.local(v)?;
+                    let value2 = self.exp(value)?;
+                    let body2 = self.exp(body)?;
+                    if nv == *v && value2 == *value && body2 == *body {
+                        return Ok(current);
+                    }
+                    Some(ExpKind::Let(nv, value2, body2))
+                }
+                ExpKind::Forall(vars, triggers, body) | ExpKind::Exists(vars, triggers, body) => {
+                    let nv = vars
+                        .iter()
+                        .map(|v| self.local(v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let nt = triggers
+                        .iter()
+                        .map(|v| self.trigger(v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let nb = self.exp(body)?;
+                    if nv == *vars && nt == *triggers && nb == *body {
+                        return Ok(current);
+                    }
+                    Some(if matches!(current.kind(), ExpKind::Forall(..)) {
+                        ExpKind::Forall(nv, nt, nb)
+                    } else {
+                        ExpKind::Exists(nv, nt, nb)
+                    })
+                }
+                ExpKind::ForPerm(vars, resource, body) => {
+                    let nv = vars
+                        .iter()
+                        .map(|v| self.local(v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let nr = self.exp(resource)?;
+                    let nb = self.exp(body)?;
+                    if nv == *vars && nr == *resource && nb == *body {
+                        return Ok(current);
+                    }
+                    Some(ExpKind::ForPerm(nv, nr, nb))
+                }
+                _ => None,
+            };
+            if let Some(kind) = special {
+                return Ok(Exp::with_extra(
+                    kind,
+                    current.metadata().clone(),
+                    current.0.extra.clone(),
+                ));
+            }
+            current.map_expression_children(
+                &mut |v| self.exp(v),
+                &mut |extension| extension.0.map_expressions(&|e| self.exp(e)),
+                &mut |v| self.field(v),
+                &mut |v| self.predicate(v),
+                &mut |v| self.trigger(v),
+            )
+        }
+        fn stmt(&self, s: &Stmt) -> Result<Stmt, DiagnosticError> {
+            statements::map_statement_tree_with_extensions(
+                s,
+                &|e| self.exp(e),
+                &|n| self.pre(n),
+                &|n| self.pass(n),
+                &|ext, map| ext.0.map_expressions(map),
+            )
+        }
+        fn domain_func(
+            &self,
+            f: &crate::ast::program::DomainFunc,
+        ) -> Result<crate::ast::program::DomainFunc, DiagnosticError> {
+            use crate::ast::program::AnyLocalVarDecl;
+            let Node::DomainFunc(f) = self.pre(&Node::DomainFunc(f.clone()))? else {
+                return Err(DiagnosticError::InvalidNode("domain function backlink"));
+            };
+            let args = f
+                .formal_args
+                .iter()
+                .map(|a| -> Result<AnyLocalVarDecl, DiagnosticError> {
+                    match a {
+                        AnyLocalVarDecl::Named(v) => Ok(AnyLocalVarDecl::Named(self.local(v)?)),
+                        AnyLocalVarDecl::Unnamed(v) => {
+                            Ok(AnyLocalVarDecl::Unnamed(self.unnamed(v)?))
+                        }
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let typ = self.typ(&f.typ)?;
+            Ok(if args == f.formal_args && typ == f.typ {
+                f
+            } else {
+                f.copy_with(|d| {
+                    d.formal_args = args;
+                    d.typ = typ;
+                })
+            })
+        }
+        fn axiom(
+            &self,
+            a: &crate::ast::program::DomainAxiom,
+        ) -> Result<crate::ast::program::DomainAxiom, DiagnosticError> {
+            use crate::ast::program::DomainAxiomKind;
+            let Node::DomainAxiom(a) = self.pre(&Node::DomainAxiom(a.clone()))? else {
+                return Err(DiagnosticError::InvalidNode("domain axiom backlink"));
+            };
+            let changed = self.exp(a.exp())?;
+            Ok(if changed == *a.exp() {
+                a
+            } else {
+                a.copy_with(|kind| match kind {
+                    DomainAxiomKind::Named { exp, .. } | DomainAxiomKind::Anonymous { exp, .. } => {
+                        *exp = changed
+                    }
+                })
+            })
+        }
+        fn member(&self, m: &Member) -> Result<Member, DiagnosticError> {
+            let Node::Member(m) = self.pre(&Node::Member(m.clone()))? else {
+                return Err(DiagnosticError::InvalidNode("member backlink"));
+            };
+            Ok(match m {
+                Member::Domain(d) => {
+                    let funcs = d
+                        .functions
+                        .iter()
+                        .map(|v| self.domain_func(v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let axioms = d
+                        .axioms
+                        .iter()
+                        .map(|v| self.axiom(v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let type_vars = d
+                        .type_vars
+                        .iter()
+                        .map(|v| self.type_var(v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Member::Domain(
+                        if funcs == d.functions && axioms == d.axioms && type_vars == d.type_vars {
+                            d
+                        } else {
+                            d.copy_with(|v| {
+                                v.functions = funcs;
+                                v.axioms = axioms;
+                                v.type_vars = type_vars;
+                            })
+                        },
+                    )
+                }
+                Member::Field(f) => {
+                    let typ = self.typ(&f.typ)?;
+                    Member::Field(if typ == f.typ {
+                        f
+                    } else {
+                        f.copy_with(|v| v.typ = typ)
+                    })
+                }
+                Member::Function(f) => {
+                    let args = f
+                        .formal_args
+                        .iter()
+                        .map(|v| self.local(v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let typ = self.typ(&f.typ)?;
+                    let pres = f
+                        .pres
+                        .iter()
+                        .map(|v| self.exp(v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let posts = f
+                        .posts
+                        .iter()
+                        .map(|v| self.exp(v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let body = f.body.as_ref().map(|v| self.exp(v)).transpose()?;
+                    Member::Function(
+                        if args == f.formal_args
+                            && typ == f.typ
+                            && pres == f.pres
+                            && posts == f.posts
+                            && body == f.body
+                        {
+                            f
+                        } else {
+                            f.copy_with(|v| {
+                                v.formal_args = args;
+                                v.typ = typ;
+                                v.pres = pres;
+                                v.posts = posts;
+                                v.body = body;
+                            })
+                        },
+                    )
+                }
+                Member::Predicate(p) => {
+                    let args = p
+                        .formal_args
+                        .iter()
+                        .map(|v| self.local(v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let body = p.body.as_ref().map(|v| self.exp(v)).transpose()?;
+                    Member::Predicate(if args == p.formal_args && body == p.body {
+                        p
+                    } else {
+                        p.copy_with(|v| {
+                            v.formal_args = args;
+                            v.body = body;
+                        })
+                    })
+                }
+                Member::Method(m) => {
+                    let args = m
+                        .formal_args
+                        .iter()
+                        .map(|v| self.local(v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let returns = m
+                        .formal_returns
+                        .iter()
+                        .map(|v| self.local(v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let pres = m
+                        .pres
+                        .iter()
+                        .map(|v| self.exp(v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let posts = m
+                        .posts
+                        .iter()
+                        .map(|v| self.exp(v))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let body = m.body.as_ref().map(|v| self.stmt(v)).transpose()?;
+                    Member::Method(
+                        if args == m.formal_args
+                            && returns == m.formal_returns
+                            && pres == m.pres
+                            && posts == m.posts
+                            && body == m.body
+                        {
+                            m
+                        } else {
+                            m.copy_with(|v| {
+                                v.formal_args = args;
+                                v.formal_returns = returns;
+                                v.pres = pres;
+                                v.posts = posts;
+                                v.body = body;
+                            })
+                        },
+                    )
+                }
+                Member::Extension(v) => {
+                    let rebuilt = v.0.map_nodes(&|n| self.pass(n))?;
+                    Member::Extension(if rebuilt == v { v } else { rebuilt })
+                }
+            })
+        }
+        fn program(
+            &self,
+            p: &crate::ast::program::Program,
+        ) -> Result<crate::ast::program::Program, DiagnosticError> {
+            let Node::Program(p) = self.pre(&Node::Program(p.clone()))? else {
+                return Err(DiagnosticError::InvalidNode("program backlink"));
+            };
+            let domains = p
+                .domains
+                .iter()
+                .map(|v| match self.member(&Member::Domain(v.clone()))? {
+                    Member::Domain(v) => Ok(v),
+                    _ => Err(DiagnosticError::InvalidNode("domain slot")),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let fields = p
+                .fields
+                .iter()
+                .map(|v| match self.member(&Member::Field(v.clone()))? {
+                    Member::Field(v) => Ok(v),
+                    _ => Err(DiagnosticError::InvalidNode("field slot")),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let functions = p
+                .functions
+                .iter()
+                .map(|v| match self.member(&Member::Function(v.clone()))? {
+                    Member::Function(v) => Ok(v),
+                    _ => Err(DiagnosticError::InvalidNode("function slot")),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let predicates = p
+                .predicates
+                .iter()
+                .map(|v| match self.member(&Member::Predicate(v.clone()))? {
+                    Member::Predicate(v) => Ok(v),
+                    _ => Err(DiagnosticError::InvalidNode("predicate slot")),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let methods = p
+                .methods
+                .iter()
+                .map(|v| match self.member(&Member::Method(v.clone()))? {
+                    Member::Method(v) => Ok(v),
+                    _ => Err(DiagnosticError::InvalidNode("method slot")),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let extensions = p
+                .extensions
+                .iter()
+                .map(|v| match self.member(&Member::Extension(v.clone()))? {
+                    Member::Extension(v) => Ok(v),
+                    _ => Err(DiagnosticError::InvalidNode("extension member slot")),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(
+                if domains == p.domains
+                    && fields == p.fields
+                    && functions == p.functions
+                    && predicates == p.predicates
+                    && methods == p.methods
+                    && extensions == p.extensions
+                {
+                    p
+                } else {
+                    p.copy_with(|v| {
+                        v.domains = domains;
+                        v.fields = fields;
+                        v.functions = functions;
+                        v.predicates = predicates;
+                        v.methods = methods;
+                        v.extensions = extensions;
+                    })
+                },
+            )
+        }
+        fn pass(&self, node: &Node) -> Result<Node, DiagnosticError> {
+            Ok(match node {
+                Node::Exp(e) => Node::Exp(self.exp(e)?),
+                Node::LocalVar(v) => {
+                    match self
+                        .exp(&Exp::new(ExpKind::LocalVar(v.clone()), v.meta.clone()))?
+                        .kind()
+                    {
+                        ExpKind::LocalVar(v) => Node::LocalVar(v.clone()),
+                        _ => return Err(DiagnosticError::InvalidNode("local variable backlink")),
+                    }
+                }
+                Node::FieldAccess(v) => Node::FieldAccess(self.field(v)?),
+                Node::PredicateAccess(v) => Node::PredicateAccess(self.predicate(v)?),
+                Node::PredicateAccessPredicate(v) => match self
+                    .exp(&Exp::new(
+                        ExpKind::PredicateAccessPredicate(v.clone()),
+                        v.meta.clone(),
+                    ))?
+                    .kind()
+                {
+                    ExpKind::PredicateAccessPredicate(v) => {
+                        Node::PredicateAccessPredicate(v.clone())
+                    }
+                    _ => {
+                        return Err(DiagnosticError::InvalidNode(
+                            "predicate permission backlink",
+                        ));
+                    }
+                },
+                Node::Stmt(s) => Node::Stmt(self.stmt(s)?),
+                Node::LabelDecl(label) => {
+                    let view = Stmt::new(StmtKind::Label(label.clone()), label.meta.clone());
+                    let result = self.stmt(&view)?;
+                    match result.kind() {
+                        StmtKind::Label(v) => Node::LabelDecl(v.clone()),
+                        _ => return Err(DiagnosticError::InvalidNode("label backlink")),
+                    }
+                }
+                Node::LocalDecl(v) => Node::LocalDecl(self.local(v)?),
+                Node::UnnamedLocalDecl(v) => Node::UnnamedLocalDecl(self.unnamed(v)?),
+                Node::Program(p) => Node::Program(self.program(p)?),
+                Node::Member(m) => Node::Member(self.member(m)?),
+                Node::DomainFunc(f) => Node::DomainFunc(self.domain_func(f)?),
+                Node::DomainAxiom(a) => Node::DomainAxiom(self.axiom(a)?),
+                Node::Trigger(t) => Node::Trigger(self.trigger(t)?),
+                Node::Type(t) => Node::Type(self.typ(t)?),
+            })
+        }
+    }
+    Walker { rule }.pass(node)
+}
+
 #[cfg(test)]
 mod reconstruction_tests {
     use super::*;
     use crate::ast::{ast::Metadata, program::Function, r#type::Type};
+    #[test]
+    fn shared_node_mapper_rewrites_nested_type_product_fields() {
+        use crate::ast::{
+            program::{Field, FieldData, Member},
+            r#type::Type,
+        };
+        let field = Field::new(FieldData {
+            name: "f".into(),
+            typ: Type::Seq(std::sync::Arc::new(Type::Int)),
+            meta: Metadata::default(),
+        });
+        let mapped = map_node_tree(&Node::Member(Member::Field(field.clone())), &|node| {
+            Ok(if matches!(node, Node::Type(Type::Int)) {
+                Node::Type(Type::Bool)
+            } else {
+                node.clone()
+            })
+        })
+        .unwrap();
+        let Node::Member(Member::Field(result)) = mapped else {
+            panic!("field")
+        };
+        assert!(matches!(&result.typ, Type::Seq(t) if **t == Type::Bool));
+        assert!(!result.same_node(&field));
+    }
     #[test]
     fn label_statement_and_declaration_are_same_source_node() {
         use crate::ast::{

@@ -47,6 +47,17 @@ pub trait ExtensionType: fmt::Debug + Send + Sync {
     fn hash_value(&self) -> u64;
     fn substitute(&self, substitutions: &TypeSubstitution) -> Arc<dyn ExtensionType>;
     fn is_concrete(&self) -> bool;
+    /// Rebuild type-valued product fields for generic node rewriting.
+    fn map_types(
+        &self,
+        _map: &dyn Fn(&Type) -> Result<Type, crate::verifier::verification_result::DiagnosticError>,
+    ) -> Result<Arc<dyn ExtensionType>, crate::verifier::verification_result::DiagnosticError> {
+        Err(
+            crate::verifier::verification_result::DiagnosticError::Unsupported(
+                "extension type reconstruction",
+            ),
+        )
+    }
     /// Upstream leaves these methods unimplemented by default.
     fn get_ast_type(&self) -> Result<Type, UnsupportedExtensionOperation> {
         Err(UnsupportedExtensionOperation::GetAstType)

@@ -422,6 +422,39 @@ pub trait ExtensionMember: Debug + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn name(&self) -> &str;
     fn equals(&self, other: &dyn ExtensionMember) -> bool;
+    fn metadata(&self) -> Result<&Metadata, crate::verifier::verification_result::DiagnosticError> {
+        Err(
+            crate::verifier::verification_result::DiagnosticError::Unsupported(
+                "extension member metadata",
+            ),
+        )
+    }
+    fn with_metadata(
+        &self,
+        _metadata: Metadata,
+    ) -> Result<ExtensionMemberHandle, crate::verifier::verification_result::DiagnosticError> {
+        Err(
+            crate::verifier::verification_result::DiagnosticError::Unsupported(
+                "extension member metadata reconstruction",
+            ),
+        )
+    }
+    /// Rebuild all product node fields; extensions with unhandled fields fail explicitly.
+    fn map_nodes(
+        &self,
+        _map: &dyn Fn(
+            &super::utility::nodes::Node,
+        ) -> Result<
+            super::utility::nodes::Node,
+            crate::verifier::verification_result::DiagnosticError,
+        >,
+    ) -> Result<ExtensionMemberHandle, crate::verifier::verification_result::DiagnosticError> {
+        Err(
+            crate::verifier::verification_result::DiagnosticError::Unsupported(
+                "extension member reconstruction",
+            ),
+        )
+    }
     fn subnodes(
         &self,
     ) -> Result<Vec<super::utility::nodes::Node>, super::utility::nodes::TraversalError> {

@@ -19,8 +19,22 @@ use std::fmt::Debug;
 use std::sync::{Arc, OnceLock};
 
 pub trait ExtensionStmt: Debug + Send + Sync {
+    fn metadata(&self) -> &Metadata;
+    fn with_metadata(&self, metadata: Metadata) -> ExtensionStmtHandle;
     fn as_any(&self) -> &dyn Any;
     fn equals(&self, other: &dyn ExtensionStmt) -> bool;
+    /// Rebuild direct expression children for error back-transformation.
+    /// Extensions with additional rewritable node fields must report unsupported.
+    fn map_expressions(
+        &self,
+        _map: &dyn Fn(&Exp) -> Result<Exp, crate::verifier::verification_result::DiagnosticError>,
+    ) -> Result<ExtensionStmtHandle, crate::verifier::verification_result::DiagnosticError> {
+        Err(
+            crate::verifier::verification_result::DiagnosticError::Unsupported(
+                "extension statement reconstruction",
+            ),
+        )
+    }
     fn subnodes(
         &self,
     ) -> Result<Vec<super::utility::nodes::Node>, super::utility::nodes::TraversalError> {
@@ -172,6 +186,7 @@ impl Stmt {
     pub fn new(kind: StmtKind, meta: Metadata) -> Self {
         let meta = match &kind {
             StmtKind::Label(label) => label.meta.clone(),
+            StmtKind::Extension(extension) => extension.0.metadata().clone(),
             _ => meta,
         };
         Self(Arc::new(StmtNode { kind, meta }))
@@ -185,6 +200,7 @@ impl Stmt {
     pub fn same_node(&self, other: &Self) -> bool {
         match (self.kind(), other.kind()) {
             (StmtKind::Label(a), StmtKind::Label(b)) => a.same_node(b),
+            (StmtKind::Extension(a), StmtKind::Extension(b)) => Arc::ptr_eq(&a.0, &b.0),
             _ => Arc::ptr_eq(&self.0, &other.0),
         }
     }

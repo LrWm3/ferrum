@@ -82,6 +82,25 @@ impl AdtType {
     }
 }
 impl ExtensionType for AdtType {
+    fn map_types(
+        &self,
+        map: &dyn Fn(&Type) -> Result<Type, crate::verifier::verification_result::DiagnosticError>,
+    ) -> Result<Arc<dyn ExtensionType>, crate::verifier::verification_result::DiagnosticError> {
+        use crate::verifier::verification_result::DiagnosticError;
+        let mut types = TypeSubstitution::new();
+        for (key, value) in &self.partial_type_vars {
+            let Type::Var(key) = map(&Type::Var(key.clone()))? else {
+                return Err(DiagnosticError::InvalidNode("ADT type substitution key"));
+            };
+            types.insert(key, map(value)?);
+        }
+        Ok(Arc::new(Self::new(
+            self.adt_name.clone(),
+            types,
+            self.type_parameters.clone(),
+        )))
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -198,6 +217,36 @@ impl AdtConstructor {
     }
 }
 impl ExtensionMember for AdtConstructor {
+    fn metadata(&self) -> Result<&Metadata, crate::verifier::verification_result::DiagnosticError> {
+        Ok(&self.meta)
+    }
+    fn with_metadata(
+        &self,
+        meta: Metadata,
+    ) -> Result<ExtensionMemberHandle, crate::verifier::verification_result::DiagnosticError> {
+        let mut copy = self.clone();
+        copy.meta = meta;
+        Ok(ExtensionMemberHandle(Arc::new(copy)))
+    }
+    fn map_nodes(
+        &self,
+        map: &dyn Fn(&Node) -> Result<Node, crate::verifier::verification_result::DiagnosticError>,
+    ) -> Result<ExtensionMemberHandle, crate::verifier::verification_result::DiagnosticError> {
+        use crate::verifier::verification_result::DiagnosticError;
+        let mut args = Vec::with_capacity(self.formal_args.len());
+        for arg in &self.formal_args {
+            let Node::LocalDecl(arg) = map(&Node::LocalDecl(arg.clone()))? else {
+                return Err(DiagnosticError::InvalidNode(
+                    "ADT constructor formal argument",
+                ));
+            };
+            args.push(arg);
+        }
+        let mut copy = self.clone();
+        copy.formal_args = args;
+        Ok(ExtensionMemberHandle(Arc::new(copy)))
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -246,6 +295,67 @@ impl Adt {
     }
 }
 impl ExtensionMember for Adt {
+    fn metadata(&self) -> Result<&Metadata, crate::verifier::verification_result::DiagnosticError> {
+        Ok(&self.meta)
+    }
+    fn with_metadata(
+        &self,
+        meta: Metadata,
+    ) -> Result<ExtensionMemberHandle, crate::verifier::verification_result::DiagnosticError> {
+        let mut copy = self.clone();
+        copy.meta = meta;
+        Ok(ExtensionMemberHandle(Arc::new(copy)))
+    }
+    fn map_nodes(
+        &self,
+        map: &dyn Fn(&Node) -> Result<Node, crate::verifier::verification_result::DiagnosticError>,
+    ) -> Result<ExtensionMemberHandle, crate::verifier::verification_result::DiagnosticError> {
+        use crate::verifier::verification_result::DiagnosticError;
+        let mut constructors = Vec::with_capacity(self.constructors.len());
+        for constructor in &self.constructors {
+            let original: Arc<dyn ExtensionMember> = constructor.clone();
+            let Node::Member(Member::Extension(result)) = map(&Node::Member(Member::Extension(
+                ExtensionMemberHandle(original.clone()),
+            )))?
+            else {
+                return Err(DiagnosticError::InvalidNode("ADT constructor"));
+            };
+            if Arc::ptr_eq(&original, &result.0) {
+                constructors.push(constructor.clone());
+            } else {
+                constructors.push(Arc::new(
+                    result
+                        .0
+                        .as_any()
+                        .downcast_ref::<AdtConstructor>()
+                        .ok_or(DiagnosticError::InvalidNode("ADT constructor"))?
+                        .clone(),
+                ));
+            }
+        }
+        let mut type_vars = Vec::with_capacity(self.type_vars.len());
+        for var in &self.type_vars {
+            let Node::Type(Type::Var(var)) = map(&Node::Type(Type::Var(var.clone())))? else {
+                return Err(DiagnosticError::InvalidNode("ADT type parameter"));
+            };
+            type_vars.push(var);
+        }
+        let mut deriving_info = self.deriving_info.clone();
+        for (typ, _) in deriving_info.values_mut() {
+            if let Some(old) = typ {
+                let Node::Type(new) = map(&Node::Type(old.clone()))? else {
+                    return Err(DiagnosticError::InvalidNode("ADT deriving type"));
+                };
+                *typ = Some(new);
+            }
+        }
+        let mut copy = self.clone();
+        copy.constructors = constructors;
+        copy.type_vars = type_vars;
+        copy.deriving_info = deriving_info;
+        Ok(ExtensionMemberHandle(Arc::new(copy)))
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -363,6 +473,24 @@ impl AdtConstructorApp {
     }
 }
 impl ExtensionExp for AdtConstructorApp {
+    fn map_expressions(
+        &self,
+        map: &dyn Fn(&Exp) -> Result<Exp, crate::verifier::verification_result::DiagnosticError>,
+    ) -> Result<ExtensionExpHandle, crate::verifier::verification_result::DiagnosticError> {
+        let mut copy = self.clone();
+        copy.args = self.args.iter().map(map).collect::<Result<_, _>>()?;
+        Ok(ExtensionExpHandle(Arc::new(copy)))
+    }
+
+    fn metadata(&self) -> &Metadata {
+        &self.meta
+    }
+    fn with_metadata(&self, meta: Metadata) -> ExtensionExpHandle {
+        let mut copy = self.clone();
+        copy.meta = meta;
+        ExtensionExpHandle(Arc::new(copy))
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -441,6 +569,24 @@ impl AdtDestructorApp {
     }
 }
 impl ExtensionExp for AdtDestructorApp {
+    fn map_expressions(
+        &self,
+        map: &dyn Fn(&Exp) -> Result<Exp, crate::verifier::verification_result::DiagnosticError>,
+    ) -> Result<ExtensionExpHandle, crate::verifier::verification_result::DiagnosticError> {
+        let mut copy = self.clone();
+        copy.receiver = map(&self.receiver)?;
+        Ok(ExtensionExpHandle(Arc::new(copy)))
+    }
+
+    fn metadata(&self) -> &Metadata {
+        &self.meta
+    }
+    fn with_metadata(&self, meta: Metadata) -> ExtensionExpHandle {
+        let mut copy = self.clone();
+        copy.meta = meta;
+        ExtensionExpHandle(Arc::new(copy))
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -494,6 +640,24 @@ impl AdtDiscriminatorApp {
     }
 }
 impl ExtensionExp for AdtDiscriminatorApp {
+    fn map_expressions(
+        &self,
+        map: &dyn Fn(&Exp) -> Result<Exp, crate::verifier::verification_result::DiagnosticError>,
+    ) -> Result<ExtensionExpHandle, crate::verifier::verification_result::DiagnosticError> {
+        let mut copy = self.clone();
+        copy.receiver = map(&self.receiver)?;
+        Ok(ExtensionExpHandle(Arc::new(copy)))
+    }
+
+    fn metadata(&self) -> &Metadata {
+        &self.meta
+    }
+    fn with_metadata(&self, meta: Metadata) -> ExtensionExpHandle {
+        let mut copy = self.clone();
+        copy.meta = meta;
+        ExtensionExpHandle(Arc::new(copy))
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

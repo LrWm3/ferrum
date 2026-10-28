@@ -210,8 +210,6 @@ impl VerificationDiagnostic for RefuteFailed {
         }))
     }
     fn transformed_error(&self) -> Result<Arc<dyn VerificationDiagnostic>, DiagnosticError> {
-        Err(DiagnosticError::Unsupported(
-            "refute error back transformation",
-        ))
+        crate::verifier::verification_error::transform_diagnostic(Arc::new(self.clone()))
     }
 }

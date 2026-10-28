@@ -741,9 +741,7 @@ pub fn node_position(
                 "type is not a positioned error node",
             ));
         }
-        Node::Member(Member::Extension(_)) => {
-            return Err(DiagnosticError::Unsupported("extension member position"));
-        }
+        Node::Member(Member::Extension(v)) => v.0.metadata()?,
     };
     Ok(meta.position.clone())
 }
@@ -1215,99 +1213,69 @@ pub fn apply_reason_transformations(
     Ok(reason)
 }
 
-/// Back-transform expression error nodes. Non-expression products and binders
-/// remain explicit failures until generic node reconstruction is available.
-pub fn back_transform_expression_node(
+impl From<crate::ast::utility::statements::StatementReplacementError>
+    for super::verification_result::DiagnosticError
+{
+    fn from(_: crate::ast::utility::statements::StatementReplacementError) -> Self {
+        Self::Unsupported("statement product back-transformation")
+    }
+}
+
+/// Rebuild supported Silver statement and expression products while following
+/// source PreviousNode links. Unknown extensions and remaining product families
+/// fail explicitly; no successful empty reconstruction is manufactured.
+pub fn back_transform_node(
     node: crate::ast::utility::nodes::Node,
 ) -> Result<crate::ast::utility::nodes::Node, super::verification_result::DiagnosticError> {
     use super::verification_result::DiagnosticError;
     use crate::ast::{
         ast::PreviousNode,
-        expression::{Exp, ExpKind},
-        utility::nodes::Node,
+        utility::{
+            nodes::{self, Node},
+            viper_strategy,
+        },
     };
-    fn pass(e: &Exp) -> Result<Exp, DiagnosticError> {
-        let current = if let Some(link) = &e.metadata().error_trafo.node {
-            let old = link
+    fn follow(n: &Node) -> Result<Node, DiagnosticError> {
+        if matches!(n, Node::Type(_) | Node::Trigger(_)) {
+            return Ok(n.clone());
+        }
+        let meta = viper_strategy::metadata(n)
+            .map_err(|_| DiagnosticError::Unsupported("node metadata back-transformation"))?;
+        match &meta.error_trafo.node {
+            None => Ok(n.clone()),
+            Some(link) => Ok(link
                 .as_any()
                 .downcast_ref::<PreviousNode>()
-                .ok_or(DiagnosticError::Unsupported("custom node transformation"))?;
-            match &old.0 {
-                Node::Exp(exp) => exp.clone(),
-                _ => return Err(DiagnosticError::Unsupported("non-expression backlink")),
-            }
-        } else {
-            e.clone()
-        };
-        if matches!(
-            current.kind(),
-            ExpKind::Forall(..)
-                | ExpKind::Exists(..)
-                | ExpKind::ForPerm(..)
-                | ExpKind::Let(..)
-                | ExpKind::FieldAccess(..)
-                | ExpKind::FieldAccessPredicate(..)
-        ) {
-            return Err(DiagnosticError::Unsupported(
-                "binder or field product back-transformation",
-            ));
+                .ok_or(DiagnosticError::Unsupported("custom node transformation"))?
+                .0
+                .clone()),
         }
-        current.map_expression_children(
-            &mut pass,
-            &mut |extension| extension.0.map_expressions(&pass),
-            &mut |_| Err(DiagnosticError::Unsupported("field back-transformation")),
-            &mut |pred| {
-                let view = Exp::new(ExpKind::PredicateAccess(pred.clone()), pred.meta.clone());
-                let transformed = pass(&view)?;
-                match transformed.kind() {
-                    ExpKind::PredicateAccess(p) => Ok(p.clone()),
-                    _ => Err(DiagnosticError::InvalidNode("predicate access backlink")),
-                }
-            },
-            &mut |_| Err(DiagnosticError::Unsupported("trigger back-transformation")),
-        )
     }
-    let (mut current, view) = match node {
-        Node::Exp(e) => (e, 0),
-        Node::LocalVar(v) => (Exp::new(ExpKind::LocalVar(v.clone()), v.meta.clone()), 1),
-        Node::PredicateAccess(v) => (
-            Exp::new(ExpKind::PredicateAccess(v.clone()), v.meta.clone()),
-            2,
-        ),
-        Node::PredicateAccessPredicate(v) => (
-            Exp::new(ExpKind::PredicateAccessPredicate(v.clone()), v.meta.clone()),
-            3,
-        ),
-        _ => {
-            return Err(DiagnosticError::Unsupported(
-                "non-expression error node back-transformation",
-            ));
-        }
-    };
+    let mut current = node;
     let mut seen = Vec::new();
     loop {
-        if seen.iter().any(|old: &Exp| old.same_node(&current)) {
+        if seen
+            .iter()
+            .any(|old: &Node| old.same_node(&current) == Some(true))
+        {
             return Err(DiagnosticError::Unsupported(
                 "cyclic node back-transformation",
             ));
         }
         seen.push(current.clone());
-        let next = pass(&current)?;
-        if next.same_node(&current) {
-            return match (view, next.kind()) {
-                (0, _) => Ok(Node::Exp(next)),
-                (1, ExpKind::LocalVar(v)) => Ok(Node::LocalVar(v.clone())),
-                (2, ExpKind::PredicateAccess(v)) => Ok(Node::PredicateAccess(v.clone())),
-                (3, ExpKind::PredicateAccessPredicate(v)) => {
-                    Ok(Node::PredicateAccessPredicate(v.clone()))
-                }
-                _ => Err(DiagnosticError::InvalidNode(
-                    "back-transformed typed expression node",
-                )),
-            };
+        let next = nodes::map_node_tree(&current, &follow)?;
+        match next.same_node(&current) {
+            Some(true) => return Ok(next),
+            Some(false) | None => current = next,
         }
-        current = next;
     }
+}
+
+/// Compatibility name for the earlier expression-only boundary.
+pub fn back_transform_expression_node(
+    node: crate::ast::utility::nodes::Node,
+) -> Result<crate::ast::utility::nodes::Node, super::verification_result::DiagnosticError> {
+    back_transform_node(node)
 }
 
 /// Source error-then-node-then-reason pipeline for supported expression error nodes.
@@ -1319,37 +1287,24 @@ pub fn transform_diagnostic(
     super::verification_result::DiagnosticError,
 > {
     use super::verification_result::DiagnosticError;
-    use crate::ast::utility::nodes::Node;
     let contexts = error.failure_contexts()?;
     let node = error.offending_node()?;
-    let Node::Exp(exp) = node else {
-        return Err(DiagnosticError::Unsupported(
-            "non-expression diagnostic back-transformation",
-        ));
-    };
-    let transformed = apply_error_transformations(error, &exp.metadata().error_trafo.error)?;
-    let new_node = back_transform_expression_node(transformed.offending_node()?)?;
+    let error_meta = crate::ast::utility::viper_strategy::metadata(&node)
+        .map_err(|_| DiagnosticError::Unsupported("diagnostic node metadata"))?;
+    let transformed = apply_error_transformations(error, &error_meta.error_trafo.error)?;
+    let new_node = back_transform_node(transformed.offending_node()?)?;
     let transformed = transformed.with_node(new_node)?;
     let reason = transformed.reason()?;
     let reason_node = reason.offending_node().ok_or(DiagnosticError::Unsupported(
         "dummy reason back-transformation",
     ))?;
-    let reason_meta = match &reason_node {
-        Node::Exp(e) => e.metadata(),
-        Node::LocalVar(v) => &v.meta,
-        Node::PredicateAccess(v) => &v.meta,
-        Node::PredicateAccessPredicate(v) => &v.meta,
-        _ => {
-            return Err(DiagnosticError::Unsupported(
-                "non-expression reason back-transformation",
-            ));
-        }
-    };
+    let reason_meta = crate::ast::utility::viper_strategy::metadata(&reason_node)
+        .map_err(|_| DiagnosticError::Unsupported("reason node metadata"))?;
     let reason = apply_reason_transformations(reason, &reason_meta.error_trafo.reason)?;
     let reason_node = reason.offending_node().ok_or(DiagnosticError::Unsupported(
         "dummy reason back-transformation",
     ))?;
-    let reason = reason.with_node(back_transform_expression_node(reason_node)?)?;
+    let reason = reason.with_node(back_transform_node(reason_node)?)?;
     transformed
         .with_reason(reason)?
         .with_failure_contexts(contexts)
@@ -1486,6 +1441,152 @@ mod diagnostic_back_transform_tests {
         ) -> Result<String, super::super::verification_result::DiagnosticError> {
             Ok("node".into())
         }
+    }
+    #[test]
+    fn source_rewriter_discards_structurally_equal_child_metadata_change() {
+        use crate::ast::statement::{Stmt, StmtKind};
+        let old = Exp::new(
+            ExpKind::TrueLit,
+            Metadata {
+                position: crate::ast::position::Position::Virtual("old".into()),
+                ..Metadata::default()
+            },
+        );
+        let mut changed_meta = Metadata {
+            position: crate::ast::position::Position::Virtual("new".into()),
+            ..Metadata::default()
+        };
+        changed_meta.error_trafo = ErrorTrafo::trafos(
+            vec![],
+            vec![],
+            Some(Arc::new(PreviousNode(Node::Exp(old.clone())))),
+        );
+        let changed = Exp::new(ExpKind::TrueLit, changed_meta);
+        assert_eq!(old, changed);
+        let root = Stmt::new(StmtKind::Assert(changed.clone()), Metadata::default());
+        let Node::Stmt(result) = back_transform_node(Node::Stmt(root.clone())).unwrap() else {
+            panic!("statement")
+        };
+        assert!(result.same_node(&root));
+        assert!(
+            matches!(result.kind(), StmtKind::Assert(e) if e.same_node(&changed) && !e.same_node(&old))
+        );
+    }
+    #[test]
+    fn program_reconstruction_back_transforms_nested_method_body() {
+        use crate::ast::{
+            program::{Method, MethodData, Program},
+            statement::{Stmt, StmtKind},
+        };
+        let meta = Metadata::default();
+        let old = Stmt::new(
+            StmtKind::Assert(Exp::new(ExpKind::FalseLit, meta.clone())),
+            meta.clone(),
+        );
+        let mut m = meta.clone();
+        m.error_trafo = ErrorTrafo::trafos(
+            vec![],
+            vec![],
+            Some(Arc::new(PreviousNode(Node::Stmt(old.clone())))),
+        );
+        let replacement = Stmt::new(
+            StmtKind::Assert(Exp::new(ExpKind::TrueLit, meta.clone())),
+            m,
+        );
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: Some(Stmt::new(
+                StmtKind::Seqn {
+                    statements: vec![replacement],
+                    declarations: vec![],
+                },
+                meta.clone(),
+            )),
+            meta: meta.clone(),
+        });
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta);
+        let Node::Program(result) = back_transform_node(Node::Program(program)).unwrap() else {
+            panic!("program")
+        };
+        assert!(
+            matches!(result.methods[0].body.as_ref().unwrap().kind(), StmtKind::Seqn { statements, .. } if statements[0].same_node(&old))
+        );
+    }
+    #[test]
+    fn field_access_reconstructs_referenced_field_backlink() {
+        use crate::ast::{
+            expression::{FieldAccess, LocalVar},
+            program::{Field, FieldData, Member},
+        };
+        let meta = Metadata::default();
+        let old = Field::new(FieldData {
+            name: "old".into(),
+            typ: Type::Int,
+            meta: meta.clone(),
+        });
+        let mut changed_meta = meta.clone();
+        changed_meta.error_trafo = ErrorTrafo::trafos(
+            vec![],
+            vec![],
+            Some(Arc::new(PreviousNode(Node::Member(Member::Field(
+                old.clone(),
+            ))))),
+        );
+        let current = Field::new(FieldData {
+            name: "new".into(),
+            typ: Type::Int,
+            meta: changed_meta,
+        });
+        let receiver = Exp::new(
+            ExpKind::LocalVar(LocalVar::new("r".into(), Type::Ref, meta.clone())),
+            meta.clone(),
+        );
+        let access = Exp::new(
+            ExpKind::FieldAccess(FieldAccess::new(receiver, current, meta.clone())),
+            meta,
+        );
+        let Node::Exp(result) = back_transform_node(Node::Exp(access)).unwrap() else {
+            panic!("expression")
+        };
+        assert!(
+            matches!(result.kind(), ExpKind::FieldAccess(field) if field.field.same_node(&old))
+        );
+    }
+    #[test]
+    fn nested_statement_backlink_is_rebuilt_with_original_identity() {
+        use crate::ast::statement::{Stmt, StmtKind};
+        let meta = Metadata::default();
+        let old = Stmt::new(
+            StmtKind::Assert(Exp::new(ExpKind::FalseLit, meta.clone())),
+            meta.clone(),
+        );
+        let mut rewritten_meta = meta.clone();
+        rewritten_meta.error_trafo = ErrorTrafo::trafos(
+            vec![],
+            vec![],
+            Some(Arc::new(PreviousNode(Node::Stmt(old.clone())))),
+        );
+        let rewritten = Stmt::new(
+            StmtKind::Assert(Exp::new(ExpKind::TrueLit, meta.clone())),
+            rewritten_meta,
+        );
+        let seq = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![rewritten],
+                declarations: vec![],
+            },
+            meta,
+        );
+        let Node::Stmt(result) = back_transform_node(Node::Stmt(seq)).unwrap() else {
+            panic!("statement")
+        };
+        assert!(
+            matches!(result.kind(), StmtKind::Seqn { statements, .. } if statements[0].same_node(&old))
+        );
     }
     #[test]
     fn expression_backlink_restores_error_node_and_cached_flag() {

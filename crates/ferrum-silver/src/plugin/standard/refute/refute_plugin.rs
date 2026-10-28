@@ -282,6 +282,8 @@ mod tests {
             panic!("refutation must fail")
         };
         assert_eq!(errors[0].full_id(), "refute.failed:refutation.true");
+        let transformed = errors[0].transformed_error().unwrap();
+        assert_eq!(transformed.full_id(), "refute.failed:refutation.true");
         let lowered = lower_method_body(&original.clone().statement()).unwrap();
         let StmtKind::Seqn { statements, .. } = lowered.kind() else {
             panic!("sequence")

@@ -236,8 +236,6 @@ impl crate::verifier::verification_result::VerificationDiagnostic for Terminatio
         Arc<dyn crate::verifier::verification_result::VerificationDiagnostic>,
         DiagnosticError,
     > {
-        Err(DiagnosticError::Unsupported(
-            "termination diagnostic back transformation",
-        ))
+        crate::verifier::verification_error::transform_diagnostic(Arc::new(self.clone()))
     }
 }
