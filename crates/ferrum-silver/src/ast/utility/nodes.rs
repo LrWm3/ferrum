@@ -13,7 +13,8 @@ use crate::ast::expression::{
     Exp, ExpKind, ExpressionTypeError, FieldAccess, LocalVar, PredicateAccess, Trigger,
 };
 use crate::ast::program::{
-    AnyLocalVarDecl, DomainAxiom, DomainFunc, LocalVarDecl, Member, Program, UnnamedLocalVarDecl,
+    AnyLocalVarDecl, DomainAxiom, DomainFunc, LabelDeclaration, LocalVarDecl, Member, Program,
+    UnnamedLocalVarDecl,
 };
 use crate::ast::statement::{PredicateAccessPredicate, ResourceAccess, Stmt, StmtKind};
 use crate::ast::r#type::Type;
@@ -26,6 +27,7 @@ pub enum Node {
     DomainFunc(DomainFunc),
     DomainAxiom(DomainAxiom),
     LocalDecl(LocalVarDecl),
+    LabelDecl(LabelDeclaration),
     UnnamedLocalDecl(UnnamedLocalVarDecl),
     Exp(Exp),
     LocalVar(LocalVar),
@@ -45,6 +47,10 @@ impl PartialEq for Node {
             (DomainFunc(a), DomainFunc(b)) => a == b,
             (DomainAxiom(a), DomainAxiom(b)) => a == b,
             (LocalDecl(a), LocalDecl(b)) => a == b,
+            (LabelDecl(a), LabelDecl(b)) => a == b,
+            (LabelDecl(a), Stmt(b)) | (Stmt(b), LabelDecl(a)) => {
+                matches!(b.kind(), StmtKind::Label(label) if a == label)
+            }
             (UnnamedLocalDecl(a), UnnamedLocalDecl(b)) => a == b,
             (Exp(a), Exp(b)) => a == b,
             (LocalVar(a), LocalVar(b)) => a == b,
@@ -113,6 +119,10 @@ impl Node {
             (Exp(a), Exp(b)) => Some(a.same_node(b)),
             (Stmt(a), Stmt(b)) => Some(a.same_node(b)),
             (LocalDecl(a), LocalDecl(b)) => Some(a.same_node(b)),
+            (LabelDecl(a), LabelDecl(b)) => Some(a.same_node(b)),
+            (LabelDecl(a), Stmt(b)) | (Stmt(b), LabelDecl(a)) => {
+                Some(matches!(b.kind(), StmtKind::Label(label) if a.same_node(label)))
+            }
             (UnnamedLocalDecl(a), UnnamedLocalDecl(b)) => Some(a.same_node(b)),
             (LocalVar(a), LocalVar(b)) => Some(a.same_node(b)),
             (FieldAccess(a), FieldAccess(b)) => Some(a.same_node(b)),
@@ -221,6 +231,7 @@ pub fn subnodes(node: &Node) -> Result<Vec<Node>, TraversalError> {
             .collect(),
         DomainAxiom(a) => vec![Exp(a.exp().clone())],
         LocalDecl(_) | UnnamedLocalDecl(_) | LocalVar(_) | Type(_) => vec![],
+        LabelDecl(label) => exps(&label.invariants),
         FieldAccess(a) => vec![Exp(a.receiver.clone())],
         PredicateAccess(a) => exps(&a.args),
         PredicateAccessPredicate(a) => {
@@ -282,7 +293,7 @@ pub fn subnodes(node: &Node) -> Result<Vec<Node>, TraversalError> {
                 Stmt(then_branch.clone()),
                 Stmt(else_branch.clone()),
             ],
-            StmtKind::Label { invariants, .. } => exps(invariants),
+            StmtKind::Label(label) => exps(&label.invariants),
             StmtKind::Goto(_) => vec![],
             StmtKind::LocalVarDeclStmt(d) => vec![LocalDecl(d.clone())],
             StmtKind::Quasihavoc { guard, resource: r } => guard
@@ -783,6 +794,18 @@ pub fn replace_expressions(
                 Trigger::new(exps, t.meta.clone())
             })
         }
+        Node::LabelDecl(label) => {
+            let invariants = label
+                .invariants
+                .iter()
+                .map(|e| replace(e, replacements))
+                .collect::<Result<Vec<_>, _>>()?;
+            Node::LabelDecl(if invariants == label.invariants {
+                label.clone()
+            } else {
+                label.copy_with(|data| data.invariants = invariants)
+            })
+        }
         Node::DomainFunc(_) | Node::LocalDecl(_) | Node::UnnamedLocalDecl(_) | Node::Type(_) => {
             root.clone()
         }
@@ -1019,6 +1042,18 @@ pub fn map_expression_roots_with_extensions<
                 Trigger::new(exps, t.meta.clone())
             })
         }
+        Node::LabelDecl(label) => {
+            let invariants = label
+                .invariants
+                .iter()
+                .map(replace)
+                .collect::<Result<Vec<_>, _>>()?;
+            Node::LabelDecl(if invariants == label.invariants {
+                label.clone()
+            } else {
+                label.copy_with(|data| data.invariants = invariants)
+            })
+        }
         Node::DomainFunc(_) | Node::LocalDecl(_) | Node::UnnamedLocalDecl(_) | Node::Type(_) => {
             root.clone()
         }
@@ -1029,6 +1064,27 @@ pub fn map_expression_roots_with_extensions<
 mod reconstruction_tests {
     use super::*;
     use crate::ast::{ast::Metadata, program::Function, r#type::Type};
+    #[test]
+    fn label_statement_and_declaration_are_same_source_node() {
+        use crate::ast::{
+            ast::Metadata,
+            program::{LabelDeclaration, LabelDeclarationData},
+            statement::{Stmt, StmtKind},
+        };
+        let meta = Metadata::default();
+        let label = LabelDeclaration::new(LabelDeclarationData {
+            name: "L".into(),
+            invariants: vec![],
+            meta: meta.clone(),
+        });
+        let statement = Stmt::new(StmtKind::Label(label.clone()), meta);
+        assert_eq!(
+            Node::LabelDecl(label.clone()).same_node(&Node::Stmt(statement.clone())),
+            Some(true)
+        );
+        let second_view = Stmt::new(StmtKind::Label(label), Metadata::default());
+        assert!(statement.same_node(&second_view));
+    }
     #[test]
     fn maps_each_statement_expression_occurrence() {
         use crate::ast::{

@@ -13,7 +13,7 @@
 
 use super::ast::Metadata;
 use super::expression::{Exp, ExpKind, FieldAccess, LocalVar, PredicateAccess};
-use super::program::{Declaration, Field, LocalVarDecl};
+use super::program::{Declaration, Field, LabelDeclaration, LocalVarDecl};
 use std::any::Any;
 use std::fmt::Debug;
 use std::sync::{Arc, OnceLock};
@@ -141,10 +141,7 @@ pub enum StmtKind {
         invariants: Vec<Exp>,
         body: Stmt,
     },
-    Label {
-        name: String,
-        invariants: Vec<Exp>,
-    },
+    Label(LabelDeclaration),
     Goto(String),
     LocalVarDeclStmt(LocalVarDecl),
     Quasihavoc {
@@ -173,6 +170,10 @@ impl PartialEq for Stmt {
 impl Eq for Stmt {}
 impl Stmt {
     pub fn new(kind: StmtKind, meta: Metadata) -> Self {
+        let meta = match &kind {
+            StmtKind::Label(label) => label.meta.clone(),
+            _ => meta,
+        };
         Self(Arc::new(StmtNode { kind, meta }))
     }
     pub fn kind(&self) -> &StmtKind {
@@ -182,7 +183,10 @@ impl Stmt {
         &self.0.meta
     }
     pub fn same_node(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
+        match (self.kind(), other.kind()) {
+            (StmtKind::Label(a), StmtKind::Label(b)) => a.same_node(b),
+            _ => Arc::ptr_eq(&self.0, &other.0),
+        }
     }
     pub fn scoped_declarations(&self) -> Vec<Declaration> {
         match self.kind() {

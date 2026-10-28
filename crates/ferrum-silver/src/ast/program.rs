@@ -785,6 +785,43 @@ impl BuiltinOp {
     }
 }
 impl Method {
+    /// Source deep-collection of labels in the body; handles retain statement identity.
+    pub fn labels(&self) -> Result<Vec<LabelDeclaration>, super::utility::nodes::TraversalError> {
+        use super::utility::nodes::{self, Node};
+        fn collect(node: &Node) -> Result<Vec<LabelDeclaration>, nodes::TraversalError> {
+            let mut children = Vec::new();
+            for child in nodes::subnodes(node)? {
+                children.extend(collect(&child)?);
+            }
+            let mut result = match node {
+                Node::Stmt(stmt) => match stmt.kind() {
+                    super::statement::StmtKind::Label(label) => vec![label.clone()],
+                    _ => vec![],
+                },
+                Node::LabelDecl(label) => vec![label.clone()],
+                _ => vec![],
+            };
+            result.extend(children);
+            Ok(result)
+        }
+        match &self.body {
+            Some(body) => collect(&Node::Stmt(body.clone())),
+            None => Ok(vec![]),
+        }
+    }
+    pub fn scoped_declarations(
+        &self,
+    ) -> Result<Vec<Declaration>, super::utility::nodes::TraversalError> {
+        let mut result: Vec<_> = self
+            .formal_args
+            .iter()
+            .chain(&self.formal_returns)
+            .cloned()
+            .map(Declaration::Local)
+            .collect();
+        result.extend(self.labels()?.into_iter().map(Declaration::Label));
+        Ok(result)
+    }
     /// The source's absent-body helper is `inhale false`, not an empty body.
     pub fn body_or_assume_false(&self) -> Stmt {
         self.body.clone().unwrap_or_else(|| {

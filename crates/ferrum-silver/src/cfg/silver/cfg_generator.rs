@@ -158,8 +158,8 @@ impl Phase1 {
                 }
                 self.statements.push(TmpStmt::Jump(TmpLabel(name.clone())));
             }
-            StmtKind::Label { name, .. } => {
-                self.label(TmpLabel(name.clone()), true);
+            StmtKind::Label(label) => {
+                self.label(TmpLabel(label.name.clone()), true);
                 self.statements.push(TmpStmt::Wrapped(stmt.clone()));
             }
             StmtKind::NewStmt { .. }
@@ -240,7 +240,7 @@ impl<'a> Phase2<'a> {
         if let Some(index) = self.current {
             let statements = std::mem::take(&mut self.buffered);
             let block = match statements.first().map(Stmt::kind) {
-                Some(StmtKind::Label { name, invariants }) if !invariants.is_empty() => {
+                Some(StmtKind::Label(original)) if !original.invariants.is_empty() => {
                     let first = &statements[0];
                     let id = first
                         .metadata()
@@ -253,15 +253,18 @@ impl<'a> Phase2<'a> {
                         ..Metadata::default()
                     };
                     let label = Stmt::new(
-                        StmtKind::Label {
-                            name: name.clone(),
-                            invariants: vec![],
-                        },
+                        StmtKind::Label(crate::ast::program::LabelDeclaration::new(
+                            crate::ast::program::LabelDeclarationData {
+                                name: original.name.clone(),
+                                invariants: vec![],
+                                meta: meta.clone(),
+                            },
+                        )),
                         meta,
                     );
                     let mut stmts = vec![label];
                     stmts.extend(statements.iter().skip(1).cloned());
-                    Block::statement_with_loop_info(stmts, invariants.clone(), id)
+                    Block::statement_with_loop_info(stmts, original.invariants.clone(), id)
                 }
                 _ => Block::statement(statements),
             };

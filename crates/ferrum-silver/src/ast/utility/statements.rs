@@ -359,10 +359,14 @@ pub fn replace_expressions(
             invariants: exps(invariants)?,
             body: replace_expressions(body, replacements)?,
         },
-        StmtKind::Label { name, invariants } => StmtKind::Label {
-            name: name.clone(),
-            invariants: exps(invariants)?,
-        },
+        StmtKind::Label(label) => {
+            let invariants = exps(&label.invariants)?;
+            StmtKind::Label(if invariants == label.invariants {
+                label.clone()
+            } else {
+                label.copy_with(|d| d.invariants = invariants)
+            })
+        }
         StmtKind::Goto(name) => StmtKind::Goto(name.clone()),
         StmtKind::LocalVarDeclStmt(v) => StmtKind::LocalVarDeclStmt(v.clone()),
         StmtKind::Quasihavoc { guard, resource: r } => StmtKind::Quasihavoc {
@@ -569,10 +573,14 @@ pub fn map_expression_roots_with_extensions<E: From<StatementReplacementError>>(
             invariants: exps(invariants)?,
             body: map_expression_roots_with_extensions(body, replace, extension)?,
         },
-        StmtKind::Label { name, invariants } => StmtKind::Label {
-            name: name.clone(),
-            invariants: exps(invariants)?,
-        },
+        StmtKind::Label(label) => {
+            let invariants = exps(&label.invariants)?;
+            StmtKind::Label(if invariants == label.invariants {
+                label.clone()
+            } else {
+                label.copy_with(|d| d.invariants = invariants)
+            })
+        }
         StmtKind::Goto(name) => StmtKind::Goto(name.clone()),
         StmtKind::LocalVarDeclStmt(v) => StmtKind::LocalVarDeclStmt(v.clone()),
         StmtKind::Quasihavoc { guard, resource: r } => StmtKind::Quasihavoc {

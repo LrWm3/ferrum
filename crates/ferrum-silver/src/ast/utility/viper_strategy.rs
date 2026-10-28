@@ -42,6 +42,7 @@ fn metadata(node: &Node) -> Result<&Metadata, MetadataError> {
             }
         },
         Node::LocalDecl(v) => Ok(&v.meta),
+        Node::LabelDecl(v) => Ok(&v.meta),
         Node::UnnamedLocalDecl(v) => Ok(&v.meta),
         Node::LocalVar(v) => Ok(&v.meta),
         Node::FieldAccess(v) => Ok(&v.meta),
@@ -122,7 +123,17 @@ fn with_metadata(node: &Node, meta: Metadata) -> Result<Node, MetadataError> {
             };
             Node::Exp(Exp::with_extra(kind, meta, e.0.extra.clone()))
         }
-        Node::Stmt(s) => Node::Stmt(Stmt::new(s.kind().clone(), meta)),
+        Node::Stmt(s) => {
+            let kind = match s.kind() {
+                crate::ast::statement::StmtKind::Label(v) => {
+                    crate::ast::statement::StmtKind::Label(
+                        v.copy_with(|data| data.meta = meta.clone()),
+                    )
+                }
+                kind => kind.clone(),
+            };
+            Node::Stmt(Stmt::new(kind, meta))
+        }
         _ => {
             return Err(MetadataError::UnsupportedNode(
                 "with metadata for this node family",

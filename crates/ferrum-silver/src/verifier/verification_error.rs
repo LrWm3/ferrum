@@ -727,6 +727,7 @@ pub fn node_position(
             DomainAxiomKind::Named { meta, .. } | DomainAxiomKind::Anonymous { meta, .. } => meta,
         },
         Node::LocalDecl(v) => &v.meta,
+        Node::LabelDecl(v) => &v.meta,
         Node::UnnamedLocalDecl(v) => &v.meta,
         Node::Exp(v) => v.metadata(),
         Node::Stmt(v) => v.metadata(),

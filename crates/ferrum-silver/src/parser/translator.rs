@@ -682,14 +682,17 @@ fn translate_statement_with_fields(
                 PNodeKind::IdnDef(id) => id.name.clone(),
                 _ => return Err(TranslationError::InvalidType),
             };
-            StmtKind::Label {
-                name,
-                invariants: invs
-                    .to_seq()
-                    .into_iter()
-                    .map(|spec| translate_expression_with_fields(&spec.exp, fields))
-                    .collect::<Result<_, _>>()?,
-            }
+            StmtKind::Label(crate::ast::program::LabelDeclaration::new(
+                crate::ast::program::LabelDeclarationData {
+                    name,
+                    invariants: invs
+                        .to_seq()
+                        .into_iter()
+                        .map(|spec| translate_expression_with_fields(&spec.exp, fields))
+                        .collect::<Result<_, _>>()?,
+                    meta: meta.clone(),
+                },
+            ))
         }
         PStatementKind::Goto { target, .. } => {
             let name = match &target.read().expect("poisoned parse node").kind {
