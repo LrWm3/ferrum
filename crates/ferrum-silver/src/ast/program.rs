@@ -555,6 +555,7 @@ pub struct ProgramContents {
 struct ProgramData {
     contents: ProgramContents,
     magic_wand_structures: Mutex<Option<Vec<Exp>>>,
+    ground_type_instances: Mutex<Option<std::collections::HashSet<Type>>>,
 }
 /// An immutable source program. Clones share its identity and lazy cache.
 #[derive(Clone, Debug)]
@@ -592,6 +593,7 @@ impl Program {
         Self(Arc::new(ProgramData {
             contents,
             magic_wand_structures: Mutex::new(None),
+            ground_type_instances: Mutex::new(None),
         }))
     }
     /// Produce a fresh program and cache even if the edited contents compare equal.
@@ -937,6 +939,26 @@ impl Function {
 }
 
 impl Program {
+    /// Source lazy groundTypeInstances uses the default recursion threshold of one.
+    /// Failed analysis is retried on the next access, as for a throwing lazy val.
+    pub fn ground_type_instances(
+        &self,
+    ) -> Result<
+        std::collections::HashSet<Type>,
+        super::utility::domain_instances::DomainInstanceError,
+    > {
+        let mut cache = self
+            .0
+            .ground_type_instances
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(value) = cache.as_ref() {
+            return Ok(value.clone());
+        }
+        let value = super::utility::domain_instances::find_necessary_type_instances(self, 1)?;
+        *cache = Some(value.clone());
+        Ok(value)
+    }
     /// Source deepCollect is evaluated bottom-up but returned parent-before-child;
     /// distinct retains the first structurally equal canonical wand.
     pub fn magic_wand_structures(

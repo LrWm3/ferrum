@@ -226,6 +226,7 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     function_fresh_variables: Vec<Term>,
     function_units: Vec<ferrum_silver::ast::program::Function>,
     failed_functions: std::collections::HashSet<String>,
+    quantified_counter: u64,
     _state_types: PhantomData<(PD, FD)>,
 }
 impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
@@ -244,6 +245,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             function_fresh_variables: Vec::new(),
             function_units: Vec::new(),
             failed_functions: Default::default(),
+            quantified_counter: 0,
             _state_types: PhantomData,
         }
     }
@@ -2847,6 +2849,8 @@ where
         let id = match chunk {
             Chunk::Basic(c) => c.resource_id(),
             Chunk::MagicWand(c) => c.resource_id(),
+            Chunk::QuantifiedField(c) if c.singleton_rcvr_ref().is_some() => c.resource_id(),
+            Chunk::QuantifiedPredicate(c) if c.singleton_args_ref().is_some() => c.resource_id(),
             _ => return Err(NativeError::Unsupported("quantified resource properties")),
         };
         let factory = self.factory.clone();
@@ -2903,7 +2907,22 @@ where
                     .map_err(|e| NativeError::Chunk(format!("{e:?}")))
                 }
                 crate::state::chunks::Chunk::MagicWand(_) => Ok(None),
-                _ => Err(NativeError::Unsupported("quantified merge candidate")),
+                _ => {
+                    let factory = self.factory.clone();
+                    let result =
+                        if self.options.exhale_mode_qp == crate::config::ExhaleMode::MoreComplete {
+                            crate::rules::quantified_chunk_support::find_quantified_chunk_complete(
+                                &factory, self, chunks, incoming,
+                            )
+                        } else {
+                            crate::rules::quantified_chunk_support::find_quantified_chunk_greedy(
+                                &factory, self, chunks, incoming,
+                            )
+                        };
+                    result.map_err(|e| {
+                        NativeError::Chunk(format!("quantified merge candidate: {e:?}"))
+                    })
+                }
             }
         }
     }
@@ -2915,7 +2934,11 @@ where
         second: &Chunk,
         qvars: &[Term],
     ) -> Result<Option<(FunctionRecorder<FD>, Chunk, Vec<Term>)>, Self::Error> {
-        Err(NativeError::Unsupported("merge_quantified_chunks"))
+        let factory = self.factory.clone();
+        crate::rules::state_consolidator::merge_quantified_pair(
+            &factory, self, state, recorder, first, second, qvars,
+        )
+        .map_err(|e| NativeError::Chunk(format!("quantified chunk merge: {e:?}")))
     }
     fn fresh_merged_snapshot(
         &mut self,
@@ -3342,9 +3365,38 @@ where
             ChunkExecutionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ChunkExecutionError<Self::Error>> {
-        Err(ChunkExecutionError::Context(NativeError::Unsupported(
-            "produce_quantified_single",
-        )))
+        use crate::rules::quantified_chunk_support::SnapshotResource;
+        let source_resource = match resource {
+            ResourceKey::Field(field) => SnapshotResource::Field(field.clone()),
+            ResourceKey::Predicate(predicate) => SnapshotResource::Predicate(predicate.clone()),
+            ResourceKey::Wand(wand) => SnapshotResource::Wand(wand.ghost_free_wand.clone()),
+        };
+        let formals = state
+            .formal_arg_vars(&source_resource, &self.base.symbol_converter, &self.factory)
+            .map_err(|e| ChunkExecutionError::Context(NativeError::Diagnostic(format!("{e:?}"))))?;
+        let factory = self.factory.clone();
+        let next = crate::rules::quantified_chunk_support::produce_single_quantified_location(
+            &factory,
+            self,
+            state,
+            resource,
+            source_resource,
+            formals,
+            None,
+            args.to_vec(),
+            debug_args.map(|items| items.to_vec()),
+            snapshot,
+            permission,
+            debug_permission,
+            merge_and_trigger,
+            false,
+        )
+        .map_err(|e| {
+            ChunkExecutionError::Context(NativeError::Chunk(format!(
+                "quantified production: {e:?}"
+            )))
+        })?;
+        continuation(self, next)
     }
     fn consume_quantified_single(
         &mut self,
@@ -5204,21 +5256,37 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         if !program.extensions.is_empty() {
             return Err(NativeError::Unsupported("program extension analysis"));
         }
-        native_domain_preamble(program, &self.base.symbol_converter, &self.factory)
+        let general = use_general_preamble(program, &self.base.symbol_converter, &self.factory)
             .map_err(NativeError::Preamble)?;
-        let (has_sequence, has_set, has_map, has_multiset) =
-            collection_program(program).map_err(NativeError::Preamble)?;
-        if (has_sequence || has_set || has_map || has_multiset) && !program.domains.is_empty() {
+        let (has_sequence, has_set, has_map, has_multiset) = if general {
+            (false, false, false, false)
+        } else {
+            collection_program(program).map_err(NativeError::Preamble)?
+        };
+        if !general
+            && (has_sequence || has_set || has_map || has_multiset)
+            && !program.domains.is_empty()
+        {
             return Err(NativeError::Unsupported(
                 "collections combined with user domains",
             ));
         }
-        if has_sequence || has_set || has_map || has_multiset {
+        if !general && (has_sequence || has_set || has_map || has_multiset) {
             crate::verifier::native_preamble::analyze_collections(
                 program,
                 &self.base.symbol_converter,
                 &self.factory,
                 self.factory.options().use_old_axiomatization,
+            )
+            .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        }
+        if general {
+            crate::verifier::native_preamble::analyze_general(
+                program,
+                &self.base.symbol_converter,
+                &self.factory,
+                self.factory.options().use_old_axiomatization,
+                1,
             )
             .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
         }
@@ -5290,47 +5358,75 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         &mut self,
         program: &ferrum_silver::ast::program::Program,
     ) -> Result<NativeAnalysis, Self::Error> {
-        let (has_sequence, has_set, has_map, has_multiset) =
-            collection_program(program).map_err(NativeError::Preamble)?;
-        let collections = if has_sequence || has_set || has_map || has_multiset {
-            Some(
-                crate::verifier::native_preamble::analyze_collections(
-                    program,
-                    &self.base.symbol_converter,
-                    &self.factory,
-                    self.factory.options().use_old_axiomatization,
-                )
-                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?,
+        let general = use_general_preamble(program, &self.base.symbol_converter, &self.factory)
+            .map_err(NativeError::Preamble)?;
+        let mut contributed_sorts = Vec::new();
+        if general {
+            let preamble = crate::verifier::native_preamble::analyze_general(
+                program,
+                &self.base.symbol_converter,
+                &self.factory,
+                self.factory.options().use_old_axiomatization,
+                1,
             )
-        } else {
-            None
-        };
-        let domain_preamble =
-            native_domain_preamble(program, &self.base.symbol_converter, &self.factory)
-                .map_err(NativeError::Preamble)?;
-        domain_preamble
-            .declare_sorts(&self.factory, &mut self.base.decider.prover)
             .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        if let Some(preamble) = &collections {
             preamble
                 .declare_sorts(&self.factory, &mut self.base.decider.prover)
                 .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        }
-        domain_preamble
-            .declare_symbols(&self.factory, &mut self.base.decider.prover)
-            .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        if let Some(preamble) = &collections {
             preamble
                 .declare_symbols(&self.factory, &mut self.base.decider.prover)
                 .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        }
-        domain_preamble
-            .emit_axioms(&self.factory, &mut self.base.decider.prover)
-            .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        if let Some(preamble) = &collections {
             preamble
-                .emit_axioms(&mut self.base.decider.prover)
+                .emit_axioms(&self.factory, &mut self.base.decider.prover)
                 .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+            contributed_sorts.extend(preamble.sorts().cloned());
+        } else {
+            let (has_sequence, has_set, has_map, has_multiset) =
+                collection_program(program).map_err(NativeError::Preamble)?;
+            let collections = if has_sequence || has_set || has_map || has_multiset {
+                Some(
+                    crate::verifier::native_preamble::analyze_collections(
+                        program,
+                        &self.base.symbol_converter,
+                        &self.factory,
+                        self.factory.options().use_old_axiomatization,
+                    )
+                    .map_err(|e| NativeError::Preamble(format!("{e:?}")))?,
+                )
+            } else {
+                None
+            };
+            let domain_preamble =
+                native_domain_preamble(program, &self.base.symbol_converter, &self.factory)
+                    .map_err(NativeError::Preamble)?;
+            domain_preamble
+                .declare_sorts(&self.factory, &mut self.base.decider.prover)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+            if let Some(preamble) = &collections {
+                preamble
+                    .declare_sorts(&self.factory, &mut self.base.decider.prover)
+                    .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+            }
+            domain_preamble
+                .declare_symbols(&self.factory, &mut self.base.decider.prover)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+            if let Some(preamble) = &collections {
+                preamble
+                    .declare_symbols(&self.factory, &mut self.base.decider.prover)
+                    .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+            }
+            domain_preamble
+                .emit_axioms(&self.factory, &mut self.base.decider.prover)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+            if let Some(preamble) = &collections {
+                preamble
+                    .emit_axioms(&mut self.base.decider.prover)
+                    .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+            }
+            contributed_sorts.extend(domain_preamble.sorts().cloned());
+            if let Some(preamble) = &collections {
+                contributed_sorts.extend(preamble.sorts().cloned());
+            }
         }
         let predicates = crate::supporters::predicate_verification_unit::analyze_predicates(
             program,
@@ -5342,10 +5438,7 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         use crate::interfaces::{decider::prover::TextEmitter, preamble::PreambleReader};
         let reader = crate::decider::smt_lib2_preamble_reader::SmtLib2PreambleReader::default();
         let mut wrapper_sorts = vec![Sort::Int, Sort::Bool, Sort::Ref, Sort::Perm];
-        wrapper_sorts.extend(domain_preamble.sorts().cloned());
-        if let Some(preamble) = &collections {
-            wrapper_sorts.extend(preamble.sorts().cloned());
-        }
+        wrapper_sorts.extend(contributed_sorts);
         for sort in wrapper_sorts {
             for (from, to) in [(sort.clone(), Sort::Snap), (Sort::Snap, sort.clone())] {
                 let decl = self.factory.sort_wrapper_decl(from, to);
@@ -5408,6 +5501,7 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         self.function_units = functions.units();
         self.function_fresh_variables.clear();
         self.failed_functions.clear();
+        self.quantified_counter = 0;
         Ok(NativeAnalysis {
             functions: std::cell::RefCell::new(functions),
             function_handles,
@@ -6612,6 +6706,87 @@ fn native_domain_preamble(
     .map_err(|e| format!("{e:?}"))
 }
 
+/// Admit source ground closure for uninterpreted domains and collection instances.
+fn use_general_preamble(
+    program: &ferrum_silver::ast::program::Program,
+    converter: &crate::state::symbol_converter::DefaultSymbolConverter,
+    factory: &TermFactory,
+) -> Result<bool, String> {
+    use ferrum_silver::ast::{
+        expression::ExpKind,
+        r#type::Type,
+        utility::nodes::{Node, subnodes},
+    };
+    let collection = collection_program(program);
+    let legacy = native_domain_preamble(program, converter, factory);
+    if let Ok((seq, set, map, multiset)) = collection
+        && legacy.is_ok()
+        && (!(seq || set || map || multiset) || program.domains.is_empty())
+    {
+        return Ok(false);
+    }
+    if program.domains.is_empty() {
+        return Err("general domain preamble requires a user domain".into());
+    }
+    fn inspect(
+        node: &Node,
+        program: &ferrum_silver::ast::program::Program,
+        name: &str,
+        dependencies: &mut Vec<String>,
+    ) -> Result<(), String> {
+        if matches!(node, Node::Type(Type::Backend(_) | Type::Extension(_))) {
+            return Err("backend or extension types in the general domain preamble".into());
+        }
+        if let Node::Type(Type::Domain(domain)) = node {
+            if domain.domain_name != name {
+                dependencies.push(domain.domain_name.clone());
+            }
+        }
+        if let Node::Exp(exp) = node {
+            match exp.kind() {
+                ExpKind::FuncApp(..) | ExpKind::BackendFuncApp(..) => {
+                    return Err("heap or backend function in general domain axioms".into());
+                }
+                ExpKind::DomainFuncApp(function, ..) => {
+                    let target = program
+                        .find_domain_function_optionally(function)
+                        .ok_or_else(|| format!("unknown domain function {function}"))?;
+                    if target.domain_name != name {
+                        dependencies.push(target.domain_name.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+        for child in subnodes(node).map_err(|e| format!("{e:?}"))? {
+            inspect(&child, program, name, dependencies)?;
+        }
+        Ok(())
+    }
+    let mut dependencies = std::collections::HashMap::<String, Vec<String>>::new();
+    for domain in &program.domains {
+        if domain.functions.iter().any(|f| f.interpretation.is_some()) {
+            return Err(
+                "interpreted domain functions are unsupported in the general preamble".into(),
+            );
+        }
+        let mut targets = Vec::new();
+        inspect(
+            &Node::Member(ferrum_silver::ast::program::Member::Domain(domain.clone())),
+            program,
+            &domain.name,
+            &mut targets,
+        )?;
+        dependencies.insert(domain.name.clone(), targets);
+    }
+    for target in dependencies.values().flatten() {
+        if !dependencies.contains_key(target) {
+            return Err(format!("unknown domain dependency {target}"));
+        }
+    }
+    Ok(true)
+}
+
 impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
 where
     S::Error: std::fmt::Debug,
@@ -7553,5 +7728,336 @@ where
     }
     fn respect_function_pre_permissions(&self) -> bool {
         self.options.respect_function_pre_permission_amounts
+    }
+}
+
+impl<S: Prover, PD, FD> crate::rules::quantified_chunk_support::QuantifiedChunkSolver
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn check_quantified_alias(
+        &mut self,
+        assertion: &Term,
+        timeout_ms: i32,
+    ) -> Result<bool, Self::Error> {
+        self.base
+            .decider
+            .check(assertion, Some(timeout_ms))
+            .map_err(NativeError::Decider)
+    }
+    fn quantified_check_timeout(&self) -> i32 {
+        self.base.decider.check_timeout.unwrap_or(0)
+    }
+}
+impl<S: Prover, PD, FD> crate::rules::quantified_chunk_support::CompleteQuantifiedChunkSolver
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn assume_quantified_alias(&mut self, assertion: &Term) -> Result<(), Self::Error> {
+        self.assume_term(assertion)
+    }
+}
+
+impl<S: Prover, PD, FD: Clone> crate::rules::quantified_chunk_support::SnapshotCombinationFreshener
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn fresh_combined_snapshot_map(
+        &mut self,
+        sort: &Sort,
+        additional_variables: &[Term],
+    ) -> Result<(Term, ApplicationTarget), Self::Error> {
+        crate::rules::state_consolidator::ConsolidationServices::fresh_merged_snapshot(
+            self,
+            sort,
+            additional_variables,
+        )
+    }
+}
+
+impl<S: Prover, PD, FD>
+    crate::rules::quantified_chunk_support::SnapshotMapFreshener<PD, FD, JoinMode>
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn fresh_snapshot_map(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        resource: &ResourceKey,
+        additional_arguments: &[Term],
+    ) -> Result<Term, Self::Error> {
+        let sort = match resource {
+            ResourceKey::Field(field) => Sort::FieldValueFunction {
+                codomain: Box::new(
+                    self.base
+                        .symbol_converter
+                        .to_sort(&field.typ)
+                        .map_err(NativeError::Sort)?,
+                ),
+                field_name: field.name.clone(),
+            },
+            ResourceKey::Predicate(predicate) => Sort::PredicateSnapFunction {
+                codomain: Box::new(
+                    state
+                        .predicate_snap_map
+                        .get(&predicate.name)
+                        .cloned()
+                        .ok_or(NativeError::Unsupported("predicate snapshot sort"))?,
+                ),
+                predicate_name: predicate.name.clone(),
+            },
+            ResourceKey::Wand(wand) => Sort::PredicateSnapFunction {
+                codomain: Box::new(Sort::MagicWandSnapFunction),
+                predicate_name: wand.to_string(),
+            },
+        };
+        let sorts = additional_arguments
+            .iter()
+            .map(|term| term.sort().clone())
+            .collect::<Vec<_>>();
+        let (target, _) = self
+            .base
+            .decider
+            .fresh(&self.factory, "sm", &sorts, &sort)
+            .map_err(NativeError::Decider)?;
+        match target {
+            ApplicationTarget::Function(fun) => {
+                Ok(self.factory.app(fun, additional_arguments.to_vec()))
+            }
+            ApplicationTarget::Variable(var) if additional_arguments.is_empty() => Ok(var),
+            _ => Err(NativeError::Unsupported("snapshot map target")),
+        }
+    }
+}
+
+impl<S: Prover, PD, FD>
+    crate::rules::quantified_chunk_support::SnapshotSummaryFreshener<PD, FD, JoinMode>
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn fresh_summary_binder(&mut self) -> Result<Term, Self::Error> {
+        self.base
+            .decider
+            .fresh_variable(&self.factory, "s", &Sort::Snap, false, None)
+            .map_err(NativeError::Decider)
+    }
+    fn next_snapshot_summary_id(&mut self) -> u64 {
+        let id = self.quantified_counter;
+        self.quantified_counter = self.quantified_counter.wrapping_add(1);
+        id
+    }
+}
+impl<S: Prover, PD, FD> crate::rules::quantified_chunk_support::PermissionMapFreshener
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn fresh_permission_map(&mut self, resource: &ResourceKey) -> Result<Term, Self::Error> {
+        let sort = match resource {
+            ResourceKey::Field(_) => Sort::FieldPermFunction,
+            ResourceKey::Predicate(_) | ResourceKey::Wand(_) => Sort::PredicatePermFunction,
+        };
+        let (target, _) = self
+            .base
+            .decider
+            .fresh(&self.factory, "pm", &[], &sort)
+            .map_err(NativeError::Decider)?;
+        match target {
+            ApplicationTarget::Function(fun) => Ok(self.factory.app(fun, vec![])),
+            ApplicationTarget::Variable(var) => Ok(var),
+        }
+    }
+    fn next_summary_id(&mut self) -> u64 {
+        let id = self.quantified_counter;
+        self.quantified_counter = self.quantified_counter.wrapping_add(1);
+        id
+    }
+}
+impl<S: Prover, PD, FD> crate::rules::quantified_chunk_support::SummaryEmission
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn assume_summary_definitions(
+        &mut self,
+        definitions: &[Term],
+        _: bool,
+        _: bool,
+    ) -> Result<(), Self::Error> {
+        for definition in definitions {
+            self.assume_term(definition)?;
+        }
+        Ok(())
+    }
+}
+
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::state_consolidator::QuantifiedMergeServices<PD, FD, JoinMode>
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn complete_quantified_exhale(&self) -> bool {
+        self.options.exhale_mode_qp == crate::config::ExhaleMode::MoreComplete
+    }
+    fn replace_quantified_debug(
+        &mut self,
+        _: &Exp,
+        _: &[ferrum_silver::ast::program::LocalVarDecl],
+        _: &[ferrum_silver::ast::program::LocalVarDecl],
+    ) -> Result<Exp, NativeError<S::Error>> {
+        Err(NativeError::Unsupported("quantified chunk merge debugging"))
+    }
+    fn summarise_quantified_pair(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        first: &Chunk,
+        second: &Chunk,
+    ) -> Result<
+        (
+            crate::rules::quantified_chunk_support::SnapshotMapDefinition,
+            Vec<Term>,
+        ),
+        NativeError<S::Error>,
+    > {
+        use crate::rules::quantified_chunk_support::{SnapshotMapDefinition, SnapshotResource};
+        let resource = match first {
+            Chunk::QuantifiedField(field) => SnapshotResource::Field(Arc::new(
+                state
+                    .program
+                    .find_field_optionally(&field.id_ref().0)
+                    .ok_or(NativeError::Unsupported("quantified field resource"))?
+                    .clone(),
+            )),
+            Chunk::QuantifiedPredicate(predicate) => SnapshotResource::Predicate(Arc::new(
+                state
+                    .program
+                    .find_predicate_optionally(&predicate.id_ref().0)
+                    .ok_or(NativeError::Unsupported("quantified predicate resource"))?
+                    .clone(),
+            )),
+            Chunk::QuantifiedMagicWand(wand) => {
+                let structures = state
+                    .program
+                    .magic_wand_structures()
+                    .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+                let index = usize::try_from(wand.id_ref().structure_index)
+                    .map_err(|_| NativeError::Unsupported("wand structure index"))?;
+                SnapshotResource::Wand(
+                    structures
+                        .get(index)
+                        .cloned()
+                        .ok_or(NativeError::Unsupported("wand structure index"))?,
+                )
+            }
+            _ => return Err(NativeError::Unsupported("quantified merge resource")),
+        };
+        let key = match &resource {
+            SnapshotResource::Field(field) => ResourceKey::Field(field.clone()),
+            SnapshotResource::Predicate(predicate) => ResourceKey::Predicate(predicate.clone()),
+            SnapshotResource::Wand(wand) => ResourceKey::Wand(
+                crate::state::chunks::MagicWandIdentifier::new(wand.clone(), &state.program)
+                    .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?,
+            ),
+        };
+        let variables = state
+            .formal_arg_vars(&resource, &self.base.symbol_converter, &self.factory)
+            .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+        let trigger = state
+            .is_used_as_trigger(&resource)
+            .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+        let factory = self.factory.clone();
+        let (snapshot_map, value_definitions, domain_definitions) =
+            crate::rules::quantified_chunk_support::summarise_snapshot_map(
+                &factory,
+                self,
+                state,
+                &key,
+                &variables,
+                &[first.clone(), second.clone()],
+                None,
+                trigger,
+                false,
+            )
+            .map_err(|e| NativeError::Chunk(format!("quantified snapshot summary: {e:?}")))?;
+        let equations = value_definitions.clone();
+        Ok((
+            SnapshotMapDefinition {
+                resource,
+                snapshot_map,
+                value_definitions,
+                domain_definitions,
+            },
+            equations,
+        ))
+    }
+}
+
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::quantified_chunk_support::SingleLocationProduction<PD, FD, JoinMode>
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn assume_singleton_value(&mut self, definition: &Term) -> Result<(), Self::Error> {
+        self.base
+            .decider
+            .assume([(definition.clone(), None)], false, true)
+            .map_err(NativeError::Decider)
+    }
+    fn next_quantified_tag(&mut self) -> i32 {
+        let id = self.quantified_counter as i32;
+        self.quantified_counter = self.quantified_counter.wrapping_add(1);
+        id
+    }
+    fn merge_quantified_chunk(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        chunk: &Chunk,
+    ) -> Result<(FunctionRecorder<FD>, ListBackedHeap), Self::Error> {
+        let factory = self.factory.clone();
+        let choice = self.consolidation_choice(state)?;
+        crate::rules::state_consolidator::merge_heaps(
+            &factory,
+            self,
+            state,
+            state.function_recorder.clone(),
+            &state.h,
+            &ListBackedHeap::from_chunks([chunk.clone()]),
+            choice,
+        )
+        .map_err(|e| NativeError::Chunk(format!("quantified heap merge: {e:?}")))
+    }
+    fn assume_quantified_chunk_properties(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        heap: &ListBackedHeap,
+        chunk: &Chunk,
+    ) -> Result<(), Self::Error> {
+        crate::rules::chunk_supporter::ChunkSolver::assume_properties(self, state, heap, chunk)
+    }
+    fn trigger_single_location(
+        &mut self,
+        _: &State<PD, FD, JoinMode>,
+        _: &ListBackedHeap,
+        _: &ResourceKey,
+        _: &[Term],
+        _: &[Term],
+    ) -> Result<crate::state::snapshot_map_cache::SnapshotMapCache, Self::Error> {
+        Err(NativeError::Unsupported(
+            "quantified singleton resource trigger",
+        ))
+    }
+    fn is_resource_trigger(&self, state: &State<PD, FD, JoinMode>, resource: &ResourceKey) -> bool {
+        state.heap_dependent_triggers.contains(resource)
     }
 }

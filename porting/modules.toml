@@ -67,7 +67,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/DomainInstances.scala"
 destination = "crates/ferrum-silver/src/ast/utility/domain_instances.rs"
 status = "skeleton"
-remaining = ["Ground-type discovery and depth/closure operations exist; instance closure, SCC coordinates and full substitution remain."]
+remaining = ["Source thresholded ground-instance closure, axiom unification, typed substitution/member filtering and lazy program cache feed mixed user-domain/collection preambles, including ADTs and recursive type dependencies. Interpreted/backend/extension types and heap-function domain axioms remain incomplete; broader compatibility review continues."]
 
 [[modules]]
 repository = "silver"
@@ -2568,7 +2568,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Native execution connects source function contract/body phases, post/definition axioms, application preconditions and heap snapshots. Recursive surrounding-unfolding predicate triggers, forall-precondition trigger removal, quantified resources, wands, full joins, parallelism and advanced reporting remain incomplete."]
+remaining = ["Native methods, predicates, functions and generic/recursive user domains with mixed collections reach source rules and solver contributors. Quantified resource matching/snapshot foundations exist but general quantified execution remains gated. Recursive function predicate triggers, wands, complete exhale, full joins, parallelism and advanced reporting need completion."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"
@@ -2578,4 +2578,4 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_preamble.rs"
 status = "skeleton"
-remaining = ["Source collection contributors emit ordered sorts, symbols and axioms including primitive-leaf nested instances and multisets. General domain-instance closure, domain/collection combinations and custom axiom files remain incomplete."]
+remaining = ["Source thresholded ground-instance closure, axiom unification, typed substitution/member filtering and lazy program cache feed mixed user-domain/collection preambles, including ADTs and recursive type dependencies. Interpreted/backend/extension types and heap-function domain axioms remain incomplete; broader compatibility review continues."]

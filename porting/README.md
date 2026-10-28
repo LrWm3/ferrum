@@ -11,12 +11,13 @@ source-shaped Silicon rules to the native Z3 stdio transport. End-to-end smoke
 checks cover valid and invalid ordinary methods, contracts, branches, allocation,
 field permissions and method calls. Unsupported features return execution errors.
 The default runtime currently uses one worker. Loops, fold/unfold, scoped
-unfolding, heap-independent quantifiers, selected generic domain axioms and
-nested Seq/Set/Multiset/Map instances with primitive leaves now reach Z3.
+unfolding, heap-independent quantifiers, generic domain axioms and nested
+Seq/Set/Multiset/Map instances now reach Z3. The source thresholded type closure
+connects recursive domain dependencies and ADTs inside collections.
 Impure branch joins preserve conditional ownership and consumed snapshots in
 focused positive and negative checks. Pure and heap-dependent functions now run
 the source contract/body phases and use recorded snapshots for their axioms.
-Recursive calls under predicate unfoldings, general domain instances, quantified
+Recursive calls under predicate unfoldings, interpreted domain types, quantified
 resources, wands, complete exhale and advanced
 reporting remain incomplete. No comparative speed improvement has been established.
 

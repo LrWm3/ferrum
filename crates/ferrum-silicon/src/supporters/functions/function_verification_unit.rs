@@ -33,9 +33,10 @@
 //! Reconcile phase/cache reset, failure cleanup and prover option lifetime with verifier and
 //! function data.
 //!
-//! Status: partial; source function analysis, ordering, declaration and axiom replay,
-//! reset and both verification-phase control flows implemented. Concrete solver, evaluator,
-//! producer/consumer and scope services remain pending.
+//! Status: partial; source function analysis, ordering, declaration, axiom replay, reset and
+//! both verification phases are implemented. The native context connects solver, evaluator,
+//! producer, consumer and scopes; recursive predicate triggers and quantified precondition
+//! trigger rewriting still report unsupported errors.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this

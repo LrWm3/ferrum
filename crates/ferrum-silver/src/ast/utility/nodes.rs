@@ -1068,7 +1068,7 @@ pub fn map_node_tree(
     node: &Node,
     rule: &dyn Fn(&Node) -> Result<Node, crate::verifier::verification_result::DiagnosticError>,
 ) -> Result<Node, crate::verifier::verification_result::DiagnosticError> {
-    map_node_tree_impl(node, rule, true, false, false)
+    map_node_tree_impl(node, rule, true, false, false, false)
 }
 
 /// Visit source checkTransitively product fields, which exclude maps.
@@ -1076,7 +1076,7 @@ pub fn visit_check_products(
     node: &Node,
     rule: &dyn Fn(&Node) -> Result<Node, crate::verifier::verification_result::DiagnosticError>,
 ) -> Result<Node, crate::verifier::verification_result::DiagnosticError> {
-    map_node_tree_impl(node, rule, false, false, false)
+    map_node_tree_impl(node, rule, false, false, false, false)
 }
 /// Bottom-up typed product rewriting. Forced mode also traverses the extra return
 /// types of function applications, as needed by ADT type encoding. It rebuilds
@@ -1087,7 +1087,91 @@ pub fn map_node_tree_bottom_up(
     rule: &dyn Fn(&Node) -> Result<Node, crate::verifier::verification_result::DiagnosticError>,
     force_copy: bool,
 ) -> Result<Node, crate::verifier::verification_result::DiagnosticError> {
-    map_node_tree_impl(node, rule, true, true, force_copy)
+    map_node_tree_impl(node, rule, true, true, force_copy, false)
+}
+/// Reconstruct a node while substituting type variables in type values, preserving
+/// declaration and substitution-map keys. Extra application return types are rebuilt.
+pub fn substitute_node_types(
+    node: &Node,
+    substitution: &crate::ast::r#type::TypeSubstitution,
+) -> Result<Node, crate::verifier::verification_result::DiagnosticError> {
+    map_node_tree_impl(
+        node,
+        &|node| match node {
+            Node::Type(crate::ast::r#type::Type::Var(v)) => {
+                Ok(Node::Type(substitution.get(v).cloned().unwrap_or_else(
+                    || crate::ast::r#type::Type::Var(v.clone()),
+                )))
+            }
+            _ => Ok(node.clone()),
+        },
+        true,
+        true,
+        true,
+        true,
+    )
+}
+/// DomainInstances.substitute additionally reconstructs domain applications from
+/// their resolved declaration and resets error transformations on applications and
+/// local-variable occurrences, as the source constructors do.
+pub fn substitute_domain_node_types(
+    node: &Node,
+    substitution: &crate::ast::r#type::TypeSubstitution,
+    program: &crate::ast::program::Program,
+) -> Result<Node, crate::verifier::verification_result::DiagnosticError> {
+    use crate::ast::{
+        ast::Metadata,
+        expression::{Exp, ExpExtra, ExpKind, LocalVar},
+        r#type::Type,
+    };
+    use crate::verifier::verification_result::DiagnosticError;
+    map_node_tree_impl(
+        node,
+        &|node| match node {
+            Node::Type(Type::Var(v)) => Ok(Node::Type(
+                substitution
+                    .get(v)
+                    .cloned()
+                    .unwrap_or_else(|| Type::Var(v.clone())),
+            )),
+            Node::LocalVar(v) => Ok(Node::LocalVar(LocalVar::new(
+                v.name.clone(),
+                v.typ.clone(),
+                Metadata {
+                    position: v.meta.position.clone(),
+                    info: v.meta.info.clone(),
+                    error_trafo: Default::default(),
+                },
+            ))),
+            Node::Exp(e) => {
+                if let ExpKind::DomainFuncApp(name, args, map) = e.kind() {
+                    let func = program
+                        .find_domain_function_optionally(name)
+                        .ok_or(DiagnosticError::InvalidNode("domain function declaration"))?;
+                    Ok(Node::Exp(Exp::with_extra(
+                        ExpKind::DomainFuncApp(name.clone(), args.clone(), map.clone()),
+                        Metadata {
+                            position: e.metadata().position.clone(),
+                            info: e.metadata().info.clone(),
+                            error_trafo: Default::default(),
+                        },
+                        ExpExtra {
+                            typ: Some(func.typ.substitute(map)),
+                            domain_name: Some(func.domain_name.clone()),
+                            interpretation: None,
+                        },
+                    )))
+                } else {
+                    Ok(node.clone())
+                }
+            }
+            _ => Ok(node.clone()),
+        },
+        true,
+        true,
+        true,
+        true,
+    )
 }
 fn map_node_tree_impl(
     node: &Node,
@@ -1095,6 +1179,7 @@ fn map_node_tree_impl(
     visit_maps: bool,
     bottom_up: bool,
     force_copy: bool,
+    preserve_type_keys: bool,
 ) -> Result<Node, crate::verifier::verification_result::DiagnosticError> {
     use crate::ast::{
         expression::{Exp, ExpKind, FieldAccess, PredicateAccess, Trigger},
@@ -1108,6 +1193,7 @@ fn map_node_tree_impl(
         visit_maps: bool,
         bottom_up: bool,
         force_copy: bool,
+        preserve_type_keys: bool,
     }
     impl Walker<'_> {
         fn typ(
@@ -1288,10 +1374,15 @@ fn map_node_tree_impl(
                     }
                     let mut mappings = std::collections::HashMap::new();
                     for (var, value) in &domain.partial_type_vars {
-                        let Type::Var(var) = self.typ(&Type::Var(var.clone()))? else {
-                            return Err(DiagnosticError::InvalidNode(
-                                "domain type variable replacement",
-                            ));
+                        let var = if self.preserve_type_keys {
+                            var.clone()
+                        } else {
+                            let Type::Var(var) = self.typ(&Type::Var(var.clone()))? else {
+                                return Err(DiagnosticError::InvalidNode(
+                                    "domain type variable replacement",
+                                ));
+                            };
+                            var
                         };
                         mappings.insert(var, self.typ(value)?);
                     }
@@ -1481,7 +1572,14 @@ fn map_node_tree_impl(
                     let mut substitutions2 = std::collections::HashMap::new();
                     if self.visit_maps {
                         for (k, v) in substitutions {
-                            substitutions2.insert(self.type_var(k)?, self.typ(v)?);
+                            substitutions2.insert(
+                                if self.preserve_type_keys {
+                                    k.clone()
+                                } else {
+                                    self.type_var(k)?
+                                },
+                                self.typ(v)?,
+                            );
                         }
                     } else {
                         substitutions2 = substitutions.clone();
@@ -1949,6 +2047,7 @@ fn map_node_tree_impl(
         visit_maps,
         bottom_up,
         force_copy,
+        preserve_type_keys,
     }
     .pass(node)
 }
