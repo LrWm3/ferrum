@@ -600,3 +600,10 @@ selection, closing after reserve-heap restoration and before the continuation.
 Nested statement scope IDs remain distinct. These optional hooks preserve the
 disabled path and leave public reporting profiles gated pending the remaining
 branch, retry, consolidation and lifecycle integration.
+
+CFG edge execution now owns destination, incoming-edge kind, join context and
+path identity. Ordered edge folds and post-join continuation context are owned
+as well; target lookup, conditional flag restoration, lazy path IDs and source
+combine/error order remain unchanged. The outer continuation is still borrowed,
+so these frames continue to execute synchronously while loop and rule frames
+are converted.

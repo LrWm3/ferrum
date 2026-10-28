@@ -1027,6 +1027,103 @@ where
         .map_err(ExecutionError::Context)?;
     Ok(result)
 }
+/// Owned continuation after a joined pair of CFG edges.
+#[derive(Clone)]
+struct CfgPostJoinFrame {
+    cfg: Arc<ferrum_silver::cfg::silver::silver_cfg::SilverCfg>,
+    join: SilverBlock,
+    outer_join: Option<SilverBlock>,
+    path_id: i32,
+}
+
+fn execute_cfg_post_join<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    frame: &CfgPostJoinFrame,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    if frame
+        .outer_join
+        .as_ref()
+        .is_some_and(|outer| outer == &frame.join)
+    {
+        return continuation(context, state);
+    }
+    let incoming = frame
+        .cfg
+        .graph()
+        .in_edges(&frame.join)
+        .first()
+        .map(|edge| edge.kind())
+        .ok_or(ExecutionError::InvalidCfgEdgePair)?;
+    execute_block(
+        context,
+        state,
+        &frame.join,
+        incoming,
+        frame.outer_join.as_ref(),
+        frame.path_id,
+        continuation,
+    )
+}
+
+/// Owned ordered edges and enclosing join for the sequential edge fold.
+struct CfgEdgeSequenceFrame {
+    edges: Arc<[SilverEdge]>,
+    join_point: Option<SilverBlock>,
+    path_id: i32,
+}
+
+fn execute_cfg_edge_sequence<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    frame: &CfgEdgeSequenceFrame,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    context
+        .begin_edges(frame.edges.len())
+        .map_err(ExecutionError::Context)?;
+    let mut result = VerificationResult::success();
+    for (index, edge) in frame.edges.iter().enumerate() {
+        if index != 0 {
+            context.next_edge(index).map_err(ExecutionError::Context)?;
+        }
+        let branch_path_id = if index == 0 {
+            frame.path_id
+        } else {
+            next_path_id()
+        };
+        context
+            .mark_edge_reachable()
+            .map_err(ExecutionError::Context)?;
+        if result.continue_verification() {
+            let next = follow_edge(
+                context,
+                state.clone(),
+                edge,
+                frame.join_point.as_ref(),
+                branch_path_id,
+                continuation,
+            )?;
+            result = result.combine(|| next, false);
+        }
+    }
+    context.end_edges().map_err(ExecutionError::Context)?;
+    Ok(result)
+}
+
 fn follow_edges<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
@@ -1077,6 +1174,12 @@ where
                 let new_join = new_join.clone();
                 let join_for_yes = new_join.clone();
                 let join_for_no = new_join.clone();
+                let post_join = CfgPostJoinFrame {
+                    cfg,
+                    join: new_join,
+                    outer_join: join_point.cloned(),
+                    path_id,
+                };
                 return context.evaluate_edge(
                     state,
                     first,
@@ -1098,24 +1201,7 @@ where
                                 path_id: None,
                             },
                             &mut |context, state| {
-                                if join_point.is_some_and(|outer| outer == &new_join) {
-                                    return continuation(context, state);
-                                }
-                                let incoming = cfg
-                                    .graph()
-                                    .in_edges(&new_join)
-                                    .first()
-                                    .map(|edge| edge.kind())
-                                    .ok_or(ExecutionError::InvalidCfgEdgePair)?;
-                                execute_block(
-                                    context,
-                                    state,
-                                    &new_join,
-                                    incoming,
-                                    join_point,
-                                    path_id,
-                                    continuation,
-                                )
+                                execute_cfg_post_join(context, state, &post_join, continuation)
                             },
                         )
                     },
@@ -1173,32 +1259,12 @@ where
             );
         }
     }
-    context
-        .begin_edges(edges.len())
-        .map_err(ExecutionError::Context)?;
-    let mut result = VerificationResult::success();
-    for (index, edge) in edges.iter().enumerate() {
-        if index != 0 {
-            context.next_edge(index).map_err(ExecutionError::Context)?;
-        }
-        let branch_path_id = if index == 0 { path_id } else { next_path_id() };
-        context
-            .mark_edge_reachable()
-            .map_err(ExecutionError::Context)?;
-        if result.continue_verification() {
-            let next = follow_edge(
-                context,
-                state.clone(),
-                edge,
-                join_point,
-                branch_path_id,
-                continuation,
-            )?;
-            result = result.combine(|| next, false);
-        }
-    }
-    context.end_edges().map_err(ExecutionError::Context)?;
-    Ok(result)
+    let frame = CfgEdgeSequenceFrame {
+        edges: Arc::from(edges),
+        join_point: join_point.cloned(),
+        path_id,
+    };
+    execute_cfg_edge_sequence(context, state, &frame, continuation)
 }
 pub(crate) fn execute_cfg_join_branch<C, P, D, J: Clone, V>(
     context: &mut C,
@@ -1218,6 +1284,38 @@ where
         &branch.edge,
         Some(&branch.join),
         branch.path_id.unwrap_or_else(next_path_id),
+        continuation,
+    )
+}
+
+/// Owned destination and enclosing join for an edge continuation.
+#[derive(Clone)]
+struct CfgEdgeTargetFrame {
+    target: SilverBlock,
+    incoming: ferrum_silver::cfg::edge::Kind,
+    join_point: Option<SilverBlock>,
+    path_id: i32,
+}
+
+fn execute_cfg_edge_target<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    frame: &CfgEdgeTargetFrame,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    execute_block(
+        context,
+        state,
+        &frame.target,
+        frame.incoming,
+        frame.join_point.as_ref(),
+        frame.path_id,
         continuation,
     )
 }
@@ -1251,21 +1349,16 @@ where
     if join_point.is_some_and(|point| point == edge.target()) {
         return continuation(context, state);
     }
+    let frame = CfgEdgeTargetFrame {
+        target: edge.target().clone(),
+        incoming: edge.kind(),
+        join_point: join_point.cloned(),
+        path_id,
+    };
     match edge {
-        Edge::Unconditional { target, kind, .. } => execute_block(
-            context,
-            state,
-            target,
-            *kind,
-            join_point,
-            path_id,
-            continuation,
-        ),
+        Edge::Unconditional { .. } => execute_cfg_edge_target(context, state, &frame, continuation),
         Edge::Conditional {
-            condition,
-            target,
-            kind,
-            source,
+            condition, source, ..
         } => context.evaluate_edge(
             state,
             condition,
@@ -1284,15 +1377,7 @@ where
                     rewritten.as_ref(),
                     &mut |context, mut state| {
                         state.parallelize_branches = parallel;
-                        execute_block(
-                            context,
-                            state,
-                            target,
-                            *kind,
-                            join_point,
-                            path_id,
-                            continuation,
-                        )
+                        execute_cfg_edge_target(context, state, &frame, continuation)
                     },
                     &mut |_, _| Ok(VerificationResult::success()),
                 )
