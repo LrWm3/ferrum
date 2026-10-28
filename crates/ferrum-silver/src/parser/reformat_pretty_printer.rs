@@ -1,8 +1,8 @@
 //! Parse-tree reformatting and trivia preservation.
 //! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/parser/ReformatPrettyPrinter.scala
 //! Status: partial; trivia scanning, whitespace merging, grouping, nesting and
-//! typed parser adapter and standard parse-product dispatch are implemented. Plugin extensions,
-//! internal function-type formatting and broader source compatibility remain incomplete.
+//! typed parser adapter and standard parse-product dispatch are implemented. Some plugin
+//! extensions and broader source compatibility remain incomplete.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -499,6 +499,44 @@ mod tests {
         );
     }
     #[test]
+    fn reformats_internal_function_types_with_source_implied_delimiters() {
+        use super::super::parse_ast::{PTypeHandle, PTypeKind};
+        use super::super::parse_ast_keyword::{PKw, PReserved};
+        let pos = (Position::NoPosition, Position::NoPosition);
+        let primitive = |kw| {
+            PTypeHandle::new(
+                PTypeKind::Primitive {
+                    name: PReserved::implied(kw),
+                },
+                pos.clone(),
+            )
+        };
+        let int = primitive(PKw::Int);
+        let bool_type = primitive(PKw::Bool);
+        let function = PTypeHandle::new(
+            PTypeKind::Function {
+                arg_types: vec![int.clone(), bool_type.clone()],
+                result_type: int,
+            },
+            pos.clone(),
+        );
+        assert_eq!(
+            show_node(function.node(), &LeafReformatAdapter).unwrap(),
+            "(Int, Bool, ): Int"
+        );
+        let function = PTypeHandle::new(
+            PTypeKind::Function {
+                arg_types: vec![],
+                result_type: bool_type,
+            },
+            pos,
+        );
+        assert_eq!(
+            show_node(function.node(), &LeafReformatAdapter).unwrap(),
+            "(): Bool"
+        );
+    }
+    #[test]
     fn unknown_extension_stays_explicitly_unsupported() {
         #[derive(Debug)]
         struct Unknown;
@@ -725,6 +763,10 @@ impl ReformatAdapter for LeafReformatAdapter {
             Children(Vec<PNodeHandle>, bool),
             Product(bool),
             Expression(Option<String>, bool),
+            FunctionType(
+                Vec<super::parse_ast::PTypeHandle>,
+                super::parse_ast::PTypeHandle,
+            ),
             Specs(Vec<PNodeHandle>),
             Trigger(Vec<PNodeHandle>),
             DomainInterpretations(Vec<PNodeHandle>),
@@ -777,7 +819,10 @@ impl ReformatAdapter for LeafReformatAdapter {
                 PNodeKind::Type(super::parse_ast::PTypeKind::BoolPredicate) => {
                     Work::Leaf("<predicate>".into(), guard.pos.clone())
                 }
-                PNodeKind::Type(super::parse_ast::PTypeKind::Function { .. }) => Work::Unsupported,
+                PNodeKind::Type(super::parse_ast::PTypeKind::Function {
+                    arg_types,
+                    result_type,
+                }) => Work::FunctionType(arg_types.clone(), result_type.clone()),
                 PNodeKind::Expression(expression) => match &expression.kind {
                     super::parse_ast::PExpressionKind::Extension(extension)
                         if extension.reformat_as_product() =>
@@ -936,6 +981,18 @@ impl ReformatAdapter for LeafReformatAdapter {
                     out.extend(self.reformat(brackets.right.node(), context)?);
                 }
                 Ok(out)
+            }
+            Work::FunctionType(arguments, result) => {
+                use super::parse_ast_keyword::{
+                    PDelimited, PGraphElement, PGrouped, PReserved, PSym,
+                };
+                let list = PDelimited::implied(arguments, PReserved::implied(PSym::Comma));
+                let group = PGrouped::implied(PSym::LParen, list, PSym::RParen);
+                let colon = PReserved::implied(PSym::Colon);
+                let mut nodes = group.graph_nodes();
+                nodes.extend(colon.graph_nodes());
+                nodes.extend(result.graph_nodes());
+                reformat_subnodes(&nodes, false, context, self).map_err(leaf_error)
             }
             Work::Specs(children) => {
                 let Some(delimited) = children.first() else {

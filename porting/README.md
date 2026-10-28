@@ -348,7 +348,7 @@ The parse reformatter now handles ordinary members, statements, types, expressio
 specifications, triggers and comments, plus opted-in refute, smoke, ARP, predicate
 instance, SIF, termination and TryBlock products. Twenty-two bounded formatting
 comparisons match the pinned JVM (18 ordinary cases and four plugin groups).
-Unknown extensions and internal function-type formatting remain incomplete. Source quirks are retained: SIF low/lowEvent/rel parse products
+Unknown extension formatting remains incomplete. Source quirks are retained: SIF low/lowEvent/rel parse products
 lose their keyword/punctuation in the source formatter and can produce malformed
 text; this change does not silently repair that source behavior.
 
@@ -409,3 +409,7 @@ warn before falling back to defaults on read/JSON/product errors. Files use UTF-
 and native error details. The pinned source's close behavior is retained: it
 closes existing member logs without permanently closing the root. Timed-state
 composition and verifier event producers remain separate integration work.
+
+Internal parse function types now use the source implied delimiters in the
+reformatter, including its trailing comma for nonempty arguments. The two focused
+empty/nonempty cases match the pinned JVM; this adds no parsed-language syntax.
