@@ -1696,7 +1696,7 @@ fn set_verification_scope(
         });
     }
 }
-fn report_member_results(
+pub(crate) fn report_member_results(
     reporter: &dyn ferrum_silver::reporter::reporter::Reporter,
     member: Option<std::sync::Arc<ferrum_silver::ast::program::Member>>,
     elapsed: std::time::Duration,
@@ -2231,12 +2231,14 @@ fn finish_worker_warning_delivery<T, E: std::fmt::Debug>(
             primary: Box::new(delivery),
             warnings,
         }),
-        (Err(primary), Err(delivery)) => Err(NativeError::BranchWarnings {
-            primary: Box::new(NativeError::Cleanup(format!(
-                "worker failed: {primary:?}; warning delivery failed: {delivery:?}"
-            ))),
-            warnings,
-        }),
+        (Err(primary), Err(delivery)) => {
+            let mut warnings = warnings;
+            warnings.push(format!("warning delivery failed: {delivery:?}"));
+            Err(NativeError::BranchWarnings {
+                primary: Box::new(primary),
+                warnings,
+            })
+        }
     }
 }
 
@@ -2271,39 +2273,43 @@ where
     let warnings = std::mem::take(&mut context.warnings);
     let delivery = if warnings.is_empty() {
         Ok(())
-    } else if let Some(sink) = &task.warning_sink {
-        sink.lock()
-            .expect("poisoned native warning sink")
-            .extend(warnings.iter().cloned());
-        Ok(())
-    } else if let Some(reporter) = &task.reporter {
-        use ferrum_silver::{
-            ast::position::Position,
-            reporter::message::Message,
-            verifier::verification_result::{FrontendError, FrontendErrorKind},
-        };
-        reporter
-            .report(Message::WarningsDuringVerification {
-                warnings: warnings
-                    .iter()
-                    .cloned()
-                    .map(|warning| {
-                        FrontendError::new(
-                            FrontendErrorKind::VerifierWarning(warning),
-                            Position::NoPosition,
-                        )
-                    })
-                    .collect(),
-            })
-            .map_err(|error| {
-                super::native_context::NativeError::Diagnostic(format!(
-                    "worker warning reporter: {error:?}"
-                ))
-            })
     } else {
-        Err(super::native_context::NativeError::Unsupported(
-            "worker warnings require reporter or warning sink",
-        ))
+        if let Some(sink) = &task.warning_sink {
+            sink.lock()
+                .expect("poisoned native warning sink")
+                .extend(warnings.iter().cloned());
+        }
+        if let Some(reporter) = &task.reporter {
+            use ferrum_silver::{
+                ast::position::Position,
+                reporter::message::Message,
+                verifier::verification_result::{FrontendError, FrontendErrorKind},
+            };
+            reporter
+                .report(Message::WarningsDuringVerification {
+                    warnings: warnings
+                        .iter()
+                        .cloned()
+                        .map(|warning| {
+                            FrontendError::new(
+                                FrontendErrorKind::VerifierWarning(warning),
+                                Position::NoPosition,
+                            )
+                        })
+                        .collect(),
+                })
+                .map_err(|error| {
+                    super::native_context::NativeError::Diagnostic(format!(
+                        "worker warning reporter: {error:?}"
+                    ))
+                })
+        } else if task.warning_sink.is_some() {
+            Ok(())
+        } else {
+            Err(super::native_context::NativeError::Unsupported(
+                "worker warnings require reporter or warning sink",
+            ))
+        }
     };
     let results = finish_worker_warning_delivery(outcome, warnings, delivery)?;
     let member = match task.target {
@@ -2448,9 +2454,14 @@ where
         let member = std::sync::Arc::new(ferrum_silver::ast::program::Member::Function(
             function.clone(),
         ));
+        let warning_start = context.warnings.len();
         let start = std::time::Instant::now();
-        let function_results = context
-            .verify_function_unscoped(&program, &analysis, &function)
+        let outcome = context.verify_function_unscoped(&program, &analysis, &function);
+        let delivery = super::native_context::report_single_warnings(
+            reporter.as_deref(),
+            &context.warnings[warning_start..],
+        );
+        let function_results = super::native_context::combine_single_delivery(outcome, delivery)
             .map_err(NativeParallelError::Main)?;
         if let Some(reporter) = &reporter {
             report_member_results(
@@ -2471,9 +2482,14 @@ where
         let member = std::sync::Arc::new(ferrum_silver::ast::program::Member::Predicate(
             predicate.clone(),
         ));
+        let warning_start = context.warnings.len();
         let start = std::time::Instant::now();
-        let predicate_results = context
-            .verify_predicate_unscoped(&program, &analysis, &predicate)
+        let outcome = context.verify_predicate_unscoped(&program, &analysis, &predicate);
+        let delivery = super::native_context::report_single_warnings(
+            reporter.as_deref(),
+            &context.warnings[warning_start..],
+        );
+        let predicate_results = super::native_context::combine_single_delivery(outcome, delivery)
             .map_err(NativeParallelError::Main)?;
         if let Some(reporter) = &reporter {
             report_member_results(
@@ -2552,9 +2568,11 @@ where
             .report(ferrum_silver::reporter::message::Message::VerificationTermination)
             .map_err(NativeParallelError::Reporter)?;
     }
-    context
-        .report_termination_and_optional_trace()
-        .map_err(NativeParallelError::Main)?;
+    // Parallel delivery above owns the termination event; suppress the single-owner hook.
+    context.set_preprocessing_reporter(None);
+    let termination = context.report_termination_and_optional_trace();
+    context.set_preprocessing_reporter(reporter.clone());
+    termination.map_err(NativeParallelError::Main)?;
     context
         .run_optional_debugger(&results)
         .map_err(NativeParallelError::Main)?;
@@ -3082,11 +3100,9 @@ mod thread_pool_tests {
         let delivery = Err(NativeError::Diagnostic("reporter failed".into()));
         match finish_worker_warning_delivery(outcome, vec!["unsent warning".into()], delivery) {
             Err(NativeError::BranchWarnings { primary, warnings }) => {
-                assert_eq!(warnings, ["unsent warning"]);
-                let NativeError::Cleanup(message) = *primary else {
-                    panic!("lost errors")
-                };
-                assert!(message.contains("Cancelled") && message.contains("reporter failed"));
+                assert_eq!(warnings[0], "unsent warning");
+                assert!(warnings[1].contains("reporter failed"));
+                assert!(matches!(*primary, NativeError::Cancelled));
             }
             _ => panic!("lost worker failure or warning"),
         }

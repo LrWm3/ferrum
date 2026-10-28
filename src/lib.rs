@@ -275,6 +275,7 @@ where
         program: &Program,
         cfgs: &[SilverCfg],
         file: Option<&str>,
+        reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
     ) -> Result<Vec<SiliconResult<VerificationError>>, FerrumError> {
         let context = self
             .context
@@ -285,7 +286,7 @@ where
             program,
             cfgs,
             file,
-            None,
+            reporter,
             Some(self.warning_sink.clone()),
         )
         .map_err(execution);
@@ -359,14 +360,21 @@ impl OwnedContext {
         program: &Program,
         cfgs: &[SilverCfg],
         file: Option<&str>,
+        reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
     ) -> Result<Vec<SiliconResult<VerificationError>>, FerrumError> {
         match self {
-            Self::Stdio(context) => context.verify_program(program, cfgs).map_err(execution),
-            Self::ParallelStdio(context) => context.verify_program(program, cfgs, file),
+            Self::Stdio(context) => {
+                context.set_preprocessing_reporter(reporter);
+                context.verify_program(program, cfgs).map_err(execution)
+            }
+            Self::ParallelStdio(context) => context.verify_program(program, cfgs, file, reporter),
             #[cfg(feature = "native-z3")]
-            Self::Api(context) => context.verify_program(program, cfgs).map_err(execution),
+            Self::Api(context) => {
+                context.set_preprocessing_reporter(reporter);
+                context.verify_program(program, cfgs).map_err(execution)
+            }
             #[cfg(feature = "native-z3")]
-            Self::ParallelApi(context) => context.verify_program(program, cfgs, file),
+            Self::ParallelApi(context) => context.verify_program(program, cfgs, file, reporter),
         }
     }
     fn stop(&mut self) -> Result<(), FerrumError> {
@@ -653,6 +661,7 @@ struct NativeBackend {
     recorded_source: Option<String>,
     cancellation: Option<CancellationController>,
     warnings: Arc<Mutex<Vec<String>>>,
+    reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
 }
 impl NativeBackend {
     fn new(config: Config) -> Self {
@@ -662,6 +671,7 @@ impl NativeBackend {
             recorded_source: None,
             cancellation: None,
             warnings: Arc::new(Mutex::new(Vec::new())),
+            reporter: None,
         }
     }
 }
@@ -810,7 +820,7 @@ impl SiliconBackend for NativeBackend {
                 let context = self.context.as_mut().ok_or_else(|| {
                     FerrumError::Execution("Native solver has not been started".into())
                 })?;
-                let results = context.verify_program(program, cfgs, file);
+                let results = context.verify_program(program, cfgs, file, self.reporter.clone());
                 self.warnings
                     .lock()
                     .expect("poisoned warning buffer")
@@ -957,9 +967,11 @@ impl Session {
     fn new_with_warning_sink(
         config: Config,
         warnings: SharedWarnings,
+        reporter: Arc<dyn silver::reporter::reporter::Reporter>,
     ) -> Result<Self, FerrumError> {
         let mut backend = NativeBackend::new(config);
         backend.warnings = warnings;
+        backend.reporter = Some(reporter);
         let mut silicon = Silicon::new(backend);
         silicon.configure(&[]).map_err(execution)?;
         if let Err(error) = silicon.start() {
@@ -1124,8 +1136,12 @@ impl NativeFrontendApi {
                 reporter.as_ref(),
                 move |_, _| {
                     let shared = native_config.frontend.clone();
-                    let session = Session::new_with_warning_sink(native_config, factory_warnings)
-                        .map_err(|error| error.to_string())?;
+                    let session = Session::new_with_warning_sink(
+                        native_config,
+                        factory_warnings,
+                        factory_reporter.clone(),
+                    )
+                    .map_err(|error| error.to_string())?;
                     let verifier = SessionVerifier {
                         session: Some(session),
                         reporter: factory_reporter,

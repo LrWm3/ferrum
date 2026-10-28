@@ -499,3 +499,14 @@ other eligible branch families are incomplete, and logger migration is not wired
 Expression joins remain synchronous as required by the source. Standalone CFGs
 with no current member skip the source's failing member dereference when reporting
 a fatal branch; this remains an explicit compatibility difference.
+
+Injected native sessions now forward their reporter through single-owner and
+parallel verification. Trigger choices precede function/predicate/method results,
+member warnings precede their corresponding results, and completed runs emit one
+termination event. Reporter failures propagate; warning sinks retain warnings,
+including when reporting fails, and simultaneous execution/reporting failures
+retain the original typed error inside the combined error. Method initialization
+failures still deliver warnings already collected. Real-Z3 checks cover success,
+failed proofs, reuse and reporter failures with one/two workers. Native buffered
+warnings currently lack source category/position provenance and are emitted as
+generic verification warnings; plugin-aware reporter rebinding remains open.

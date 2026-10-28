@@ -9633,7 +9633,27 @@ where
         program: &ferrum_silver::ast::program::Program,
         analysis: &NativeAnalysis,
     ) -> Result<Vec<Self::Result>, Self::Error> {
-        let results = self.verify_function_unscoped(program, analysis, &unit)?;
+        let warning_start = self.warnings.len();
+        let started = std::time::Instant::now();
+        let outcome = self.verify_function_unscoped(program, analysis, &unit);
+        let delivery = report_single_warnings(
+            self.preprocessing_reporter.as_deref(),
+            &self.warnings[warning_start..],
+        );
+        let results = combine_single_delivery(outcome, delivery)?;
+        if let Some(reporter) = &self.preprocessing_reporter {
+            super::verification_pool_manager::report_member_results(
+                reporter.as_ref(),
+                Some(Arc::new(ferrum_silver::ast::program::Member::Function(
+                    unit.clone(),
+                ))),
+                started.elapsed(),
+                &results,
+            )
+            .map_err(|error| {
+                NativeError::Diagnostic(format!("function result reporter: {error:?}"))
+            })?;
+        }
         set_member_scope(
             &results,
             ferrum_silver::ast::program::Member::Function(unit),
@@ -9646,7 +9666,27 @@ where
         program: &ferrum_silver::ast::program::Program,
         analysis: &NativeAnalysis,
     ) -> Result<Vec<Self::Result>, Self::Error> {
-        let results = self.verify_predicate_unscoped(program, analysis, &unit)?;
+        let warning_start = self.warnings.len();
+        let started = std::time::Instant::now();
+        let outcome = self.verify_predicate_unscoped(program, analysis, &unit);
+        let delivery = report_single_warnings(
+            self.preprocessing_reporter.as_deref(),
+            &self.warnings[warning_start..],
+        );
+        let results = combine_single_delivery(outcome, delivery)?;
+        if let Some(reporter) = &self.preprocessing_reporter {
+            super::verification_pool_manager::report_member_results(
+                reporter.as_ref(),
+                Some(Arc::new(ferrum_silver::ast::program::Member::Predicate(
+                    unit.clone(),
+                ))),
+                started.elapsed(),
+                &results,
+            )
+            .map_err(|error| {
+                NativeError::Diagnostic(format!("predicate result reporter: {error:?}"))
+            })?;
+        }
         set_member_scope(
             &results,
             ferrum_silver::ast::program::Member::Predicate(unit),
@@ -9691,13 +9731,36 @@ where
         analysis: &NativeAnalysis,
     ) -> Result<Self::Task, Self::Error> {
         self.checkpoint()?;
-        let state = self.initial_state(
-            program,
-            analysis,
-            ferrum_silver::ast::program::Member::Method(method.clone()),
-        )?;
-        let results = crate::supporters::method_supporter::verify_method(self, state, method)
-            .map_err(|e| NativeError::Execution(format!("{e:?}")))?;
+        let warning_start = self.warnings.len();
+        let mut started = None;
+        let outcome = (|| {
+            let state = self.initial_state(
+                program,
+                analysis,
+                ferrum_silver::ast::program::Member::Method(method.clone()),
+            )?;
+            started = Some(std::time::Instant::now());
+            crate::supporters::method_supporter::verify_method(self, state, method)
+                .map_err(|e| NativeError::Execution(format!("{e:?}")))
+        })();
+        let delivery = report_single_warnings(
+            self.preprocessing_reporter.as_deref(),
+            &self.warnings[warning_start..],
+        );
+        let results = combine_single_delivery(outcome, delivery)?;
+        if let Some(reporter) = &self.preprocessing_reporter {
+            super::verification_pool_manager::report_member_results(
+                reporter.as_ref(),
+                Some(Arc::new(ferrum_silver::ast::program::Member::Method(
+                    method.clone(),
+                ))),
+                started.expect("method verification started").elapsed(),
+                &flatten_results(results.clone()),
+            )
+            .map_err(|error| {
+                NativeError::Diagnostic(format!("method result reporter: {error:?}"))
+            })?;
+        }
         set_member_scope(
             &results,
             ferrum_silver::ast::program::Member::Method(method.clone()),
@@ -9711,14 +9774,39 @@ where
         analysis: &NativeAnalysis,
     ) -> Result<Self::Task, Self::Error> {
         self.checkpoint()?;
+        let warning_start = self.warnings.len();
         let state = self.initial_cfg_state(program, analysis);
-        crate::supporters::cfg_supporter::verify_cfg(self, state, Arc::new(cfg.clone()))
-            .map_err(|e| NativeError::Execution(format!("CFG verification: {e:?}")))
+        let started = std::time::Instant::now();
+        let outcome =
+            crate::supporters::cfg_supporter::verify_cfg(self, state, Arc::new(cfg.clone()))
+                .map_err(|e| NativeError::Execution(format!("CFG verification: {e:?}")));
+        let delivery = report_single_warnings(
+            self.preprocessing_reporter.as_deref(),
+            &self.warnings[warning_start..],
+        );
+        let results = combine_single_delivery(outcome, delivery)?;
+        if let Some(reporter) = &self.preprocessing_reporter {
+            super::verification_pool_manager::report_member_results(
+                reporter.as_ref(),
+                None,
+                started.elapsed(),
+                &flatten_results(results.clone()),
+            )
+            .map_err(|error| NativeError::Diagnostic(format!("CFG result reporter: {error:?}")))?;
+        }
+        Ok(results)
     }
     fn await_task(&mut self, task: Self::Task) -> Result<Vec<Self::Result>, Self::Error> {
         Ok(flatten_results(task))
     }
     fn report_termination_and_optional_trace(&mut self) -> Result<(), Self::Error> {
+        if let Some(reporter) = &self.preprocessing_reporter {
+            reporter
+                .report(ferrum_silver::reporter::message::Message::VerificationTermination)
+                .map_err(|error| {
+                    NativeError::Diagnostic(format!("termination reporter: {error:?}"))
+                })?;
+        }
         Ok(())
     }
     fn run_optional_debugger(&mut self, _: &[Self::Result]) -> Result<(), Self::Error> {
@@ -9738,6 +9826,63 @@ fn set_member_scope(
                 }
             });
         }
+    }
+}
+pub(super) fn report_single_warnings<E>(
+    reporter: Option<&dyn ferrum_silver::reporter::reporter::Reporter>,
+    warnings: &[String],
+) -> Result<(), NativeError<E>> {
+    use ferrum_silver::{
+        ast::position::Position,
+        reporter::message::Message,
+        verifier::verification_result::{FrontendError, FrontendErrorKind},
+    };
+    if let Some(reporter) = reporter.filter(|_| !warnings.is_empty()) {
+        reporter
+            .report(Message::WarningsDuringVerification {
+                warnings: warnings
+                    .iter()
+                    .cloned()
+                    .map(|warning| {
+                        FrontendError::new(
+                            FrontendErrorKind::VerifierWarning(warning),
+                            Position::NoPosition,
+                        )
+                    })
+                    .collect(),
+            })
+            .map_err(|error| NativeError::Diagnostic(format!("warning reporter: {error:?}")))?;
+    }
+    Ok(())
+}
+pub(super) fn combine_single_delivery<T, E: std::fmt::Debug>(
+    outcome: Result<T, NativeError<E>>,
+    delivery: Result<(), NativeError<E>>,
+) -> Result<T, NativeError<E>> {
+    match (outcome, delivery) {
+        (result, Ok(())) => result,
+        (Ok(_), Err(error)) => Err(error),
+        (Err(primary), Err(error)) => Err(NativeError::BranchWarnings {
+            primary: Box::new(primary),
+            warnings: vec![format!("warning delivery failed: {error:?}")],
+        }),
+    }
+}
+#[cfg(test)]
+#[test]
+fn reporting_failure_preserves_primary_native_error() {
+    let outcome: Result<(), NativeError<()>> = Err(NativeError::Cancelled);
+    let delivery = Err(NativeError::Diagnostic("reporter failed".into()));
+    match combine_single_delivery(outcome, delivery) {
+        Err(NativeError::BranchWarnings { primary, warnings }) => {
+            assert!(matches!(*primary, NativeError::Cancelled));
+            assert!(
+                warnings
+                    .iter()
+                    .any(|message| message.contains("reporter failed"))
+            );
+        }
+        other => panic!("lost primary or reporter error: {other:?}"),
     }
 }
 fn flatten_results(

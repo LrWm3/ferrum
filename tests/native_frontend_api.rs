@@ -91,3 +91,139 @@ fn failed_initialization_retains_warnings_and_reaps_solver() {
         std::fs::remove_dir_all(dir).unwrap();
     }).unwrap().join().unwrap();
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3 or FERRUM_TEST_PROVER=Z3-API"]
+fn injected_reporter_gets_ordered_events_and_failures_propagate() {
+    use ferrum::silver::reporter::{
+        message::Message,
+        reporter::{PollingReporter, ReportError, Reporter},
+    };
+    struct FailOn {
+        trigger: bool,
+    }
+    impl Reporter for FailOn {
+        fn name(&self) -> &str {
+            "fail-on-event"
+        }
+        fn report(&self, message: Message) -> Result<(), ReportError> {
+            if (self.trigger && matches!(message, Message::QuantifierChosenTriggers { .. }))
+                || (!self.trigger && matches!(message, Message::EntitySuccess { .. }))
+            {
+                Err(ReportError::Unsupported("injected reporter failure"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+    struct FailTermination;
+    impl Reporter for FailTermination {
+        fn name(&self) -> &str {
+            "fail-termination"
+        }
+        fn report(&self, message: Message) -> Result<(), ReportError> {
+            if matches!(message, Message::VerificationTermination) {
+                Err(ReportError::Unsupported("termination"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+    std::thread::Builder::new().stack_size(VERIFICATION_STACK_SIZE).spawn(|| {
+        let source = "function f(x:Int):Int { x } predicate P(r:Ref) { true } method m() { assert forall y:Int :: {f(y)} f(y) == y; }";
+        let program = parsed_program(source);
+        for workers in [1, 2] {
+            let prover = std::env::var("FERRUM_TEST_PROVER").unwrap_or_else(|_| "Z3".into());
+            let mut args = vec!["--prover".into(), prover.clone(), "--disableDefaultPlugins".into(), "--numberOfParallelVerifiers".into(), workers.to_string()];
+            if prover == "Z3" { args.extend(["--z3Exe".into(), std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3")]); }
+            let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+            let mut api = NativeFrontendApi::new(&args, reporter.clone(), false).unwrap();
+            assert!(matches!(api.verify(&program).unwrap(), VerificationResult::Success));
+            let mut events = Vec::new();
+            while reporter.has_new_message() { events.push(reporter.get_new_message().unwrap()); }
+            let trigger = events.iter().position(|m| matches!(m, Message::QuantifierChosenTriggers { .. })).expect("trigger event");
+            let entities: Vec<_> = events.iter().enumerate().filter_map(|(i,m)| matches!(m, Message::EntitySuccess { .. }).then_some(i)).collect();
+            let terminations: Vec<_> = events.iter().enumerate().filter_map(|(i,m)| matches!(m, Message::VerificationTermination).then_some(i)).collect();
+            assert_eq!(entities.len(), 3, "events: {events:?}");
+            let names = entities.iter().map(|index| match &events[*index] { Message::EntitySuccess { concerning, .. } => concerning.name(), _ => unreachable!() }).collect::<Vec<_>>();
+            assert_eq!(names, vec!["f", "P", "m"]);
+            assert_eq!(terminations.len(), 1, "events: {events:?}");
+            assert!(trigger < entities[0] && entities[2] < terminations[0], "events: {events:?}");
+            assert!(matches!(api.verify(&parsed_program("method bad() { assert false; }")).unwrap(), VerificationResult::Failure(_)));
+            let mut failed_events = Vec::new();
+            while reporter.has_new_message() { failed_events.push(reporter.get_new_message().unwrap()); }
+            assert!(matches!(failed_events.first(), Some(Message::EntityFailure { concerning, .. }) if concerning.name() == "bad"));
+            assert!(matches!(failed_events.last(), Some(Message::VerificationTermination)));
+            api.stop().unwrap();
+            for trigger in [true, false] {
+                let mut api = NativeFrontendApi::new(&args, Arc::new(FailOn { trigger }), false).unwrap();
+                assert!(api.verify(&program).is_err());
+                api.stop().unwrap();
+            }
+            let mut api = NativeFrontendApi::new(&args, Arc::new(FailTermination), false).unwrap();
+            assert!(api.verify(&program).is_err());
+            api.stop().unwrap();
+        }
+    }).unwrap().join().unwrap();
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3 or FERRUM_TEST_PROVER=Z3-API"]
+fn reporter_warning_failure_retains_warning_sink() {
+    use ferrum::silver::reporter::{
+        message::Message,
+        reporter::{PollingReporter, ReportError, Reporter},
+    };
+    use std::sync::Mutex;
+    struct FailWarning;
+    impl Reporter for FailWarning {
+        fn name(&self) -> &str {
+            "fail-warning"
+        }
+        fn report(&self, message: Message) -> Result<(), ReportError> {
+            if matches!(message, Message::WarningsDuringVerification { .. }) {
+                Err(ReportError::Unsupported("warning delivery"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+    std::thread::Builder::new()
+        .stack_size(VERIFICATION_STACK_SIZE)
+        .spawn(|| {
+            for workers in [1, 2] {
+                let prover = std::env::var("FERRUM_TEST_PROVER").unwrap_or_else(|_| "Z3".into());
+                let mut args = vec!["--prover".into(), prover.clone(), "--disableDefaultPlugins".into(), "--numberOfParallelVerifiers".into(), workers.to_string()];
+                if prover == "Z3" { args.extend(["--z3Exe".into(), std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3")]); }
+                for source in ["@proverConfigArgs(\"bad\") method m() { assert true; }", "@proverConfigArgs(\"bad\") function f(): Int { 1 }"] {
+                let program = parsed_program(source);
+                let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+                let mut success_api = NativeFrontendApi::new(&args, reporter.clone(), false).unwrap();
+                assert!(matches!(success_api.verify(&program).unwrap(), VerificationResult::Success));
+                assert!(matches!(reporter.get_new_message().unwrap(), Message::WarningsDuringVerification { warnings } if !warnings.is_empty()));
+                assert!(matches!(reporter.get_new_message().unwrap(), Message::EntitySuccess { .. }));
+                assert!(matches!(reporter.get_new_message().unwrap(), Message::VerificationTermination));
+                success_api.stop().unwrap();
+                let sink = Arc::new(Mutex::new(Vec::new()));
+                let mut api = NativeFrontendApi::new_with_warning_sink(
+                    &args,
+                    Arc::new(FailWarning),
+                    false,
+                    sink.clone(),
+                )
+                .unwrap();
+                assert!(api.verify(&program).is_err());
+                assert!(
+                    sink.lock()
+                        .unwrap()
+                        .iter()
+                        .any(|w| w.contains("Invalid proverConfigArgs"))
+                );
+                api.stop().unwrap();
+                }
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
