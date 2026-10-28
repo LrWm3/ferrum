@@ -40,6 +40,13 @@ use ferrum_silver::ast::program::{LocalVarDecl, Method, Program};
 use ferrum_silver::cfg::silver::silver_cfg::SilverCfg;
 use std::sync::Arc;
 
+/// Owned continuation at the end of a method CFG. It carries the source
+/// method so postcondition checking can resume on the current verifier.
+#[derive(Clone)]
+pub struct MethodCfgContinuation {
+    method: Method,
+}
+
 pub trait MethodVerificationServices<P, D, J, V>: Sized {
     type Error;
     fn warn_method_annotation(&mut self, warning: String) -> Result<(), Self::Error>;
@@ -105,14 +112,7 @@ pub trait MethodVerificationServices<P, D, J, V>: Sized {
         &mut self,
         state: State<P, D, J>,
         cfg: &SilverCfg,
-        method: &Method,
-        continuation: &mut dyn FnMut(
-            &mut Self,
-            State<P, D, J>,
-        ) -> Result<
-            VerificationResult<V>,
-            MethodVerificationError<Self::Error>,
-        >,
+        continuation: MethodCfgContinuation,
     ) -> Result<VerificationResult<V>, MethodVerificationError<Self::Error>>;
     fn consume_method_posts(
         &mut self,
@@ -135,6 +135,24 @@ pub enum MethodVerificationError<E> {
     Traversal(ferrum_silver::ast::utility::nodes::TraversalError),
     Service(E),
 }
+/// Complete an executed CFG by restoring its method post-state and consuming
+/// postconditions before returning the branch result.
+pub fn complete_method_cfg<P, D, J, V, C: MethodVerificationServices<P, D, J, V>>(
+    context: &mut C,
+    state: State<P, D, J>,
+    continuation: &MethodCfgContinuation,
+) -> Result<VerificationResult<V>, MethodVerificationError<C::Error>> {
+    let state = context
+        .prepare_method_post_state(state)
+        .map_err(MethodVerificationError::Service)?;
+    context.consume_method_posts(
+        state,
+        &continuation.method.posts,
+        &continuation.method,
+        &mut |_, _| Ok(VerificationResult::success()),
+    )
+}
+
 /// Verify a method by proving postcondition well-formedness and executing the body
 /// in separate local scopes after precondition production and pre-state recording.
 pub fn verify_method<P, D, J: Clone, V, C: MethodVerificationServices<P, D, J, V>>(
@@ -231,14 +249,13 @@ pub fn verify_method<P, D, J: Clone, V, C: MethodVerificationServices<P, D, J, V
                 return Ok(wellformed);
             }
             let execution = context.method_locally(state, &mut |context, state| {
-                context.execute_method_cfg(state, &cfg, method, &mut |context, state| {
-                    let state = context
-                        .prepare_method_post_state(state)
-                        .map_err(MethodVerificationError::Service)?;
-                    context.consume_method_posts(state, &method.posts, method, &mut |_, _| {
-                        Ok(VerificationResult::success())
-                    })
-                })
+                context.execute_method_cfg(
+                    state,
+                    &cfg,
+                    MethodCfgContinuation {
+                        method: method.clone(),
+                    },
+                )
             })?;
             Ok(wellformed.and_then(|| execution))
         })
@@ -280,4 +297,13 @@ pub fn ignored_loop_invariant_labels(
         }
     }
     labels
+}
+
+#[cfg(test)]
+mod owned_method_continuation_tests {
+    #[test]
+    fn method_cfg_continuation_is_send() {
+        fn require_send<T: Send>() {}
+        require_send::<super::MethodCfgContinuation>();
+    }
 }

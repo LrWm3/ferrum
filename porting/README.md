@@ -573,3 +573,13 @@ source null expression, capture state before local definitions, and close after
 quantifier construction before processing remaining alternatives. Disabled
 logging remains inactive; active hooks use the full-state factory. These scopes
 complement the synchronous join records without enabling a reporting profile.
+
+Method CFG completion now owns its Method and retains the source order of
+post-state preparation and postcondition consumption. Statement sequences own
+their remaining statements and resume index, cloning the same next frame for
+each continuation invocation. Normal CFG blocks own their successor context and
+query outgoing edges from the resulting state after statements finish. These
+are used in ordinary synchronous execution and preserve fallback, branch and
+block-completion order. Their enclosing CFG/loop/retry/production/consumption
+continuations still borrow outer callbacks; nonjoined offloading stays disabled
+until the complete continuation chain can move together.

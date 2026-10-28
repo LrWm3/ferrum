@@ -613,6 +613,22 @@ where
         _ => context.execute_special(state, statement, &mut finish),
     }
 }
+/// Owned position in a source statement sequence. Each continuation invocation
+/// resumes from the same next index, even when a prior statement branches.
+#[derive(Clone)]
+pub struct StatementSequenceFrame {
+    statements: Arc<[Stmt]>,
+    next: usize,
+}
+impl StatementSequenceFrame {
+    fn new(statements: &[Stmt]) -> Self {
+        Self {
+            statements: Arc::from(statements),
+            next: 0,
+        }
+    }
+}
+
 pub fn execute_all<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
@@ -625,9 +641,33 @@ pub fn execute_all<C, P, D, J: Clone, V>(
 where
     C: ExecutionContext<P, D, J, V>,
 {
-    if let Some((first, rest)) = statements.split_first() {
-        execute(context, state, first, &mut |context, state| {
-            execute_all(context, state, rest, continuation)
+    execute_statement_frame(
+        context,
+        state,
+        StatementSequenceFrame::new(statements),
+        continuation,
+    )
+}
+
+fn execute_statement_frame<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    frame: StatementSequenceFrame,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: ExecutionContext<P, D, J, V>,
+{
+    if let Some(statement) = frame.statements.get(frame.next) {
+        let next = StatementSequenceFrame {
+            statements: frame.statements.clone(),
+            next: frame.next + 1,
+        };
+        execute(context, state, statement, &mut |context, state| {
+            execute_statement_frame(context, state, next.clone(), continuation)
         })
     } else {
         continuation(context, state)
@@ -886,6 +926,40 @@ where
         continuation,
     )
 }
+/// Owned successor context for a statement block. Edges are still obtained
+/// after the statements finish, using the resulting symbolic state.
+#[derive(Clone)]
+pub struct CfgSuccessorFrame {
+    block: SilverBlock,
+    join_point: Option<SilverBlock>,
+    path_id: i32,
+}
+
+fn execute_cfg_successor_frame<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    frame: &CfgSuccessorFrame,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    let edges = context
+        .outgoing_edges(&state, &frame.block)
+        .map_err(ExecutionError::Context)?;
+    follow_edges(
+        context,
+        state,
+        &edges,
+        frame.join_point.as_ref(),
+        frame.path_id,
+        continuation,
+    )
+}
+
 pub fn execute_block<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
@@ -907,11 +981,13 @@ where
         .map_err(ExecutionError::Context)?;
     let result = match block.kind() {
         BlockKind::Statement { statements, .. } => {
+            let frame = CfgSuccessorFrame {
+                block: block.clone(),
+                join_point: join_point.cloned(),
+                path_id,
+            };
             execute_all(context, state, statements, &mut |context, state| {
-                let edges = context
-                    .outgoing_edges(&state, block)
-                    .map_err(ExecutionError::Context)?;
-                follow_edges(context, state, &edges, join_point, path_id, continuation)
+                execute_cfg_successor_frame(context, state, &frame, continuation)
             })?
         }
         BlockKind::LoopHead {

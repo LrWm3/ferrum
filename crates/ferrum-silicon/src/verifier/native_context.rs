@@ -8231,20 +8231,17 @@ where
         &mut self,
         state: State<PD, FD, JoinMode>,
         cfg: &SilverCfg,
-        method: &Method,
-        continuation: &mut dyn FnMut(
-            &mut Self,
-            State<PD, FD, JoinMode>,
-        ) -> Result<
-            VerificationResult<VerificationError>,
-            MethodVerificationError<Self::Error>,
-        >,
+        continuation: crate::supporters::method_supporter::MethodCfgContinuation,
     ) -> Result<VerificationResult<VerificationError>, MethodVerificationError<Self::Error>> {
         {
             let mut callback_error = None;
             let result =
                 crate::rules::executor::execute_cfg(self, state, cfg, &mut |ctx, state| {
-                    match continuation(ctx, state) {
+                    match crate::supporters::method_supporter::complete_method_cfg(
+                        ctx,
+                        state,
+                        &continuation,
+                    ) {
                         Ok(v) => Ok(v),
                         Err(e) => {
                             callback_error = Some(e);
