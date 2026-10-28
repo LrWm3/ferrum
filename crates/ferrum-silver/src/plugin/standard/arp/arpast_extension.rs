@@ -53,6 +53,14 @@ impl RdPerm {
     }
 }
 impl ExtensionExp for RdPerm {
+    fn pretty_doc(
+        &self,
+    ) -> Result<
+        crate::ast::pretty::pretty_printer::Doc,
+        crate::ast::pretty::pretty_printer::PrintError,
+    > {
+        Ok(crate::ast::pretty::pretty_printer::Doc::text("rd"))
+    }
     fn scala_hash(&self) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
         Ok(crate::ast::utility::expressions::scala_product(
             "RdPerm",

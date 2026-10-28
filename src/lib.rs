@@ -322,12 +322,6 @@ pub fn run_file(config: Config) -> Result<RunReport, FerrumError> {
         });
     }
     let analyzed = phases.analyze(parsed).map_err(FerrumError::Diagnostics)?;
-    warnings.extend(
-        phases
-            .typechecking_warnings
-            .iter()
-            .map(|w| w.readable_message().unwrap_or_else(|_| w.full_id().into())),
-    );
     let translated = phases
         .translate(analyzed)
         .map_err(FerrumError::Diagnostics)?;
@@ -337,6 +331,12 @@ pub fn run_file(config: Config) -> Result<RunReport, FerrumError> {
     let program = phases
         .prepare_verification(program)
         .map_err(FerrumError::Diagnostics)?;
+    warnings.extend(
+        phases
+            .typechecking_warnings
+            .iter()
+            .map(|w| w.readable_message().unwrap_or_else(|_| w.full_id().into())),
+    );
     let mut session = Session::new(config)?;
     let result = session.verify(&program, &[]);
     let cleanup = session.stop();

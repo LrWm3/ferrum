@@ -137,6 +137,15 @@ impl TryBlock {
     }
 }
 impl ExtensionStmt for TryBlock {
+    fn pretty_doc(
+        &self,
+    ) -> Result<
+        ferrum_silver::ast::pretty::pretty_printer::Doc,
+        ferrum_silver::ast::pretty::pretty_printer::PrintError,
+    > {
+        use ferrum_silver::ast::pretty::pretty_printer::{Doc, show_block};
+        Ok(Doc::concat([Doc::text("try "), show_block(&self.body)?]))
+    }
     fn metadata(&self) -> &Metadata {
         &self.meta
     }

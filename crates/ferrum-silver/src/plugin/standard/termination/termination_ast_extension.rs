@@ -132,6 +132,38 @@ impl DecreasesClause {
     }
 }
 impl ExtensionExp for DecreasesClause {
+    fn pretty_doc(
+        &self,
+    ) -> Result<
+        crate::ast::pretty::pretty_printer::Doc,
+        crate::ast::pretty::pretty_printer::PrintError,
+    > {
+        use crate::ast::pretty::pretty_printer::{Doc, show_exp};
+        let mut docs = Vec::new();
+        let condition = match &self.kind {
+            DecreasesKind::Tuple { tuple, condition } => {
+                docs.push(Doc::text("decreases"));
+                for (index, exp) in tuple.iter().enumerate() {
+                    docs.push(Doc::text(if index == 0 { " " } else { ", " }));
+                    docs.push(show_exp(exp)?);
+                }
+                condition.as_ref()
+            }
+            DecreasesKind::Wildcard { condition } => {
+                docs.push(Doc::text("decreases _"));
+                condition.as_ref()
+            }
+            DecreasesKind::Star => {
+                docs.push(Doc::text("decreases *"));
+                None
+            }
+        };
+        if let Some(condition) = condition {
+            docs.push(Doc::text(" if "));
+            docs.push(show_exp(condition)?);
+        }
+        Ok(Doc::concat(docs))
+    }
     fn scala_hash(&self) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
         use crate::ast::utility::expressions::{
             scala_expression_hash, scala_expression_sequence_hash, scala_product, scala_string_hash,

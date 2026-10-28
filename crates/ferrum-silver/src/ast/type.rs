@@ -103,6 +103,14 @@ pub trait ExtensionType: fmt::Debug + Send + Sync {
     fn get_ast_type(&self) -> Result<Type, UnsupportedExtensionOperation> {
         Err(UnsupportedExtensionOperation::GetAstType)
     }
+    /// Unrendered source document so surrounding groups retain their layout.
+    fn pretty_doc(
+        &self,
+    ) -> Result<super::pretty::pretty_printer::Doc, super::pretty::pretty_printer::PrintError> {
+        Err(super::pretty::pretty_printer::PrintError::Unsupported(
+            "extension type document printer",
+        ))
+    }
     /// Provisional textual boundary until the pretty-printer document API exists.
     fn pretty_print(&self) -> Result<String, UnsupportedExtensionOperation> {
         Err(UnsupportedExtensionOperation::PrettyPrint)

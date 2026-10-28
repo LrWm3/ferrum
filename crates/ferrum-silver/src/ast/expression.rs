@@ -172,6 +172,14 @@ pub trait ExtensionExp: Debug + Send + Sync {
             "extension expression pretty printer",
         ))
     }
+    /// Source document, kept unrendered so outer groups and indentation remain effective.
+    fn pretty_doc(
+        &self,
+    ) -> Result<super::pretty::pretty_printer::Doc, super::pretty::pretty_printer::PrintError> {
+        Err(super::pretty::pretty_printer::PrintError::Unsupported(
+            "extension document printer",
+        ))
+    }
     fn metadata(&self) -> &Metadata;
     fn with_metadata(&self, metadata: Metadata) -> ExtensionExpHandle;
     /// First-constructor Node products visited by source checkTransitively; excludes maps.

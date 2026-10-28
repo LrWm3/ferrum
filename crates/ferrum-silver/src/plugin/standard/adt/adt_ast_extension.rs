@@ -100,6 +100,29 @@ impl AdtType {
     }
 }
 impl ExtensionType for AdtType {
+    fn pretty_doc(
+        &self,
+    ) -> Result<
+        crate::ast::pretty::pretty_printer::Doc,
+        crate::ast::pretty::pretty_printer::PrintError,
+    > {
+        use crate::ast::pretty::pretty_printer::{Doc, show_type_doc};
+        let mapping = self.type_vars_map();
+        let mut args = Vec::new();
+        for (index, param) in self.type_parameters.iter().enumerate() {
+            if index != 0 {
+                args.push(Doc::text(", "));
+            }
+            args.push(show_type_doc(
+                mapping.get(param).expect("complete ADT type map"),
+            )?);
+        }
+        let mut docs = vec![Doc::text(&self.adt_name)];
+        if !args.is_empty() {
+            docs.extend([Doc::text("["), Doc::concat(args), Doc::text("]")]);
+        }
+        Ok(Doc::concat(docs))
+    }
     fn scala_hash(&self) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
         Ok(crate::ast::utility::expressions::scala_product(
             "AdtType",
@@ -279,6 +302,25 @@ impl AdtConstructor {
     }
 }
 impl ExtensionMember for AdtConstructor {
+    fn pretty_doc(
+        &self,
+    ) -> Result<
+        crate::ast::pretty::pretty_printer::Doc,
+        crate::ast::pretty::pretty_printer::PrintError,
+    > {
+        use crate::ast::pretty::pretty_printer::{Doc, show_node};
+        let mut args = Vec::new();
+        for (index, arg) in self.formal_args.iter().enumerate() {
+            if index != 0 {
+                args.push(Doc::concat([Doc::text(","), Doc::line()]).group());
+            }
+            args.push(show_node(&Node::LocalDecl(arg.clone()))?);
+        }
+        Ok(Doc::concat([
+            Doc::text(&self.name),
+            Doc::concat(args).parens(),
+        ]))
+    }
     fn check_product_nodes(
         &self,
     ) -> Result<
@@ -385,6 +427,65 @@ impl Adt {
     }
 }
 impl ExtensionMember for Adt {
+    fn pretty_doc(
+        &self,
+    ) -> Result<
+        crate::ast::pretty::pretty_printer::Doc,
+        crate::ast::pretty::pretty_printer::PrintError,
+    > {
+        use crate::ast::pretty::pretty_printer::{Doc, show_member, show_type_doc};
+        let mut docs = vec![Doc::text("adt "), Doc::text(&self.name)];
+        if !self.type_vars.is_empty() {
+            docs.push(Doc::text("["));
+            for (index, var) in self.type_vars.iter().enumerate() {
+                if index != 0 {
+                    docs.push(Doc::text(", "));
+                }
+                docs.push(show_type_doc(&Type::Var(var.clone()))?);
+            }
+            docs.push(Doc::text("]"));
+        }
+        let mut body = Vec::new();
+        for constructor in &self.constructors {
+            body.push(Doc::Line(String::new()));
+            body.push(show_member(&Member::Extension(ExtensionMemberHandle(
+                constructor.clone(),
+            )))?);
+        }
+        docs.extend([
+            Doc::text(" {"),
+            Doc::concat(body).nest(2),
+            Doc::Line(String::new()),
+            Doc::text("}"),
+        ]);
+        if !self.deriving_info.is_empty() {
+            let mut body = Vec::new();
+            for (name, (param, blocklist)) in &self.deriving_info {
+                body.push(Doc::Line(String::new()));
+                body.push(Doc::text(name));
+                if let Some(param) = param {
+                    body.extend([Doc::text("["), show_type_doc(param)?, Doc::text(" ]")]);
+                }
+                body.push(Doc::text(" "));
+                if !blocklist.is_empty() {
+                    body.push(Doc::text("without "));
+                    for (index, entry) in blocklist.iter().enumerate() {
+                        if index != 0 {
+                            body.push(Doc::text(", "));
+                        }
+                        body.push(Doc::text(entry));
+                    }
+                }
+            }
+            docs.extend([
+                Doc::text(" derives {"),
+                Doc::concat(body).nest(2),
+                Doc::Line(String::new()),
+                Doc::text("}"),
+            ]);
+        }
+        Ok(Doc::concat(docs))
+    }
     fn check_product_nodes(
         &self,
     ) -> Result<
@@ -597,6 +698,27 @@ impl AdtConstructorApp {
     }
 }
 impl ExtensionExp for AdtConstructorApp {
+    fn pretty_doc(
+        &self,
+    ) -> Result<
+        crate::ast::pretty::pretty_printer::Doc,
+        crate::ast::pretty::pretty_printer::PrintError,
+    > {
+        use crate::ast::pretty::pretty_printer::{Doc, show_exp, show_type_doc};
+        let mut args = Vec::new();
+        for (index, exp) in self.args.iter().enumerate() {
+            if index != 0 {
+                args.push(Doc::text(", "));
+            }
+            args.push(show_exp(exp)?);
+        }
+        let call = Doc::concat([Doc::text(&self.name), Doc::concat(args).parens()]);
+        if self.type_vars.is_empty() {
+            Ok(call)
+        } else {
+            Ok(Doc::concat([call, Doc::text(": "), show_type_doc(&self.typ)?]).parens())
+        }
+    }
     fn scala_hash(&self) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
         Ok(crate::ast::utility::expressions::scala_product(
             "AdtConstructorApp",
@@ -742,6 +864,19 @@ impl AdtDestructorApp {
     }
 }
 impl ExtensionExp for AdtDestructorApp {
+    fn pretty_doc(
+        &self,
+    ) -> Result<
+        crate::ast::pretty::pretty_printer::Doc,
+        crate::ast::pretty::pretty_printer::PrintError,
+    > {
+        use crate::ast::pretty::pretty_printer::{Doc, show_exp};
+        Ok(Doc::concat([
+            show_exp(&self.receiver)?,
+            Doc::text("."),
+            Doc::text(&self.name),
+        ]))
+    }
     fn scala_hash(&self) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
         Ok(crate::ast::utility::expressions::scala_product(
             "AdtDestructorApp",
@@ -855,6 +990,19 @@ impl AdtDiscriminatorApp {
     }
 }
 impl ExtensionExp for AdtDiscriminatorApp {
+    fn pretty_doc(
+        &self,
+    ) -> Result<
+        crate::ast::pretty::pretty_printer::Doc,
+        crate::ast::pretty::pretty_printer::PrintError,
+    > {
+        use crate::ast::pretty::pretty_printer::{Doc, show_exp};
+        Ok(Doc::concat([
+            show_exp(&self.receiver)?,
+            Doc::text(".is"),
+            Doc::text(&self.name),
+        ]))
+    }
     fn scala_hash(&self) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
         Ok(crate::ast::utility::expressions::scala_product(
             "AdtDiscriminatorApp",

@@ -567,6 +567,17 @@ impl From<ConversionError> for EvaluationError {
         Self::Conversion(value)
     }
 }
+/// Evaluate with Silicon's native source-shaped term renderer.
+pub fn evaluate_term_native(
+    term: &crate::state::terms::Term,
+    model: &Model,
+    env: &std::collections::HashMap<crate::state::terms::Var, ExtractedModelEntry>,
+) -> Result<ExtractedModelEntry, EvaluationError> {
+    evaluate_term(term, model, env, &|term| {
+        super::formatters::render_term(term)
+            .map_err(|_| "unsupported Silicon term rendering".to_owned())
+    })
+}
 /// Evaluate the implemented source term families against a model. A source term
 /// renderer is required for variable lookup and diagnostic text.
 pub fn evaluate_term(
@@ -1019,6 +1030,16 @@ pub fn eval_permission(
             }
         }
         _ => None,
+    })
+}
+/// Extract the legacy heap using native Silicon term rendering.
+pub fn extract_heap_native(
+    chunks: &[Chunk],
+    model: &Model,
+) -> Result<ExtractedHeap, EvaluationError> {
+    extract_heap(chunks, model, &|term| {
+        super::formatters::render_term(term)
+            .map_err(|_| "unsupported Silicon term rendering".to_owned())
     })
 }
 /// Extract the legacy mapped heap. The source skips quantified predicate chunks

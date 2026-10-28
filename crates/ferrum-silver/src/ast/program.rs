@@ -459,6 +459,14 @@ pub trait ExtensionMember: Debug + Send + Sync {
             "extension pretty printer",
         ))
     }
+    /// Source document, kept unrendered so outer groups and indentation remain effective.
+    fn pretty_doc(
+        &self,
+    ) -> Result<super::pretty::pretty_printer::Doc, super::pretty::pretty_printer::PrintError> {
+        Err(super::pretty::pretty_printer::PrintError::Unsupported(
+            "extension document printer",
+        ))
+    }
     fn as_any(&self) -> &dyn Any;
     fn name(&self) -> &str;
     fn equals(&self, other: &dyn ExtensionMember) -> bool;

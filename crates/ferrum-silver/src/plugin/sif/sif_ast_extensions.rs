@@ -114,6 +114,104 @@ impl SifExpression {
     }
 }
 impl ExtensionExp for SifExpression {
+    fn pretty_doc(
+        &self,
+    ) -> Result<
+        crate::ast::pretty::pretty_printer::Doc,
+        crate::ast::pretty::pretty_printer::PrintError,
+    > {
+        use crate::ast::pretty::pretty_printer::{Doc, show_exp};
+        Ok(match &self.kind {
+            SifExpressionKind::Low {
+                exp, comparator, ..
+            } => Doc::concat([
+                Doc::text(if comparator.is_some() {
+                    "lowVal"
+                } else {
+                    "low"
+                }),
+                show_exp(exp)?.parens(),
+            ]),
+            SifExpressionKind::LowEvent => Doc::text("lowEvent"),
+            SifExpressionKind::Rel { exp, index } => Doc::concat([
+                Doc::text("rel"),
+                Doc::concat([show_exp(exp)?, Doc::text(", "), show_exp(index)?]).parens(),
+            ]),
+            SifExpressionKind::LowExit => Doc::text("lowExit"),
+            SifExpressionKind::Terminates { condition } => Doc::concat([
+                Doc::text("terminates under condition "),
+                show_exp(condition)?,
+            ]),
+        })
+    }
+    fn scala_hash(&self) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
+        use crate::ast::utility::expressions::{
+            scala_expression_hash as hash, scala_map_hash, scala_product, scala_string_hash,
+            scala_type_hash,
+        };
+        Ok(match &self.kind {
+            SifExpressionKind::Low {
+                exp,
+                comparator,
+                type_variables,
+            } => {
+                let comparator = comparator.as_ref().map_or_else(
+                    || scala_string_hash("None"),
+                    |v| scala_product("Some", &[scala_string_hash(v)]),
+                );
+                let mappings = type_variables
+                    .iter()
+                    .map(|(k, v)| {
+                        Ok((
+                            scala_product("TypeVar", &[scala_string_hash(&k.name)]),
+                            scala_type_hash(v)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, crate::ast::utility::expressions::ScalaHashError>>(
+                    )?;
+                scala_product(
+                    "SIFLowExp",
+                    &[hash(exp)?, comparator, scala_map_hash(mappings)],
+                )
+            }
+            SifExpressionKind::LowEvent => scala_product("SIFLowEventExp", &[]),
+            SifExpressionKind::Rel { exp, index } => {
+                scala_product("SIFRelExp", &[hash(exp)?, hash(index)?])
+            }
+            SifExpressionKind::LowExit => scala_product("SIFLowExitExp", &[]),
+            SifExpressionKind::Terminates { condition } => {
+                scala_product("SIFTerminatesExp", &[hash(condition)?])
+            }
+        })
+    }
+    fn pretty_print(&self) -> Result<String, crate::ast::pretty::pretty_printer::PrintError> {
+        use crate::ast::pretty::pretty_printer::pretty_expression;
+        Ok(match &self.kind {
+            SifExpressionKind::Low {
+                exp, comparator, ..
+            } => format!(
+                "{}({})",
+                if comparator.is_some() {
+                    "lowVal"
+                } else {
+                    "low"
+                },
+                pretty_expression(exp)?
+            ),
+            SifExpressionKind::LowEvent => "lowEvent".into(),
+            SifExpressionKind::Rel { exp, index } => format!(
+                "rel({}, {})",
+                pretty_expression(exp)?,
+                pretty_expression(index)?
+            ),
+            SifExpressionKind::LowExit => "lowExit".into(),
+            SifExpressionKind::Terminates { condition } => format!(
+                "terminates under condition {}",
+                pretty_expression(condition)?
+            ),
+        })
+    }
+
     fn check_product_nodes(
         &self,
     ) -> Result<
@@ -338,6 +436,69 @@ impl SifStatement {
     }
 }
 impl crate::ast::statement::ExtensionStmt for SifStatement {
+    fn pretty_doc(
+        &self,
+    ) -> Result<
+        crate::ast::pretty::pretty_printer::Doc,
+        crate::ast::pretty::pretty_printer::PrintError,
+    > {
+        use crate::ast::pretty::pretty_printer::{Doc, show_block, show_exp, show_stmt};
+        fn handler(
+            h: &SifExceptionHandler,
+        ) -> Result<Doc, crate::ast::pretty::pretty_printer::PrintError> {
+            Ok(Doc::concat([
+                Doc::text("catch "),
+                show_exp(&h.exception)?.parens(),
+                Doc::text(" "),
+                show_block(&h.body)?,
+            ]))
+        }
+        Ok(match &self.kind {
+            SifStatementKind::Return { exp, .. } => Doc::concat([
+                Doc::text("return "),
+                exp.as_ref().map(show_exp).transpose()?.unwrap_or(Doc::Nil),
+            ]),
+            SifStatementKind::Break => Doc::text("break"),
+            SifStatementKind::Continue => Doc::text("continue"),
+            SifStatementKind::Raise { assignment } => Doc::concat([
+                Doc::text("raise "),
+                assignment
+                    .as_ref()
+                    .map(show_stmt)
+                    .transpose()?
+                    .unwrap_or(Doc::Nil),
+            ]),
+            SifStatementKind::ExceptionHandler(h) => handler(h)?,
+            SifStatementKind::TryCatch {
+                body,
+                handlers,
+                else_block,
+                finally_block,
+            } => {
+                let mut docs = vec![Doc::text("try "), show_block(body)?];
+                for h in handlers {
+                    docs.push(Doc::text(" "));
+                    docs.push(handler(h)?);
+                }
+                docs.push(Doc::text(" "));
+                if let Some(block) = else_block {
+                    docs.extend([Doc::text("else "), show_block(block)?]);
+                }
+                docs.push(Doc::text(" "));
+                if let Some(block) = finally_block {
+                    docs.extend([Doc::text("finally "), show_block(block)?]);
+                }
+                Doc::concat(docs)
+            }
+            SifStatementKind::Declassify(exp) => {
+                Doc::concat([Doc::text("declassify "), show_exp(exp)?])
+            }
+            SifStatementKind::InlinedCall(stmts) => {
+                Doc::concat([Doc::text("inlined call"), show_stmt(stmts)?])
+            }
+            SifStatementKind::AssertNoException => Doc::text("assert no exception"),
+        })
+    }
     fn check(
         &self,
     ) -> Result<

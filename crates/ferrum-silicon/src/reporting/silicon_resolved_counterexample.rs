@@ -66,6 +66,13 @@ fn variable_name(expression: &Exp) -> &str {
         _ => unreachable!("store key is an AbstractLocalVar"),
     }
 }
+/// Extract basic variables using native Silicon term rendering.
+pub fn basic_variables_native(
+    model: &Model,
+    store: &MapBackedStore,
+) -> Result<Vec<CeVariable>, super::formatters::UnsupportedTermRendering> {
+    basic_variables(model, store, &super::formatters::render_term)
+}
 /// Preserve source prepend order and its deliberate omission of model maps.
 pub fn basic_variables<E>(
     model: &Model,
@@ -1408,6 +1415,17 @@ fn quantified_arguments(
         }
     }
     Ok(out)
+}
+/// Extract raw heap entries using native Silicon term rendering.
+pub fn det_raw_heap_native(
+    model: &Model,
+    chunks: &[crate::state::chunks::Chunk],
+    program: &ferrum_silver::ast::program::Program,
+) -> Result<counterexample::RawHeap, RawHeapError> {
+    det_raw_heap(model, chunks, program, &|term| {
+        super::formatters::render_term(term)
+            .map_err(|_| "unsupported Silicon term rendering".to_owned())
+    })
 }
 /// Extract source field, predicate, wand and quantified chunks. Concrete
 /// quantified candidates come from inverse/image model keys or singleton terms.

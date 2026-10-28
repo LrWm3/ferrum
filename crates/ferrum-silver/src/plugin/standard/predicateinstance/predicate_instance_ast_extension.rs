@@ -78,6 +78,25 @@ impl PredicateInstance {
     }
 }
 impl ExtensionExp for PredicateInstance {
+    fn pretty_doc(
+        &self,
+    ) -> Result<
+        crate::ast::pretty::pretty_printer::Doc,
+        crate::ast::pretty::pretty_printer::PrintError,
+    > {
+        use crate::ast::pretty::pretty_printer::{Doc, show_exp};
+        let mut args = Vec::new();
+        for (index, exp) in self.args.iter().enumerate() {
+            if index != 0 {
+                args.push(Doc::text(", "));
+            }
+            args.push(show_exp(exp)?);
+        }
+        Ok(Doc::concat([
+            Doc::text(&self.predicate),
+            Doc::concat(args).parens(),
+        ]))
+    }
     fn scala_hash(&self) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
         Ok(crate::ast::utility::expressions::scala_product(
             "PredicateInstance",
@@ -158,5 +177,32 @@ impl ExtensionExp for PredicateInstance {
     }
     fn subnodes(&self) -> Result<Vec<Node>, TraversalError> {
         Ok(self.args.iter().cloned().map(Node::Exp).collect())
+    }
+}
+
+#[cfg(test)]
+mod doc_tests {
+    use super::*;
+    use crate::ast::pretty::pretty_printer::{pretty, show_exp};
+
+    #[test]
+    fn nested_expression_keeps_its_line_breaks_in_plugin_document() {
+        let meta = Metadata::default();
+        let arg = Exp::new(
+            ExpKind::And(
+                Exp::new(ExpKind::TrueLit, meta.clone()),
+                Exp::new(ExpKind::FalseLit, meta.clone()),
+            ),
+            meta.clone(),
+        );
+        let instance = PredicateInstance {
+            predicate: "predicate".into(),
+            args: vec![arg],
+            meta,
+        }
+        .expression();
+        let doc = show_exp(&instance).unwrap();
+        assert!(pretty(12, &doc).contains('\n'));
+        assert!(!pretty(80, &doc).contains('\n'));
     }
 }

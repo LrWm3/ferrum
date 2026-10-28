@@ -51,6 +51,14 @@ impl Unreachable {
     }
 }
 impl ExtensionStmt for Unreachable {
+    fn pretty_doc(
+        &self,
+    ) -> Result<
+        crate::ast::pretty::pretty_printer::Doc,
+        crate::ast::pretty::pretty_printer::PrintError,
+    > {
+        Ok(crate::ast::pretty::pretty_printer::Doc::text("unreachable"))
+    }
     fn pretty_print(&self) -> Result<String, crate::ast::pretty::pretty_printer::PrintError> {
         Ok("unreachable".into())
     }

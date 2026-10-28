@@ -26,6 +26,386 @@ pub trait StateRenderer {
     fn typ(&self, typ: &Type) -> Result<String, Self::Error>;
     fn chunk(&self, chunk: &Chunk) -> Result<String, Self::Error>;
 }
+/// Source Silicon term `toString`, for the term families listed below.
+/// Other families fail explicitly until their source renderers are ported.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UnsupportedTermRendering;
+pub fn render_term(term: &Term) -> Result<String, UnsupportedTermRendering> {
+    use TermKind::*;
+    let binary = |a: &Term, op: &str, b: &Term| -> Result<String, UnsupportedTermRendering> {
+        Ok(format!("{} {} {}", render_term(a)?, op, render_term(b)?))
+    };
+    let unary = |op: &str, a: &Term| -> Result<String, UnsupportedTermRendering> {
+        Ok(format!("{}({})", op, render_term(a)?))
+    };
+    Ok(match term.kind() {
+        Unit => "_".into(),
+        IntLiteral(n) => n.to_string(),
+        Null => "Null".into(),
+        ZeroMask => "ZeroMask".into(),
+        PredZeroMask => "PredZeroMask".into(),
+        True => "True".into(),
+        False => "False".into(),
+        Var(v) => v.id.to_string(),
+        App { applicable, args } => {
+            let id = applicable.id().to_string();
+            if args.is_empty() {
+                id
+            } else {
+                format!(
+                    "{}({})",
+                    id,
+                    args.iter()
+                        .map(render_term)
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join(", ")
+                )
+            }
+        }
+        Quantification {
+            quantifier,
+            vars,
+            body,
+            ..
+        } => {
+            let q = match quantifier {
+                crate::state::terms::Quantifier::Forall => "QA",
+                crate::state::terms::Quantifier::Exists => "QE",
+            };
+            format!(
+                "{} {} :: {}",
+                q,
+                vars.iter()
+                    .map(render_term)
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(","),
+                render_term(body)?
+            )
+        }
+        Plus(a, b) | PermPlus(a, b) | MultisetAdd(a, b) => binary(a, "+", b)?,
+        Minus(a, b) => binary(a, "-", b)?,
+        PermMinus(a, b) => {
+            let right = render_term(b)?;
+            let is_binary = matches!(
+                b.kind(),
+                Plus(..)
+                    | Minus(..)
+                    | Times(..)
+                    | Div(..)
+                    | Mod(..)
+                    | Implies(..)
+                    | Iff(..)
+                    | BuiltinEquals(..)
+                    | CustomEquals(..)
+                    | Less(..)
+                    | AtMost(..)
+                    | Greater(..)
+                    | AtLeast(..)
+                    | PermTimes(..)
+                    | IntPermTimes(..)
+                    | PermIntDiv(..)
+                    | PermPermDiv(..)
+                    | PermPlus(..)
+                    | PermMinus(..)
+                    | PermLess(..)
+                    | PermAtMost(..)
+                    | PermMin(..)
+                    | SeqAppend(..)
+                    | SeqDrop(..)
+                    | SeqTake(..)
+                    | SeqAt(..)
+                    | SeqIn(..)
+                    | SeqInTrigger(..)
+                    | SetAdd(..)
+                    | SetUnion(..)
+                    | SetIntersection(..)
+                    | SetSubset(..)
+                    | SetDisjoint(..)
+                    | SetDifference(..)
+                    | SetIn(..)
+                    | MultisetAdd(..)
+                    | MultisetUnion(..)
+                    | MultisetIntersection(..)
+                    | MultisetSubset(..)
+                    | MultisetDifference(..)
+                    | MultisetCount(..)
+                    | MapLookup(..)
+                    | Combine(..)
+                    | MwsfLookup(..)
+                    | MagicWandToken(..)
+            );
+            if is_binary {
+                format!("{} - ({})", render_term(a)?, right)
+            } else {
+                format!("{} - {}", render_term(a)?, right)
+            }
+        }
+        Times(a, b) | PermTimes(a, b) | IntPermTimes(a, b) => binary(a, "*", b)?,
+        Div(a, b) | PermIntDiv(a, b) | PermPermDiv(a, b) => binary(a, "/", b)?,
+        Mod(a, b) => binary(a, "%", b)?,
+        Not(a) => match a.kind() {
+            BuiltinEquals(a, b) => binary(a, "!=", b)?,
+            _ => unary("!", a)?,
+        },
+        Or(v) | And(v) => v
+            .iter()
+            .map(render_term)
+            .collect::<Result<Vec<_>, _>>()?
+            .join(if matches!(term.kind(), Or(_)) {
+                " || "
+            } else {
+                " && "
+            }),
+        Implies(a, b) => binary(a, "==>", b)?,
+        Iff(a, b) => binary(a, "<==>", b)?,
+        Ite(a, b, c) => format!(
+            "({} ? {} : {})",
+            render_term(a)?,
+            render_term(b)?,
+            render_term(c)?
+        ),
+        BuiltinEquals(a, b) => binary(a, "==", b)?,
+        CustomEquals(a, b) => binary(a, "===", b)?,
+        Less(a, b) => binary(a, "<", b)?,
+        AtMost(a, b) | PermAtMost(a, b) => binary(a, "<=", b)?,
+        Greater(a, b) => binary(a, ">", b)?,
+        AtLeast(a, b) => binary(a, ">=", b)?,
+        NoPerm => "Z".into(),
+        FullPerm => "W".into(),
+        FractionPermLiteral(r) => r.to_string(),
+        FractionPerm(a, b) => format!("{}/{}", render_term(a)?, render_term(b)?),
+        IsValidPermVal(a) => unary("PVal", a)?,
+        IsReadPermVar(a) => unary("RdVar", a)?,
+        PermNegation(a) => unary("-", a)?,
+        PermLess(a, b) => format!("({}) < ({})", render_term(a)?, render_term(b)?),
+        PermMin(a, b) => format!("min ({}, {})", render_term(a)?, render_term(b)?),
+        SeqRanged(a, b) => format!("[{}..{}]", render_term(a)?, render_term(b)?),
+        SeqNil(_) => "Nil".into(),
+        SeqSingleton(a) => format!("[{}]", render_term(a)?),
+        SeqAppend(a, b) => binary(a, "++", b)?,
+        SeqDrop(a, b) => format!("{}[{}:]", render_term(a)?, render_term(b)?),
+        SeqTake(a, b) => format!("{}[:{}]", render_term(a)?, render_term(b)?),
+        SeqLength(a) | SetCardinality(a) | MultisetCardinality(a) | MapCardinality(a) => {
+            format!("|{}|", render_term(a)?)
+        }
+        SeqAt(a, b) | MapLookup(a, b) => format!("{}[{}]", render_term(a)?, render_term(b)?),
+        SeqIn(a, b) | SeqInTrigger(a, b) => format!("{} in {}", render_term(b)?, render_term(a)?),
+        SeqUpdate(a, b, c) => format!(
+            "{}[{}] := {}",
+            render_term(a)?,
+            render_term(b)?,
+            render_term(c)?
+        ),
+        EmptySet(_) | EmptyMultiset(_) | EmptyMap(..) => "Ø".into(),
+        SingletonSet(a) | SingletonMultiset(a) => format!("{{{}}}", render_term(a)?),
+        SetAdd(a, b) => binary(a, "+", b)?,
+        SetUnion(a, b) | MultisetUnion(a, b) => binary(a, "∪", b)?,
+        SetIntersection(a, b) | MultisetIntersection(a, b) => binary(a, "∩", b)?,
+        SetSubset(a, b) | MultisetSubset(a, b) => binary(a, "⊂", b)?,
+        SetDisjoint(a, b) => binary(a, "disj", b)?,
+        SetDifference(a, b) | MultisetDifference(a, b) => binary(a, "\\", b)?,
+        SetIn(a, b) => binary(a, "in", b)?,
+        MultisetCount(a, b) => format!("{}({})", render_term(a)?, render_term(b)?),
+        MapDomain(a) => unary("domain", a)?,
+        MapRange(a) => unary("range", a)?,
+        MapUpdate(a, b, c) => format!(
+            "MapUpdate({}, {}, {})",
+            render_term(a)?,
+            render_term(b)?,
+            render_term(c)?
+        ),
+        First(a) => unary("First:", a)?,
+        Second(a) => unary("Second:", a)?,
+        SortWrapper(a, _) => render_term(a)?,
+        Combine(a, b) => format!("({}, {})", render_term(a)?, render_term(b)?),
+        Lookup(name, map, at) | PermLookup(name, map, at) | FieldTrigger(name, map, at) => {
+            let kind = match term.kind() {
+                Lookup(..) => "Lookup",
+                PermLookup(..) => "PermLookup",
+                _ => "FieldTrigger",
+            };
+            format!(
+                "{}({}, {}, {})",
+                kind,
+                name,
+                render_term(map)?,
+                render_term(at)?
+            )
+        }
+        Domain(name, map) | PredicateDomain(name, map) => {
+            let kind = if matches!(term.kind(), Domain(..)) {
+                "Domain"
+            } else {
+                "PredicateDomain"
+            };
+            format!("{}({}, {})", kind, name, render_term(map)?)
+        }
+        HasDomain(name, map, global) | HasPredicateDomain(name, map, global) => {
+            let kind = if matches!(term.kind(), HasDomain(..)) {
+                "HasDomain"
+            } else {
+                "HasPredicateDomain"
+            };
+            format!("{}({}, {}, {})", kind, name, render_term(map)?, global)
+        }
+        MagicWandChunkTerm(chunk) => {
+            format!("wand@{}}}", chunk.id.ghost_free_wand.metadata().position)
+        }
+        HeapLookup(a, b) | MaskEq(a, b) | MaskSum(a, b) | MaskDiff(a, b) => {
+            let kind = match term.kind() {
+                HeapLookup(..) => "HeapLookup",
+                MaskEq(..) => "MaskEq",
+                MaskSum(..) => "MaskSum",
+                _ => "MaskDiff",
+            };
+            format!("{}({}, {})", kind, render_term(a)?, render_term(b)?)
+        }
+        HeapUpdate(a, b, c) | MaskAdd(a, b, c) | IdenticalOnKnownLocations(a, b, c) => {
+            let kind = match term.kind() {
+                HeapUpdate(..) => "HeapUpdate",
+                MaskAdd(..) => "MaskAdd",
+                _ => "IdenticalOnKnownLocations",
+            };
+            format!(
+                "{}({}, {}, {})",
+                kind,
+                render_term(a)?,
+                render_term(b)?,
+                render_term(c)?
+            )
+        }
+        MergeSingle(a, b, c, d) | MergeHeaps(a, b, c, d) | HeapsOverlap(a, b, c, d) => {
+            let kind = match term.kind() {
+                MergeSingle(..) => "MergeSingle",
+                MergeHeaps(..) => "MergeHeaps",
+                _ => "HeapsOverlap",
+            };
+            format!(
+                "{}({}, {}, {}, {})",
+                kind,
+                render_term(a)?,
+                render_term(b)?,
+                render_term(c)?,
+                render_term(d)?
+            )
+        }
+        GoodFieldMask(a, bound) => format!("GoodFieldMask({}, {})", render_term(a)?, bound),
+        HeapSingleton(a, b, sort) => format!(
+            "HeapSingleton({}, {}, {})",
+            render_term(a)?,
+            render_term(b)?,
+            sort
+        ),
+        MagicWandSnapshot(a) => unary("wandSnap", a)?,
+        MwsfLookup(a, b) => format!("{}[{}]", render_term(a)?, render_term(b)?),
+        MagicWandToken(a, b) => format!("MW_token({}, {})", render_term(a)?, render_term(b)?),
+        _ => return Err(UnsupportedTermRendering),
+    })
+}
+
+/// Source non-quantified chunk rendering; quantified and mask heaps use separate handling.
+pub fn render_chunk(chunk: &Chunk) -> Result<String, UnsupportedTermRendering> {
+    match chunk {
+        Chunk::Basic(chunk) => {
+            let snapshot = render_term(&chunk.snap)?;
+            let permission = render_term(&chunk.perm)?;
+            Ok(match chunk.resource_id {
+                crate::resources::resources::BaseId::Field => {
+                    let receiver = chunk.args.first().ok_or(UnsupportedTermRendering)?;
+                    format!(
+                        "{}.{} -> {} # {}",
+                        render_term(receiver)?,
+                        chunk.id,
+                        snapshot,
+                        permission
+                    )
+                }
+                crate::resources::resources::BaseId::Predicate => {
+                    let args = chunk
+                        .args
+                        .iter()
+                        .map(render_term)
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join(",");
+                    format!("{}({}; {}) # {}", chunk.id, snapshot, args, permission)
+                }
+            })
+        }
+        Chunk::MagicWand(chunk) => {
+            let pos = &chunk.id.ghost_free_wand.metadata().position;
+            let position = pos.line_column().map_or_else(
+                || pos.to_string(),
+                |p| format!("{}:{}", p.line(), p.column()),
+            );
+            let args = chunk
+                .args
+                .iter()
+                .map(render_term)
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            Ok(format!(
+                "wand@{}[{}; {}]",
+                position,
+                render_term(&chunk.snap)?,
+                args
+            ))
+        }
+        _ => Err(UnsupportedTermRendering),
+    }
+}
+
+/// Render quantified chunks with their originating term factory, which supplies
+/// the source receiver variable and cached conditional permission.
+pub fn render_chunk_with_factory(
+    chunk: &Chunk,
+    factory: &crate::state::terms::TermFactory,
+) -> Result<String, UnsupportedTermRendering> {
+    use crate::interfaces::state::chunks::{GeneralChunk, QuantifiedChunk};
+    let tag = |v: Option<i32>| v.map_or_else(|| "None".into(), |n| format!("Some({n})"));
+    let vars = |v: &[Term]| {
+        v.iter()
+            .map(render_term)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|x| x.join(","))
+    };
+    Ok(match chunk {
+        Chunk::QuantifiedField(c) => {
+            let receiver = render_term(&c.quantified_vars(factory)[0])?;
+            format!(
+                "QA {receiver} :: {receiver}.{} -> {} # {} # {} # {}",
+                c.id,
+                render_term(&c.fvf)?,
+                render_term(&c.permission(factory))?,
+                tag(c.tag),
+                render_term(&c.org_condition)?
+            )
+        }
+        Chunk::QuantifiedPredicate(c) => {
+            let names = vars(&c.quantified_vars)?;
+            format!(
+                "QA {names} :: {}({names}) -> {} # {} # {} # {}",
+                c.id,
+                render_term(&c.psf)?,
+                render_term(&c.permission(factory))?,
+                tag(c.tag),
+                render_term(&c.org_condition)?
+            )
+        }
+        Chunk::QuantifiedMagicWand(c) => {
+            let names = vars(&c.quantified_vars)?;
+            format!(
+                "QA {names} :: {}({names}) -> {} # {} # {} # {}",
+                c.id,
+                render_term(&c.wsf)?,
+                render_term(&c.perm)?,
+                tag(c.tag),
+                render_term(&c.org_condition)?
+            )
+        }
+        _ => return render_chunk(chunk),
+    })
+}
+
 /// A formatter bridge using Silver's actual AST printer and caller-provided
 /// Silicon term and chunk renderers (whose source Display is still incomplete).
 pub struct NativeAstStateRenderer<T, C> {
@@ -56,6 +436,24 @@ where
     }
     fn chunk(&self, chunk: &Chunk) -> Result<String, Self::Error> {
         (self.render_chunk)(chunk).map_err(NativeStateRenderError::Silicon)
+    }
+}
+/// Ready-to-use source renderer. Unsupported Silicon families remain explicit errors.
+pub fn native_state_formatter<'a>(
+    factory: &'a crate::state::terms::TermFactory,
+    trace_enabled: bool,
+) -> DefaultStateFormatter<
+    NativeAstStateRenderer<
+        fn(&Term) -> Result<String, UnsupportedTermRendering>,
+        impl Fn(&Chunk) -> Result<String, UnsupportedTermRendering> + 'a,
+    >,
+> {
+    DefaultStateFormatter {
+        renderer: NativeAstStateRenderer {
+            render_term,
+            render_chunk: move |chunk: &Chunk| render_chunk_with_factory(chunk, factory),
+        },
+        trace_enabled,
     }
 }
 /// Source hides built-in equalities involving a Combine, and `not(x == null)`
@@ -204,6 +602,32 @@ mod tests {
         identifiers::Identifier,
         terms::{Sort, TermFactory, TermOptions},
     };
+    #[test]
+    fn native_rendering_matches_source_for_basic_field_and_conditions() {
+        let f = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let receiver = f.var(Identifier::new("r"), Sort::Ref, false);
+        let value = f.var(Identifier::new("v"), Sort::Int, false);
+        let chunk = Chunk::Basic(crate::state::chunks::BasicChunk::new(
+            crate::resources::resources::BaseId::Field,
+            crate::state::chunks::BasicChunkIdentifier("field".into()),
+            vec![receiver.clone()],
+            None,
+            value,
+            None,
+            f.full_perm(),
+            None,
+            None,
+        ));
+        assert_eq!(render_chunk(&chunk).unwrap(), "r.field -> v # W");
+        assert_eq!(
+            render_term(&f.not(f.builtin_equals(receiver, f.null()))).unwrap(),
+            "r != Null"
+        );
+    }
     #[test]
     fn filter_hides_only_source_null_orientation_and_combine_equalities() {
         let f = TermFactory::new(TermOptions {

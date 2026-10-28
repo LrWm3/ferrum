@@ -51,57 +51,61 @@ impl Doc {
 }
 /// Render source document groups, counting UTF-16 text units and one scan unit per line.
 pub fn pretty(width: usize, doc: &Doc) -> String {
-    fn flat_width(doc: &Doc) -> Option<usize> {
-        match doc {
-            Doc::Nil => Some(0),
-            Doc::Text(s) => Some(s.encode_utf16().count()),
-            Doc::Line(_) => Some(1),
-            Doc::Concat(ds) => ds
-                .iter()
-                .try_fold(0usize, |sum, d| Some(sum.saturating_add(flat_width(d)?))),
-            Doc::Nest(_, d) | Doc::Group(d) => flat_width(d),
+    // The source trampolines document continuations; explicit stacks likewise avoid
+    // consuming the native call stack on deeply nested documents.
+    let mut widths = std::collections::HashMap::<*const Doc, usize>::new();
+    let mut scan = vec![(doc, false)];
+    while let Some((node, finish)) = scan.pop() {
+        if !finish {
+            scan.push((node, true));
+            match node {
+                Doc::Concat(children) => scan.extend(children.iter().map(|child| (child, false))),
+                Doc::Nest(_, child) | Doc::Group(child) => scan.push((child, false)),
+                _ => {}
+            }
+            continue;
         }
+        let width = match node {
+            Doc::Nil => 0,
+            Doc::Text(s) => s.encode_utf16().count(),
+            Doc::Line(_) => 1,
+            Doc::Concat(children) => children.iter().fold(0usize, |n, child| {
+                n.saturating_add(widths[&(child as *const Doc)])
+            }),
+            Doc::Nest(_, child) | Doc::Group(child) => widths[&(&**child as *const Doc)],
+        };
+        widths.insert(node as *const Doc, width);
     }
-    fn write(
-        doc: &Doc,
-        width: usize,
-        indent: usize,
-        flat: bool,
-        remaining: &mut i64,
-        out: &mut String,
-    ) {
+    let mut out = String::new();
+    let mut remaining = width as i64;
+    let mut pending = vec![(doc, 0usize, false)];
+    while let Some((doc, indent, flat)) = pending.pop() {
         match doc {
             Doc::Nil => {}
             Doc::Text(s) => {
                 out.push_str(s);
-                *remaining -= s.encode_utf16().count() as i64;
+                remaining -= s.encode_utf16().count() as i64;
             }
             Doc::Line(s) if flat => {
                 out.push_str(s);
-                *remaining -= s.encode_utf16().count() as i64;
+                remaining -= s.encode_utf16().count() as i64;
             }
             Doc::Line(_) => {
                 out.push('\n');
                 out.extend(std::iter::repeat_n(' ', indent));
-                *remaining = width as i64 - indent as i64;
+                remaining = width as i64 - indent as i64;
             }
-            Doc::Concat(ds) => {
-                for d in ds {
-                    write(d, width, indent, flat, remaining, out);
-                }
-            }
-            Doc::Nest(n, d) => write(d, width, indent.saturating_add(*n), flat, remaining, out),
+            Doc::Concat(ds) => pending.extend(ds.iter().rev().map(|d| (d, indent, flat))),
+            Doc::Nest(n, d) => pending.push((d, indent.saturating_add(*n), flat)),
             Doc::Group(d) => {
-                let fit = flat_width(d).is_some_and(|n| n as i64 <= *remaining);
-                write(d, width, indent, fit, remaining, out);
+                let fit = widths[&(&**d as *const Doc)] as i64 <= remaining;
+                pending.push((d, indent, fit));
             }
         }
     }
-    let mut out = String::new();
-    let mut remaining = width as i64;
-    write(doc, width, 0, false, &mut remaining, &mut out);
     out
 }
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Associativity {
     Left,
@@ -138,6 +142,39 @@ pub fn no_parentheses(
 pub enum PrintError {
     Unsupported(&'static str),
     MissingExpressionType,
+}
+/// Source type document, retaining extension document structure for surrounding groups.
+pub fn show_type_doc(t: &Type) -> Result<Doc, PrintError> {
+    let wrapped = |name: &str, inner: Doc| {
+        Doc::concat([Doc::text(name), Doc::text("["), inner, Doc::text("]")])
+    };
+    Ok(match t {
+        Type::Seq(x) => wrapped("Seq", show_type_doc(x)?),
+        Type::Set(x) => wrapped("Set", show_type_doc(x)?),
+        Type::Multiset(x) => wrapped("Multiset", show_type_doc(x)?),
+        Type::Map(pair) => wrapped(
+            "Map",
+            Doc::concat([
+                show_type_doc(&pair.0)?,
+                Doc::text(","),
+                show_type_doc(&pair.1)?,
+            ]),
+        ),
+        Type::Domain(d) => {
+            let args = d
+                .type_arguments()
+                .iter()
+                .map(show_type_doc)
+                .collect::<Result<Vec<_>, _>>()?;
+            if args.is_empty() {
+                Doc::text(d.domain_name.clone())
+            } else {
+                wrapped(&d.domain_name, join_docs(args, Doc::text(", ")))
+            }
+        }
+        Type::Extension(e) => e.pretty_doc()?,
+        _ => Doc::text(show_type(t)?),
+    })
 }
 pub fn show_type(t: &Type) -> Result<String, PrintError> {
     Ok(match t {
@@ -283,7 +320,12 @@ fn named_call(name: &str, args: &[Exp]) -> Result<Doc, PrintError> {
 fn variable_list(vars: &[crate::ast::program::LocalVarDecl]) -> Result<Doc, PrintError> {
     Ok(join_docs(
         vars.iter()
-            .map(|v| Ok(Doc::text(format!("{}: {}", v.name, show_type(&v.typ)?))))
+            .map(|v| {
+                Ok(Doc::concat([
+                    Doc::text(format!("{}: ", v.name)),
+                    show_type_doc(&v.typ)?,
+                ]))
+            })
             .collect::<Result<Vec<_>, PrintError>>()?,
         Doc::concat([Doc::text(","), Doc::line()]).group(),
     ))
@@ -415,9 +457,7 @@ fn show_exp_inner(e: &Exp) -> Result<Doc, PrintError> {
                 Ok(Doc::concat([
                     app,
                     Doc::text(": "),
-                    Doc::text(show_type(
-                        &e.typ().map_err(|_| PrintError::MissingExpressionType)?,
-                    )?),
+                    show_type_doc(&e.typ().map_err(|_| PrintError::MissingExpressionType)?)?,
                 ])
                 .parens())
             }
@@ -536,7 +576,11 @@ fn show_exp_inner(e: &Exp) -> Result<Doc, PrintError> {
                 EmptySet(_) => "Set",
                 _ => "Multiset",
             };
-            atom(format!("{name}[{}]()", show_type(t)?))
+            Ok(Doc::concat([
+                Doc::text(format!("{name}[")),
+                show_type_doc(t)?,
+                Doc::text("]()"),
+            ]))
         }
         ExplicitSeq(args) | ExplicitSet(args) | ExplicitMultiset(args) | ExplicitMap(args) => {
             let name = match e.kind() {
@@ -547,7 +591,13 @@ fn show_exp_inner(e: &Exp) -> Result<Doc, PrintError> {
             };
             named_call(name, args)
         }
-        EmptyMap(k, v) => atom(format!("Map[{},{}]()", show_type(k)?, show_type(v)?)),
+        EmptyMap(k, v) => Ok(Doc::concat([
+            Doc::text("Map["),
+            show_type_doc(k)?,
+            Doc::text(","),
+            show_type_doc(v)?,
+            Doc::text("]()"),
+        ])),
         RangeSeq(a, b) => Ok(Doc::concat([
             Doc::text("["),
             show_exp(a)?,
@@ -624,7 +674,7 @@ fn show_exp_inner(e: &Exp) -> Result<Doc, PrintError> {
         MapLookup(base, key) => Ok(Doc::concat([show_exp(base)?, bracketed(show_exp(key)?)])),
         MapDomain(base) => named_call("domain", std::slice::from_ref(base)),
         MapRange(base) => named_call("range", std::slice::from_ref(base)),
-        Extension(extension) => Ok(Doc::text(extension.0.pretty_print()?)),
+        Extension(extension) => extension.0.pretty_doc(),
     }
 }
 pub fn pretty_expression(e: &Exp) -> Result<String, PrintError> {
@@ -775,7 +825,12 @@ fn locals_in(declarations: &[crate::ast::program::Declaration]) -> Result<Vec<Do
                 None
             }
         })
-        .map(|v| Ok(Doc::text(format!("var {}: {}", v.name, show_type(&v.typ)?))))
+        .map(|v| {
+            Ok(Doc::concat([
+                Doc::text(format!("var {}: ", v.name)),
+                show_type_doc(&v.typ)?,
+            ]))
+        })
         .collect()
 }
 pub fn show_block(statement: &crate::ast::statement::Stmt) -> Result<Doc, PrintError> {
@@ -967,9 +1022,10 @@ pub fn show_stmt(statement: &crate::ast::statement::Stmt) -> Result<Doc, PrintEr
             contracts("invariant", &label.invariants)?.nest(2),
         ]),
         StmtKind::Goto(name) => Doc::text(format!("goto {name}")),
-        StmtKind::LocalVarDeclStmt(v) => {
-            Doc::text(format!("var {}: {}", v.name, show_type(&v.typ)?))
-        }
+        StmtKind::LocalVarDeclStmt(v) => Doc::concat([
+            Doc::text(format!("var {}: ", v.name)),
+            show_type_doc(&v.typ)?,
+        ]),
         StmtKind::Quasihavoc { guard, resource } => {
             let guard = match guard {
                 Some(g) => Doc::concat([show_exp(g)?, Doc::text(" ==> ")]),
@@ -991,7 +1047,12 @@ pub fn show_stmt(statement: &crate::ast::statement::Stmt) -> Result<Doc, PrintEr
                 join_docs(
                     variables
                         .iter()
-                        .map(|v| Ok(Doc::text(format!("{}: {}", v.name, show_type(&v.typ)?))))
+                        .map(|v| {
+                            Ok(Doc::concat([
+                                Doc::text(format!("{}: ", v.name)),
+                                show_type_doc(&v.typ)?,
+                            ]))
+                        })
                         .collect::<Result<Vec<_>, PrintError>>()?,
                     Doc::text(", "),
                 ),
@@ -1000,7 +1061,7 @@ pub fn show_stmt(statement: &crate::ast::statement::Stmt) -> Result<Doc, PrintEr
                 resource_doc(resource)?,
             ])
         }
-        StmtKind::Extension(v) => Doc::text(v.0.pretty_print()?),
+        StmtKind::Extension(v) => v.0.pretty_doc()?,
     };
     Ok(with_info(&statement.metadata().info, body))
 }
@@ -1011,10 +1072,11 @@ fn domain_function(function: &crate::ast::program::DomainFunc) -> Result<Doc, Pr
         .formal_args
         .iter()
         .map(|arg| match arg {
-            AnyLocalVarDecl::Named(v) => {
-                Ok(Doc::text(format!("{}: {}", v.name, show_type(&v.typ)?)))
-            }
-            AnyLocalVarDecl::Unnamed(v) => Ok(Doc::text(show_type(&v.typ)?)),
+            AnyLocalVarDecl::Named(v) => Ok(Doc::concat([
+                Doc::text(format!("{}: ", v.name)),
+                show_type_doc(&v.typ)?,
+            ])),
+            AnyLocalVarDecl::Unnamed(v) => show_type_doc(&v.typ),
         })
         .collect::<Result<Vec<_>, PrintError>>()?;
     let args = join_docs(args, Doc::concat([Doc::text(","), Doc::line()]).group()).parens();
@@ -1033,7 +1095,11 @@ fn domain_function(function: &crate::ast::program::DomainFunc) -> Result<Doc, Pr
             }),
             Doc::text(&function.name),
             args,
-            Doc::text(format!(": {} ", show_type(&function.typ)?)),
+            Doc::concat([
+                Doc::text(": "),
+                show_type_doc(&function.typ)?,
+                Doc::text(" "),
+            ]),
             interpretation,
         ]),
     ))
@@ -1118,7 +1184,10 @@ pub fn show_member(member: &crate::ast::program::Member) -> Result<Doc, PrintErr
     use crate::ast::program::Member;
     let (doc, info) = match member {
         Member::Field(v) => (
-            Doc::text(format!("field {}: {}", v.name, show_type(&v.typ)?)),
+            Doc::concat([
+                Doc::text(format!("field {}: ", v.name)),
+                show_type_doc(&v.typ)?,
+            ]),
             &v.meta.info,
         ),
         Member::Domain(v) => (domain_doc(v)?, &v.meta.info),
@@ -1155,7 +1224,7 @@ pub fn show_member(member: &crate::ast::program::Member) -> Result<Doc, PrintErr
                 Doc::concat([
                     Doc::text(format!("function {}", v.name)),
                     variable_list(&v.formal_args)?.parens().nest(2),
-                    Doc::text(format!(": {}", show_type(&v.typ)?)),
+                    Doc::concat([Doc::text(": "), show_type_doc(&v.typ)?]),
                     Doc::concat([pre, post, decreases(&measures)?]).nest(2),
                     Doc::line(),
                     body,
@@ -1201,7 +1270,7 @@ pub fn show_member(member: &crate::ast::program::Member) -> Result<Doc, PrintErr
             let metadata =
                 v.0.metadata()
                     .map_err(|_| PrintError::Unsupported("extension member metadata"))?;
-            (Doc::text(v.0.pretty_print()?), &metadata.info)
+            (v.0.pretty_doc()?, &metadata.info)
         }
     };
     Ok(with_info(info, doc))
@@ -1233,9 +1302,12 @@ pub fn show_node(node: &crate::ast::utility::nodes::Node) -> Result<Doc, PrintEr
             StmtKind::Label(v.clone()),
             v.meta.clone(),
         )),
-        Node::LocalDecl(v) => Ok(Doc::text(format!("{}: {}", v.name, show_type(&v.typ)?))),
-        Node::UnnamedLocalDecl(v) => Ok(Doc::text(show_type(&v.typ)?)),
-        Node::Type(v) => Ok(Doc::text(show_type(v)?)),
+        Node::LocalDecl(v) => Ok(Doc::concat([
+            Doc::text(format!("{}: ", v.name)),
+            show_type_doc(&v.typ)?,
+        ])),
+        Node::UnnamedLocalDecl(v) => show_type_doc(&v.typ),
+        Node::Type(v) => show_type_doc(v),
         Node::DomainFunc(v) => domain_function(v),
         Node::DomainAxiom(v) => domain_axiom(v),
         Node::Member(v) => show_member(v),
@@ -1272,6 +1344,16 @@ pub fn expression_to_string(expression: &Exp) -> Result<String, PrintError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn document_layout_does_not_recurse_on_deep_groups() {
+        let mut doc = super::Doc::text("x");
+        for _ in 0..30000 {
+            doc = doc.group();
+        }
+        assert_eq!(super::pretty(75, &doc), "x");
+        // Box drop itself is recursive; this test specifically exercises layout.
+        std::mem::forget(doc);
+    }
     #[test]
     fn source_nested_groups_scan_line_as_one_unit() {
         use super::{Doc, pretty};

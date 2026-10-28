@@ -60,6 +60,15 @@ impl Refute {
     }
 }
 impl ExtensionStmt for Refute {
+    fn pretty_doc(
+        &self,
+    ) -> Result<
+        crate::ast::pretty::pretty_printer::Doc,
+        crate::ast::pretty::pretty_printer::PrintError,
+    > {
+        use crate::ast::pretty::pretty_printer::{Doc, show_exp};
+        Ok(Doc::concat([Doc::text("refute "), show_exp(&self.exp)?]))
+    }
     fn pretty_print(&self) -> Result<String, crate::ast::pretty::pretty_printer::PrintError> {
         Ok(format!(
             "refute {}",
