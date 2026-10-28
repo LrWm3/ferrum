@@ -20,7 +20,7 @@
 //! Open decisions:
 //! Agree on JSON compatibility and defaults with log consumers.
 //!
-//! Status: record matching and defaults implemented; JSON configuration decoding remains.
+//! Status: record matching, defaults and source JSON product format implemented.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -69,5 +69,59 @@ impl LogConfig {
             }
         }
         Ok(None)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LogConfigError(pub String);
+impl LogConfig {
+    /// The JSON product format requires all six fields; `default` is only used
+    /// when no configuration file is supplied. Record values may be absent/null.
+    pub fn from_json(value: &serde_json::Value) -> Result<Self, LogConfigError> {
+        let object = value
+            .as_object()
+            .ok_or_else(|| LogConfigError("LogConfig must be an object".into()))?;
+        let boolean = |key: &str| {
+            object
+                .get(key)
+                .and_then(|v| v.as_bool())
+                .ok_or_else(|| LogConfigError(format!("{key} must be a boolean")))
+        };
+        let records = object
+            .get("recordConfigs")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| LogConfigError("recordConfigs must be an array".into()))?;
+        let mut record_configs = Vec::new();
+        for value in records {
+            let object = value
+                .as_object()
+                .ok_or_else(|| LogConfigError("RecordConfig must be an object".into()))?;
+            let kind = object
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| LogConfigError("kind must be a string".into()))?
+                .into();
+            let value = match object.get("value") {
+                None | Some(serde_json::Value::Null) => None,
+                Some(serde_json::Value::String(value)) => Some(value.clone()),
+                _ => return Err(LogConfigError("value must be a string or null".into())),
+            };
+            record_configs.push(RecordConfig { kind, value });
+        }
+        Ok(Self {
+            is_black_list: boolean("isBlackList")?,
+            include_store: boolean("includeStore")?,
+            include_heap: boolean("includeHeap")?,
+            include_old_heap: boolean("includeOldHeap")?,
+            include_pcs: boolean("includePcs")?,
+            record_configs,
+        })
+    }
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({"isBlackList":self.is_black_list,"includeStore":self.include_store,"includeHeap":self.include_heap,"includeOldHeap":self.include_old_heap,"includePcs":self.include_pcs,"recordConfigs":self.record_configs.iter().map(|r| {
+            let mut fields = serde_json::Map::new(); fields.insert("kind".into(),serde_json::json!(r.kind));
+            if let Some(value) = &r.value { fields.insert("value".into(),serde_json::json!(value)); }
+            serde_json::Value::Object(fields)
+        }).collect::<Vec<_>>()})
     }
 }

@@ -1254,7 +1254,7 @@ repository = "silicon"
 upstream = "src/main/scala/logger/LogConfig.scala"
 destination = "crates/ferrum-silicon/src/logger/log_config.rs"
 status = "skeleton"
-remaining = ["Native record/config data and source rendering contracts exist; concrete renderers, logger integration and JSON configuration remain."]
+remaining = ["Source defaults, matching and JSON product format exist; logger-run configuration file loading remains."]
 
 [[modules]]
 repository = "silicon"
@@ -1477,13 +1477,15 @@ remaining = ["Member scope/branch recording and tree rendering exist; root-run o
 repository = "silicon"
 upstream = "src/main/scala/logger/writer/SymbExLogReportWriter.scala"
 destination = "crates/ferrum-silicon/src/logger/writer/symb_ex_log_report_writer.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source JSON schemas and traversal implemented; exact literal and fallback printing remain injected; nullable quantifier names remain unrepresented."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/writer/TermWriter.scala"
 destination = "crates/ferrum-silicon/src/logger/writer/term_writer.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source JSON schemas and traversal implemented; exact literal and fallback printing remain injected; nullable quantifier names remain unrepresented."]
 
 [[modules]]
 repository = "silicon"
