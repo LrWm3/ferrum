@@ -89,6 +89,11 @@ AST break/continue, exception, try/catch/else/finally and inlined-call control
 now connect the source activation flags and restoration order. A further 35-case
 constructed-program matrix passes on both transports, including failing assertions
 after control transfers. Broader relational compatibility remains unproved.
+Programmatic dynamic checks and `Low` comparator functions now follow source
+lookup, type substitution and traversal order. A 66-case constructed-program
+suite passes through both transports, including controls, dynamic assertions,
+relational predicates and direct/nested comparators. Nested `Low` within `Low`
+and alternate SIF configurations retain explicit unsupported boundaries.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and

@@ -45,8 +45,8 @@
 //! inhale/exhale, conditionals, calls, fields, allocation and heap-independent functions are
 //! implemented, including heap-dependent functions and relational predicate low functions,
 //! direct assertions, selected implications and fold/unfold checks. Unsupported relational
-//! contexts fail explicitly. Optimized loops and AST return/break/continue/exception
-//! control, try/catch/finally and inlined-call control families are connected.
+//! contexts fail explicitly. Optimized loops, return/break/continue/exception control,
+//! try/catch/finally, inlined calls, dynamic checks and Low comparators are connected.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -390,6 +390,15 @@ mod tests {
             &second,
             &mut HashMap::from([("x".into(), "x_0".into())]),
             &HashMap::new(),
+            &Program::new(
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                Default::default(),
+            ),
             &HashSet::new(),
             None,
             None,
@@ -438,6 +447,15 @@ mod tests {
             &inactive,
             &mut HashMap::new(),
             &HashMap::new(),
+            &Program::new(
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                Default::default(),
+            ),
             &HashSet::new(),
             None,
             None,
@@ -827,6 +845,271 @@ mod tests {
         let (mut checks, mut loops) = (0, 0);
         visit(&Node::Program(output), &mut checks, &mut loops);
         assert_eq!((checks, loops), (2, 1));
+    }
+
+    #[test]
+    fn predicate_comparator_resolves_domain_before_function_and_preserves_substitution() {
+        use super::super::sif_ast_extensions::{SifExpression, SifExpressionKind};
+        use crate::ast::{
+            ast::Metadata,
+            program::{Domain, DomainData, DomainFunc, DomainFuncData, Function, FunctionData},
+            r#type::{Type, TypeVar},
+        };
+        let meta = Metadata::default();
+        let arg = Exp::new(ExpKind::IntLit(1.into()), meta.clone());
+        let variable = TypeVar::new("T");
+        let substitutions = HashMap::from([(variable.clone(), Type::Int)]);
+        let low = SifExpression {
+            kind: SifExpressionKind::Low {
+                exp: arg,
+                comparator: Some("cmp".into()),
+                type_variables: substitutions.clone(),
+            },
+            meta: meta.clone(),
+        }
+        .expression()
+        .unwrap();
+        let domain_function = DomainFunc::new(DomainFuncData {
+            name: "cmp".into(),
+            formal_args: vec![],
+            typ: Type::Bool,
+            unique: false,
+            interpretation: None,
+            domain_name: "D".into(),
+            meta: meta.clone(),
+        });
+        let domain = Domain::new(DomainData {
+            name: "D".into(),
+            functions: vec![domain_function],
+            axioms: vec![],
+            type_vars: vec![variable],
+            interpretations: None,
+            meta: meta.clone(),
+        });
+        let function = Function::new(FunctionData {
+            name: "cmp".into(),
+            formal_args: vec![],
+            typ: Type::Bool,
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(
+            vec![domain],
+            vec![],
+            vec![function],
+            vec![],
+            vec![],
+            vec![],
+            meta,
+        );
+        let result = predicate_low_body(&low, &HashMap::new(), &HashMap::new(), &program).unwrap();
+        assert!(
+            matches!(result.kind(), ExpKind::DomainFuncApp(name, args, types) if name == "cmp" && args.len() == 2 && types == &substitutions)
+        );
+        assert_eq!(result.0.extra.domain_name.as_deref(), Some("D"));
+        let truth = Exp::new(ExpKind::TrueLit, Metadata::default());
+        let direct = sif_assertion(
+            &low,
+            &truth,
+            &truth,
+            &HashMap::new(),
+            &HashMap::new(),
+            &program,
+            &HashSet::new(),
+        )
+        .unwrap();
+        assert!(
+            matches!(direct.kind(), ExpKind::Implies(_, comparison) if matches!(comparison.kind(), ExpKind::DomainFuncApp(name, _, types) if name == "cmp" && types == &substitutions))
+        );
+        let nested = Exp::new(ExpKind::Or(low.clone(), truth.clone()), Metadata::default());
+        sif_assertion(
+            &nested,
+            &truth,
+            &truth,
+            &HashMap::new(),
+            &HashMap::new(),
+            &program,
+            &HashSet::new(),
+        )
+        .unwrap();
+        let nested_low = SifExpression {
+            kind: SifExpressionKind::Low {
+                exp: low.clone(),
+                comparator: None,
+                type_variables: Default::default(),
+            },
+            meta: Metadata::default(),
+        }
+        .expression()
+        .unwrap();
+        let nested_occurrence =
+            Exp::new(ExpKind::Or(nested_low, truth.clone()), Metadata::default());
+        assert!(
+            sif_assertion(
+                &nested_occurrence,
+                &truth,
+                &truth,
+                &HashMap::new(),
+                &HashMap::new(),
+                &program,
+                &HashSet::new()
+            )
+            .is_err()
+        );
+        let missing_program = Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Metadata::default(),
+        );
+        assert!(
+            sif_assertion(
+                &low,
+                &truth,
+                &truth,
+                &HashMap::new(),
+                &HashMap::new(),
+                &missing_program,
+                &HashSet::new()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn dynamic_metadata_on_unrelated_assertion_is_ignored() {
+        use super::super::sif_ast_extensions::SifDynCheckInfo;
+        use crate::ast::ast::{Info, Metadata};
+        use std::sync::Arc;
+        let plain = Metadata::default();
+        let truth = Exp::new(ExpKind::TrueLit, plain.clone());
+        let mut meta = plain;
+        meta.info = Info::Extension(Arc::new(SifDynCheckInfo {
+            comments: vec![],
+            dyn_check: truth.clone(),
+            only_dyn_version: true,
+        }));
+        let ordinary = Exp::new(ExpKind::TrueLit, meta);
+        let output = sif_assertion(
+            &ordinary,
+            &truth,
+            &truth,
+            &HashMap::new(),
+            &HashMap::new(),
+            &Program::new(
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                Default::default(),
+            ),
+            &HashSet::new(),
+        )
+        .unwrap();
+        assert!(matches!(output.kind(), ExpKind::And(..)));
+    }
+
+    #[test]
+    fn dynamic_predicate_low_only_changes_relational_obligation() {
+        use super::super::sif_ast_extensions::SifDynCheckInfo;
+        use crate::ast::{
+            ast::{Info, Metadata},
+            expression::PredicateAccess,
+            statement::PredicateAccessPredicate,
+        };
+        use std::sync::Arc;
+        let plain = Metadata::default();
+        let truth = Exp::new(ExpKind::TrueLit, plain.clone());
+        for only in [false, true] {
+            let mut meta = plain.clone();
+            meta.info = Info::Extension(Arc::new(SifDynCheckInfo {
+                comments: vec![],
+                dyn_check: truth.clone(),
+                only_dyn_version: only,
+            }));
+            let location = PredicateAccess::new(vec![], "P".into(), plain.clone());
+            let exp = Exp::new(
+                ExpKind::PredicateAccessPredicate(PredicateAccessPredicate::new(
+                    location,
+                    None,
+                    meta.clone(),
+                )),
+                meta,
+            );
+            let output = predicate_low_assertion(
+                &exp,
+                &truth,
+                &truth,
+                &HashMap::from([("P".into(), "P_0".into())]),
+                &HashMap::new(),
+            )
+            .unwrap();
+            let ExpKind::And(_, low) = output.kind() else {
+                panic!("predicate conjunction")
+            };
+            if only {
+                assert!(matches!(low.kind(), ExpKind::Implies(..)));
+            } else {
+                assert!(matches!(low.kind(), ExpKind::InhaleExhaleExp(..)));
+            }
+        }
+    }
+
+    #[test]
+    fn dynamic_low_assertion_preserves_inhale_exhale_choice() {
+        use super::super::sif_ast_extensions::{SifDynCheckInfo, SifExpression, SifExpressionKind};
+        use crate::ast::ast::{Info, Metadata};
+        use std::sync::Arc;
+        let plain = Metadata::default();
+        let truth = Exp::new(ExpKind::TrueLit, plain.clone());
+        for only in [false, true] {
+            let mut meta = plain.clone();
+            meta.info = Info::Extension(Arc::new(SifDynCheckInfo {
+                comments: vec![],
+                dyn_check: truth.clone(),
+                only_dyn_version: only,
+            }));
+            let low = SifExpression {
+                kind: SifExpressionKind::Low {
+                    exp: truth.clone(),
+                    comparator: None,
+                    type_variables: Default::default(),
+                },
+                meta,
+            }
+            .expression()
+            .unwrap();
+            let output = sif_assertion(
+                &low,
+                &truth,
+                &truth,
+                &HashMap::new(),
+                &HashMap::new(),
+                &Program::new(
+                    vec![],
+                    vec![],
+                    vec![],
+                    vec![],
+                    vec![],
+                    vec![],
+                    Default::default(),
+                ),
+                &HashSet::new(),
+            )
+            .unwrap();
+            if only {
+                assert!(matches!(output.kind(), ExpKind::Implies(..)));
+            } else {
+                assert!(matches!(output.kind(), ExpKind::InhaleExhaleExp(..)));
+            }
+        }
     }
 
     #[test]
@@ -1540,6 +1823,53 @@ fn sif_forward_meta(node: Node, meta: &crate::ast::ast::Metadata) -> crate::ast:
     result
 }
 
+fn sif_low_comparison(
+    node: &Exp,
+    value: &Exp,
+    comparator: Option<&str>,
+    type_variables: &crate::ast::r#type::TypeSubstitution,
+    names: &HashMap<String, String>,
+    fields: &HashMap<String, crate::ast::program::Field>,
+    program: &Program,
+) -> Result<Exp, String> {
+    use crate::ast::expression::ExpExtra;
+    let args = vec![
+        value.clone(),
+        sif_pure_expression(value, true, names, fields)?,
+    ];
+    let meta = sif_forward_meta(Node::Exp(node.clone()), node.metadata());
+    match comparator {
+        None => Ok(Exp::new(
+            ExpKind::EqCmp(args[0].clone(), args[1].clone()),
+            meta,
+        )),
+        Some(name) => {
+            if let Some(function) = program.find_domain_function_optionally(name) {
+                Ok(Exp::with_extra(
+                    ExpKind::DomainFuncApp(name.into(), args, type_variables.clone()),
+                    meta,
+                    ExpExtra {
+                        typ: Some(function.typ.substitute(type_variables)),
+                        domain_name: Some(function.domain_name.clone()),
+                        interpretation: None,
+                    },
+                ))
+            } else if let Some(function) = program.find_function_optionally(name) {
+                Ok(Exp::with_extra(
+                    ExpKind::FuncApp(name.into(), args),
+                    meta,
+                    ExpExtra {
+                        typ: Some(function.typ.clone()),
+                        ..Default::default()
+                    },
+                ))
+            } else {
+                Err(format!("unknown SIF low comparator {name}"))
+            }
+        }
+    }
+}
+
 /// Translate the relational contribution of a predicate body to the source low-function body.
 /// Callers must construct both predicate instances and supply the source primed-name map.
 pub fn predicate_low_body(
@@ -1567,9 +1897,39 @@ pub fn predicate_low_body(
                 sif_forward_meta(Node::Exp(expression.clone()), &meta),
             ),
             Some(SifExpression {
-                kind: SifExpressionKind::Low { .. },
+                kind:
+                    SifExpressionKind::Low {
+                        exp,
+                        comparator: Some(name),
+                        type_variables,
+                    },
                 ..
-            }) => return Err("SIF predicate low comparator is unsupported".into()),
+            }) => {
+                let args = vec![exp.clone(), sif_pure_expression(exp, true, names, fields)?];
+                let forwarded = sif_forward_meta(Node::Exp(expression.clone()), &meta);
+                if let Some(function) = program.find_domain_function_optionally(name) {
+                    Exp::with_extra(
+                        ExpKind::DomainFuncApp(name.clone(), args, type_variables.clone()),
+                        forwarded,
+                        ExpExtra {
+                            typ: Some(function.typ.substitute(type_variables)),
+                            domain_name: Some(function.domain_name.clone()),
+                            interpretation: None,
+                        },
+                    )
+                } else if let Some(function) = program.find_function_optionally(name) {
+                    Exp::with_extra(
+                        ExpKind::FuncApp(name.clone(), args),
+                        forwarded,
+                        ExpExtra {
+                            typ: Some(function.typ.clone()),
+                            ..Default::default()
+                        },
+                    )
+                } else {
+                    return Err(format!("unknown SIF low comparator {name}"));
+                }
+            }
             _ => Exp::new(ExpKind::TrueLit, Metadata::default()),
         },
         ExpKind::PredicateAccessPredicate(access) => {
@@ -1757,9 +2117,6 @@ pub fn predicate_low_assertion(
     let ExpKind::PredicateAccessPredicate(access) = expression.kind() else {
         return Err("expected SIF predicate access assertion".into());
     };
-    if expression.metadata().info.find(&|info| matches!(info, crate::ast::ast::Info::Extension(ext) if ext.as_any().is::<super::sif_ast_extensions::SifDynCheckInfo>())).is_some() {
-        return Err("SIF dynamic predicate checks are unsupported".into());
-    }
     let mut arguments = access.location.args.clone();
     arguments.extend(
         access
@@ -1785,6 +2142,33 @@ pub fn predicate_low_assertion(
         Metadata::default(),
     );
     let low = Exp::new(ExpKind::Implies(active, app), Metadata::default());
+    let low = if let Some(dynamic) = expression
+        .metadata()
+        .info
+        .find_extension::<super::sif_ast_extensions::SifDynCheckInfo>()
+    {
+        let equality = Exp::new(
+            ExpKind::EqCmp(
+                sif_pure_expression(&dynamic.dyn_check, false, names, fields)?,
+                sif_pure_expression(&dynamic.dyn_check, true, names, fields)?,
+            ),
+            Metadata::default(),
+        );
+        let conditional = Exp::new(
+            ExpKind::Implies(equality, low.clone()),
+            expression.metadata().clone(),
+        );
+        if dynamic.only_dyn_version {
+            conditional
+        } else {
+            Exp::new(
+                ExpKind::InhaleExhaleExp(conditional, low),
+                expression.metadata().clone(),
+            )
+        }
+    } else {
+        low
+    };
     let meta = sif_forward_meta(Node::Exp(expression.clone()), expression.metadata());
     let normal = sif_pure_expression(expression, false, names, fields)?;
     let prime = sif_pure_expression(expression, true, names, fields)?;
@@ -2362,6 +2746,7 @@ fn sif_assertion(
     second: &Exp,
     names: &HashMap<String, String>,
     fields: &HashMap<String, crate::ast::program::Field>,
+    program: &Program,
     low_predicates: &HashSet<String>,
 ) -> Result<Exp, String> {
     sif_assertion_with_flags(
@@ -2370,6 +2755,7 @@ fn sif_assertion(
         second,
         names,
         fields,
+        program,
         low_predicates,
         SifControls::default(),
     )
@@ -2381,14 +2767,16 @@ fn sif_assertion_with_flags(
     second: &Exp,
     names: &HashMap<String, String>,
     fields: &HashMap<String, crate::ast::program::Field>,
+    program: &Program,
     low_predicates: &HashSet<String>,
     event_flags: SifControls<'_>,
 ) -> Result<Exp, String> {
     use super::sif_ast_extensions::{SifExpression, SifExpressionKind};
     use crate::ast::ast::Metadata;
-    if exp.metadata().info.find(&|info| matches!(info, crate::ast::ast::Info::Extension(ext) if ext.as_any().is::<super::sif_ast_extensions::SifDynCheckInfo>())).is_some() {
-        return Err("SIF dynamic checks are outside the supported product fragment".into());
-    }
+    let dynamic = exp
+        .metadata()
+        .info
+        .find_extension::<super::sif_ast_extensions::SifDynCheckInfo>();
     let forwarded = || sif_forward_meta(Node::Exp(exp.clone()), exp.metadata());
     let make = |kind| Exp::new(kind, Metadata::default());
     match exp.kind() {
@@ -2400,6 +2788,7 @@ fn sif_assertion_with_flags(
                     second,
                     names,
                     fields,
+                    program,
                     low_predicates,
                     event_flags,
                 )?,
@@ -2409,6 +2798,7 @@ fn sif_assertion_with_flags(
                     second,
                     names,
                     fields,
+                    program,
                     low_predicates,
                     event_flags,
                 )?,
@@ -2441,6 +2831,7 @@ fn sif_assertion_with_flags(
                         second,
                         names,
                         fields,
+                        program,
                         low_predicates,
                         event_flags,
                     )?,
@@ -2462,6 +2853,7 @@ fn sif_assertion_with_flags(
                         second,
                         names,
                         fields,
+                        program,
                         low_predicates,
                         event_flags,
                     )?,
@@ -2471,6 +2863,7 @@ fn sif_assertion_with_flags(
                         second,
                         names,
                         fields,
+                        program,
                         low_predicates,
                         event_flags,
                     )?,
@@ -2494,6 +2887,7 @@ fn sif_assertion_with_flags(
                 second,
                 names,
                 fields,
+                program,
                 low_predicates,
                 event_flags,
             )?;
@@ -2518,6 +2912,7 @@ fn sif_assertion_with_flags(
                 second,
                 names,
                 fields,
+                program,
                 low_predicates,
                 event_flags,
             )?),
@@ -2530,22 +2925,61 @@ fn sif_assertion_with_flags(
             match &sif.kind {
                 SifExpressionKind::Low {
                     exp: value,
-                    comparator: None,
-                    ..
+                    comparator,
+                    type_variables,
                 } => {
-                    let normal = sif_pure_expression(value, false, names, fields)?;
-                    let primed = sif_pure_expression(value, true, names, fields)?;
-                    let equality = Exp::new(ExpKind::EqCmp(normal, primed), forwarded());
+                    let equality = sif_low_comparison(
+                        exp,
+                        value,
+                        comparator.as_deref(),
+                        type_variables,
+                        names,
+                        fields,
+                        program,
+                    )?;
                     let both = make(ExpKind::And(first.clone(), second.clone()));
-                    Ok(Exp::new(ExpKind::Implies(both, equality), forwarded()))
+                    let ordinary = Exp::new(
+                        ExpKind::Implies(both.clone(), equality.clone()),
+                        forwarded(),
+                    );
+                    if let Some(dynamic) = dynamic {
+                        let dyn_equal = make(ExpKind::EqCmp(
+                            sif_pure_expression(&dynamic.dyn_check, false, names, fields)?,
+                            sif_pure_expression(&dynamic.dyn_check, true, names, fields)?,
+                        ));
+                        let conditional = Exp::new(
+                            ExpKind::Implies(both, make(ExpKind::Implies(dyn_equal, equality))),
+                            forwarded(),
+                        );
+                        if dynamic.only_dyn_version {
+                            Ok(conditional)
+                        } else {
+                            Ok(Exp::new(
+                                ExpKind::InhaleExhaleExp(conditional, ordinary),
+                                forwarded(),
+                            ))
+                        }
+                    } else {
+                        Ok(ordinary)
+                    }
                 }
-                SifExpressionKind::LowEvent => Ok(Exp::new(
-                    ExpKind::EqCmp(
-                        sif_active(Some(first), event_flags, false, true),
-                        sif_active(Some(second), event_flags, true, true),
-                    ),
-                    forwarded(),
-                )),
+                SifExpressionKind::LowEvent => {
+                    let active1 = sif_active(Some(first), event_flags, false, true);
+                    let active2 = sif_active(Some(second), event_flags, true, true);
+                    let equal = Exp::new(ExpKind::EqCmp(active1.clone(), active2), forwarded());
+                    if let Some(dynamic) = dynamic {
+                        let dyn_equal = make(ExpKind::EqCmp(
+                            sif_pure_expression(&dynamic.dyn_check, false, names, fields)?,
+                            sif_pure_expression(&dynamic.dyn_check, true, names, fields)?,
+                        ));
+                        Ok(Exp::new(
+                            ExpKind::And(equal, make(ExpKind::Implies(active1, dyn_equal))),
+                            forwarded(),
+                        ))
+                    } else {
+                        Ok(equal)
+                    }
+                }
                 SifExpressionKind::LowExit => Ok(Exp::new(
                     ExpKind::Implies(
                         make(ExpKind::And(first.clone(), second.clone())),
@@ -2572,49 +3006,50 @@ fn sif_assertion_with_flags(
             if !is_directly_unary(exp, &SifConfig::default())
                 .map_err(|e| format!("SIF expression traversal: {e:?}"))?
             {
-                use crate::ast::utility::rewriter::strategy::rewrite_expression_bottom_up;
-                let normal = rewrite_expression_bottom_up(
-                    exp,
-                    &mut |node| {
-                        let ExpKind::Extension(handle) = node.kind() else {
-                            return Ok(node.clone());
-                        };
-                        let Some(sif) = handle.0.as_any().downcast_ref::<SifExpression>() else {
-                            return Err("unsupported SIF expression extension".to_owned());
-                        };
-                        let (kind, meta) = match &sif.kind {
-                            SifExpressionKind::Low {
-                                exp: value,
-                                comparator: None,
-                                ..
-                            } => {
-                                let primed = sif_pure_expression(value, true, names, fields)?;
-                                let equality = Exp::new(
-                                    ExpKind::EqCmp(value.clone(), primed),
-                                    sif_forward_meta(Node::Exp(node.clone()), node.metadata()),
-                                );
-                                let mut meta = Metadata::default();
-                                meta.error_trafo =
-                                    sif_forward_meta(Node::Exp(node.clone()), node.metadata())
-                                        .error_trafo;
-                                (
-                                    ExpKind::Implies(
-                                        make(ExpKind::And(first.clone(), second.clone())),
-                                        equality,
-                                    ),
-                                    meta,
-                                )
-                            }
-                            SifExpressionKind::LowEvent => (
-                                ExpKind::And(first.clone(), second.clone()),
-                                Metadata::default(),
-                            ),
-                            _ => return Err("unsupported SIF relational expression".into()),
-                        };
-                        Ok(Exp::new(kind, meta))
-                    },
-                    &|handle, _| Ok(handle.clone()),
-                )
+                // Scala's Innermost strategy applies the rule before its children and
+                // stops descending once a node is replaced.
+                let normal = rewrite_loop_preorder(exp, &|node| {
+                    let ExpKind::Extension(handle) = node.kind() else {
+                        return Ok(node.clone());
+                    };
+                    let Some(sif) = handle.0.as_any().downcast_ref::<SifExpression>() else {
+                        return Err("unsupported SIF expression extension".to_owned());
+                    };
+                    let (kind, meta) = match &sif.kind {
+                        SifExpressionKind::Low {
+                            exp: value,
+                            comparator,
+                            type_variables,
+                        } => {
+                            let equality = sif_low_comparison(
+                                node,
+                                value,
+                                comparator.as_deref(),
+                                type_variables,
+                                names,
+                                fields,
+                                program,
+                            )?;
+                            let mut meta = Metadata::default();
+                            meta.error_trafo =
+                                sif_forward_meta(Node::Exp(node.clone()), node.metadata())
+                                    .error_trafo;
+                            (
+                                ExpKind::Implies(
+                                    make(ExpKind::And(first.clone(), second.clone())),
+                                    equality,
+                                ),
+                                meta,
+                            )
+                        }
+                        SifExpressionKind::LowEvent => (
+                            ExpKind::And(first.clone(), second.clone()),
+                            Metadata::default(),
+                        ),
+                        _ => return Err("unsupported SIF relational expression".into()),
+                    };
+                    Ok(Exp::new(kind, meta))
+                })
                 .map_err(|e| format!("SIF expression rewriting: {e:?}"))?;
                 let normal = sif_pure_expression(&normal, false, names, fields)?;
                 let both = make(ExpKind::And(first.clone(), second.clone()));
@@ -2645,6 +3080,7 @@ fn termination_channel_checks(
     second: &Exp,
     names: &HashMap<String, String>,
     fields: &HashMap<String, crate::ast::program::Field>,
+    program: &Program,
     low_predicates: &HashSet<String>,
     event_flags: SifControls<'_>,
 ) -> Result<Vec<Exp>, String> {
@@ -2696,8 +3132,16 @@ fn termination_channel_checks(
     .expression()
     .map_err(|e| format!("SIF low construction: {e:?}"))?;
     let translate = |e: &Exp, meta: Metadata| -> Result<Exp, String> {
-        let transformed =
-            sif_assertion_with_flags(e, first, second, names, fields, low_predicates, event_flags)?;
+        let transformed = sif_assertion_with_flags(
+            e,
+            first,
+            second,
+            names,
+            fields,
+            program,
+            low_predicates,
+            event_flags,
+        )?;
         Ok(Exp::with_extra(
             transformed.kind().clone(),
             meta,
@@ -2837,6 +3281,7 @@ fn sif_assertion_block(
     second: &Exp,
     names: &mut HashMap<String, String>,
     fields: &HashMap<String, crate::ast::program::Field>,
+    program: &Program,
     low_predicates: &HashSet<String>,
     return_flags: Option<&(
         crate::ast::program::LocalVarDecl,
@@ -2995,6 +3440,7 @@ fn sif_assertion_block(
                         second,
                         names,
                         fields,
+                        program,
                         low_predicates,
                         controls,
                     )?;
@@ -3345,6 +3791,7 @@ fn sif_assertion_block(
                     &refs[1],
                     names,
                     fields,
+                    program,
                     low_predicates,
                     return_flags,
                     continue_flags,
@@ -3358,6 +3805,7 @@ fn sif_assertion_block(
                     &refs[3],
                     names,
                     fields,
+                    program,
                     low_predicates,
                     return_flags,
                     continue_flags,
@@ -3667,6 +4115,7 @@ fn sif_assertion_block(
                         raw_second,
                         names,
                         fields,
+                        program,
                         low_predicates,
                         controls,
                     )? {
@@ -3732,6 +4181,7 @@ fn sif_assertion_block(
                         &invariant2,
                         names,
                         fields,
+                        program,
                         low_predicates,
                         controls,
                     )?;
@@ -3767,6 +4217,7 @@ fn sif_assertion_block(
                     &inner2_exp,
                     names,
                     fields,
+                    program,
                     low_predicates,
                     return_flags,
                     continue_flags,
@@ -3910,6 +4361,7 @@ fn sif_assertion_block(
                         assert_second,
                         names,
                         fields,
+                        program,
                         low_predicates,
                         controls,
                     )?),
@@ -4105,6 +4557,7 @@ fn sif_assertion_block(
                         raw_second,
                         names,
                         fields,
+                        program,
                         low_predicates,
                         flags[0].as_ref(),
                         flags[2].as_ref(),
@@ -4227,6 +4680,7 @@ fn sif_assertion_block(
                         raw_second,
                         names,
                         fields,
+                        program,
                         low_predicates,
                         return_flags,
                         continue_flags,
@@ -4287,6 +4741,7 @@ fn sif_assertion_block(
                             &pe2,
                             names,
                             fields,
+                            program,
                             low_predicates,
                             return_flags,
                             continue_flags,
@@ -4307,6 +4762,7 @@ fn sif_assertion_block(
                             raw_second,
                             names,
                             fields,
+                            program,
                             low_predicates,
                             return_flags,
                             continue_flags,
@@ -4330,6 +4786,7 @@ fn sif_assertion_block(
                             &pe2,
                             names,
                             fields,
+                            program,
                             low_predicates,
                             return_flags,
                             continue_flags,
@@ -4395,6 +4852,7 @@ fn sif_assertion_block(
                             raw_second,
                             names,
                             fields,
+                            program,
                             low_predicates,
                             return_flags,
                             continue_flags,
@@ -4700,6 +5158,7 @@ fn sif_assertion_block(
                                 second,
                                 names,
                                 fields,
+                                program,
                                 low_predicates,
                                 controls,
                             )?,
@@ -5097,7 +5556,15 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
                 .pres
                 .iter()
                 .map(|e| {
-                    sif_assertion(e, &first_exp, &second_exp, &names, &fields, &low_predicates)
+                    sif_assertion(
+                        e,
+                        &first_exp,
+                        &second_exp,
+                        &names,
+                        &fields,
+                        &input,
+                        &low_predicates,
+                    )
                 })
                 .collect::<Result<_, _>>()
                 .map_err(PluginHookError)?;
@@ -5105,7 +5572,15 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
                 .posts
                 .iter()
                 .map(|e| {
-                    sif_assertion(e, &first_exp, &second_exp, &names, &fields, &low_predicates)
+                    sif_assertion(
+                        e,
+                        &first_exp,
+                        &second_exp,
+                        &names,
+                        &fields,
+                        &input,
+                        &low_predicates,
+                    )
                 })
                 .collect::<Result<_, _>>()
                 .map_err(PluginHookError)?;
@@ -5125,6 +5600,7 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
                         &second_exp,
                         &names,
                         &fields,
+                        &input,
                         &low_predicates,
                         SifControls::default(),
                     )
@@ -5157,6 +5633,7 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
                         &second_exp,
                         &names,
                         &fields,
+                        &input,
                         &low_predicates,
                     )
                     .map_err(PluginHookError)?,
@@ -5240,6 +5717,7 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
                         &second_exp,
                         &mut names,
                         &fields,
+                        &input,
                         &low_predicates,
                         flags.as_ref(),
                         continue_flags.as_ref(),

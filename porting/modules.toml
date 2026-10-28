@@ -448,7 +448,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/sif/SIFExtendedTransformer.scala"
 destination = "crates/ferrum-silver/src/plugin/sif/sif_extended_transformer.rs"
 status = "skeleton"
-remaining = ["Native paired assertions, relational predicates, optimized loops, return/break/continue/exception control, try/catch/finally and inlined calls connect source transformations. Dynamic checks, custom comparators, alternate SIF modes and broader relational compatibility remain incomplete."]
+remaining = ["Native paired assertions, predicates, optimized loops and control transfers include dynamic checks and original-program comparator lookup with source preorder traversal. Nested Low-within-Low, alternate SIF modes and broader relational compatibility remain incomplete."]
 
 [[modules]]
 repository = "silver"
