@@ -22,4 +22,30 @@
 //! Open decisions:
 //! Agree on provider composition and shared plugin lifetime with viper_ast_provider.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; phase selection and result handling implemented. Concrete parser,
+//! verifier creation and plugin-manager integration remain pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2021 ETH Zurich.
+
+use super::frontend::{DefaultFrontend, DefaultState, FrontendError, FrontendPhases, Phase};
+use crate::verifier::verification_result::VerificationResult;
+
+pub const PHASES: &[Phase] = &[Phase::Parsing, Phase::SemanticAnalysis];
+pub struct ViperPAstProvider<F: FrontendPhases> {
+    pub frontend: DefaultFrontend<F>,
+    pub disable_plugins: bool,
+}
+impl<F: FrontendPhases> ViperPAstProvider<F> {
+    pub fn result(&self) -> Result<VerificationResult, FrontendError> {
+        if !self.frontend.errors.is_empty() {
+            return Ok(VerificationResult::Failure(self.frontend.errors.clone()));
+        }
+        if self.frontend.state < DefaultState::SemanticAnalysis {
+            return Err(FrontendError::MissingPhaseResult("semantic analysis"));
+        }
+        Ok(VerificationResult::Success)
+    }
+}

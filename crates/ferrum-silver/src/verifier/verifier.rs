@@ -1,31 +1,97 @@
-//! Port plan: Define the Silver verifier lifecycle and dependencies.
-//!
-//! Upstream:
-//! https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/verifier/Verifier.scala
-//!
-//! Purpose:
-//! Define the Silver verifier lifecycle and dependencies.
-//!
-//! Planned Rust structure:
-//! Verifier extends LifetimeComponent with name/version/buildVersion/copyright/signature,
-//! debugInfo, dependencies, parseCommandLine, start, verify, stop and reporter; Dependency,
-//! DefaultDependency and test-only NoVerifier.
-//!
-//! Behavior to preserve:
-//! Arguments and debug information are each set at most once; parse arguments precedes start,
-//! verify follows start and stop ends use. NoVerifier.verify is deliberately unimplemented rather
-//! than success. Preserve dependency information and reporter access.
-//!
-//! Integration:
-//! components::components::LifetimeComponent, ast::program, reporter::reporter, verifier::verification_result
-//! and Silicon verifier.
-//!
-//! Rust adaptations:
-//! Follow porting/conventions.md for ordering, identity, lifecycle, error handling and provisional
-//! ownership; retain observable source behavior.
-//!
-//! Open decisions:
-//! Agree on lifecycle errors and object ownership with frontend and Silicon; do not turn
-//! NoVerifier into a success-producing placeholder.
-//!
-//! Status: description only; implementation has not started.
+//! Verifier lifecycle and dependency interfaces.
+//! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/verifier/Verifier.scala
+//! Status: implemented interface and NoVerifier. Backends determine their own lifecycle policy.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+//
+// Copyright (c) 2011-2021 ETH Zurich.
+
+use super::verification_result::VerificationResult;
+use crate::ast::program::Program;
+use crate::components::components::LifetimeComponent;
+use crate::reporter::reporter::{NoopReporter, Reporter};
+use std::any::Any;
+
+/// A failure to execute the verifier itself, separate from verification failure.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VerifierError {
+    /// The source NoVerifier deliberately leaves verification unimplemented.
+    NoVerifierCalled,
+    Backend(String),
+}
+
+pub trait Dependency {
+    fn name(&self) -> &str;
+    fn version(&self) -> &str;
+    fn location(&self) -> &str;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct DefaultDependency {
+    pub name: String,
+    pub version: String,
+    pub location: String,
+}
+impl Dependency for DefaultDependency {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn version(&self) -> &str {
+        &self.version
+    }
+    fn location(&self) -> &str {
+        &self.location
+    }
+}
+
+/// Argument and debug setup precede verification; implementations enforce their own protocol.
+pub trait Verifier: LifetimeComponent {
+    fn name(&self) -> &str;
+    fn version(&self) -> &str;
+    fn build_version(&self) -> &str;
+    fn copyright(&self) -> &str;
+    fn signature(&self) -> String {
+        format!("{} {}", self.name(), self.version())
+    }
+    fn debug_info(&mut self, info: Vec<(String, Box<dyn Any + Send + Sync>)>);
+    fn dependencies(&self) -> Vec<&dyn Dependency>;
+    fn parse_command_line(&mut self, args: &[String]);
+    fn verify(&mut self, program: &Program) -> Result<VerificationResult, VerifierError>;
+    fn reporter(&self) -> &dyn Reporter;
+}
+
+#[derive(Default)]
+pub struct NoVerifier {
+    reporter: NoopReporter,
+}
+impl LifetimeComponent for NoVerifier {
+    fn start(&mut self) {}
+    fn stop(&mut self) {}
+}
+impl Verifier for NoVerifier {
+    fn name(&self) -> &str {
+        "noverifier"
+    }
+    fn version(&self) -> &str {
+        "0.0.0"
+    }
+    fn build_version(&self) -> &str {
+        ""
+    }
+    fn copyright(&self) -> &str {
+        ""
+    }
+    fn debug_info(&mut self, _: Vec<(String, Box<dyn Any + Send + Sync>)>) {}
+    fn dependencies(&self) -> Vec<&dyn Dependency> {
+        Vec::new()
+    }
+    fn parse_command_line(&mut self, _: &[String]) {}
+    fn verify(&mut self, _: &Program) -> Result<VerificationResult, VerifierError> {
+        Err(VerifierError::NoVerifierCalled)
+    }
+    fn reporter(&self) -> &dyn Reporter {
+        &self.reporter
+    }
+}

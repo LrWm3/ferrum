@@ -22,4 +22,30 @@
 //! Open decisions:
 //! Agree on reuse/composition with viper_ast_provider.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; phase selection and result handling implemented. Concrete parser,
+//! verifier creation and plugin-manager integration remain pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2024 ETH Zurich.
+
+use super::frontend::{DefaultFrontend, DefaultState, FrontendError, FrontendPhases, Phase};
+use crate::verifier::verification_result::VerificationResult;
+
+pub const PHASES: &[Phase] = &[Phase::Parsing];
+pub struct ReformatterAstProvider<F: FrontendPhases> {
+    pub frontend: DefaultFrontend<F>,
+}
+impl<F: FrontendPhases> ReformatterAstProvider<F> {
+    /// The concrete parser must disable macro expansion for this provider.
+    pub fn result(&self) -> Result<VerificationResult, FrontendError> {
+        if !self.frontend.errors.is_empty() {
+            return Ok(VerificationResult::Failure(self.frontend.errors.clone()));
+        }
+        if self.frontend.state < DefaultState::Parsing {
+            return Err(FrontendError::MissingPhaseResult("parsing"));
+        }
+        Ok(VerificationResult::Success)
+    }
+}

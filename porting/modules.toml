@@ -277,19 +277,22 @@ status = "ported"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/Frontend.scala"
 destination = "crates/ferrum-silver/src/frontend/frontend.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Generic phase execution/state/reset and errors exist; concrete parsing, analysis, translation, consistency and backend phases remain to connect."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ReformatterAstProvider.scala"
 destination = "crates/ferrum-silver/src/frontend/reformatter_ast_provider.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Provider phase/result rules exist; macro toggle and concrete reformatter/frontend integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/SilFrontEndConfig.scala"
 destination = "crates/ferrum-silver/src/frontend/sil_front_end_config.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Shared options and validation exist; full Scallop-compatible backend options/help and concrete frontend wiring remain."]
 
 [[modules]]
 repository = "silver"
@@ -301,25 +304,29 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ViperAstProvider.scala"
 destination = "crates/ferrum-silver/src/frontend/viper_ast_provider.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Provider phase/result/finish rules exist; concrete frontend and parser integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ViperFrontendAPI.scala"
 destination = "crates/ferrum-silver/src/frontend/viper_frontend_api.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Injected-AST API and backend failure propagation exist; concrete frontend/configuration integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ViperPAstProvider.scala"
 destination = "crates/ferrum-silver/src/frontend/viper_p_ast_provider.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Provider phase/result rules exist; concrete frontend and parser integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/logger/ViperLogger.scala"
 destination = "crates/ferrum-silver/src/logger/viper_logger.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Lazy shared named logging, levels and stdout/file sinks exist; exact Logback abbreviation/error behavior remains to reconcile."]
 
 [[modules]]
 repository = "silver"
@@ -388,13 +395,15 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/SilverPlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/silver_plugin.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Ordered transformation/error hooks exist; concrete plugin implementations and registration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/SilverPluginManager.scala"
 destination = "crates/ferrum-silver/src/plugin/silver_plugin_manager.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Ordered short-circuit hooks and full result-hook folds exist; concrete registration, diagnostic equality and frontend integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -622,25 +631,29 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/reporter/Message.scala"
 destination = "crates/ferrum-silver/src/reporter/message.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Core lifecycle/entity/result/state messages exist; remaining message families and renderers remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/reporter/Reporter.scala"
 destination = "crates/ferrum-silver/src/reporter/reporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Plugin mapping, polling and core CSV/StdIO paths exist; remaining event renderers and full sink compatibility remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/reporter/format/package.scala"
 destination = "crates/ferrum-silver/src/reporter/format/package.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native local-time epoch formatting exists; exact Java floating formatter edge rounding remains to reconcile."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/reporter/package.scala"
 destination = "crates/ferrum-silver/src/reporter/package.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed symbols and definitions exist; source AST entity printer remains to connect."]
 
 [[modules]]
 repository = "silver"
@@ -652,7 +665,7 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/testing/ProjectInfo.scala"
 destination = "crates/ferrum-silver/src/testing/project_info.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
@@ -684,7 +697,8 @@ remaining = ["General jar/resource URL resolution is explicitly unsupported."]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/ProgramSubmitter.scala"
 destination = "crates/ferrum-silver/src/utility/program_submitter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Opt-in payload/metrics and filtered arguments exist; native HTTP/JSON and AST pretty-printing remain. No network submission was performed during porting."]
 
 [[modules]]
 repository = "silver"
@@ -735,7 +749,7 @@ remaining = ["Verification outcomes and frontend error categories exist; executa
 repository = "silver"
 upstream = "src/main/scala/viper/silver/verifier/Verifier.scala"
 destination = "crates/ferrum-silver/src/verifier/verifier.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"

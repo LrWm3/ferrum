@@ -22,4 +22,30 @@
 //! Open decisions:
 //! Agree on test harness configuration and naming with upstream suite ports.
 //!
-//! Status: description only; implementation has not started.
+//! Status: implemented.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2019 ETH Zurich.
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProjectInfo {
+    pub project_names: Vec<String>,
+    pub full_name: String,
+}
+impl ProjectInfo {
+    pub fn new(project_names: Vec<String>) -> Self {
+        let full_name = project_names.join("-");
+        Self {
+            project_names,
+            full_name,
+        }
+    }
+    pub fn update(&self, project_name: impl Into<String>) -> Self {
+        let mut names = Vec::with_capacity(self.project_names.len() + 1);
+        names.push(project_name.into());
+        names.extend(self.project_names.iter().cloned());
+        Self::new(names)
+    }
+}
