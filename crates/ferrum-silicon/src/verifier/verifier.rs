@@ -94,7 +94,7 @@ impl DebugHeapRecorder {
             .unwrap_or_else(|| "l:unknown".into());
         Ok(format!("{label}#{pos}"))
     }
-    fn label_or_new<P, D, J, E>(
+    pub(crate) fn label_or_new<P, D, J, E>(
         &self,
         state: &State<P, D, J>,
         heap: &ListBackedHeap,
@@ -182,6 +182,27 @@ impl DebugHeapRecorder {
         );
         Ok(())
     }
+    pub(crate) fn record_fresh_intermediate<P, D, J>(
+        &self,
+        state: &mut State<P, D, J>,
+        label: String,
+        heap: Arc<ListBackedHeap>,
+        new: &LayeredPathConditionStack,
+        cause: Option<HeapCause>,
+    ) {
+        let temp = state
+            .temporary_heap_record
+            .as_mut()
+            .expect("key heap checked");
+        temp.intermediate_heaps.insert(
+            label,
+            IntermediateHeapRecord {
+                heap,
+                intermediate_cause: cause,
+                new_branch_conditions: branch_diff(&temp.path_conditions, new),
+            },
+        );
+    }
     pub fn finish_key_heap<P, D, J, E>(
         &self,
         state: &mut State<P, D, J>,
@@ -193,8 +214,21 @@ impl DebugHeapRecorder {
             state.temporary_heap_record.is_some(),
             "finishKeyHeap called but no temporaryHeapRecord"
         );
-        let (label, fresh) = self.label_or_new(state, &heap, render)?;
-        let temp = state.temporary_heap_record.take().expect("checked");
+        self.finish_key_heap_with_probe(state, heap.clone(), &heap, new, render)
+    }
+    pub(crate) fn finish_key_heap_with_probe<P, D, J, E>(
+        &self,
+        state: &mut State<P, D, J>,
+        heap: Arc<ListBackedHeap>,
+        probe: &ListBackedHeap,
+        new: &LayeredPathConditionStack,
+        render: &impl Fn(&Chunk) -> Result<String, E>,
+    ) -> Result<(), E> {
+        let (label, fresh) = self.label_or_new(state, probe, render)?;
+        let temp = state
+            .temporary_heap_record
+            .take()
+            .expect("key heap checked");
         let in_temp = temp.intermediate_heaps.get(&label).is_some();
         if !fresh
             && !in_temp

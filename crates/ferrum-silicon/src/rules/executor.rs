@@ -93,6 +93,13 @@ impl CfgJoinBranch {
     }
 }
 
+/// Debug information captured at statement entry, after selecting its execution heap.
+#[derive(Clone)]
+pub struct DebugStatementSnapshot {
+    pub heap_label: String,
+    pub path_conditions: Arc<crate::decider::path_conditions::LayeredPathConditionStack>,
+}
+
 /// Concrete verifier services preserve branching, failures, logging and solver state.
 pub trait ExecutionContext<P, D, J, V>: Sized {
     type Error;
@@ -125,10 +132,17 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
         &mut self,
         state: &State<P, D, J>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error>;
+    fn debug_statement_snapshot(
+        &mut self,
+        _state: &State<P, D, J>,
+    ) -> Result<Option<DebugStatementSnapshot>, Self::Error> {
+        Ok(None)
+    }
     fn record_label(
         &mut self,
         state: State<P, D, J>,
         label: &str,
+        snapshot: Option<&DebugStatementSnapshot>,
     ) -> Result<State<P, D, J>, Self::Error>;
     fn fresh_local(&mut self, variable: &LocalVar) -> Result<StoreValue, Self::Error>;
     fn evaluate_assignment(
@@ -232,12 +246,14 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
         &mut self,
         state: State<P, D, J>,
         statement: &Stmt,
+        snapshot: Option<&DebugStatementSnapshot>,
     ) -> Result<State<P, D, J>, Self::Error>;
     fn disable_subsumption(&self) -> bool;
     fn start_key_heap(
         &mut self,
         state: State<P, D, J>,
         statement: &Stmt,
+        snapshot: Option<&DebugStatementSnapshot>,
     ) -> Result<State<P, D, J>, Self::Error>;
     fn finish_key_heap(&mut self, state: State<P, D, J>) -> Result<State<P, D, J>, Self::Error>;
     fn check_empty_exhale_ext(&mut self, state: &State<P, D, J>) -> Result<(), Self::Error>;
@@ -342,6 +358,9 @@ where
     state.h = context
         .execution_heap(&state)
         .map_err(ExecutionError::Context)?;
+    let debug_snapshot = context
+        .debug_statement_snapshot(&state)
+        .map_err(ExecutionError::Context)?;
     let mut finish = |context: &mut C, state| {
         let state = context
             .move_to_reserve_heap(state)
@@ -360,7 +379,7 @@ where
                 .map_err(ExecutionError::Context)?;
             state.old_heaps.insert(name.clone(), heap);
             let state = context
-                .record_label(state, name)
+                .record_label(state, name, debug_snapshot.as_ref())
                 .map_err(ExecutionError::Context)?;
             finish(context, state)
         }
@@ -373,7 +392,7 @@ where
         }
         StmtKind::LocalVarAssign { lhs, rhs } => {
             let state = context
-                .start_key_heap(state, statement)
+                .start_key_heap(state, statement, debug_snapshot.as_ref())
                 .map_err(ExecutionError::Context)?;
             context.evaluate_assignment(state, statement, rhs, &mut |context, state, value| {
                 let value = ssaify(context, &lhs.name, &lhs.typ, rhs, value)?;
@@ -433,7 +452,7 @@ where
                             .with_binding(key, (receiver.clone(), rewritten.clone())),
                     );
                     let state = context
-                        .record_new_heap(state, statement)
+                        .record_new_heap(state, statement, debug_snapshot.as_ref())
                         .map_err(ExecutionError::Context)?;
                     context
                         .assume_reference_disjointness(&disjoint, disjoint_exps.as_deref())
@@ -465,7 +484,7 @@ where
                 .map_err(ExecutionError::Context)?;
             let original_exhale_ext = state.exhale_ext;
             let state = context
-                .start_key_heap(state, statement)
+                .start_key_heap(state, statement, debug_snapshot.as_ref())
                 .map_err(ExecutionError::Context)?;
             context.evaluate_call_arguments(state,statement,args,&mut |context,state,terms,debug_args| {
                 context.close_call_scope(parameters_scope).map_err(ExecutionError::Context)?;
@@ -528,7 +547,7 @@ where
                 receiver_exp,
             )| {
                 let state = context
-                    .start_key_heap(state, statement)
+                    .start_key_heap(state, statement, debug_snapshot.as_ref())
                     .map_err(ExecutionError::Context)?;
                 context.evaluate_assignment(state, statement, rhs, &mut |context, state, value| {
                     let rhs_exp = value.1.clone();
@@ -581,7 +600,7 @@ where
                     .map_err(ExecutionError::Context)?;
             }
             let state = context
-                .start_key_heap(state, statement)
+                .start_key_heap(state, statement, debug_snapshot.as_ref())
                 .map_err(ExecutionError::Context)?;
             context.consume(state, statement, assertion, &mut |context, mut state| {
                 if exhale_ext {
@@ -605,7 +624,7 @@ where
         }
         StmtKind::Inhale(assertion) => {
             let state = context
-                .start_key_heap(state, statement)
+                .start_key_heap(state, statement, debug_snapshot.as_ref())
                 .map_err(ExecutionError::Context)?;
             context.produce(state, statement, assertion, &mut |context, state| {
                 context
@@ -619,7 +638,7 @@ where
         }
         StmtKind::Exhale(assertion) => {
             let state = context
-                .start_key_heap(state, statement)
+                .start_key_heap(state, statement, debug_snapshot.as_ref())
                 .map_err(ExecutionError::Context)?;
             context.consume(state, statement, assertion, &mut |context, state| {
                 let state = context

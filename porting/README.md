@@ -644,3 +644,11 @@ Method calls now emit their call record and Parameters, Precondition and
 Postcondition subscopes. Each closes at its source success continuation, before
 restoring caller state and completing the outer statement. Disabled logging
 retains the previous execution path; advanced profiles remain gated.
+
+Native debug heap services now connect intermediate snapshots, old labels and
+statement key-heap start/finish/label recording. Statement entry preserves the
+source evaluation-heap lookup even with debugging disabled: mask reserve-heap
+merges can create aliases and solver assumptions. The unused PCS copy is skipped
+when debugging is disabled. Heap probes and actual recording retain source
+order, including separate evaluations during key-heap completion. Full debugging
+remains gated pending non-statement lifecycle and expression reconstruction.

@@ -293,6 +293,7 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub factory: TermFactory,
     pub options: NativeOptions,
     pub warnings: Vec<String>,
+    debug_heap_recorder: crate::verifier::verifier::DebugHeapRecorder,
     /// Owner-local symbolic logger and record constructor. Both are inactive until
     /// the verification lifecycle explicitly installs a member log.
     pub(crate) logging_root: Option<Arc<crate::logger::symb_ex_logger::NativeSymbExLogger>>,
@@ -342,6 +343,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             factory,
             options,
             warnings: Vec::new(),
+            debug_heap_recorder: Default::default(),
             logging_root: None,
             member_log: None,
             record_factory: None,
@@ -1833,14 +1835,50 @@ where
         state: State<PD, FD, JoinMode>,
         expression: &Exp,
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
-        Err(NativeError::Unsupported("record_intermediate_heap"))
+        let mut state = state;
+        if state.temporary_heap_record.is_none() {
+            return Err(NativeError::Unsupported(
+                "intermediate heap without key heap",
+            ));
+        }
+        let pcs = self.base.decider.pcs.clone();
+        let probe = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
+            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let (label, fresh) = {
+            let render = |chunk: &crate::state::chunks::Chunk| {
+                crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
+                    .map_err(|e| NativeError::Diagnostic(format!("debug heap rendering: {e:?}")))
+            };
+            self.debug_heap_recorder
+                .label_or_new(&state, &probe, &render)?
+        };
+        if !fresh {
+            return Ok(state);
+        }
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
+            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        self.debug_heap_recorder.record_fresh_intermediate(
+            &mut state,
+            label,
+            heap,
+            &pcs,
+            Some(crate::state::state::HeapCause::EvalExp(expression.clone())),
+        );
+        Ok(state)
     }
     fn debug_old_label(
         &mut self,
         state: &State<PD, FD, JoinMode>,
         position: &ferrum_silver::ast::position::Position,
     ) -> Result<String, Self::Error> {
-        Err(NativeError::Unsupported("debug_old_label"))
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, state)
+            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let render = |chunk: &crate::state::chunks::Chunk| {
+            crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
+                .map_err(|e| NativeError::Diagnostic(format!("debug heap rendering: {e:?}")))
+        };
+        self.debug_heap_recorder
+            .old_label(state, &heap, position, &render)
     }
     fn eval_current_permission(
         &mut self,
@@ -6522,11 +6560,60 @@ where
         crate::rules::magic_wand_supporter::evaluation_heap(self, state)
             .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))
     }
+    fn debug_statement_snapshot(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+    ) -> Result<Option<crate::rules::executor::DebugStatementSnapshot>, Self::Error> {
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, state)
+            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let render = |chunk: &crate::state::chunks::Chunk| {
+            crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
+                .map_err(|e| NativeError::Diagnostic(format!("debug heap rendering: {e:?}")))
+        };
+        let heap_label = self
+            .debug_heap_recorder
+            .label(state, &heap, &render)?
+            .unwrap_or_else(|| "missingHeap".into());
+        if !<Self as crate::rules::executor::ExecutionContext<
+            PD,
+            FD,
+            JoinMode,
+            VerificationError,
+        >>::debugging(self)
+        {
+            return Ok(None);
+        }
+        Ok(Some(crate::rules::executor::DebugStatementSnapshot {
+            heap_label,
+            path_conditions: Arc::new(self.base.decider.pcs.clone()),
+        }))
+    }
     fn record_label(
         &mut self,
-        state: State<PD, FD, JoinMode>,
+        mut state: State<PD, FD, JoinMode>,
         label: &str,
+        snapshot: Option<&crate::rules::executor::DebugStatementSnapshot>,
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
+        let Some(snapshot) = snapshot else {
+            return Ok(state);
+        };
+        let pcs = self.base.decider.pcs.clone();
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
+            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let render = |chunk: &crate::state::chunks::Chunk| {
+            crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
+                .map_err(|e| NativeError::Diagnostic(format!("debug heap rendering: {e:?}")))
+        };
+        self.debug_heap_recorder.record_heap(
+            &mut state,
+            heap,
+            Some(label.into()),
+            snapshot.heap_label.clone(),
+            crate::state::state::HeapCause::CreateLabel,
+            &snapshot.path_conditions,
+            &pcs,
+            &render,
+        )?;
         Ok(state)
     }
     fn fresh_local(&mut self, variable: &LocalVar) -> Result<StoreValue, Self::Error> {
@@ -6899,9 +6986,43 @@ where
     }
     fn record_new_heap(
         &mut self,
-        state: State<PD, FD, JoinMode>,
+        mut state: State<PD, FD, JoinMode>,
         statement: &Stmt,
+        snapshot: Option<&crate::rules::executor::DebugStatementSnapshot>,
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
+        let Some(snapshot) = snapshot else {
+            return Ok(state);
+        };
+        let pcs = self.base.decider.pcs.clone();
+        let probe = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
+            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let (label, fresh) = {
+            let render = |chunk: &crate::state::chunks::Chunk| {
+                crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
+                    .map_err(|e| NativeError::Diagnostic(format!("debug heap rendering: {e:?}")))
+            };
+            self.debug_heap_recorder
+                .label_or_new(&state, &probe, &render)?
+        };
+        if !fresh {
+            return Ok(state);
+        }
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
+            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let render = |chunk: &crate::state::chunks::Chunk| {
+            crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
+                .map_err(|e| NativeError::Diagnostic(format!("debug heap rendering: {e:?}")))
+        };
+        self.debug_heap_recorder.record_heap(
+            &mut state,
+            heap,
+            Some(label),
+            snapshot.heap_label.clone(),
+            crate::state::state::HeapCause::ExecStmt(statement.clone()),
+            &snapshot.path_conditions,
+            &pcs,
+            &render,
+        )?;
         Ok(state)
     }
     fn disable_subsumption(&self) -> bool {
@@ -6909,15 +7030,38 @@ where
     }
     fn start_key_heap(
         &mut self,
-        state: State<PD, FD, JoinMode>,
+        mut state: State<PD, FD, JoinMode>,
         statement: &Stmt,
+        snapshot: Option<&crate::rules::executor::DebugStatementSnapshot>,
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
+        if let Some(snapshot) = snapshot {
+            self.debug_heap_recorder.start_key_heap(
+                &mut state,
+                snapshot.heap_label.clone(),
+                crate::state::state::HeapCause::ExecStmt(statement.clone()),
+                Arc::new(self.base.decider.pcs.clone()),
+            );
+        }
         Ok(state)
     }
     fn finish_key_heap(
         &mut self,
-        state: State<PD, FD, JoinMode>,
+        mut state: State<PD, FD, JoinMode>,
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
+        if state.temporary_heap_record.is_none() {
+            return Ok(state);
+        }
+        let pcs = self.base.decider.pcs.clone();
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
+            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let probe = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
+            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let render = |chunk: &crate::state::chunks::Chunk| {
+            crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
+                .map_err(|e| NativeError::Diagnostic(format!("debug heap rendering: {e:?}")))
+        };
+        self.debug_heap_recorder
+            .finish_key_heap_with_probe(&mut state, heap, &probe, &pcs, &render)?;
         Ok(state)
     }
     fn check_empty_exhale_ext(
@@ -17343,6 +17487,7 @@ where
 #[cfg(test)]
 mod owned_branch_worker_tests {
     use super::*;
+    use crate::rules::executor::ExecutionContext;
     use crate::{
         config::Config,
         decider::z3_prover_std_io,
@@ -17352,6 +17497,132 @@ mod owned_branch_worker_tests {
             ThreadBoundWorker, ThreadVerificationPool, native_method_worker,
         },
     };
+
+    #[test]
+    fn evaluation_debug_heap_hooks_record_and_reuse_labels() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let config = Config::default();
+        let options = NativeOptions::from_config(&config).unwrap();
+        let factory = TermFactory::new(crate::state::terms::TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let prover = z3_prover_std_io::new(
+            "debug".into(),
+            z3_prover_std_io::settings(z3.into()),
+            factory.clone(),
+            |_| {},
+        );
+        let identifiers = prover.identifier_factory();
+        let mut worker = native_method_worker(
+            "debug".into(),
+            prover,
+            identifiers,
+            factory.clone(),
+            options,
+            &config,
+        );
+        worker.start().unwrap();
+        let program = ferrum_silver::ast::program::Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Default::default(),
+        );
+        let state = State::new(
+            program,
+            Default::default(),
+            Default::default(),
+            config.more_joins,
+            &factory,
+            false,
+            false,
+        );
+        let mut invalid_wand_state = state.clone();
+        invalid_wand_state.exhale_ext = true;
+        assert!(
+            worker
+                .context
+                .debug_statement_snapshot(&invalid_wand_state)
+                .is_err()
+        );
+        assert!(
+            worker
+                .context
+                .debug_statement_snapshot(&state)
+                .unwrap()
+                .is_none()
+        );
+        let snapshot = crate::rules::executor::DebugStatementSnapshot {
+            heap_label: "old".into(),
+            path_conditions: Arc::new(worker.context.base.decider.pcs.clone()),
+        };
+        let expression = Exp::new(ExpKind::TrueLit, Default::default());
+        let statement = Stmt::new(
+            ferrum_silver::ast::statement::StmtKind::Assert(expression.clone()),
+            Default::default(),
+        );
+        let state = worker
+            .context
+            .start_key_heap(state, &statement, Some(&snapshot))
+            .unwrap();
+        let state = worker
+            .context
+            .record_intermediate_heap(state, &expression)
+            .unwrap();
+        assert_eq!(
+            state
+                .temporary_heap_record
+                .as_ref()
+                .unwrap()
+                .intermediate_heaps
+                .iter()
+                .count(),
+            1
+        );
+        let label = worker
+            .context
+            .debug_old_label(&state, &expression.metadata().position)
+            .unwrap();
+        assert_eq!(label, "debug@0#l:unknown");
+        let state = worker
+            .context
+            .record_intermediate_heap(state, &expression)
+            .unwrap();
+        assert_eq!(
+            state
+                .temporary_heap_record
+                .as_ref()
+                .unwrap()
+                .intermediate_heaps
+                .iter()
+                .count(),
+            1
+        );
+        let state = worker.context.finish_key_heap(state).unwrap();
+        assert!(state.temporary_heap_record.is_none());
+        let record = state.debug_old_heaps.get(&"debug@0".to_string()).unwrap();
+        assert_eq!(record.parent_label, "old");
+        let state = worker
+            .context
+            .record_label(state, "label", Some(&snapshot))
+            .unwrap();
+        assert_eq!(
+            state
+                .debug_old_heaps
+                .get(&"label".to_string())
+                .unwrap()
+                .parent_label,
+            "old"
+        );
+        worker.stop().unwrap();
+    }
 
     #[test]
     fn real_pool_runs_owned_evaluation_branch() {
