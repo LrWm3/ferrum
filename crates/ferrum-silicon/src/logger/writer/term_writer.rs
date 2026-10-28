@@ -127,7 +127,7 @@ pub fn term_to_json(term: &Term, renderer: &dyn RecordRenderer) -> Result<Value,
             name,
             ..
         } => {
-            json!({"type":"quantification","quantifier":match quantifier { crate::state::terms::Quantifier::Forall => "Forall", crate::state::terms::Quantifier::Exists => "Exists" },"vars":values(vars)?,"body":term_to_json(body,renderer)?,"name":name})
+            json!({"type":"quantification","quantifier":match quantifier { crate::state::terms::Quantifier::Forall => "QA", crate::state::terms::Quantifier::Exists => "QE" },"vars":values(vars)?,"body":term_to_json(body,renderer)?,"name":name})
         }
         App { applicable, args } => {
             json!({"type":"application","applicable":applicable.id().name(),"args":values(args)?,"sort":sort_to_json(term.sort())})
@@ -158,6 +158,8 @@ pub fn term_to_json(term: &Term, renderer: &dyn RecordRenderer) -> Result<Value,
         Unit
         | IntLiteral(_)
         | Null
+        | ZeroMask
+        | PredZeroMask
         | True
         | False
         | SeqNil(_)
@@ -182,4 +184,74 @@ pub fn term_to_json(term: &Term, renderer: &dyn RecordRenderer) -> Result<Value,
         }
         _ => json!({"type":"unstructrured","value":renderer.term(term)?}),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::{
+        chunks::Chunk,
+        identifiers::Identifier,
+        terms::{Quantifier, TermFactory, TermOptions},
+    };
+    use ferrum_silver::ast::utility::nodes::Node;
+    struct Text;
+    impl RecordRenderer for Text {
+        fn node(&self, _: &Node) -> Result<String, RecordError> {
+            Err(RecordError::Unsupported("node"))
+        }
+        fn term(&self, term: &Term) -> Result<String, RecordError> {
+            match term.kind() {
+                TermKind::ZeroMask => Ok("ZeroMask".into()),
+                TermKind::PredZeroMask => Ok("PredZeroMask".into()),
+                _ => Err(RecordError::Unsupported("fallback")),
+            }
+        }
+        fn chunk(&self, _: &Chunk) -> Result<String, RecordError> {
+            Err(RecordError::Unsupported("chunk"))
+        }
+        fn source_line_column(&self, _: &Node) -> Result<String, RecordError> {
+            Err(RecordError::Unsupported("position"))
+        }
+    }
+    #[test]
+    fn empty_masks_keep_source_literal_shape() {
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: true,
+        });
+        for term in [factory.zero_mask(), factory.pred_zero_mask()] {
+            assert_eq!(
+                term_to_json(&term, &Text).unwrap(),
+                json!({"type":"literal","sort":sort_to_json(term.sort()),"value":Text.term(&term).unwrap()})
+            );
+        }
+    }
+    #[test]
+    fn quantifier_wire_names_follow_source_overridden_strings() {
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let variable = factory.var(Identifier::new("b"), Sort::Bool, false);
+        for (kind, wire) in [(Quantifier::Forall, "QA"), (Quantifier::Exists, "QE")] {
+            let term = factory
+                .quantification(
+                    kind,
+                    vec![variable.clone()],
+                    variable.clone(),
+                    vec![],
+                    "q".into(),
+                    true,
+                    Some(9),
+                )
+                .unwrap();
+            assert_eq!(
+                term_to_json(&term, &Text).unwrap(),
+                json!({"type":"quantification","quantifier":wire,"vars":[{"type":"variable","id":"b","sort":{"id":"Bool"},"isWildcard":false}],"body":{"type":"variable","id":"b","sort":{"id":"Bool"},"isWildcard":false},"name":"q"})
+            );
+        }
+    }
 }
