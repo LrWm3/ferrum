@@ -295,3 +295,10 @@ origin-captured details and rejects absent provenance. Runtime Scala collection 
 parse-program fallback strings and advanced runtime delivery remain incomplete.
 Eight focused reporter checks and workspace all-target checks pass; an independent
 80,000-value JVM comparison covers the source f32 time conversion and rounding.
+
+Mask-heap lower layers now implement source single/quantified production and
+consumption, transfer steps, snapshot adaptation, havoc, function frame construction
+and identity-preserving phase snapshots. The runtime mask gate remains closed
+while its concrete adapters undergo integration review. The linked converter
+includes the corresponding SMT-LIB bindings and a regression for recursive alias
+expansion; pinned Scala API mask support differs as documented below.

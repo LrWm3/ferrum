@@ -1183,7 +1183,7 @@ repository = "silicon"
 upstream = "src/main/scala/decider/TermToZ3APIConverter.scala"
 destination = "crates/ferrum-silicon/src/decider/term_to_z3_api_converter.rs"
 status = "skeleton"
-remaining = ["Native source algorithms and typed context/driver contracts exist; linked native Z3 adapter, complete Prover lifecycle/options/models, trigger repair and concrete trigger/rendering services remain."]
+remaining = ["Linked Z3 4.16 conversion and alias-root expansion exist; mask bindings deliberately extend pinned Java API using source SMT-LIB encoding. Runtime mask admission and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1710,7 +1710,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/MaskHeapSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/mask_heap_supporter.rs"
 status = "skeleton"
-remaining = ["Mask resource and conversion helpers exist; full heap encoding algorithms and concrete verifier integration remain."]
+remaining = ["Source single/quantified mask production, consumption, heap merges, transfer steps and havoc helpers exist; concrete runtime admission, debug paths and broader compatibility checks remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1918,7 +1918,7 @@ repository = "silicon"
 upstream = "src/main/scala/supporters/MaskHeapSnapshotSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/mask_heap_snapshot_supporter.rs"
 status = "skeleton"
-remaining = ["Snapshot sort, combination and decomposition helpers exist; concrete verifier resource and predicate adapters remain."]
+remaining = ["Source mask snapshot combination, decomposition and producer adaptation exist; concrete runtime admission and broader snapshot integration checks remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1953,7 +1953,7 @@ repository = "silicon"
 upstream = "src/main/scala/supporters/functions/FunctionData.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/function_data.rs"
 status = "skeleton"
-remaining = ["Source function encoding, analysis and verification algorithms exist; concrete resource, recursive translation, prover and verifier services remain."]
+remaining = ["Source function phase data and identity-preserving readable snapshots exist; runtime mask framing admission, debugging and broader source compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1988,7 +1988,7 @@ repository = "silicon"
 upstream = "src/main/scala/supporters/functions/MaskHeapFunctionEncoding.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/mask_heap_function_encoding.rs"
 status = "skeleton"
-remaining = ["Source function encoding, analysis and verification algorithms exist; concrete resource, recursive translation, prover and verifier services remain."]
+remaining = ["Source mask function frames, conditions, trigger adaptation and identity/phase cache exist; concrete runtime admission and broader framing checks remain."]
 
 [[modules]]
 repository = "silicon"

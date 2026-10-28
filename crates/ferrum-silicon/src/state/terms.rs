@@ -1770,6 +1770,12 @@ impl TermFactory {
             }
             _ => {}
         }
+        self.raw_heap_lookup(heap, at)
+    }
+    /// Construct a lookup without source factory simplifications. Mask resource
+    /// trigger generation deliberately uses `new HeapLookup` rather than apply.
+    pub fn raw_heap_lookup(&self, heap: Term, at: Term) -> Term {
+        self.check(&[&heap, &at]);
         let sort = match heap.sort() {
             Sort::PredHeap => Sort::Snap,
             Sort::PredMask => Sort::Perm,

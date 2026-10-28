@@ -58,6 +58,71 @@ pub enum MaskEncodingError {
 }
 /// Ordered resource heaps for mask-mode function encoding.
 pub struct MaskHeapFunctionEncoding;
+
+#[derive(Debug)]
+pub enum MaskTriggerAdaptationError<E> {
+    Frame(E),
+    Transform(UnsupportedTriggerTransform),
+}
+
+/// Replace heap-dependent trigger applications by their frame versions, per occurrence.
+/// The resolver returns `None` when the source program has no matching function data.
+pub fn adapt_trigger_terms<E>(
+    factory: &TermFactory,
+    terms: &[Term],
+    mut frame: impl FnMut(&Applicable, &[Term], &[Term]) -> Result<Option<Term>, E>,
+) -> Result<Vec<Term>, MaskTriggerAdaptationError<E>> {
+    use crate::state::terms::{ApplicableKind, ApplicationTarget};
+    let frame = std::cell::RefCell::new(&mut frame);
+    let error = std::cell::RefCell::new(None);
+    let mut output = Vec::with_capacity(terms.len());
+    for term in terms {
+        let result = factory.transform_preorder_descending(term, &|candidate| {
+            if error.borrow().is_some() {
+                return None;
+            }
+            let TermKind::App {
+                applicable: ApplicationTarget::Function(function),
+                args,
+            } = candidate.kind()
+            else {
+                return None;
+            };
+            if function.data().kind != ApplicableKind::HeapDepFun {
+                return None;
+            }
+            let (heaps, other): (Vec<_>, Vec<_>) = args.iter().cloned().partition(|arg| {
+                matches!(arg.sort(), Sort::Heap(_) | Sort::PredHeap | Sort::WandHeap)
+            });
+            if heaps.is_empty() {
+                return None;
+            }
+            match frame.borrow_mut()(function, &other, &heaps) {
+                Ok(Some(value)) => {
+                    let frame_function = crate::rules::function_supporter::frame_version(
+                        factory,
+                        function,
+                        heaps.len() as i32,
+                    );
+                    Some(factory.app(
+                        frame_function,
+                        std::iter::once(value).chain(other).collect(),
+                    ))
+                }
+                Ok(None) => None,
+                Err(err) => {
+                    *error.borrow_mut() = Some(err);
+                    None
+                }
+            }
+        });
+        if let Some(err) = error.borrow_mut().take() {
+            return Err(MaskTriggerAdaptationError::Frame(err));
+        }
+        output.push(result.map_err(MaskTriggerAdaptationError::Transform)?);
+    }
+    Ok(output)
+}
 impl MaskHeapFunctionEncoding {
     fn heap_sort(
         converter: &DefaultSymbolConverter,
@@ -165,11 +230,24 @@ impl MaskHeapFunctionEncoding {
                 terms: vec![function_trigger, predicate.clone()],
             });
         }
-        let direct = factory
+        // Source constructs the predicate axiom first even when no predicate
+        // triggers exist; this consumes the default quantifier name in both cases.
+        let predicate = factory
             .quantification(
                 Quantifier::Forall,
                 data.arguments.clone(),
                 body.clone(),
+                triggers.clone(),
+                TermFactory::forall_default_name(),
+                false,
+                None,
+            )
+            .map_err(MaskEncodingError::Transform)?;
+        let direct = factory
+            .quantification(
+                Quantifier::Forall,
+                data.arguments.clone(),
+                body,
                 vec![Trigger {
                     terms: vec![data.function_application.clone()],
                 }],
@@ -179,20 +257,10 @@ impl MaskHeapFunctionEncoding {
             )
             .map_err(MaskEncodingError::Transform)?;
         if triggers.is_empty() {
-            return Ok(direct);
+            Ok(direct)
+        } else {
+            Ok(factory.and([predicate, direct]))
         }
-        let predicate = factory
-            .quantification(
-                Quantifier::Forall,
-                data.arguments.clone(),
-                body,
-                triggers,
-                TermFactory::forall_default_name(),
-                false,
-                None,
-            )
-            .map_err(MaskEncodingError::Transform)?;
-        Ok(factory.and([predicate, direct]))
     }
     pub fn translate_application(
         factory: &TermFactory,
@@ -267,7 +335,28 @@ impl MaskHeapFunctionEncoding {
             Self::auxiliary_functions(factory, &data.function, resource_count)
                 .try_into()
                 .expect("two frame functions");
-        let frame_app = factory.app(frame_fun, args.clone());
+        // Source computes optional preFrame before frameAxiom, but emits frame first.
+        let pre = if has_predicate_triggers {
+            let pre_app = factory.app(pre_fun, args.clone());
+            Some(
+                factory
+                    .quantification(
+                        Quantifier::Forall,
+                        data.arguments.clone(),
+                        factory.builtin_equals(data.precondition_application.clone(), pre_app),
+                        vec![Trigger {
+                            terms: vec![data.precondition_application.clone()],
+                        }],
+                        TermFactory::forall_default_name(),
+                        false,
+                        None,
+                    )
+                    .map_err(MaskEncodingError::Transform)?,
+            )
+        } else {
+            None
+        };
+        let frame_app = factory.app(frame_fun, args);
         let first = factory
             .quantification(
                 Quantifier::Forall,
@@ -282,24 +371,7 @@ impl MaskHeapFunctionEncoding {
             )
             .map_err(MaskEncodingError::Transform)?;
         let mut axioms = vec![first];
-        if has_predicate_triggers {
-            let pre_app = factory.app(pre_fun, args);
-            axioms.push(
-                factory
-                    .quantification(
-                        Quantifier::Forall,
-                        data.arguments.clone(),
-                        factory.builtin_equals(data.precondition_application.clone(), pre_app),
-                        vec![Trigger {
-                            terms: vec![data.precondition_application.clone()],
-                        }],
-                        TermFactory::forall_default_name(),
-                        false,
-                        None,
-                    )
-                    .map_err(MaskEncodingError::Transform)?,
-            );
-        }
+        axioms.extend(pre);
         Ok(axioms)
     }
 }
@@ -631,23 +703,20 @@ impl MaskHeapFunctionEncoding {
                 .take(resources.len())
                 .cloned()
                 .collect();
-            let mut heaps1 = Vec::new();
-            let mut heaps2 = Vec::new();
-            for heap in &heap_vars {
-                let TermKind::Var(var) = heap.kind() else {
-                    return Err(FrameConstructionError::InvalidQuantifier);
-                };
-                heaps1.push(factory.var(
-                    identifiers.fresh(&var.id.name()),
-                    var.sort.clone(),
-                    false,
-                ));
-                heaps2.push(factory.var(
-                    identifiers.fresh(&var.id.name()),
-                    var.sort.clone(),
-                    false,
-                ));
-            }
+            let mut fresh_heaps = || -> Result<Vec<Term>, FrameConstructionError<T::Error>> {
+                heap_vars
+                    .iter()
+                    .map(|heap| {
+                        let TermKind::Var(var) = heap.kind() else {
+                            return Err(FrameConstructionError::InvalidQuantifier);
+                        };
+                        Ok(factory.var(identifiers.fresh(&var.id.name()), var.sort.clone(), false))
+                    })
+                    .collect()
+            };
+            // Source allocates the complete first tuple before the second tuple.
+            let heaps1 = fresh_heaps()?;
+            let heaps2 = fresh_heaps()?;
             let rest_args = &data.arguments[resources.len()..];
             let condition = translator
                 .translate_frame_expression(&condition)
@@ -874,6 +943,60 @@ impl<D> FrameCache<D> {
         }
         let frame = MaskHeapFunctionEncoding::compute_frame(factory, translator, data, resources)?;
         self.entries.push((data.clone(), frame));
+        Ok(&self.entries.last().expect("inserted frame").1)
+    }
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+}
+
+/// Identity cache for FunctionData, retaining a unique token even after an instance is dropped.
+pub struct SharedFrameCache<D> {
+    entries: Vec<(std::sync::Arc<()>, FrameInfo)>,
+    marker: std::marker::PhantomData<fn() -> D>,
+}
+impl<D> Default for SharedFrameCache<D> {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            marker: std::marker::PhantomData,
+        }
+    }
+}
+impl<D: Clone> SharedFrameCache<D> {
+    pub fn get(&self, identity: &std::sync::Arc<()>) -> Option<FrameInfo> {
+        self.entries
+            .iter()
+            .find(|(key, _)| std::sync::Arc::ptr_eq(key, identity))
+            .map(|(_, info)| info.clone())
+    }
+    /// Retain the first successful frame for each source FunctionData identity.
+    pub fn insert(&mut self, identity: std::sync::Arc<()>, info: FrameInfo) {
+        if !self
+            .entries
+            .iter()
+            .any(|(key, _)| std::sync::Arc::ptr_eq(key, &identity))
+        {
+            self.entries.push((identity, info));
+        }
+    }
+    pub fn get_or_compute<T: FrameExpressionTranslator>(
+        &mut self,
+        factory: &TermFactory,
+        translator: &mut T,
+        data: &FunctionData<D>,
+        resources: &[ResourceKey],
+    ) -> Result<&FrameInfo, FrameConstructionError<T::Error>> {
+        let identity = data.identity();
+        if let Some(index) = self
+            .entries
+            .iter()
+            .position(|(key, _)| std::sync::Arc::ptr_eq(key, &identity))
+        {
+            return Ok(&self.entries[index].1);
+        }
+        let info = MaskHeapFunctionEncoding::compute_frame(factory, translator, data, resources)?;
+        self.entries.push((identity, info));
         Ok(&self.entries.last().expect("inserted frame").1)
     }
     pub fn clear(&mut self) {

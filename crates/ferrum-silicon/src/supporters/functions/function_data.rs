@@ -140,6 +140,7 @@ pub enum FunctionDataError {
 /// Per-function symbols and axioms constructed at analysis; later phases append
 /// recorded declarations and produce translated postcondition/body axioms.
 pub struct FunctionData<D> {
+    identity: std::sync::Arc<()>,
     pub program_function: ferrum_silver::ast::program::Function,
     pub program: ferrum_silver::ast::program::Program,
     pub height: i32,
@@ -166,6 +167,49 @@ pub struct FunctionData<D> {
     phase: u8,
 }
 impl<D: Clone> FunctionData<D> {
+    /// Stable instance identity for worker-local caches; clones of this token retain identity.
+    pub fn identity(&self) -> std::sync::Arc<()> {
+        self.identity.clone()
+    }
+    /// Immutable view of the current phase, sharing this source instance's identity.
+    /// Refresh after each phase advance; the view does not receive subsequent mutations.
+    pub fn phase_snapshot(&self) -> Self {
+        Self {
+            identity: self.identity.clone(),
+            program_function: self.program_function.clone(),
+            program: self.program.clone(),
+            height: self.height,
+            quantified_fields: self.quantified_fields.clone(),
+            function: self.function.clone(),
+            limited_function: self.limited_function.clone(),
+            stateless_function: self.stateless_function.clone(),
+            precondition_function: self.precondition_function.clone(),
+            state_args: self.state_args.clone(),
+            formal_args: self.formal_args.clone(),
+            formal_result: self.formal_result.clone(),
+            formal_result_exp: self.formal_result_exp.clone(),
+            arguments: self.arguments.clone(),
+            arguments_during_verification: self.arguments_during_verification.clone(),
+            argument_exps: self.argument_exps.clone(),
+            argument_exps_during_verification: self.argument_exps_during_verification.clone(),
+            function_application: self.function_application.clone(),
+            limited_application: self.limited_application.clone(),
+            trigger_application: self.trigger_application.clone(),
+            precondition_application: self.precondition_application.clone(),
+            limited_axiom: self.limited_axiom.clone(),
+            trigger_axiom: self.trigger_axiom.clone(),
+            recorder_handler: FunctionRecorderHandler {
+                recorder: self.recorder_handler.recorder.clone(),
+                location_snapshots: self.recorder_handler.location_snapshots.clone(),
+                function_snapshots: self.recorder_handler.function_snapshots.clone(),
+                fresh_symbols_across_phases: self
+                    .recorder_handler
+                    .fresh_symbols_across_phases
+                    .clone(),
+            },
+            phase: self.phase,
+        }
+    }
     pub fn new(
         factory: &TermFactory,
         converter: &crate::state::symbol_converter::DefaultSymbolConverter,
@@ -301,6 +345,7 @@ impl<D: Clone> FunctionData<D> {
             )
             .map_err(FunctionDataError::Transform)?;
         Ok(Self {
+            identity: std::sync::Arc::new(()),
             program_function,
             program,
             height,

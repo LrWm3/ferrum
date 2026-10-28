@@ -7,8 +7,11 @@
 //! https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/decider/TermToZ3APIConverter.scala.
 //!
 //! Status: source sort and major term dispatch are implemented against an explicit native
-//! context contract. A linked Z3 context adapter and the API prover remain pending. Unsupported
-//! upstream cases and incomplete substitution return errors, never fabricated solver objects.
+//! context contract and the linked Z3 adapter. Unsupported cases and incomplete substitution
+//! return errors, never fabricated solver objects; mask-mode end-to-end validation remains gated.
+//! Mask heap sorts and operations are a Ferrum native-transport extension following the pinned
+//! [SMT-LIB converter](https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/decider/TermToSMTLib2Converter.scala):
+//! the pinned Java Z3-API converter instead throws MatchError for HeapSort.
 
 use crate::decider::term_to_smt_lib2_converter::{
     ConversionError as SmtError, TermToSmtLib2Converter,
@@ -59,6 +62,37 @@ pub trait Z3NativeContext {
         name: &str,
         weight: i32,
     ) -> Result<Self::Expr, Self::Error>;
+}
+
+#[cfg(all(test, feature = "native-z3"))]
+mod mask_tests {
+    use super::*;
+    use crate::decider::native_z3::LinkedZ3;
+    use crate::state::terms::{ApplicableData, TermOptions};
+
+    #[test]
+    fn expands_mask_alias_without_recursing_into_its_own_representation() {
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: true,
+        });
+        let at = factory.var(Identifier::new("r"), Sort::Ref, false);
+        let body = factory.mask_add(factory.zero_mask(), at, factory.full_perm());
+        let symbol = factory.applicable(ApplicableData {
+            kind: ApplicableKind::Macro,
+            id: Identifier::new("maskAlias"),
+            arg_sorts: vec![],
+            result_sort: Sort::mask(),
+        });
+        let alias = factory.app(symbol, vec![]);
+        body.set_var_repr(Some(alias.clone()));
+        let mut converter = TermToZ3ApiConverter::new(LinkedZ3::new().unwrap(), factory);
+        converter.register_macro("maskAlias".into(), vec![], body.clone());
+        let from_alias = converter.convert_term(&alias).unwrap();
+        let from_body = converter.convert_term(&body).unwrap();
+        assert!(from_alias == from_body);
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NativeSort {
@@ -219,9 +253,6 @@ impl<C: Z3NativeContext> TermToZ3ApiConverter<C> {
             Sort::Ref => NativeSort::Uninterpreted("$Ref".into()),
             Sort::SmtSort(id) => NativeSort::ParsedSmt(id.name()),
             Sort::Unit => return Err(NativeConversionError::Unsupported("Unit sort")),
-            Sort::Heap(_) | Sort::WandHeap | Sort::PredHeap | Sort::PredMask => {
-                return Err(NativeConversionError::Unsupported("mask heap sort"));
-            }
             _ => NativeSort::Uninterpreted(self.names.convert_sort(sort)?),
         };
         let value = self
@@ -301,6 +332,23 @@ impl<C: Z3NativeContext> TermToZ3ApiConverter<C> {
             self.literal(NativeLiteral::Integer(value.into()), &Sort::Int)
         }
     }
+    fn heap_type(&mut self, sort: &Sort) -> ResultFor<C, String> {
+        Ok(match sort {
+            Sort::Heap(value) => self.names.convert_sanitized_sort(value)?,
+            Sort::PredHeap => "$Pred".into(),
+            Sort::PredMask => "$PredMask".into(),
+            Sort::WandHeap => "$MWSF".into(),
+            _ => return Err(NativeConversionError::Unsupported("expected heap sort")),
+        })
+    }
+    fn resource_name(resource: &crate::state::terms::ResourceKey) -> &str {
+        use crate::state::terms::ResourceKey;
+        match resource {
+            ResourceKey::Field(field) => &field.name,
+            ResourceKey::Predicate(predicate) => &predicate.name,
+            ResourceKey::Wand(_) => "$MWSF",
+        }
+    }
     fn to_real(&mut self, t: &Term) -> ResultFor<C, C::Expr> {
         let v = self.convert_term(t)?;
         if *t.sort() == Sort::Int {
@@ -310,6 +358,24 @@ impl<C: Z3NativeContext> TermToZ3ApiConverter<C> {
         }
     }
     pub fn convert_term(&mut self, term: &Term) -> ResultFor<C, C::Expr> {
+        self.convert_term_inner(term, true)
+    }
+    fn convert_term_inner(&mut self, term: &Term, allow_repr: bool) -> ResultFor<C, C::Expr> {
+        if allow_repr
+            && matches!(
+                term.kind(),
+                TermKind::HeapToSnap(..)
+                    | TermKind::SnapToHeap(..)
+                    | TermKind::HeapUpdate(..)
+                    | TermKind::MaskAdd(..)
+                    | TermKind::MergeSingle(..)
+                    | TermKind::MergeHeaps(..)
+            )
+        {
+            if let Some(repr) = term.var_repr() {
+                return self.convert_term(&repr);
+            }
+        }
         if let Some(value) = self.terms.get(term) {
             return Ok(value.clone());
         }
@@ -319,7 +385,7 @@ impl<C: Z3NativeContext> TermToZ3ApiConverter<C> {
             self.op(NativeOp::$op, &args)?
         }} }
         macro_rules! app { ($name:expr $(, $arg:expr)* $(,)?) => {{
-            let args = vec![$($arg.clone()),*]; self.app($name, &args, term.sort(), false)?
+            let args = vec![$($arg.clone()),*]; let name = ($name).to_string(); self.app(&name, &args, term.sort(), false)?
         }} }
         let value = match term.kind() {
             Unit => self.literal(NativeLiteral::SnapUnit, &Sort::Snap)?,
@@ -338,6 +404,17 @@ impl<C: Z3NativeContext> TermToZ3ApiConverter<C> {
                 let s = self.convert_sort(&Sort::Ref)?;
                 self.context
                     .constant("$Ref.null", &s)
+                    .map_err(NativeConversionError::Context)?
+            }
+            ZeroMask | PredZeroMask => {
+                let name = if matches!(term.kind(), ZeroMask) {
+                    "$Hp.zeroMask"
+                } else {
+                    "$Hp.zeroPredMask"
+                };
+                let sort = self.convert_sort(term.sort())?;
+                self.context
+                    .constant(name, &sort)
                     .map_err(NativeConversionError::Context)?
             }
             Var(v) => {
@@ -361,7 +438,9 @@ impl<C: Z3NativeContext> TermToZ3ApiConverter<C> {
                         .factory
                         .replace(&body, &substitutions)
                         .map_err(|_| NativeConversionError::Substitution)?;
-                    self.convert_term(&replaced)?
+                    // The alias macro's body carries its own auxiliary representation.  Its
+                    // root must expand directly, or it resolves back to this same macro forever.
+                    self.convert_term_inner(&replaced, false)?
                 } else {
                     let name = if smt {
                         self.raw_identifier(id)?
@@ -538,7 +617,78 @@ impl<C: Z3NativeContext> TermToZ3ApiConverter<C> {
             MapDomain(a) => app!("Map_domain", a),
             MapRange(a) => app!("Map_values", a),
             MwsfLookup(a, b) => app!("MWSF_apply", a, b),
+            MagicWandSnapshot(a) => self.convert_term(a)?,
             MagicWandToken(a, b) => app!("MW_token", a, b),
+            HeapLookup(h, at) => app!(&format!("$Hp.get_{}", self.heap_type(h.sort())?), h, at),
+            HeapUpdate(h, at, value) => app!(
+                &format!("$Hp.update_{}", self.heap_type(h.sort())?),
+                h,
+                at,
+                value
+            ),
+            HeapSingleton(at, value, sort) => app!(
+                &format!("$Hp.singleton_{}", self.heap_type(sort)?),
+                at,
+                value
+            ),
+            IdenticalOnKnownLocations(old, new, mask) => app!(
+                &format!("$Hp.identicalOnKnown_{}", self.heap_type(new.sort())?),
+                old,
+                new,
+                mask
+            ),
+            GoodMask(mask) => app!("$Hp.maskGood", mask),
+            GoodFieldMask(mask, upper) => {
+                let upper = self.factory.boolean(*upper);
+                app!("$Hp.maskGoodField", mask, upper)
+            }
+            DummyHeap(sort) => {
+                let name = format!("$Hp.default_{}", self.heap_type(sort)?);
+                let sort = self.convert_sort(term.sort())?;
+                self.context
+                    .constant(&name, &sort)
+                    .map_err(NativeConversionError::Context)?
+            }
+            MergeSingle(h, mask, at, value) => app!(
+                &format!("$Hp.merge_single_{}", self.heap_type(h.sort())?),
+                h,
+                mask,
+                at,
+                value
+            ),
+            MergeHeaps(a, b, c, d) => app!(
+                &format!("$Hp.merge_{}", self.heap_type(a.sort())?),
+                a,
+                b,
+                c,
+                d
+            ),
+            HeapsOverlap(a, b, c, d) => app!(
+                &format!("$Hp.overlap_{}", self.heap_type(a.sort())?),
+                a,
+                b,
+                c,
+                d
+            ),
+            MaskEq(a, b) => app!("$Hp.maskEq", a, b),
+            MaskSum(a, b) => app!("$Hp.maskSum", a, b),
+            MaskDiff(a, b) => app!("$Hp.maskDiff", a, b),
+            MaskAdd(a, b, c) => app!("$Hp.maskAdd", a, b, c),
+            HeapToSnap(h, mask, resource) => app!(
+                &format!(
+                    "$SortWrappers.$Heap<{}>To$Snap",
+                    Self::resource_name(resource)
+                ),
+                h,
+                mask
+            ),
+            SnapToHeap(snap, resource, _) => app!(
+                &format!(
+                    "$SortWrappers.$SnapTo$Heap<{}>",
+                    Self::resource_name(resource)
+                ),
+                snap
+            ),
             Ite(a, b, c) => op!(Ite, a, b, c),
             Domain(id, a) => app!(&format!("$FVF.domain_{id}"), a),
             HasDomain(id, a, _) => app!(&format!("$FVF.has_domain_{id}"), a),

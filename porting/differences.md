@@ -258,3 +258,14 @@ the origin. Rust cannot recreate a JVM stack or erased collection implementation
 from an error or Vec: missing source-rendering provenance remains unsupported.
 Time formatting retains the source f32 division and Java half-away-from-zero
 rounding, but uses a stable decimal dot rather than the JVM default locale.
+
+## Linked mask-heap solver transport
+
+The pinned Silicon `TermToZ3APIConverter.scala` does not handle mask heap sorts
+or terms: even a field example with `--prover Z3-API --maskHeapMode` throws
+`scala.MatchError: Hp[Int]` during sort declaration. Ferrum's linked mask bindings
+are an explicit transport extension using the pinned `TermToSMTLib2Converter.scala`
+and mask preamble names and signatures. Mask semantic comparisons therefore use
+the pinned Scala stdio route. Linked Z3 4.16 checks compare against those stdio
+results, not against successful Scala API execution. This extension does not
+change the source mask verification rules or establish general encoding soundness.
