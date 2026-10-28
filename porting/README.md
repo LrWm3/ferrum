@@ -1,13 +1,17 @@
-# Source descriptions
+# Port status and checks
 
-All 336 mapped Silver/Silicon source and test files and four Ferrum assembly files
-have comment-only Rust briefs. Each describes provenance, purpose, planned
-structure, behavior, integration, adaptations and open decisions. Implementation
-has not started; `described` is a documentation status.
+The description pass covered all 336 mapped Silver/Silicon source and test files
+and four Ferrum assembly files. Implementation is now underway in the Cargo
+workspace. `described` files remain comment-only; `skeleton` files contain partial
+implementations with explicit gaps, and `ported` files have translated bodies
+that compile. Most of the verifier is still unimplemented, and verification
+requests explicitly fail with `PortIncomplete`.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and
   records reviewed progress. Symbol outlines live in the destination comments.
+- [resources.toml](resources.toml) records unchanged embedded upstream resources
+  and their checksums.
 - [non_rust_files.tsv](non_rust_files.tsv) accounts for the other 1,993 tracked
   upstream paths, including fixtures, resources, documentation, tooling and the
   duplicate Silver submodule. Dispositions are provisional plans, not completed
@@ -24,20 +28,24 @@ plugin transformations, state merging, heap encodings, retries, continuations,
 quantified permissions, snapshot caches and function-axiom phases. This does not
 prove future code correct or replace the broader testing pass in [PLAN.md](../PLAN.md).
 
-Run the complete description audit from the repository root:
+Run the inventory and implementation checks from the repository root:
 
 ```sh
 python3 tools/check_porting.py --complete --upstream
+cargo fmt --all --check
+cargo check --workspace --all-targets --locked
 git diff --check
 ```
 
 `--upstream` requires the pinned Git objects in the sibling checkouts named in
 `sources.toml`; omit it for local document checks without those checkouts. To
 check selected descriptions while editing, pass their repository-relative paths.
-The checker validates inventory coverage, unique destinations, required fields,
-source links, reviewed status and comment-only contents. Source-specific prose
-still needs human or agent review; passing these checks is not compilation or
-behavioral validation.
+The checker validates inventory coverage, unique destinations, source links,
+stage-specific documentation requirements, comment-only contents for files still
+marked `described`, attribution for translated code and copied resource bytes.
+`--complete` means all source descriptions exist or have progressed; it does not
+mean all implementations are complete. Source-specific prose and implementation
+semantics still need review; these checks do not establish behavioral compatibility.
 
 When implementing a file, retain its pinned source reference, update the brief
 and inventory, and replace the description-stage checks with the implementation

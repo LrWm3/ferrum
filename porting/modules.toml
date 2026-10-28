@@ -18,7 +18,7 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Position.scala"
 destination = "crates/ferrum-silver/src/ast/position.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
@@ -36,7 +36,7 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Type.scala"
 destination = "crates/ferrum-silver/src/ast/type.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
@@ -54,7 +54,8 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Consistency.scala"
 destination = "crates/ferrum-silver/src/ast/utility/consistency.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Only reserved names and identifier validation are implemented; all AST consistency checks remain."]
 
 [[modules]]
 repository = "silver"
@@ -258,7 +259,7 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/components/Components.scala"
 destination = "crates/ferrum-silver/src/components/components.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
@@ -648,19 +649,21 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/Common.scala"
 destination = "crates/ferrum-silver/src/utility/common.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Concrete structural equality integration remains pending."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/NameGenerator.scala"
 destination = "crates/ferrum-silver/src/utility/name_generator.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/Paths.scala"
 destination = "crates/ferrum-silver/src/utility/paths.rs"
-status = "described"
+status = "skeleton"
+remaining = ["General jar/resource URL resolution is explicitly unsupported."]
 
 [[modules]]
 repository = "silver"
@@ -678,13 +681,13 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/SilNameGenerator.scala"
 destination = "crates/ferrum-silver/src/utility/sil_name_generator.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/TimingUtils.scala"
 destination = "crates/ferrum-silver/src/utility/timing_utils.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
@@ -936,25 +939,25 @@ status = "described"
 repository = "silicon"
 upstream = "common/src/main/scala/collections/immutable/InsertionOrderedSet.scala"
 destination = "crates/ferrum-silicon/src/common/collections/immutable/insertion_ordered_set.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
 upstream = "common/src/main/scala/collections/immutable/MultiMap.scala"
 destination = "crates/ferrum-silicon/src/common/collections/immutable/multi_map.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
 upstream = "common/src/main/scala/collections/mutable/MultiMap.scala"
 destination = "crates/ferrum-silicon/src/common/collections/mutable/multi_map.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
 upstream = "common/src/main/scala/collections/package.scala"
 destination = "crates/ferrum-silicon/src/common/collections/package.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
@@ -1050,13 +1053,13 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/decider/SMTLib2PreambleReader.scala"
 destination = "crates/ferrum-silicon/src/decider/smt_lib2_preamble_reader.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/decider/SmtlibNameGenerator.scala"
 destination = "crates/ferrum-silicon/src/decider/smtlib_name_generator.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
@@ -1110,7 +1113,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/interfaces/Preamble.scala"
 destination = "crates/ferrum-silicon/src/interfaces/preamble.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Preamble contributor contracts await term and verifier implementations."]
 
 [[modules]]
 repository = "silicon"
@@ -1128,7 +1132,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/interfaces/decider/Prover.scala"
 destination = "crates/ferrum-silicon/src/interfaces/decider/prover.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Only ProverLike emission subset is implemented; solver and term contracts remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2020,16 +2025,320 @@ status = "described"
 
 [[scaffolding]]
 destination = "src/lib.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Verification pipeline unavailable; verify_file always returns PortIncomplete."]
 
 [[scaffolding]]
 destination = "src/main.rs"
-status = "described"
+status = "skeleton"
+remaining = ["CLI help/version only; verification arguments exit with status 2."]
 
 [[scaffolding]]
 destination = "crates/ferrum-silver/src/lib.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Module assembly only; most source modules remain descriptions."]
 
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/lib.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Module assembly only; most source modules remain descriptions."]
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/annotation/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/common/collections/immutable/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/common/collections/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/common/collections/mutable/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/common/concurrency/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/common/config/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/common/io/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/common/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/debugger/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/decider/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/extensions/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/interfaces/decider/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/interfaces/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/interfaces/state/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/logger/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/logger/records/data/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/logger/records/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/logger/records/scoping/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/logger/records/structural/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/logger/renderer/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/logger/writer/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/reporting/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/resources/bundled.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/resources/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/rules/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/state/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/supporters/functions/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/supporters/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/supporters/qps/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/verifier/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/ast/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/ast/pretty/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/ast/utility/chopper/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/ast/utility/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/ast/utility/rewriter/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/cfg/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/cfg/silver/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/cfg/utility/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/components/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/frontend/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/logger/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/parser/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/plugin/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/plugin/sif/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/plugin/standard/adt/encoding/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/plugin/standard/adt/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/plugin/standard/arp/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/plugin/standard/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/plugin/standard/predicateinstance/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/plugin/standard/refute/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/plugin/standard/smoke/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/plugin/standard/termination/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/reporter/format/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/reporter/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/resources/bundled.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/resources/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/testing/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/utility/mod.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silver/src/verifier/mod.rs"
+status = "wired"
+role = "assembly"

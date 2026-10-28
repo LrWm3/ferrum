@@ -1,0 +1,254 @@
+# Copied byte-for-byte from the pinned sources.toml revisions.
+schema_version = 1
+
+[[resources]]
+repository = "silver"
+upstream = "src/main/resources/import/adt/contains.vpr"
+destination = "crates/ferrum-silver/resources/import/adt/contains.vpr"
+sha256 = "5de52289e827345e43da68b57ceaa960c3553af1932d6494aa299b31c29900b6"
+
+[[resources]]
+repository = "silver"
+upstream = "src/main/resources/import/adt/derives.vpr"
+destination = "crates/ferrum-silver/resources/import/adt/derives.vpr"
+sha256 = "5befbd415e4cbb9e1349cf551e4d3d7c48540d1fabd2dd048e5bd515d5be650d"
+
+[[resources]]
+repository = "silver"
+upstream = "src/main/resources/import/decreases/all.vpr"
+destination = "crates/ferrum-silver/resources/import/decreases/all.vpr"
+sha256 = "8cda0918f29d0bec53f74a0ac05cfe765fb9ad2c3cab72082b04c8ad2d5d10e0"
+
+[[resources]]
+repository = "silver"
+upstream = "src/main/resources/import/decreases/bool.vpr"
+destination = "crates/ferrum-silver/resources/import/decreases/bool.vpr"
+sha256 = "1affdcaac833df51da33f7fd7ff229dd0c933b680648d8255dbc7b922e4bd873"
+
+[[resources]]
+repository = "silver"
+upstream = "src/main/resources/import/decreases/declaration.vpr"
+destination = "crates/ferrum-silver/resources/import/decreases/declaration.vpr"
+sha256 = "ceccb85d4d932d834eb9f796acb25407de74f46c36e0ee307f33b20e2eb748ec"
+
+[[resources]]
+repository = "silver"
+upstream = "src/main/resources/import/decreases/int.vpr"
+destination = "crates/ferrum-silver/resources/import/decreases/int.vpr"
+sha256 = "74f548295132c1a35dac86f64528cd09dc99255c033cdaf3bc78a79427a83c37"
+
+[[resources]]
+repository = "silver"
+upstream = "src/main/resources/import/decreases/multiset.vpr"
+destination = "crates/ferrum-silver/resources/import/decreases/multiset.vpr"
+sha256 = "00a805d95ed7107da89251f4a2aff976c2f47869313051ab8577d405151e8876"
+
+[[resources]]
+repository = "silver"
+upstream = "src/main/resources/import/decreases/perm.vpr"
+destination = "crates/ferrum-silver/resources/import/decreases/perm.vpr"
+sha256 = "9860b025f9b044d68719c00b744173914e2ea5fc1ac2ff5f14038cfd481101f2"
+
+[[resources]]
+repository = "silver"
+upstream = "src/main/resources/import/decreases/predicate_instance.vpr"
+destination = "crates/ferrum-silver/resources/import/decreases/predicate_instance.vpr"
+sha256 = "c1da84bf09c1e384780852b16c1ca3ef9badb667d4e72a6e65c1e024ac6e7585"
+
+[[resources]]
+repository = "silver"
+upstream = "src/main/resources/import/decreases/predicate_instance_nested.vpr"
+destination = "crates/ferrum-silver/resources/import/decreases/predicate_instance_nested.vpr"
+sha256 = "5fefc2d34d52392c6cc4b618a2981427a00714dcc768b935569e648e85878707"
+
+[[resources]]
+repository = "silver"
+upstream = "src/main/resources/import/decreases/rational.vpr"
+destination = "crates/ferrum-silver/resources/import/decreases/rational.vpr"
+sha256 = "cc57bfa49b95da4fc31338d3c78f2532f3121982b2d71fcd4f5639dd432fe3b0"
+
+[[resources]]
+repository = "silver"
+upstream = "src/main/resources/import/decreases/ref.vpr"
+destination = "crates/ferrum-silver/resources/import/decreases/ref.vpr"
+sha256 = "b62c2c108be9e94d269497238813ca7318f72afd06dec8cdd709c95acadfde71"
+
+[[resources]]
+repository = "silver"
+upstream = "src/main/resources/import/decreases/seq.vpr"
+destination = "crates/ferrum-silver/resources/import/decreases/seq.vpr"
+sha256 = "6a127831e6bcd8d6f96d2f6486fde9f691872257118cb1ac111e6c6a5bd210ad"
+
+[[resources]]
+repository = "silver"
+upstream = "src/main/resources/import/decreases/set.vpr"
+destination = "crates/ferrum-silver/resources/import/decreases/set.vpr"
+sha256 = "95e4951d6d34472c61fd7512ad3d59e18b9e1be639979486f2918754ac79a397"
+
+[[resources]]
+repository = "silver"
+upstream = "src/main/resources/import/predicateinstance/pi.vpr"
+destination = "crates/ferrum-silver/resources/import/predicateinstance/pi.vpr"
+sha256 = "45a0b8081e240fe7c4d9d240a1f6f29f467d5db993f4509eb88c8c75bd81b3a1"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/cvc5config.smt2"
+destination = "crates/ferrum-silicon/resources/cvc5config.smt2"
+sha256 = "796c024f4a2325cb30ac22d6503b59bf0b675b60612aae5fa582df29df55d354"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/dafny_axioms/DafnyPrelude.bpl"
+destination = "crates/ferrum-silicon/resources/dafny_axioms/DafnyPrelude.bpl"
+sha256 = "0db827895ff591c6654dde1a7a1d0bf9f571576be94e5d4714747421b0cfd08b"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/dafny_axioms/LICENSE.txt"
+destination = "crates/ferrum-silicon/resources/dafny_axioms/LICENSE.txt"
+sha256 = "6ed82e9e9dae6549fda018246ad437d988c245d23aeda95a0d6726beceb46615"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/dafny_axioms/maps.vpr"
+destination = "crates/ferrum-silicon/resources/dafny_axioms/maps.vpr"
+sha256 = "ec3e3e2b207d14cf1069a89d903b28b0bbba76609b33dba59356a45226e9d972"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/dafny_axioms/multisets.vpr"
+destination = "crates/ferrum-silicon/resources/dafny_axioms/multisets.vpr"
+sha256 = "cc5eafb04fc300d7677c1ad6a6d434e19cd3277483f7cf3ef0b27211e1af341b"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/dafny_axioms/multisets_old.vpr"
+destination = "crates/ferrum-silicon/resources/dafny_axioms/multisets_old.vpr"
+sha256 = "9c9e7161008c9bc8189fe2eb21774b54551e60828976a61ab8c3ad445064517f"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/dafny_axioms/sequences.vpr"
+destination = "crates/ferrum-silicon/resources/dafny_axioms/sequences.vpr"
+sha256 = "4ffc71d2b57483912c3e66a355ce2e629131a2970ecf47a29ab024d6ebdd5c65"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/dafny_axioms/sequences_old.vpr"
+destination = "crates/ferrum-silicon/resources/dafny_axioms/sequences_old.vpr"
+sha256 = "4db57d4d6ea143cb62345f47b5432a1a3c71e832e01027c9883d8234693d9f30"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/dafny_axioms/sets.vpr"
+destination = "crates/ferrum-silicon/resources/dafny_axioms/sets.vpr"
+sha256 = "17f85a741690cd1633d2d7df772e17ed9de21a8c706c59495fa02e4d26756d80"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/dafny_axioms/sets_old.vpr"
+destination = "crates/ferrum-silicon/resources/dafny_axioms/sets_old.vpr"
+sha256 = "0357b689320bb2be9dd3094e872b8abd81644757fc8816c863cfa0af4e7bf375"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/field_value_functions_axioms.smt2"
+destination = "crates/ferrum-silicon/resources/field_value_functions_axioms.smt2"
+sha256 = "a216467224b51d5ebab62febb01e10c63841cc26b953078084ee97b1bb0c6888"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/field_value_functions_axioms_no_triggers.smt2"
+destination = "crates/ferrum-silicon/resources/field_value_functions_axioms_no_triggers.smt2"
+sha256 = "11ae67bb9448ac4f3160fd35ec0e3f5fe6d6f1a8d86c2aecdfe5f63723823311"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/field_value_functions_declarations.smt2"
+destination = "crates/ferrum-silicon/resources/field_value_functions_declarations.smt2"
+sha256 = "b470eff5e8548d9563d8a726f0b076baf782aa2680f6298b7f108bcf0748c6ef"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/heapwrappers_axioms.smt2"
+destination = "crates/ferrum-silicon/resources/heapwrappers_axioms.smt2"
+sha256 = "187bfe956b969c6e83492d94d4434d86b352dff6855d14bfad90365a4591caa5"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/heapwrappers_functions.smt2"
+destination = "crates/ferrum-silicon/resources/heapwrappers_functions.smt2"
+sha256 = "3ed27e0c31bf6f2aeb750397eaaf93a05273347d68f3813a483d4a6e8a8d8f69"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/logback.xml"
+destination = "crates/ferrum-silicon/resources/logback.xml"
+sha256 = "fc5e7bee05f62af06900cc3cfb3e8cdcf9412dfb3003fb29c2f8282d1aebd49a"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/magic_wand_snap_functions_declarations.smt2"
+destination = "crates/ferrum-silicon/resources/magic_wand_snap_functions_declarations.smt2"
+sha256 = "bf21fdcee908a6fe43f3efbb14ac964364bc274fea8aef66a066b0ede7640e38"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/maps_axioms.smt2"
+destination = "crates/ferrum-silicon/resources/maps_axioms.smt2"
+sha256 = "fe0782b8f57ee643a2fb8a5e22945e3ade4f2dbe3731f5e686f60987f0ec68aa"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/maps_functions.smt2"
+destination = "crates/ferrum-silicon/resources/maps_functions.smt2"
+sha256 = "93bb91a092deac9e1f0ad12449ea2acd180f8ef0af4d2345163c3c84230f53d3"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/mask_axioms.smt2"
+destination = "crates/ferrum-silicon/resources/mask_axioms.smt2"
+sha256 = "cbc8f27fe3651b582f74bc7b02043b7a5cc178a846eb3bca2f021a4b22e1b2c7"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/mask_functions.smt2"
+destination = "crates/ferrum-silicon/resources/mask_functions.smt2"
+sha256 = "35257ddab5c6cf3c1cbd0bfb22b429cf320cf52ca5cc2f1ea2582938a31ea7c5"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/preamble.smt2"
+destination = "crates/ferrum-silicon/resources/preamble.smt2"
+sha256 = "b0bca3f276f965a8bacd9f5f537f06b02b14b7c2fe64958157f86a6a31854be2"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/predicate_snap_functions_axioms.smt2"
+destination = "crates/ferrum-silicon/resources/predicate_snap_functions_axioms.smt2"
+sha256 = "eb2810b9d97fd89256ef4d298a2ad43207ea48054f660a83d005d48541b5a2c6"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/predicate_snap_functions_axioms_no_triggers.smt2"
+destination = "crates/ferrum-silicon/resources/predicate_snap_functions_axioms_no_triggers.smt2"
+sha256 = "c9c93ef4a70d1759e85680a9a45bd4a03b85a7a4da742b5035aceee4f95a7d30"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/predicate_snap_functions_declarations.smt2"
+destination = "crates/ferrum-silicon/resources/predicate_snap_functions_declarations.smt2"
+sha256 = "99c17c65b76850028b7a00826a1a00c82ce24f87fbf1e8d8e4d52b09af5a0969"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/sortwrappers.smt2"
+destination = "crates/ferrum-silicon/resources/sortwrappers.smt2"
+sha256 = "6874e91cafe6ad66ec8529df51f3b782227341a5cd5cc2acd3ee2d6e821db30a"
+
+[[resources]]
+repository = "silicon"
+upstream = "src/main/resources/z3config.smt2"
+destination = "crates/ferrum-silicon/resources/z3config.smt2"
+sha256 = "0277b1a78cff69d06f96fc557c76d46e214975ad29f106ae8d4dd49ace05b138"

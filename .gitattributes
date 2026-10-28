@@ -1,0 +1,4 @@
+# Preserve pinned upstream assets byte-for-byte, including their whitespace.
+crates/*/resources/** -text -whitespace
+LICENSE.txt -text -whitespace
+crates/*/LICENSE.txt -text -whitespace

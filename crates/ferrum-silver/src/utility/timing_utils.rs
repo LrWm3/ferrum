@@ -21,4 +21,41 @@
 //! Open decisions:
 //! Choose clock abstraction with frontend timing while preserving observable formatting.
 //!
-//! Status: description only; implementation has not started.
+//! Status: implemented; not yet wired or validated.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+//
+// Copyright (c) 2011-2019 ETH Zurich.
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+pub fn format_time_for_table(millis: i64) -> String {
+    if millis > 1000 {
+        format!("{:6.2} sec ", millis as f64 / 1000.0)
+    } else {
+        format!("{millis:>6} msec")
+    }
+}
+
+pub fn format_time(millis: i64) -> String {
+    if millis > 1000 {
+        format!("{:.2} sec", millis as f64 / 1000.0)
+    } else {
+        format!("{millis} msec")
+    }
+}
+
+fn current_millis() -> i64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(d) => d.as_millis() as i64,
+        Err(e) => -(e.duration().as_millis() as i64),
+    }
+}
+
+pub fn time<T>(f: impl FnOnce() -> T) -> (T, i64) {
+    let start = current_millis();
+    let result = f();
+    (result, current_millis() - start)
+}

@@ -31,4 +31,92 @@
 //! Reconcile per-run message/config ownership and extension rules with frontend and plugin
 //! callers, preserving source diagnostics.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partially implemented; identifier validation and reserved names only.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+//
+// Copyright (c) 2011-2019 ETH Zurich.
+
+use std::collections::HashSet;
+
+/// The parser's basic keyword set, excluding plugin extensions.
+pub fn reserved_names() -> HashSet<String> {
+    [
+        "Bool",
+        "Int",
+        "Map",
+        "Multiset",
+        "Rational",
+        "Ref",
+        "Seq",
+        "Set",
+        "acc",
+        "apply",
+        "applying",
+        "assert",
+        "asserting",
+        "assume",
+        "axiom",
+        "define",
+        "domain",
+        "else",
+        "elseif",
+        "ensures",
+        "epsilon",
+        "exhale",
+        "exists",
+        "false",
+        "field",
+        "fold",
+        "forall",
+        "forperm",
+        "function",
+        "goto",
+        "if",
+        "import",
+        "in",
+        "inhale",
+        "interpretation",
+        "intersection",
+        "invariant",
+        "label",
+        "let",
+        "lhs",
+        "method",
+        "new",
+        "none",
+        "null",
+        "old",
+        "package",
+        "perm",
+        "predicate",
+        "quasihavoc",
+        "quasihavocall",
+        "range",
+        "requires",
+        "result",
+        "returns",
+        "setminus",
+        "subset",
+        "true",
+        "unfold",
+        "unfolding",
+        "union",
+        "unique",
+        "var",
+        "while",
+        "wildcard",
+        "write",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
+}
+
+pub fn valid_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '$' || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '$' | '_' | '\'' | '@'))
+}

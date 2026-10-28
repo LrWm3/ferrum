@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Check description-stage coverage and provenance; this does not validate prose."""
+"""Check port inventory, provenance, stage boundaries and bundled resources."""
 
 import argparse
 import csv
+import hashlib
 from collections import Counter
 from pathlib import Path
 import subprocess
@@ -19,7 +20,7 @@ HEADINGS = (
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="*", help="Check just these destination files")
-    parser.add_argument("--complete", action="store_true", help="Require every brief to be described")
+    parser.add_argument("--complete", action="store_true", help="Require every file to be described or further along")
     parser.add_argument("--upstream", action="store_true", help="Check inventory against local pinned Git trees")
     args = parser.parse_args()
     sources = tomllib.loads((ROOT / "porting/sources.toml").read_text())["repositories"]
@@ -38,9 +39,9 @@ def main():
     assert selected <= set(destinations), f"Unknown destination: {selected - set(destinations)}"
     for entry in entries:
         status = entry["status"]
-        assert status in ("mapped", "described"), f"Unexpected description-stage status: {status}"
+        assert status in ("mapped", "described", "skeleton", "ported", "wired", "validated"), f"Unknown status: {status}"
         if args.complete:
-            assert status == "described", f"Not reviewed: {entry['destination']}"
+            assert status != "mapped", f"Not described: {entry['destination']}"
         name = entry["destination"]
         if name not in selected:
             continue
@@ -48,16 +49,34 @@ def main():
         if not body.strip():
             assert status == "mapped" and not args.complete, f"Missing brief: {name}"
             continue
-        assert all(not line.strip() or line.startswith("//!") for line in body.splitlines()), f"Executable/non-doc text: {name}"
-        for heading in HEADINGS:
-            assert f"//! {heading}:" in body, f"Missing {heading}: {name}"
-        assert "description only; implementation has not started" in body, f"Incorrect stage: {name}"
+        if status in ("mapped", "described"):
+            assert all(not line.strip() or line.startswith("//!") for line in body.splitlines()), f"Code needs implementation status: {name}"
+            for heading in HEADINGS:
+                assert f"//! {heading}:" in body, f"Missing {heading}: {name}"
+            assert "description only; implementation has not started" in body, f"Incorrect stage: {name}"
+        elif entry.get("role") != "assembly":
+            assert "//! Status:" in body, f"Missing implementation status: {name}"
+            assert "description only; implementation has not started" not in body, f"Stale stage: {name}"
         if "repository" in entry:
             source = sources[entry["repository"]]
             link = f"{source['url']}/blob/{source['revision']}/{entry['upstream']}"
             assert link in body, f"Incorrect pinned source link: {name}"
+            if status not in ("mapped", "described"):
+                assert "Mozilla Public" in body and "Copyright" in body, f"Missing source attribution: {name}"
         else:
             assert "Ferrum" in body and "PLAN.md" in body, f"Missing assembly provenance: {name}"
+    resource_path = ROOT / "porting/resources.toml"
+    if resource_path.exists():
+        for resource in tomllib.loads(resource_path.read_text())["resources"]:
+            data = (ROOT / resource["destination"]).read_bytes()
+            assert hashlib.sha256(data).hexdigest() == resource["sha256"], f"Changed bundled resource: {resource['destination']}"
+            if args.upstream:
+                source = sources[resource["repository"]]
+                original = subprocess.check_output(
+                    ["git", "show", f"{source['revision']}:{resource['upstream']}"],
+                    cwd=ROOT / source["checkout"],
+                )
+                assert data == original, f"Resource differs from pinned upstream: {resource['destination']}"
     if args.upstream:
         with (ROOT / "porting/non_rust_files.tsv").open(newline="") as stream:
             assets = list(csv.DictReader(stream, delimiter="\t"))

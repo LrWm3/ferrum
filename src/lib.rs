@@ -30,4 +30,30 @@
 //! Agree on source-versus-AST entry APIs, repeated-run reset, cancellation and error ownership
 //! with both crate roots and backend orchestration. Do not duplicate configuration translation.
 //!
-//! Status: description only; implementation has not started.
+//! Status: facade skeleton; verification pipeline is not implemented.
+
+/// Symbolic execution backend modules under active translation.
+pub use ferrum_silicon as silicon;
+/// Shared language infrastructure for callers constructing a Silver program.
+pub use ferrum_silver as silver;
+
+/// An explicit integration gap; this is never a successful verification result.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PortIncomplete {
+    pub component: &'static str,
+}
+
+impl std::fmt::Display for PortIncomplete {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Ferrum port incomplete: {}", self.component)
+    }
+}
+
+impl std::error::Error for PortIncomplete {}
+
+/// The CLI uses this until the real frontend and verification engine are connected.
+pub fn verify_file(_path: &std::path::Path) -> Result<(), PortIncomplete> {
+    Err(PortIncomplete {
+        component: "frontend and verification pipeline",
+    })
+}

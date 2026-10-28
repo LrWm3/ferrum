@@ -29,4 +29,31 @@
 //! Reconcile CLI compatibility, intentional Ferrum naming, signal cancellation and help/version
 //! exit behavior with the configuration port; record adopted differences before implementation.
 //!
-//! Status: description only; implementation has not started.
+//! Status: CLI skeleton; verification requests explicitly fail as incomplete.
+
+fn main() -> std::process::ExitCode {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    match args.as_slice() {
+        [arg] if arg == "--help" || arg == "-h" => {
+            println!(
+                "Ferrum native Viper port (implementation in progress)\nUsage: ferrum <file.vpr>\nVerification is not yet available."
+            );
+            std::process::ExitCode::SUCCESS
+        }
+        [arg] if arg == "--version" => {
+            println!("ferrum {} (incomplete port)", env!("CARGO_PKG_VERSION"));
+            std::process::ExitCode::SUCCESS
+        }
+        [path] => match ferrum::verify_file(std::path::Path::new(path)) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::ExitCode::from(2)
+            }
+        },
+        _ => {
+            eprintln!("Usage: ferrum <file.vpr> (verification implementation incomplete)");
+            std::process::ExitCode::from(2)
+        }
+    }
+}

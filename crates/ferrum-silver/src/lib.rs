@@ -30,4 +30,17 @@
 //! Reconcile public re-exports, plugin extension traits and optional harness dependencies with
 //! frontend, AST and verifier owners before exposing stable APIs.
 //!
-//! Status: description only; implementation has not started.
+//! Status: workspace assembly active; backend implementation is incomplete.
+
+pub mod ast;
+pub mod cfg;
+pub mod components;
+pub mod frontend;
+pub mod logger;
+pub mod parser;
+pub mod plugin;
+pub mod reporter;
+pub mod resources;
+pub mod testing;
+pub mod utility;
+pub mod verifier;

@@ -32,4 +32,22 @@
 //! Resolve public session/configuration APIs, worker context sharing, optional debugger/logging
 //! features and packaged solver resources with the owning modules before workspace activation.
 //!
-//! Status: description only; implementation has not started.
+//! Status: workspace assembly active; backend implementation is incomplete.
+
+pub mod annotation;
+pub mod common;
+pub mod config;
+pub mod debugger;
+pub mod decider;
+pub mod extensions;
+pub mod interfaces;
+pub mod logger;
+pub mod package;
+pub mod reporting;
+pub mod resources;
+pub mod rules;
+pub mod silicon;
+pub mod state;
+pub mod supporters;
+pub mod utils;
+pub mod verifier;

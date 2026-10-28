@@ -22,4 +22,49 @@
 //! Open decisions:
 //! Agree on shared identifier validation and context ownership with name_generator.
 //!
-//! Status: description only; implementation has not started.
+//! Status: implemented; not yet wired or validated.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+//
+// Copyright (c) 2011-2019 ETH Zurich.
+
+use super::name_generator::{NameContext, NameRules};
+use crate::ast::utility::consistency::{reserved_names, valid_identifier};
+
+pub struct SilNameGenerator(NameContext);
+
+impl SilNameGenerator {
+    pub fn new() -> Self {
+        Self(sil_name_generator())
+    }
+}
+
+impl Default for SilNameGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::ops::Deref for SilNameGenerator {
+    type Target = NameContext;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+pub fn sil_name_generator() -> NameContext {
+    NameContext::new(NameRules {
+        separator: "_".into(),
+        default_ident: "v".into(),
+        first_character: |c| c.is_ascii_alphabetic() || c == '$' || c == '_',
+        other_character: |c| c.is_ascii_alphanumeric() || matches!(c, '$' | '_' | '\''),
+        reserved_names: reserved_names(),
+    })
+}
+
+/// Equivalent to the upstream postcondition for identifier creation.
+pub fn valid_sil_identifier(name: &str) -> bool {
+    valid_identifier(name)
+}
