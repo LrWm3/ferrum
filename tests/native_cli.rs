@@ -66,6 +66,27 @@ fn sif_inactive_inhale_false_cannot_hide_a_failed_assertion() {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn nested_predicate_chain_uses_the_source_launcher_stack() {
+    let mut source = String::from("field value: Int predicate P0(r: Ref) { acc(r.value) }\n");
+    for level in 1..32 {
+        source.push_str(&format!(
+            "predicate P{level}(r: Ref) {{ acc(P{}(r)) }}\n",
+            level - 1
+        ));
+    }
+    source.push_str("method m(r: Ref) requires acc(r.value) && r.value == 7 {\n");
+    for level in 0..32 {
+        source.push_str(&format!("fold acc(P{level}(r));\n"));
+    }
+    for level in (0..32).rev() {
+        source.push_str(&format!("unfold acc(P{level}(r));\n"));
+    }
+    check(&format!("{source} assert r.value == 7; }}"), 0);
+    check(&format!("{source} assert r.value == 8; }}"), 1);
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn complete_exhale_and_cfg_joins_preserve_conditional_permissions() {
     let prefix = "field f: Int method m(x: Ref, y: Ref, b: Bool)
         requires acc(x.f, 1/2) && acc(y.f, 1/2) {

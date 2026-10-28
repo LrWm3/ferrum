@@ -1648,7 +1648,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Evaluator.scala"
 destination = "crates/ferrum-silicon/src/rules/evaluator.rs"
 status = "skeleton"
-remaining = ["CPS expression, quantifier and trigger evaluation algorithms exist; complete extension handling and concrete verifier services remain."]
+remaining = ["Typed evaluation covers literals, locals, collections, quantifiers, heap/function operations and source continuation order. Non-inlined expression families reduce large Rust stack frames. Debug/advanced services and broader source compatibility remain; recursive CPS has a finite stack bound."]
 
 [[modules]]
 repository = "silicon"

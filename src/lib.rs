@@ -430,8 +430,15 @@ impl SiliconBackend for NativeBackend {
     }
 }
 
+/// Stack reserved by the file runner, matching pinned Silicon's `-Xss128m` launcher.
+/// This is a finite bound for the source continuation-based verification algorithms.
+pub const VERIFICATION_STACK_SIZE: usize = 128 * 1024 * 1024;
+
 /// An owned solver session for native Silver programs, including repeated runs.
 /// AST clients bypass frontend plugins but retain Silicon's mandatory consistency check.
+/// Sessions run on the caller's thread. For recursive programs, create and use the
+/// session inside a thread configured with [`VERIFICATION_STACK_SIZE`]. Native
+/// solver handles stay on the thread where the session is created.
 pub struct Session {
     silicon: Silicon<NativeBackend>,
 }
@@ -489,8 +496,20 @@ pub struct RunReport {
     pub warnings: Vec<String>,
 }
 
-/// Execute the source frontend and native backend; parsing alone is a distinct outcome.
+/// Execute the frontend and backend on a thread with the upstream launcher's stack size.
+/// Solver handles and plugins are constructed and destroyed on that thread.
+/// Parsing alone is a distinct outcome.
 pub fn run_file(config: Config) -> Result<RunReport, FerrumError> {
+    std::thread::Builder::new()
+        .name("ferrum-verifier".into())
+        .stack_size(VERIFICATION_STACK_SIZE)
+        .spawn(move || run_file_on_current_thread(config))
+        .map_err(|error| FerrumError::Execution(format!("Cannot start verifier thread: {error}")))?
+        .join()
+        .map_err(|_| FerrumError::Execution("Native verifier thread panicked".into()))?
+}
+
+fn run_file_on_current_thread(config: Config) -> Result<RunReport, FerrumError> {
     let file = config
         .frontend
         .file

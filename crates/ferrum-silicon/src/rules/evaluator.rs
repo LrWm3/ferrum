@@ -42,7 +42,8 @@
 //! Continuation and verifier ownership, quantified auxiliary scopes, snapshot and error
 //! propagation.
 //!
-//! Status: partial; CPS heap restoration, literals, locals and basic binary dispatch implemented.
+//! Status: source-shaped evaluation families connect through typed context services.
+//! Non-inlined family dispatch limits individual Rust frames; recursive CPS depth remains finite.
 //! Control-flow, division checks, heap/function/quantifier/collection families require collaborators.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
@@ -642,6 +643,90 @@ where
 {
     let factory = context.factory().clone();
     let debug = context.debugging().then(|| expression.clone());
+    // Dispatch to one non-inlined family to keep nested CPS frames bounded.
+    // Factory and debug state are computed once, before choosing the family.
+    let stage: fn(
+        &mut C,
+        State<P, D, J>,
+        &Exp,
+        &C::PartialError,
+        &mut dyn FnMut(
+            &mut C,
+            State<P, D, J>,
+            Term,
+            Option<Exp>,
+        ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+        crate::state::terms::TermFactory,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>> = match expression.kind() {
+        ExpKind::TrueLit
+        | ExpKind::FalseLit
+        | ExpKind::NullLit
+        | ExpKind::IntLit(_)
+        | ExpKind::FullPerm
+        | ExpKind::NoPerm
+        | ExpKind::LocalVarWithVersion(..)
+        | ExpKind::LocalVar(_)
+        | ExpKind::Result(_) => evaluate_atomic_family,
+        ExpKind::WildcardPerm => evaluate_wildcard_family,
+        ExpKind::EmptySeq(_)
+        | ExpKind::EmptySet(_)
+        | ExpKind::EmptyMultiset(_)
+        | ExpKind::EmptyMap(..) => evaluate_empty_collection_family,
+        ExpKind::And(..) | ExpKind::Or(..) | ExpKind::CondExp(..) | ExpKind::Implies(..) => {
+            evaluate_boolean_branch_family
+        }
+        ExpKind::FieldAccess(_) | ExpKind::CurrentPerm(_) => evaluate_heap_access_family,
+        ExpKind::ForPerm(..) | ExpKind::Forall(..) | ExpKind::Exists(..) => {
+            evaluate_quantifier_family
+        }
+        ExpKind::FuncApp(..)
+        | ExpKind::DomainFuncApp(..)
+        | ExpKind::BackendFuncApp(..)
+        | ExpKind::Asserting(..)
+        | ExpKind::Old(_)
+        | ExpKind::LabelledOld(..)
+        | ExpKind::DebugLabelledOld(..)
+        | ExpKind::Let(..) => evaluate_calls_and_old_family,
+        ExpKind::ExplicitMap(_)
+        | ExpKind::ExplicitSeq(_)
+        | ExpKind::ExplicitSet(_)
+        | ExpKind::ExplicitMultiset(_)
+        | ExpKind::SeqIndex(..)
+        | ExpKind::SeqUpdate(..)
+        | ExpKind::MapLookup(..)
+        | ExpKind::MapUpdate(..) => evaluate_collection_family,
+        _ => evaluate_operator_family,
+    };
+    stage(
+        context,
+        state,
+        expression,
+        error,
+        continuation,
+        factory,
+        debug,
+    )
+}
+
+#[inline(never)]
+fn evaluate_atomic_family<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+    factory: crate::state::terms::TermFactory,
+    debug: Option<Exp>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
     let literal = match expression.kind() {
         ExpKind::TrueLit => Some(factory.boolean(true)),
         ExpKind::FalseLit => Some(factory.boolean(false)),
@@ -649,27 +734,10 @@ where
         ExpKind::IntLit(n) => Some(factory.int_literal(n.clone())),
         ExpKind::FullPerm => Some(factory.full_perm()),
         ExpKind::NoPerm => Some(factory.no_perm()),
-        ExpKind::WildcardPerm if state.assert_read_access_only => Some(factory.full_perm()),
         _ => None,
     };
     if let Some(term) = literal {
         return continuation(context, state, term, debug);
-    }
-    if matches!(expression.kind(), ExpKind::WildcardPerm) {
-        let (variable, constraint, debug_variable) =
-            context.fresh_arp().map_err(EvaluationError::Context)?;
-        if context.debugging() && debug_variable.is_none() {
-            return Err(EvaluationError::MissingDebugExpression);
-        }
-        context
-            .assume_arp_definition(&constraint, debug_variable.as_ref())
-            .map_err(EvaluationError::Context)?;
-        let mut state = state;
-        state.function_recorder = state
-            .function_recorder
-            .record_constrained_var(variable.clone(), constraint);
-        state.constrainable_arps = state.constrainable_arps.incl(variable.clone());
-        return continuation(context, state, variable, debug_variable);
     }
     if let ExpKind::LocalVarWithVersion(name, typ) = expression.kind() {
         let sort = context.to_sort(typ).map_err(EvaluationError::Context)?;
@@ -689,6 +757,67 @@ where
         let debug = state.g.get_exp(&key).cloned();
         return continuation(context, state, term, debug);
     }
+    context.evaluate_special(state, expression, error, continuation)
+}
+
+#[inline(never)]
+fn evaluate_wildcard_family<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+    factory: crate::state::terms::TermFactory,
+    debug: Option<Exp>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    if state.assert_read_access_only {
+        return continuation(context, state, factory.full_perm(), debug);
+    }
+    if matches!(expression.kind(), ExpKind::WildcardPerm) {
+        let (variable, constraint, debug_variable) =
+            context.fresh_arp().map_err(EvaluationError::Context)?;
+        if context.debugging() && debug_variable.is_none() {
+            return Err(EvaluationError::MissingDebugExpression);
+        }
+        context
+            .assume_arp_definition(&constraint, debug_variable.as_ref())
+            .map_err(EvaluationError::Context)?;
+        let mut state = state;
+        state.function_recorder = state
+            .function_recorder
+            .record_constrained_var(variable.clone(), constraint);
+        state.constrainable_arps = state.constrainable_arps.incl(variable.clone());
+        return continuation(context, state, variable, debug_variable);
+    }
+    context.evaluate_special(state, expression, error, continuation)
+}
+
+#[inline(never)]
+fn evaluate_empty_collection_family<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+    factory: crate::state::terms::TermFactory,
+    debug: Option<Exp>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
     match expression.kind() {
         ExpKind::EmptySeq(typ) | ExpKind::EmptySet(typ) | ExpKind::EmptyMultiset(typ) => {
             let sort = context.to_sort(typ).map_err(EvaluationError::Context)?;
@@ -706,6 +835,27 @@ where
         }
         _ => {}
     }
+    context.evaluate_special(state, expression, error, continuation)
+}
+
+#[inline(never)]
+fn evaluate_boolean_branch_family<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+    factory: crate::state::terms::TermFactory,
+    debug: Option<Exp>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
     if !context.disable_short_circuiting()
         && matches!(expression.kind(), ExpKind::And(..) | ExpKind::Or(..))
     {
@@ -829,6 +979,35 @@ where
             },
         );
     }
+    evaluate_operator_family(
+        context,
+        state,
+        expression,
+        error,
+        continuation,
+        factory,
+        debug,
+    )
+}
+
+#[inline(never)]
+fn evaluate_heap_access_family<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+    _factory: crate::state::terms::TermFactory,
+    _debug: Option<Exp>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
     if let ExpKind::FieldAccess(access) = expression.kind() {
         let record_heap = context.debugging() && state.temporary_heap_record.is_some();
         return evaluate(
@@ -950,6 +1129,27 @@ where
             },
         );
     }
+    context.evaluate_special(state, expression, error, continuation)
+}
+
+#[inline(never)]
+fn evaluate_quantifier_family<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+    factory: crate::state::terms::TermFactory,
+    _debug: Option<Exp>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
     if let ExpKind::ForPerm(declarations, access, body) = expression.kind() {
         use crate::state::{chunks::MagicWandIdentifier, terms::ResourceKey};
         let (resource, args) = match access.kind() {
@@ -1190,6 +1390,27 @@ where
             },
         );
     }
+    context.evaluate_special(state, expression, error, continuation)
+}
+
+#[inline(never)]
+fn evaluate_calls_and_old_family<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+    factory: crate::state::terms::TermFactory,
+    _debug: Option<Exp>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
     if let ExpKind::FuncApp(name, args) = expression.kind() {
         let function = state
             .program
@@ -1498,6 +1719,27 @@ where
             },
         );
     }
+    context.evaluate_special(state, expression, error, continuation)
+}
+
+#[inline(never)]
+fn evaluate_collection_family<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+    factory: crate::state::terms::TermFactory,
+    _debug: Option<Exp>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
     if let ExpKind::ExplicitMap(entries) = expression.kind() {
         let Some(first) = entries.first() else {
             return Err(EvaluationError::EmptyExplicitCollection);
@@ -1725,6 +1967,27 @@ where
             },
         );
     }
+    context.evaluate_special(state, expression, error, continuation)
+}
+
+#[inline(never)]
+fn evaluate_operator_family<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+    factory: crate::state::terms::TermFactory,
+    _debug: Option<Exp>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
     let unary = match expression.kind() {
         ExpKind::Not(arg) => Some((0, arg)),
         ExpKind::Minus(arg) => Some((1, arg)),

@@ -128,6 +128,15 @@ unsupported, as in the source API backend. A non-reference-counted Z3
 context retains AST allocations until the context and its last handle are dropped;
 long-lived API contexts can therefore retain more memory than the Java binding.
 
+The file runner uses a dedicated thread with a 128 MiB stack, matching the pinned
+Silicon launcher's `-Xss128m`. Plugins and native solver handles stay on that
+thread. Direct AST `Session` users control their own thread and should create the
+session inside a thread with `VERIFICATION_STACK_SIZE` for recursive inputs.
+The evaluator dispatches to separate expression families to reduce large Rust
+frames. A 32-level predicate fold/unfold regression checks both a preserved value
+and a failing assertion through both transports. This remains a finite stack
+limit; it is not a guarantee for arbitrary verification depth or a speedup claim.
+
 Run the native runner regressions with `FERRUM_TEST_Z3=/path/to/z3` for stdio, or
 `FERRUM_TEST_PROVER=Z3-API` with the feature and matching library environment:
 

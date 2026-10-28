@@ -210,3 +210,14 @@ Scallop help, abbreviation and diagnostic compatibility remains pending.
 The native CLI reports source dependency metadata and elapsed time, honoring
 `--dependencies` and `--no-timing`. Elapsed time uses a monotonic Rust clock
 instead of wall-clock subtraction; common result wording retains Ferrum naming.
+
+
+## Native verification stack
+
+Pinned Silicon `build.sbt` configures both run and test JVMs with `-Xss128m`.
+Ferrum's file runner constructs plugins and solver contexts inside a native thread
+with the same 128 MiB stack setting. Direct AST sessions retain caller-thread
+ownership; embedders choose the stack when creating that thread. No native Z3
+context is transferred between threads. The evaluator's large dispatch body is
+split into non-inlined expression families without changing continuation order.
+Both runtimes still have finite stacks; recursive inputs can exceed that bound.
