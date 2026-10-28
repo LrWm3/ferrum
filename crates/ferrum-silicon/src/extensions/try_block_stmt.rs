@@ -61,6 +61,25 @@ impl PExtender for PTryBlock {
     fn as_any(&self) -> &dyn Any {
         self
     }
+    fn copy_macro_statement(
+        &self,
+        copy: &dyn Fn(
+            &PStmtHandle,
+        )
+            -> Result<PStmtHandle, ferrum_silver::parser::macro_expander::MacroError>,
+    ) -> Result<Option<PStmtHandle>, ferrum_silver::parser::macro_expander::MacroError> {
+        Ok(Some(
+            PTryBlock {
+                keyword: PReserved::new(
+                    self.keyword.value().clone(),
+                    self.keyword.position().clone(),
+                ),
+                body: copy(&self.body)?,
+                pos: self.pos.clone(),
+            }
+            .statement(),
+        ))
+    }
     fn statement_name_analysis_passthrough(&self) -> bool {
         true
     }

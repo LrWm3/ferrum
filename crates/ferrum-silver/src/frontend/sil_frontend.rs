@@ -577,6 +577,96 @@ mod tests {
         phases.check_consistency(program).unwrap();
     }
     #[test]
+    fn assume_statements_rewrite_before_consistency() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases
+            .parse("field f: Int method m(r: Ref) { assume true && true; assume acc(r.f); }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        fn count_assumes(node: crate::ast::utility::nodes::Node) -> usize {
+            use crate::ast::utility::nodes::{Node, subnodes};
+            usize::from(
+                matches!(&node, Node::Stmt(stmt) if matches!(stmt.kind(), crate::ast::statement::StmtKind::Assume(_))),
+            ) + subnodes(&node)
+                .unwrap()
+                .into_iter()
+                .map(count_assumes)
+                .sum::<usize>()
+        }
+        assert_eq!(
+            count_assumes(crate::ast::utility::nodes::Node::Program(program.clone())),
+            0
+        );
+        phases.check_consistency(program).unwrap();
+    }
+    #[test]
+    fn macro_loop_decreases_reaches_termination_lowering() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases.parse("define count(x) { while (x > 0) invariant x >= 0 decreases x { x := x - 1; } } method m() { var n: Int := 2; count(n); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+    }
+    #[test]
+    fn macro_predicate_instance_reaches_plugin_lowering() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases.parse("domain PredicateInstance {} predicate p(x: Int) { true } define inst(v) #p(v) method m() { assert inst(1) == inst(1); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+    }
+    #[test]
+    fn macro_refute_extension_reaches_plugin_lowering() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases
+            .parse("define check(v) { refute v; } method m() { check(false); }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+    }
+    #[test]
+    fn macro_wand_proofs_copy_and_forbid_nested_definitions() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("field f: Int define p(r) { package acc(r.f) --* acc(r.f) {} } method m(x: Ref) { p(x); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        assert!(
+            phases
+                .parse("define unused { package true --* true { define x true } } method m() {}")
+                .is_err()
+        );
+    }
+    #[test]
+    fn macro_allocation_copies_and_substitutes_fields() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("field f: Int define alloc(x, k) { x := new(k); } method m() { var r: Ref; alloc(r, f); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+        assert!(phases.parse("field f: Int define alloc(x, k) { x := new(k); } method m() { var r: Ref; alloc(r, 1); }").is_err());
+    }
+    #[test]
     fn typed_collection_and_ascribed_calls_copy_through_macros() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
@@ -795,6 +885,15 @@ mod tests {
                 .is_some()
         );
         phases.check_consistency(program).unwrap();
+    }
+    #[test]
+    fn macro_annotated_declarations_copy_and_resolve() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases
+            .parse("define b { @s(\"x\") var x: Int := 1; } method m() { b; }")
+            .unwrap();
+        phases.analyze(parsed).unwrap();
     }
     #[test]
     fn expression_and_statement_annotations_retain_metadata() {

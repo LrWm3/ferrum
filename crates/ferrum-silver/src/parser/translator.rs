@@ -30,8 +30,9 @@
 //! Agree on signature table and AST identity, metadata, extension translation and consistency
 //! message ownership with AST and plugins.
 //!
-//! Status: partial; primitive/collection types and core expression translation are implemented.
-//! Member signatures, remaining statements/expressions and program checks remain pending.
+//! Status: partial; core program, members, types, statements and expressions are translated,
+//! including interpreted domains and the fallible whole-program Assume rewrite. Unsupported
+//! extension products and remaining syntax fail explicitly.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -53,6 +54,7 @@ pub enum TranslationError {
     InvalidType,
     UnresolvedIdentifier(String),
     InvalidPosition,
+    AssumeRewrite(crate::ast::utility::impure_assume_rewriter::AssumeRewriteError),
 }
 
 /// Preserve SourcePNodeInfo and lift the original parse span into a SourcePosition.
@@ -1457,31 +1459,12 @@ fn specification_expressions(
 pub fn translate_program_core(
     input: &super::parse_ast::PProgramHandle,
 ) -> Result<crate::ast::program::Program, TranslationError> {
-    use super::parse_ast::{PMemberKind, PStatementKind};
+    use super::parse_ast::PMemberKind;
     use crate::ast::program::{
         AnyLocalVarDecl, Domain, DomainAxiom, DomainAxiomKind, DomainData, DomainFunc,
         DomainFuncData, Field, FieldData, Function, FunctionData, Method, MethodData, Predicate,
         PredicateData, Program,
     };
-    fn contains_assume(node: &PNodeHandle) -> Result<bool, TranslationError> {
-        let kind = node.read().expect("poisoned parse node").kind.clone();
-        if matches!(
-            kind,
-            PNodeKind::Statement(super::parse_ast::PStatement {
-                kind: PStatementKind::Assume { .. }
-            })
-        ) {
-            return Ok(true);
-        }
-        for child in super::parse_ast::subnodes(node)
-            .map_err(|_| TranslationError::Unsupported("parse node traversal"))?
-        {
-            if contains_assume(&child)? {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
     let mut fields = Vec::new();
     let mut field_map = std::collections::HashMap::new();
     for handle in input.all_members() {
@@ -1765,13 +1748,6 @@ pub fn translate_program_core(
                 body,
                 ..
             } => {
-                if let Some(body) = &body {
-                    if contains_assume(body.node())? {
-                        return Err(TranslationError::Unsupported(
-                            "impure assume program rewrite",
-                        ));
-                    }
-                }
                 methods.push(Method::new(MethodData {
                     name: declaration_name(&idndef)?,
                     formal_args: formal_declarations(&args)?,
@@ -1799,9 +1775,11 @@ pub fn translate_program_core(
     }
     let mut meta = metadata(input.node())?;
     meta.info = Info::NoInfo;
-    Ok(Program::new(
+    let program = Program::new(
         domains, fields, functions, predicates, methods, extensions, meta,
-    ))
+    );
+    crate::ast::utility::impure_assume_rewriter::rewrite_assumes(&program)
+        .map_err(TranslationError::AssumeRewrite)
 }
 
 #[cfg(test)]

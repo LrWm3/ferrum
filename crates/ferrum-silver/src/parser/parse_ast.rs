@@ -367,6 +367,14 @@ pub enum PNodeKind {
 pub trait PExtender: std::fmt::Debug + Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
     fn subnodes(&self) -> Vec<PNodeHandle>;
+    /// Rebuild an extension statement during macro duplication using the same hygienic copier.
+    /// `None` indicates this extension has not supplied a macro reconstruction contract.
+    fn copy_macro_statement(
+        &self,
+        _copy: &dyn Fn(&PStmtHandle) -> Result<PStmtHandle, super::macro_expander::MacroError>,
+    ) -> Result<Option<PStmtHandle>, super::macro_expander::MacroError> {
+        Ok(None)
+    }
     /// True only when ordinary recursive name analysis handles this statement's scope.
     fn statement_name_analysis_passthrough(&self) -> bool {
         false

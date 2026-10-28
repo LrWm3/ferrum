@@ -64,6 +64,17 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    fn try_block_is_duplicated_inside_macro_expansion() {
+        let plugins = SilverPluginManager::new(vec![Box::new(TryBlockParserPlugin)]);
+        let mut phases = SilFrontendPhases::new(PathBuf::from("test.vpr"), plugins);
+        let parsed = phases
+            .parse("define guard(v) { try { assert v; } } method m() { guard(true); }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+    }
+    #[test]
     fn parses_checks_and_translates_try_block() {
         let plugins = SilverPluginManager::new(vec![Box::new(TryBlockParserPlugin)]);
         let mut phases = SilFrontendPhases::new(PathBuf::from("test.vpr"), plugins);
