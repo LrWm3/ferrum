@@ -483,9 +483,6 @@ pub fn do_desugar_source_quantified_permission_syntax(
             }
             Ok(result)
         }
-        ExpKind::Extension(_) => Err(QuantifiedPermissionError::DesugarUnsupported(
-            "extension expression desugaring",
-        )),
         _ => Ok(vec![source.clone()]),
     }
 }
@@ -570,6 +567,26 @@ mod tests {
 mod let_desugar_tests {
     use super::*;
     use crate::ast::{ast::Metadata, expression::LocalVar, program::LocalVarDecl, r#type::Type};
+    #[test]
+    fn unhandled_impure_extension_preserves_original_forall() {
+        use crate::plugin::sif::sif_ast_extensions::{SifExpression, SifExpressionKind};
+        let meta = Metadata::default();
+        let extension = SifExpression {
+            kind: SifExpressionKind::LowExit,
+            meta: meta.clone(),
+        }
+        .expression()
+        .unwrap();
+        assert!(!extension.is_pure());
+        let body = Exp::new(
+            ExpKind::Implies(Exp::new(ExpKind::TrueLit, meta.clone()), extension),
+            meta.clone(),
+        );
+        let original = Exp::new(ExpKind::Forall(vec![], vec![], body), meta);
+        let result = do_desugar_source_quantified_permission_syntax(&original).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result[0].same_node(&original));
+    }
     #[test]
     fn let_binding_expands_in_impure_resource_but_remains_in_condition() {
         let m = Metadata::default();

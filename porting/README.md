@@ -324,3 +324,8 @@ The assembled snapshot matched all 248 expected outcomes per transport in a
 regressions passed on both transports. Mask timeout/session reuse also passed
 on both transports and worker counts.
 These checks are bounded; full source compatibility and performance remain open.
+
+Permission-expression scaling now traverses typed plugin children while retaining
+nested wand/type errors. Quantified-permission desugaring preserves an unhandled
+extension RHS as the original quantifier, matching the source fallback; later
+consistency and execution checks still reject unsupported expressions.

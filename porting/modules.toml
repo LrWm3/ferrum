@@ -135,8 +135,8 @@ remaining = ["Native AST construction and traversal exist; complete source exten
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Permissions.scala"
 destination = "crates/ferrum-silver/src/ast/utility/permissions.rs"
-status = "skeleton"
-remaining = ["Permission queries and scaling exist; generic reconstruction and extension hooks remain."]
+status = "ported"
+remaining = ["Built-in and reconstructible extension permission scaling follows source; extensions without mapping hooks remain explicitly unsupported and broader compatibility remains unproved."]
 
 [[modules]]
 repository = "silver"

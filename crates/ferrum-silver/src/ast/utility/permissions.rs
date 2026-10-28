@@ -1,7 +1,7 @@
 //! Permission expression queries and scaling.
 //! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/ast/utility/Permissions.scala
-//! Status: partial; built-in expressions and explicit extension failure are implemented;
-//! generic source reconstruction and extension hooks remain pending.
+//! Status: partial; built-in expressions and typed extension expression mapping are implemented.
+//! Extension products that cannot reconstruct expression children remain explicitly unsupported.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -110,7 +110,24 @@ pub fn multiply_exp_by_perm(exp: &Exp, factor: &Exp) -> Result<Exp, PermissionEr
         }
         e.map_expression_children(
             &mut |v| go(v, factor),
-            &mut |_| Err(PermissionError::Extension),
+            &mut |extension| {
+                let failure = std::cell::RefCell::new(None);
+                let result = extension.0.map_expressions(&|child| {
+                    go(child, factor).map_err(|error| {
+                        let mut first = failure.borrow_mut();
+                        if first.is_none() {
+                            *first = Some(error);
+                        }
+                        crate::verifier::verification_result::DiagnosticError::Unsupported(
+                            "permission scaling in extension expression",
+                        )
+                    })
+                });
+                if let Some(error) = failure.into_inner() {
+                    return Err(error);
+                }
+                result.map_err(|_| PermissionError::Extension)
+            },
             &mut |v| {
                 let receiver = go(&v.receiver, factor)?;
                 Ok(if receiver == v.receiver {
@@ -146,4 +163,54 @@ pub fn multiply_exp_by_perm(exp: &Exp, factor: &Exp) -> Result<Exp, PermissionEr
         )
     }
     go(exp, factor)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::program::{Field, FieldData};
+    use crate::plugin::sif::sif_ast_extensions::{SifExpression, SifExpressionKind};
+
+    #[test]
+    fn extension_children_are_scaled_and_nested_wand_error_is_retained() {
+        let meta = Metadata::default();
+        let field = Field::new(FieldData {
+            name: "f".into(),
+            typ: Type::Int,
+            meta: meta.clone(),
+        });
+        let loc = FieldAccess::new(
+            Exp::new(ExpKind::NullLit, meta.clone()),
+            field,
+            meta.clone(),
+        );
+        let access = Exp::new(ExpKind::FieldAccessPredicate(loc, None), meta.clone());
+        let wrap = |exp| {
+            SifExpression {
+                kind: SifExpressionKind::Low {
+                    exp,
+                    comparator: None,
+                    type_variables: Default::default(),
+                },
+                meta: meta.clone(),
+            }
+            .expression()
+            .unwrap()
+        };
+        let factor = Exp::new(ExpKind::NoPerm, meta.clone());
+        let result = multiply_exp_by_perm(&wrap(access), &factor).unwrap();
+        let ExpKind::Extension(ext) = result.kind() else {
+            panic!("expected extension")
+        };
+        let sif = ext.0.as_any().downcast_ref::<SifExpression>().unwrap();
+        assert!(
+            matches!(&sif.kind, SifExpressionKind::Low { exp, .. } if matches!(exp.kind(), ExpKind::FieldAccessPredicate(_, Some(p)) if p == &factor))
+        );
+        let truth = Exp::new(ExpKind::TrueLit, meta.clone());
+        let wand = Exp::new(ExpKind::MagicWand(truth.clone(), truth), meta.clone());
+        assert!(matches!(
+            multiply_exp_by_perm(&wrap(wand), &factor),
+            Err(PermissionError::MagicWand)
+        ));
+    }
 }
