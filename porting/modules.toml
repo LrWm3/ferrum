@@ -980,25 +980,26 @@ status = "ported"
 repository = "silicon"
 upstream = "common/src/main/scala/concurrency/package.scala"
 destination = "crates/ferrum-silicon/src/common/concurrency/package.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
 upstream = "common/src/main/scala/config/package.scala"
 destination = "crates/ferrum-silicon/src/common/config/package.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Version comparison and wildcard conversion exist; Java Scanner locale-specific integer formats remain to reconcile."]
 
 [[modules]]
 repository = "silicon"
 upstream = "common/src/main/scala/io/package.scala"
 destination = "crates/ferrum-silicon/src/common/io/package.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
 upstream = "common/src/main/scala/package.scala"
 destination = "crates/ferrum-silicon/src/common/package.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
@@ -1372,7 +1373,7 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/package.scala"
 destination = "crates/ferrum-silicon/src/package.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"

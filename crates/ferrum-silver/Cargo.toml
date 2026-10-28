@@ -7,6 +7,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
+chrono.workspace = true
+regex.workspace = true
 indexmap.workspace = true
 num-bigint.workspace = true
 num-rational.workspace = true
