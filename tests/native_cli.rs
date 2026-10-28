@@ -80,6 +80,49 @@ fn function_calls_use_the_current_heap_snapshot() {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn repeated_session_runs_discard_previous_axioms() {
+    use ferrum::{
+        Session,
+        silicon::config::Config,
+        silver::{
+            frontend::{
+                frontend::FrontendPhases,
+                sil_frontend::{SilFrontendPhases, standard_plugin_manager},
+            },
+            verifier::verification_result::VerificationResult,
+        },
+    };
+    let mut config = Config::default();
+    config.z3_exe = Some(std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3"));
+    let mut session = Session::new(config.clone()).unwrap();
+    for (source, success) in [
+        (
+            "domain D { axiom contradiction { false } } method test() { assert false; }",
+            true,
+        ),
+        ("method test() { assert false; }", false),
+        ("method test() { assert true; }", true),
+    ] {
+        let plugins = standard_plugin_manager(&config.frontend).unwrap();
+        let mut frontend = SilFrontendPhases::new("session.vpr".into(), plugins);
+        frontend.configure_consistency(&config.frontend);
+        let parsed = frontend.parse(source).unwrap();
+        let analyzed = frontend.analyze(parsed).unwrap();
+        let translated = frontend.translate(analyzed).unwrap();
+        let program = frontend.check_consistency(translated).unwrap();
+        let program = frontend.prepare_verification(program).unwrap();
+        let result = session.verify(&program, &[]).unwrap();
+        assert_eq!(
+            matches!(result, VerificationResult::Success),
+            success,
+            "{source}: {result:?}"
+        );
+    }
+    session.stop().unwrap();
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn symbolic_expression_branches_keep_source_order() {
     check(
         "method test(b: Bool) { assert ((b ? 1 : 2) == 1) ==> b; }",
