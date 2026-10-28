@@ -7,8 +7,9 @@
 //! Native verifier context connecting source rule algorithms to a real owned prover.
 //! Upstream service composition:
 //! https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/verifier/BaseVerifier.scala
-//! Status: initial evaluator/decider connections; branches, heap, quantifiers, production,
-//! consumption and member verification are not yet connected and return explicit errors.
+//! Status: native execution connects the prover, basic heap and predicate operations,
+//! branching, loop invariants and method calls. Quantified resources and other
+//! unconnected modes remain explicit errors.
 
 use crate::interfaces::decider::prover::ProverLike;
 use crate::rules::chunk_supporter::ChunkExecutionError;
@@ -64,8 +65,10 @@ pub struct NativeOptions {
     pub join_mode: JoinMode,
     pub after_prelude_timeout: Option<i32>,
     pub after_contract_timeout: Option<i32>,
+    pub after_unfold_timeout: Option<i32>,
     pub before_repetition_timeout: Option<i32>,
     pub enable_simplified_unfolds: bool,
+    pub recursive_predicate_unfoldings: i32,
     pub disable_havoc_hack_407: bool,
     pub after_inhale_timeout: Option<i32>,
     pub enable_predicate_triggers_on_inhale: bool,
@@ -113,7 +116,6 @@ impl NativeOptions {
             || config.disable_isc_triggers
             || config.disable_chunk_order_heuristics
             || config.disable_caches
-            || config.disable_function_unfold_trigger
             || config.simplify_on_consume
             || config.enable_branchcondition_reporting
             || config.alternative_function_verification_order
@@ -137,7 +139,7 @@ impl NativeOptions {
         if config.exhale_mode() != crate::config::ExhaleMode::Greedy {
             return Err(NativeError::Unsupported("more-complete exhale mode"));
         }
-        let [prelude, contract, _, inhale, repetition] = config
+        let [prelude, contract, unfold, inhale, repetition] = config
             .saturation_weights
             .timeouts(config.prover_saturation_timeout);
         Ok(Self {
@@ -146,8 +148,10 @@ impl NativeOptions {
             join_mode: config.more_joins,
             after_prelude_timeout: prelude.map(|x| x.timeout_ms),
             after_contract_timeout: contract.map(|x| x.timeout_ms),
+            after_unfold_timeout: unfold.map(|x| x.timeout_ms),
             before_repetition_timeout: repetition.map(|x| x.timeout_ms),
             enable_simplified_unfolds: config.enable_simplified_unfolds,
+            recursive_predicate_unfoldings: config.recursive_predicate_unfoldings,
             disable_havoc_hack_407: config.disable_havoc_hack407,
             after_inhale_timeout: inhale.map(|x| x.timeout_ms),
             enable_predicate_triggers_on_inhale: config.enable_predicate_triggers_on_inhale,
@@ -934,9 +938,25 @@ where
             EvaluationError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
-        Err(EvaluationError::Context(NativeError::Unsupported(
-            "consume_assertion",
-        )))
+        let mut callback_error = None;
+        let result = crate::rules::consumer::consume_all(
+            self,
+            state,
+            std::slice::from_ref(assertion),
+            false,
+            &|_| error.clone(),
+            &mut |ctx, state, _| match continuation(ctx, state) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ConsumptionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| EvaluationError::Context(NativeError::Consumption(format!("{e:?}"))))
     }
     fn eval_field_access(
         &mut self,
@@ -1014,9 +1034,11 @@ where
             EvaluationError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
-        Err(EvaluationError::Context(NativeError::Unsupported(
-            "eval_current_permission",
-        )))
+        let (state, amount) = crate::rules::heap_supporter::current_permission(
+            self, state, &heap, resource, args, debug_args,
+        )
+        .map_err(EvaluationError::Context)?;
+        continuation(self, state, amount)
     }
     fn annotation_warning(&mut self, message: String) -> Result<(), Self::Error> {
         {
@@ -1209,9 +1231,100 @@ where
             EvaluationError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
-        Err(EvaluationError::Context(NativeError::Unsupported(
-            "evaluate_special",
-        )))
+        let ExpKind::Unfolding(access, in_expression) = expression.kind() else {
+            return Err(EvaluationError::Context(NativeError::Unsupported(
+                "evaluate_special",
+            )));
+        };
+        let ExpKind::PredicateAccessPredicate(pap) = access.kind() else {
+            return Err(EvaluationError::InvalidResourceAccess);
+        };
+        let predicate = state
+            .program
+            .find_predicate(&pap.location.predicate_name)
+            .map_err(|_| EvaluationError::MissingPredicate(pap.location.predicate_name.clone()))?
+            .clone();
+        if (state.cycles(&ferrum_silver::ast::program::Member::Predicate(
+            predicate.clone(),
+        )) as i64)
+            >= i64::from(self.options.recursive_predicate_unfoldings)
+        {
+            let sort = self
+                .base
+                .symbol_converter
+                .to_sort(
+                    &in_expression
+                        .typ()
+                        .map_err(EvaluationError::ExpressionType)?,
+                )
+                .map_err(|e| EvaluationError::Context(NativeError::Sort(e)))?;
+            let args: Vec<_> = state
+                .all_relevant_quantified_variables()
+                .into_iter()
+                .map(|(term, _)| term)
+                .collect();
+            let sorts: Vec<_> = args.iter().map(|term| term.sort().clone()).collect();
+            let (target, _) = self
+                .base
+                .decider
+                .fresh(&self.factory, "recunf", &sorts, &sort)
+                .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+            let term = match &target {
+                ApplicationTarget::Function(f) => self.factory.app(f.clone(), args),
+                _ => {
+                    return Err(EvaluationError::Context(NativeError::Unsupported(
+                        "recursive unfold symbol",
+                    )));
+                }
+            };
+            let mut state = state;
+            state.function_recorder = state.function_recorder.record_fresh_snapshot(target);
+            return continuation(self, state, term, None);
+        }
+        let permission = pap.permission_or_full();
+        crate::rules::evaluator::evaluate_all(
+            self,
+            state,
+            &pap.location.args,
+            &|_| error.clone(),
+            &mut |ctx, state, args, _| {
+                let arps = state.constrainable_arps.clone();
+                crate::rules::evaluator::evaluate(
+                    ctx,
+                    state,
+                    &permission,
+                    error,
+                    &mut |ctx, state, amount, _| {
+                        let positive = ctx.factory.is_positive_perm(amount.clone());
+                        let proven = ctx
+                            .base
+                            .decider
+                            .check(&positive, ctx.base.decider.assert_timeout)
+                            .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+                        if !proven {
+                            return ctx
+                                .failure(
+                                    error,
+                                    ErrorReason::NonPositivePermission(permission.clone()),
+                                    state.retry_level,
+                                )
+                                .map_err(EvaluationError::Context);
+                        }
+                        ctx.join_unfold_expression(
+                            state,
+                            &predicate,
+                            access,
+                            in_expression,
+                            &args,
+                            &amount,
+                            &arps,
+                            error,
+                            continuation,
+                        )
+                    },
+                )
+            },
+        )
     }
 }
 
@@ -1521,9 +1634,58 @@ where
             ProductionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ProductionError<Self::Error>> {
-        Err(ProductionError::Context(NativeError::Unsupported(
-            "branch_production",
-        )))
+        if join {
+            return Err(ProductionError::Context(NativeError::Unsupported(
+                "joined branch production",
+            )));
+        }
+        let saved_error = std::cell::RefCell::new(None);
+        let continuation = std::cell::RefCell::new(continuation);
+        let result = crate::rules::executor::CfgContext::branch_edge(
+            self,
+            state,
+            condition,
+            original,
+            rewritten,
+            &mut |ctx, state| {
+                let outcome = when_true(ctx, state, &mut |ctx, state| {
+                    let mut callback = continuation.try_borrow_mut().map_err(|_| {
+                        ProductionError::Context(NativeError::Unsupported(
+                            "reentrant production continuation",
+                        ))
+                    })?;
+                    callback(ctx, state)
+                });
+                match outcome {
+                    Ok(v) => Ok(v),
+                    Err(e) => {
+                        *saved_error.borrow_mut() = Some(e);
+                        Err(ExecutionError::Context(NativeError::ContinuationAbort))
+                    }
+                }
+            },
+            &mut |ctx, state| {
+                let outcome = when_false(ctx, state, &mut |ctx, state| {
+                    let mut callback = continuation.try_borrow_mut().map_err(|_| {
+                        ProductionError::Context(NativeError::Unsupported(
+                            "reentrant production continuation",
+                        ))
+                    })?;
+                    callback(ctx, state)
+                });
+                match outcome {
+                    Ok(v) => Ok(v),
+                    Err(e) => {
+                        *saved_error.borrow_mut() = Some(e);
+                        Err(ExecutionError::Context(NativeError::ContinuationAbort))
+                    }
+                }
+            },
+        );
+        if let Some(error) = saved_error.into_inner() {
+            return Err(error);
+        }
+        result.map_err(|e| ProductionError::Context(NativeError::Execution(format!("{e:?}"))))
     }
     fn join_impure(&self, state: &State<PD, FD, JoinMode>) -> bool {
         matches!(state.more_joins, JoinMode::Impure | JoinMode::All)
@@ -1981,9 +2143,58 @@ where
             ConsumptionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>> {
-        Err(ConsumptionError::Context(NativeError::Unsupported(
-            "branch_consumption",
-        )))
+        if join {
+            return Err(ConsumptionError::Context(NativeError::Unsupported(
+                "joined branch consumption",
+            )));
+        }
+        let saved_error = std::cell::RefCell::new(None);
+        let continuation = std::cell::RefCell::new(continuation);
+        let result = crate::rules::executor::CfgContext::branch_edge(
+            self,
+            state,
+            condition,
+            original,
+            rewritten,
+            &mut |ctx, state| {
+                let outcome = when_true(ctx, state, &mut |ctx, state, heap, snapshot| {
+                    let mut callback = continuation.try_borrow_mut().map_err(|_| {
+                        ConsumptionError::Context(NativeError::Unsupported(
+                            "reentrant consumption continuation",
+                        ))
+                    })?;
+                    callback(ctx, state, heap, snapshot)
+                });
+                match outcome {
+                    Ok(v) => Ok(v),
+                    Err(e) => {
+                        *saved_error.borrow_mut() = Some(e);
+                        Err(ExecutionError::Context(NativeError::ContinuationAbort))
+                    }
+                }
+            },
+            &mut |ctx, state| {
+                let outcome = when_false(ctx, state, &mut |ctx, state, heap, snapshot| {
+                    let mut callback = continuation.try_borrow_mut().map_err(|_| {
+                        ConsumptionError::Context(NativeError::Unsupported(
+                            "reentrant consumption continuation",
+                        ))
+                    })?;
+                    callback(ctx, state, heap, snapshot)
+                });
+                match outcome {
+                    Ok(v) => Ok(v),
+                    Err(e) => {
+                        *saved_error.borrow_mut() = Some(e);
+                        Err(ExecutionError::Context(NativeError::ContinuationAbort))
+                    }
+                }
+            },
+        );
+        if let Some(error) = saved_error.into_inner() {
+            return Err(error);
+        }
+        result.map_err(|e| ConsumptionError::Context(NativeError::Execution(format!("{e:?}"))))
     }
     fn handle_let(
         &mut self,
@@ -3271,7 +3482,7 @@ where
                 .map_err(NativeError::Sort)?;
             self.base
                 .decider
-                .fresh_variable(&self.factory, "new", &sort, false, None)
+                .fresh_variable(&self.factory, &field.name, &sort, false, None)
                 .map_err(NativeError::Decider)
         }
     }
@@ -3538,9 +3749,169 @@ where
             ExecutionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
-        Err(ExecutionError::Context(NativeError::Unsupported(
-            "execute_special",
-        )))
+        use crate::rules::predicate_supporter::{
+            PredicateExecutionError, fold_predicate, unfold_predicate,
+        };
+        use ferrum_silver::ast::statement::StmtKind;
+        let (access, folding) = match statement.kind() {
+            StmtKind::Fold(access) => (access, true),
+            StmtKind::Unfold(access) => (access, false),
+            _ => {
+                return Err(ExecutionError::Context(NativeError::Unsupported(
+                    "execute_special",
+                )));
+            }
+        };
+        if !state.constrainable_arps.is_empty() {
+            return Err(ExecutionError::Context(NativeError::Unsupported(
+                "preexisting constrainable permissions at predicate statement",
+            )));
+        }
+        let predicate = state
+            .program
+            .find_predicate(&access.location.predicate_name)
+            .map_err(|e| ExecutionError::Context(NativeError::Diagnostic(format!("{e:?}"))))?
+            .clone();
+        let location = Exp::new(
+            ExpKind::PredicateAccess(access.location.clone()),
+            access.location.meta.clone(),
+        );
+        let permission = access.permission_or_full();
+        let partial = PartialVerificationError::for_kind(if folding {
+            VerificationErrorKind::FoldFailed(statement.clone())
+        } else {
+            VerificationErrorKind::UnfoldFailed(statement.clone())
+        });
+        let mut outer_error = None;
+        let result = crate::rules::evaluator::evaluate_all(
+            self,
+            state,
+            &access.location.args,
+            &|_| partial.clone(),
+            &mut |ctx, state, args, arg_exps| {
+                let original_arps = state.constrainable_arps.clone();
+                let mut inner_error = None;
+                let evaluated = crate::rules::evaluator::evaluate(
+                    ctx,
+                    state,
+                    &permission,
+                    &partial,
+                    &mut |ctx, state, amount, amount_exp| {
+                        let result: Result<_, ExecutionError<NativeError<S::Error>>> = (|| {
+                            let state = if folding {
+                                state
+                            } else {
+                                crate::rules::consumer::ConsumptionContext::trigger_resource(
+                                    ctx,
+                                    state,
+                                    &location,
+                                    &args,
+                                    arg_exps.as_deref(),
+                                )
+                                .map_err(ExecutionError::Context)?
+                            };
+                            let valid = crate::rules::permission_supporter::assert_permission(
+                                &ctx.factory,
+                                &amount,
+                                &permission,
+                                amount_exp.as_ref(),
+                                state.constrainable_arps.iter().cloned(),
+                                true,
+                                |term| {
+                                    ctx.base
+                                        .decider
+                                        .check(term, ctx.base.decider.assert_timeout)
+                                        .map_err(NativeError::Decider)
+                                },
+                                || true,
+                                |_, _, _, _| false,
+                            )
+                            .map_err(ExecutionError::Context)?;
+                            if !valid {
+                                return ctx
+                                    .failure(
+                                        &partial,
+                                        ErrorReason::NonPositivePermission(permission.clone()),
+                                        state.retry_level,
+                                    )
+                                    .map_err(ExecutionError::Context);
+                            }
+                            let wildcards: Vec<_> = state
+                                .constrainable_arps
+                                .iter()
+                                .filter(|v| !original_arps.contains(*v))
+                                .cloned()
+                                .collect();
+                            let factory = ctx.factory.clone();
+                            let mut continuation_error = None;
+                            let mut next = |ctx: &mut Self, state| match continuation(ctx, state) {
+                                Ok(v) => Ok(v),
+                                Err(e) => {
+                                    continuation_error = Some(e);
+                                    Err(PredicateExecutionError::Service(
+                                        NativeError::ContinuationAbort,
+                                    ))
+                                }
+                            };
+                            let result = if folding {
+                                fold_predicate(
+                                    &factory,
+                                    ctx,
+                                    state,
+                                    &predicate,
+                                    &location,
+                                    &args,
+                                    arg_exps.as_deref(),
+                                    &amount,
+                                    amount_exp.as_ref(),
+                                    &wildcards,
+                                    &partial,
+                                    &mut next,
+                                )
+                            } else {
+                                unfold_predicate(
+                                    &factory,
+                                    ctx,
+                                    state,
+                                    &predicate,
+                                    &location,
+                                    &args,
+                                    arg_exps.as_deref(),
+                                    &amount,
+                                    amount_exp.as_ref(),
+                                    &wildcards,
+                                    &partial,
+                                    &mut next,
+                                )
+                            };
+                            if let Some(error) = continuation_error {
+                                return Err(error);
+                            }
+                            result.map_err(|e| {
+                                ExecutionError::Context(NativeError::Execution(format!("{e:?}")))
+                            })
+                        })(
+                        );
+                        match result {
+                            Ok(value) => Ok(value),
+                            Err(error) => {
+                                inner_error = Some(error);
+                                Err(EvaluationError::Context(NativeError::ContinuationAbort))
+                            }
+                        }
+                    },
+                );
+                if let Some(error) = inner_error {
+                    outer_error = Some(error);
+                    return Err(EvaluationError::Context(NativeError::ContinuationAbort));
+                }
+                evaluated
+            },
+        );
+        if let Some(error) = outer_error {
+            return Err(error);
+        }
+        result.map_err(|e| ExecutionError::Context(NativeError::Evaluation(format!("{e:?}"))))
     }
 }
 
@@ -3585,12 +3956,28 @@ where
         state: State<PD, FD, JoinMode>,
         saved: Arc<ListBackedHeap>,
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
-        Err(NativeError::Unsupported("merge_invariant_context"))
+        let factory = self.factory.clone();
+        let choice = self.consolidation_choice(&state)?;
+        let (recorder, heap) = crate::rules::state_consolidator::merge_heaps(
+            &factory,
+            self,
+            &state,
+            state.function_recorder.clone(),
+            &state.h,
+            &saved,
+            choice,
+        )
+        .map_err(|e| NativeError::Consolidation(format!("{e:?}")))?;
+        let mut state = state;
+        state.function_recorder = recorder;
+        state.h = Arc::new(heap);
+        Ok(state)
     }
     fn evaluate_edge(
         &mut self,
         state: State<PD, FD, JoinMode>,
         condition: &Exp,
+        is_loop_guard: bool,
         continuation: &mut dyn FnMut(
             &mut Self,
             State<PD, FD, JoinMode>,
@@ -3602,9 +3989,11 @@ where
         >,
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
         {
-            let partial = PartialVerificationError::for_kind(VerificationErrorKind::IfFailed(
-                condition.clone(),
-            ));
+            let partial = PartialVerificationError::for_kind(if is_loop_guard {
+                VerificationErrorKind::WhileFailed(condition.clone())
+            } else {
+                VerificationErrorKind::IfFailed(condition.clone())
+            });
             let mut callback_error = None;
             let result = crate::rules::evaluator::evaluate(
                 self,
@@ -3813,9 +4202,20 @@ where
             ExecutionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
-        Err(ExecutionError::Context(NativeError::Unsupported(
-            "locally_loop",
-        )))
+        self.base
+            .decider
+            .push_scope()
+            .map_err(|e| ExecutionError::Context(NativeError::Decider(e)))?;
+        let result = block(self, state);
+        let cleanup = self.base.decider.pop_scope();
+        match (result, cleanup) {
+            (Ok(v), Ok(())) => Ok(v),
+            (Err(e), Ok(())) => Err(e),
+            (Ok(_), Err(e)) => Err(ExecutionError::Context(NativeError::Decider(e))),
+            (Err(e), Err(cleanup)) => Err(ExecutionError::Context(NativeError::Cleanup(format!(
+                "{e:?}; cleanup: {cleanup:?}"
+            )))),
+        }
     }
     fn loop_mark(&mut self) -> crate::decider::path_conditions::Mark {
         self.base.decider.mark()
@@ -3847,7 +4247,22 @@ where
         functions: &[crate::state::terms::Declaration],
         macros: &[crate::state::terms::Declaration],
     ) -> Result<(), Self::Error> {
-        Err(NativeError::Unsupported("replay_loop_path"))
+        self.base
+            .decider
+            .declare_fresh_functions(functions.iter().cloned())
+            .map_err(NativeError::Decider)?;
+        self.base
+            .decider
+            .declare_fresh_macros(macros.iter().cloned())
+            .map_err(NativeError::Decider)?;
+        self.base
+            .decider
+            .assume(
+                paths.assumptions().into_iter().map(|term| (term, None)),
+                false,
+                false,
+            )
+            .map_err(NativeError::Decider)
     }
     fn loop_produce_invariants(
         &mut self,
@@ -3861,9 +4276,29 @@ where
             ExecutionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
-        Err(ExecutionError::Context(NativeError::Unsupported(
-            "loop_produce_invariants",
-        )))
+        let mut callback_error = None;
+        let result = crate::rules::producer::produce_all(
+            self,
+            state,
+            NativeSnapshot::Fresh,
+            invariants,
+            &|exp| {
+                PartialVerificationError::for_kind(VerificationErrorKind::ContractNotWellformed(
+                    exp.clone(),
+                ))
+            },
+            &mut |ctx, state| match continuation(ctx, state) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ProductionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| ExecutionError::Context(NativeError::Production(format!("{e:?}"))))
     }
     fn loop_consume_invariants(
         &mut self,
@@ -3878,9 +4313,31 @@ where
             ExecutionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
-        Err(ExecutionError::Context(NativeError::Unsupported(
-            "loop_consume_invariants",
-        )))
+        let mut callback_error = None;
+        let result = crate::rules::consumer::consume_all(
+            self,
+            state,
+            invariants,
+            false,
+            &|exp| {
+                PartialVerificationError::for_kind(if preserved {
+                    VerificationErrorKind::LoopInvariantNotPreserved(exp.clone())
+                } else {
+                    VerificationErrorKind::LoopInvariantNotEstablished(exp.clone())
+                })
+            },
+            &mut |ctx, state, _| match continuation(ctx, state) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ConsumptionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| ExecutionError::Context(NativeError::Consumption(format!("{e:?}"))))
     }
     fn loop_merge_debug_heaps(
         &mut self,
@@ -4399,13 +4856,19 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
             r#type::Type,
             utility::nodes::{Node, subnodes},
         };
-        if !program.domains.is_empty()
-            || !program.functions.is_empty()
-            || !program.extensions.is_empty()
-        {
+        if !program.functions.is_empty() || !program.extensions.is_empty() {
             return Err(NativeError::Unsupported(
-                "domain, function or program extension analysis",
+                "function or program extension analysis",
             ));
+        }
+        crate::verifier::native_preamble::analyze(program, &self.base.symbol_converter)
+            .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        if program
+            .fields
+            .iter()
+            .any(|field| matches!(field.typ, Type::Domain(_)))
+        {
+            return Err(NativeError::Unsupported("domain-valued field snapshots"));
         }
         if self.options.enable_simplified_unfolds {
             return Err(NativeError::Unsupported(
@@ -4413,7 +4876,7 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
             ));
         }
         fn inspect(node: &Node) -> Result<(), &'static str> {
-            if matches!(node, Node::Type(typ) if matches!(typ,Type::Seq(_) | Type::Set(_) | Type::Multiset(_) | Type::Map(_) | Type::Domain(_) | Type::Backend(_) | Type::Extension(_)))
+            if matches!(node, Node::Type(typ) if matches!(typ,Type::Seq(_) | Type::Set(_) | Type::Multiset(_) | Type::Map(_) | Type::Backend(_) | Type::Extension(_)))
             {
                 return Err("collection or domain preamble analysis");
             }
@@ -4460,6 +4923,12 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         &mut self,
         program: &ferrum_silver::ast::program::Program,
     ) -> Result<NativeAnalysis, Self::Error> {
+        let domain_preamble =
+            crate::verifier::native_preamble::analyze(program, &self.base.symbol_converter)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        domain_preamble
+            .emit(&self.factory, &mut self.base.decider.prover)
+            .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
         let predicates = crate::supporters::predicate_verification_unit::analyze_predicates(
             program,
             &self.base.symbol_converter,
@@ -4633,4 +5102,593 @@ fn flatten_results(
         results.extend(result.previous());
     }
     results
+}
+
+#[allow(unused_variables)]
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::predicate_supporter::PredicateExecutionServices<
+        PD,
+        FD,
+        JoinMode,
+        VerificationError,
+    > for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    type VerificationError = PartialVerificationError;
+
+    fn predicate_debugging(&self) -> bool {
+        false
+    }
+
+    fn consume_predicate_body(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        body: &Exp,
+        error: &Self::VerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Option<Term>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+    ) -> Result<
+        VerificationResult<VerificationError>,
+        crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+    > {
+        use crate::rules::predicate_supporter::PredicateExecutionError as PE;
+        let mut callback_error = None;
+        let result = crate::rules::consumer::consume_all(
+            self,
+            state,
+            std::slice::from_ref(body),
+            true,
+            &|_| error.clone(),
+            &mut |ctx, state, snapshot| match continuation(ctx, state, snapshot) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ConsumptionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(e) = callback_error {
+            return Err(e);
+        }
+        result.map_err(|e| PE::Service(NativeError::Consumption(format!("{e:?}"))))
+    }
+    fn produce_predicate_chunk(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        predicate: &Predicate,
+        args: &[Term],
+        arg_exps: Option<&[Exp]>,
+        snapshot: Term,
+        permission: Term,
+        permission_exp: Option<Exp>,
+        error: &Self::VerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+    ) -> Result<
+        VerificationResult<VerificationError>,
+        crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+    > {
+        use crate::rules::predicate_supporter::PredicateExecutionError as PE;
+        use ferrum_silver::ast::{program::Member, utility::nodes::Node};
+        let full = error
+            .due_to(ErrorReason::InsufficientPermission(Node::Member(
+                Member::Predicate(predicate.clone()),
+            )))
+            .map_err(|e| PE::Service(NativeError::Diagnostic(format!("{e:?}"))))?;
+        let resource = ResourceKey::Predicate(Arc::new(predicate.clone()));
+        let mut callback_error = None;
+        let result = crate::rules::heap_supporter::produce_single(
+            self,
+            state,
+            &resource,
+            args,
+            arg_exps,
+            snapshot,
+            None,
+            permission,
+            permission_exp,
+            &Some(full),
+            true,
+            &mut |ctx, state| match continuation(ctx, state) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ChunkExecutionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(e) = callback_error {
+            return Err(e);
+        }
+        result.map_err(|e| PE::Service(NativeError::Chunk(format!("{e:?}"))))
+    }
+    fn consume_predicate_chunk(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        access: &Exp,
+        args: &[Term],
+        arg_exps: Option<&[Exp]>,
+        permission: &Term,
+        permission_exp: Option<&Exp>,
+        error: &Self::VerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Arc<ListBackedHeap>,
+            Option<Term>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+    ) -> Result<
+        VerificationResult<VerificationError>,
+        crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+    > {
+        use crate::rules::predicate_supporter::PredicateExecutionError as PE;
+        let ExpKind::PredicateAccess(location) = access.kind() else {
+            return Err(PE::Service(NativeError::Unsupported(
+                "predicate access shape",
+            )));
+        };
+        let predicate = state
+            .program
+            .find_predicate(&location.predicate_name)
+            .map_err(|e| PE::Service(NativeError::Diagnostic(format!("{e:?}"))))?
+            .clone();
+        let full = error
+            .due_to(ErrorReason::InsufficientPermission(
+                ferrum_silver::ast::utility::nodes::Node::PredicateAccess(location.clone()),
+            ))
+            .map_err(|e| PE::Service(NativeError::Diagnostic(format!("{e:?}"))))?;
+        let heap = state.h.clone();
+        let resource = ResourceKey::Predicate(Arc::new(predicate));
+        let mut callback_error = None;
+        let result = crate::rules::heap_supporter::consume_single(
+            self,
+            state,
+            heap,
+            &resource,
+            args,
+            arg_exps,
+            permission,
+            permission_exp,
+            true,
+            &Some(full),
+            &mut |ctx, state, heap, snapshot| match continuation(ctx, state, heap, snapshot) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ChunkExecutionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(e) = callback_error {
+            return Err(e);
+        }
+        result.map_err(|e| PE::Service(NativeError::Chunk(format!("{e:?}"))))
+    }
+    fn folded_predicate_snapshot(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        predicate: &Predicate,
+        args: &[Term],
+        snapshot: &Term,
+    ) -> Result<Term, Self::Error> {
+        let sort = state
+            .predicate_snap_map
+            .get(&predicate.name)
+            .ok_or(NativeError::Unsupported("predicate snapshot sort"))?;
+        Ok(self.factory.sort_wrapper(snapshot.clone(), sort.clone()))
+    }
+    fn cached_predicate_contents(
+        &self,
+        state: &State<PD, FD, JoinMode>,
+        predicate: &Predicate,
+    ) -> Result<
+        Option<(
+            crate::supporters::predicate_verification_unit::PredicateContentsTree,
+            Vec<Term>,
+        )>,
+        Self::Error,
+    > {
+        Ok(None)
+    }
+    fn produce_cached_predicate(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        tree: &crate::supporters::predicate_verification_unit::PredicateContentsTree,
+        replacements: &std::collections::HashMap<Term, Term>,
+        error: &Self::VerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+    ) -> Result<
+        VerificationResult<VerificationError>,
+        crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+    > {
+        Err(
+            crate::rules::predicate_supporter::PredicateExecutionError::Service(
+                NativeError::Unsupported("cached predicate contents"),
+            ),
+        )
+    }
+    fn produce_unfolded_body(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        predicate: &Predicate,
+        args: &[Term],
+        snapshot: &Term,
+        pre_heap: &ListBackedHeap,
+        body: &Exp,
+        error: &Self::VerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+    ) -> Result<
+        VerificationResult<VerificationError>,
+        crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+    > {
+        use crate::rules::predicate_supporter::PredicateExecutionError as PE;
+        let mut callback_error = None;
+        let result = crate::rules::producer::produce_all(
+            self,
+            state,
+            NativeSnapshot::Projection(snapshot.clone()),
+            std::slice::from_ref(body),
+            &|_| error.clone(),
+            &mut |ctx, state| match continuation(ctx, state) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ProductionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(e) = callback_error {
+            return Err(e);
+        }
+        result.map_err(|e| PE::Service(NativeError::Production(format!("{e:?}"))))
+    }
+    fn saturate_after_unfold(&mut self) -> Result<(), Self::Error> {
+        if let Some(ms) = self.options.after_unfold_timeout {
+            self.base
+                .decider
+                .prover
+                .saturate(ms, "after unfold")
+                .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+        }
+        Ok(())
+    }
+    fn predicate_unfold_triggers_enabled(&self) -> bool {
+        !self.options.disable_function_unfold_trigger
+    }
+    fn assume_unfold_trigger(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        predicate: &Predicate,
+        snapshot: &Term,
+        heap: &ListBackedHeap,
+        args: &[Term],
+        arg_exps: Option<&[Exp]>,
+    ) -> Result<(), Self::Error> {
+        let data = crate::supporters::predicate_verification_unit::PredicateData::new(
+            predicate.clone(),
+            &self.base.symbol_converter,
+            &self.factory,
+            Sort::Snap,
+        )
+        .map_err(NativeError::Sort)?;
+        let mut terms = vec![self.factory.sort_wrapper(snapshot.clone(), Sort::Snap)];
+        terms.extend_from_slice(args);
+        self.assume_term(&self.factory.app(data.trigger_function, terms))
+    }
+    fn trigger_predicate_resource(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        access: &Exp,
+        args: &[Term],
+        arg_exps: Option<&[Exp]>,
+    ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
+        crate::rules::consumer::ConsumptionContext::trigger_resource(
+            self, state, access, args, arg_exps,
+        )
+    }
+}
+
+impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn unfold_expression_body(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        predicate: &Predicate,
+        access: &Exp,
+        body: &Exp,
+        args: &[Term],
+        permission: &Term,
+        old_arps: &crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<Term>,
+        error: &PartialVerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Term,
+            Option<Exp>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            EvaluationError<NativeError<S::Error>>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, EvaluationError<NativeError<S::Error>>> {
+        use crate::state::store::AbstractLocalVar;
+        use ferrum_silver::ast::program::Member;
+        let outer = state.clone();
+        let mut state = state.inc_cycle_counter(predicate.clone());
+        state.record_visited = true;
+        let mut callback_error = None;
+        let result = crate::rules::consumer::consume_all(
+            self,
+            state,
+            std::slice::from_ref(access),
+            true,
+            &|_| error.clone(),
+            &mut |ctx, mut state, snapshot| {
+                let next: Result<_, EvaluationError<NativeError<S::Error>>> = (|| {
+                    let snapshot = snapshot.ok_or(EvaluationError::MissingFunctionSnapshot)?;
+                    let location = match access.kind() {
+                        ExpKind::PredicateAccessPredicate(p) => Exp::new(
+                            ExpKind::PredicateAccess(p.location.clone()),
+                            p.location.meta.clone(),
+                        ),
+                        _ => return Err(EvaluationError::InvalidResourceAccess),
+                    };
+                    state.function_recorder = state
+                        .function_recorder
+                        .record_location_snapshot(
+                            location,
+                            ctx.base.decider.pcs.recorded().branch_conditions(),
+                            snapshot.clone(),
+                        )
+                        .change_depth_by(1);
+                    state.constrainable_arps = old_arps.clone();
+                    if !ctx.options.disable_function_unfold_trigger {
+                        crate::rules::predicate_supporter::PredicateExecutionServices::assume_unfold_trigger(ctx, &state, predicate, &snapshot, &state.h, args, None).map_err(EvaluationError::Context)?;
+                    }
+                    let scaled =
+                        state.scale_permission_factor(permission.clone(), None, &ctx.factory);
+                    let mut store = scaled.g.as_ref().clone();
+                    for (formal, arg) in predicate.formal_args.iter().zip(args) {
+                        let local =
+                            Exp::new(ExpKind::LocalVar(formal.local_var()), formal.meta.clone());
+                        store =
+                            store.with_binding(AbstractLocalVar::new(local), (arg.clone(), None));
+                    }
+                    let mut bound = scaled.clone();
+                    bound.g = Arc::new(store);
+                    bound = bound.set_constrainable(
+                        bound.constrainable_arps.iter().cloned().collect::<Vec<_>>(),
+                        false,
+                    );
+                    let mut production_callback_error = None;
+                    let predicate_body = predicate
+                        .body
+                        .as_ref()
+                        .ok_or(EvaluationError::MissingPredicate(predicate.name.clone()))?;
+                    let result = crate::rules::producer::produce_all(
+                        ctx,
+                        bound,
+                        NativeSnapshot::Projection(snapshot),
+                        std::slice::from_ref(predicate_body),
+                        &|_| error.clone(),
+                        &mut |ctx, mut state| {
+                            state.g = scaled.g.clone();
+                            state.function_recorder = state.function_recorder.change_depth_by(-1);
+                            state.record_visited = outer.record_visited;
+                            state.permission_scaling_factor =
+                                outer.permission_scaling_factor.clone();
+                            state.permission_scaling_factor_exp =
+                                outer.permission_scaling_factor_exp.clone();
+                            state.constrainable_arps = old_arps.clone();
+                            state = state.dec_cycle_counter(&Member::Predicate(predicate.clone()));
+                            match ctx.consolidate_optional(state) {
+                                Ok(state) => match crate::rules::evaluator::evaluate(
+                                    ctx,
+                                    state,
+                                    body,
+                                    error,
+                                    continuation,
+                                ) {
+                                    Ok(v) => Ok(v),
+                                    Err(e) => {
+                                        production_callback_error = Some(e);
+                                        Err(ProductionError::Context(
+                                            NativeError::ContinuationAbort,
+                                        ))
+                                    }
+                                },
+                                Err(e) => Err(ProductionError::Context(e)),
+                            }
+                        },
+                    );
+                    if let Some(e) = production_callback_error {
+                        return Err(e);
+                    }
+                    result.map_err(|e| {
+                        EvaluationError::Context(NativeError::Production(format!("{e:?}")))
+                    })
+                })();
+                match next {
+                    Ok(v) => Ok(v),
+                    Err(e) => {
+                        callback_error = Some(e);
+                        Err(ConsumptionError::Context(NativeError::ContinuationAbort))
+                    }
+                }
+            },
+        );
+        if let Some(e) = callback_error {
+            return Err(e);
+        }
+        result.map_err(|e| EvaluationError::Context(NativeError::Consumption(format!("{e:?}"))))
+    }
+}
+impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn join_unfold_expression(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        predicate: &Predicate,
+        access: &Exp,
+        in_expression: &Exp,
+        args: &[Term],
+        permission: &Term,
+        old_arps: &crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<Term>,
+        error: &PartialVerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Term,
+            Option<Exp>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            EvaluationError<NativeError<S::Error>>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, EvaluationError<NativeError<S::Error>>> {
+        use crate::rules::joiner::{self, JoinDataEntry};
+        let factory = self.factory.clone();
+        self.base
+            .decider
+            .push_scope()
+            .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+        let mark = self.base.decider.pcs.mark();
+        let mut joined = state.clone();
+        joined.under_join = true;
+        let mut entries = Vec::new();
+        let block = self.unfold_expression_body(
+            joined,
+            predicate,
+            access,
+            in_expression,
+            args,
+            permission,
+            old_arps,
+            error,
+            &mut |ctx, result_state, value, debug| {
+                let path_conditions = ctx
+                    .base
+                    .decider
+                    .pcs
+                    .after(mark)
+                    .map_err(EvaluationError::Path)?;
+                entries.push(JoinDataEntry {
+                    state: joiner::restore_state(result_state, &state),
+                    data: (value, debug),
+                    path_conditions,
+                });
+                Ok(VerificationResult::success())
+            },
+        );
+        let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
+        let block = match (block, cleanup) {
+            (Ok(v), Ok(())) => v,
+            (Err(e), Err(cleanup)) => {
+                return Err(EvaluationError::TriggerCleanup {
+                    evaluation: Box::new(e),
+                    cleanup,
+                });
+            }
+            (Err(e), Ok(())) => return Err(e),
+            (Ok(_), Err(cleanup)) => return Err(EvaluationError::Context(cleanup)),
+        };
+        let block = VerificationResult::success().and_then(|| block);
+        if !block.continue_verification() {
+            return Ok(block);
+        }
+        if entries.is_empty() {
+            return Ok(block.combine(VerificationResult::success, false));
+        }
+        let (assumptions, feasible) = joiner::joined_conditions(&entries, &factory);
+        let (merged, value, debug) = if entries.len() == 1 {
+            let entry = &entries[0];
+            (
+                entry.state.clone(),
+                entry.data.0.clone(),
+                entry.data.1.clone(),
+            )
+        } else {
+            let sort = self
+                .base
+                .symbol_converter
+                .to_sort(
+                    &in_expression
+                        .typ()
+                        .map_err(EvaluationError::ExpressionType)?,
+                )
+                .map_err(|e| EvaluationError::Context(NativeError::Sort(e)))?;
+            let arguments: Vec<_> = state
+                .all_relevant_quantified_variables()
+                .into_iter()
+                .map(|(term, _)| term)
+                .collect();
+            let sorts: Vec<_> = arguments.iter().map(|term| term.sort().clone()).collect();
+            let (target, _) = self
+                .base
+                .decider
+                .fresh(&factory, "joined_unfolding", &sorts, &sort)
+                .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+            let value = match &target {
+                ApplicationTarget::Function(f) => factory.app(f.clone(), arguments),
+                _ => {
+                    return Err(EvaluationError::Context(NativeError::Unsupported(
+                        "unfolding join symbol",
+                    )));
+                }
+            };
+            let mut merged = entries[0].state.clone();
+            for entry in &entries[1..] {
+                merged = merged
+                    .merge_unconditional(&entry.state, &mut |warning| self.warnings.push(warning))
+                    .map_err(|e| EvaluationError::Context(NativeError::State(e)))?;
+            }
+            merged.function_recorder = merged.function_recorder.record_path_symbol(target);
+            for entry in &entries {
+                let guard = factory.and(entry.path_conditions.branch_conditions());
+                let equation = factory.builtin_equals(value.clone(), entry.data.0.clone());
+                self.assume_term(&factory.implies(guard, equation))
+                    .map_err(EvaluationError::Context)?;
+            }
+            (merged, value, None)
+        };
+        for group in assumptions {
+            for term in group {
+                self.assume_term(&term).map_err(EvaluationError::Context)?;
+            }
+        }
+        self.assume_term(&feasible)
+            .map_err(EvaluationError::Context)?;
+        let next = continuation(self, merged, value, debug)?;
+        Ok(block.combine(|| next, false))
+    }
 }

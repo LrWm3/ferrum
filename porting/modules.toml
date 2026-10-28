@@ -2569,9 +2569,15 @@ role = "assembly"
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
 role = "assembly"
-remaining = ["Ordinary method/predicate/field/call and branch services are connected; functions, domains, loops, fold/unfold, quantified permissions, wands, native API and advanced execution profiles remain."]
+remaining = ["Ordinary methods, fields, calls, branches, loops, fold/unfold and axiom-free ground domains are connected; functions, quantified resources, general domains/collections, wands and advanced execution profiles remain."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/verifier/native_preamble.rs"
+status = "skeleton"
+role = "assembly"
+remaining = ["Ground domain declarations and uniqueness constraints are connected; generic instances, axioms and collection contributors remain."]

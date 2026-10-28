@@ -741,6 +741,7 @@ pub trait CfgContext<P, D, J, V>: ExecutionContext<P, D, J, V> {
         &mut self,
         state: State<P, D, J>,
         condition: &Exp,
+        is_loop_guard: bool,
         continuation: &mut dyn FnMut(
             &mut Self,
             State<P, D, J>,
@@ -985,6 +986,7 @@ where
                 return context.evaluate_edge(
                     state,
                     first,
+                    false,
                     &mut |context, state, term, rewritten| {
                         context.join_cfg_branches(
                             state,
@@ -1039,47 +1041,52 @@ where
         if context.parallelize_cfg_branches()
             && matches!(second.kind(),ExpKind::Not(exp) if exp == first)
         {
-            return context.evaluate_edge(state, first, &mut |context, state, term, rewritten| {
-                let continuation = std::cell::RefCell::new(&mut *continuation);
-                context.branch_edge(
-                    state,
-                    term,
-                    first,
-                    rewritten.as_ref(),
-                    &mut |context, state| {
-                        follow_edge(
-                            context,
-                            state,
-                            &edges[0],
-                            join_point,
-                            path_id,
-                            &mut |context, state| {
-                                (continuation
-                                    .try_borrow_mut()
-                                    .map_err(|_| ExecutionError::ReentrantContinuation)?)(
-                                    context, state,
-                                )
-                            },
-                        )
-                    },
-                    &mut |context, state| {
-                        follow_edge(
-                            context,
-                            state,
-                            &edges[1],
-                            join_point,
-                            next_path_id(),
-                            &mut |context, state| {
-                                (continuation
-                                    .try_borrow_mut()
-                                    .map_err(|_| ExecutionError::ReentrantContinuation)?)(
-                                    context, state,
-                                )
-                            },
-                        )
-                    },
-                )
-            });
+            return context.evaluate_edge(
+                state,
+                first,
+                matches!(source1.kind(), BlockKind::LoopHead { .. }),
+                &mut |context, state, term, rewritten| {
+                    let continuation = std::cell::RefCell::new(&mut *continuation);
+                    context.branch_edge(
+                        state,
+                        term,
+                        first,
+                        rewritten.as_ref(),
+                        &mut |context, state| {
+                            follow_edge(
+                                context,
+                                state,
+                                &edges[0],
+                                join_point,
+                                path_id,
+                                &mut |context, state| {
+                                    (continuation
+                                        .try_borrow_mut()
+                                        .map_err(|_| ExecutionError::ReentrantContinuation)?)(
+                                        context, state,
+                                    )
+                                },
+                            )
+                        },
+                        &mut |context, state| {
+                            follow_edge(
+                                context,
+                                state,
+                                &edges[1],
+                                join_point,
+                                next_path_id(),
+                                &mut |context, state| {
+                                    (continuation
+                                        .try_borrow_mut()
+                                        .map_err(|_| ExecutionError::ReentrantContinuation)?)(
+                                        context, state,
+                                    )
+                                },
+                            )
+                        },
+                    )
+                },
+            );
         }
     }
     context
@@ -1152,31 +1159,39 @@ where
             condition,
             target,
             kind,
-            ..
-        } => context.evaluate_edge(state, condition, &mut |context, state, term, rewritten| {
-            let parallel = state.parallelize_branches;
-            let mut scoped = state;
-            scoped.parallelize_branches = false;
-            context.branch_edge(
-                scoped,
-                term,
-                condition,
-                rewritten.as_ref(),
-                &mut |context, mut state| {
-                    state.parallelize_branches = parallel;
-                    execute_block(
-                        context,
-                        state,
-                        target,
-                        *kind,
-                        join_point,
-                        path_id,
-                        continuation,
-                    )
-                },
-                &mut |_, _| Ok(VerificationResult::success()),
-            )
-        }),
+            source,
+        } => context.evaluate_edge(
+            state,
+            condition,
+            matches!(
+                source.kind(),
+                ferrum_silver::cfg::block::BlockKind::LoopHead { .. }
+            ),
+            &mut |context, state, term, rewritten| {
+                let parallel = state.parallelize_branches;
+                let mut scoped = state;
+                scoped.parallelize_branches = false;
+                context.branch_edge(
+                    scoped,
+                    term,
+                    condition,
+                    rewritten.as_ref(),
+                    &mut |context, mut state| {
+                        state.parallelize_branches = parallel;
+                        execute_block(
+                            context,
+                            state,
+                            target,
+                            *kind,
+                            join_point,
+                            path_id,
+                            continuation,
+                        )
+                    },
+                    &mut |_, _| Ok(VerificationResult::success()),
+                )
+            },
+        ),
     }
 }
 
@@ -1309,9 +1324,12 @@ where
                             }
                             let result =
                                 context.locally_loop(state.clone(), &mut |context, state| {
-                                    context.evaluate_edge(state, condition, &mut |_, _, _, _| {
-                                        Ok(VerificationResult::success())
-                                    })
+                                    context.evaluate_edge(
+                                        state,
+                                        condition,
+                                        true,
+                                        &mut |_, _, _, _| Ok(VerificationResult::success()),
+                                    )
                                 })?;
                             checked = checked.combine(|| result, false);
                         }
