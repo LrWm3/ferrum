@@ -27,10 +27,9 @@
 //! Open decisions:
 //! Generic trigger extension points and counter ownership.
 //!
-//! Status: partial; trigger classification, overrides, reconstruction and source generic
-//! trigger search for terms that need no axiom rewrite are implemented. Search involving
-//! forbidden arithmetic, let binding or fresh rewrite variables returns an explicit error;
-//! the full axiom rewriter and quantification assembly remain pending.
+//! Status: partial; source generic trigger search and arithmetic axiom rewriting are connected.
+//! Rewriting repeated structurally identical forbidden subterms remains an explicit error until
+//! term reconstruction can preserve distinct occurrences.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -47,6 +46,8 @@ use std::collections::HashMap;
 pub struct TriggerGenerator {
     pub custom_possible: Option<Box<dyn Fn(&Term) -> Option<bool>>>,
     pub custom_forbidden: Option<Box<dyn Fn(&Term) -> Option<bool>>>,
+    next_unique: std::cell::Cell<u64>,
+    next_rewrite: std::cell::Cell<u64>,
 }
 #[derive(Debug)]
 pub enum TriggerError {
@@ -274,6 +275,7 @@ pub enum NativeTriggerSearchError {
 struct NativeTriggerAdapter<'a> {
     factory: &'a TermFactory,
     generator: &'a TriggerGenerator,
+    advanced: bool,
 }
 impl ferrum_silver::ast::utility::generic_trigger_generator::TriggerAdapter
     for NativeTriggerAdapter<'_>
@@ -308,32 +310,56 @@ impl ferrum_silver::ast::utility::generic_trigger_generator::TriggerAdapter
             .map_err(NativeTriggerSearchError::Trigger)
     }
     fn variables_in(&self, exp: &Term) -> Result<Vec<Term>, Self::Error> {
-        exp.deep_collect(&mut |term| matches!(term.kind(), TermKind::Var(_)).then(|| term.clone()))
-            .map_err(NativeTriggerSearchError::Traversal)
+        let variables = exp
+            .deep_collect(&mut |term| matches!(term.kind(), TermKind::Var(_)).then(|| term.clone()))
+            .map_err(NativeTriggerSearchError::Traversal)?;
+        let mut unique = Vec::new();
+        for variable in variables {
+            if !unique.contains(&variable) {
+                unique.push(variable);
+            }
+        }
+        Ok(unique)
     }
     fn rewrite_forbidden(&mut self, exp: &Term) -> Result<(Term, Vec<Term>), Self::Error> {
         let forbidden = exp
-            .find(&mut |term| {
+            .shallow_collect(&mut |term| {
                 (self.generator.is_forbidden(term)
-                    || matches!(term.kind(), TermKind::Plus(..) | TermKind::Minus(..)))
-                .then_some(())
+                    && !(self.advanced
+                        && matches!(term.kind(), TermKind::Plus(..) | TermKind::Minus(..))))
+                .then(|| term.clone())
             })
-            .map_err(NativeTriggerSearchError::Traversal)?
-            .is_some();
-        if forbidden {
-            return Err(NativeTriggerSearchError::RequiresAxiomRewrite);
+            .map_err(NativeTriggerSearchError::Traversal)?;
+        let mut result = exp.clone();
+        let mut fresh = Vec::new();
+        let mut seen = Vec::new();
+        for old in forbidden {
+            // Structural replacement cannot distinguish equal occurrences; report the gap.
+            if seen.contains(&old) {
+                return Err(NativeTriggerSearchError::RequiresAxiomRewrite);
+            }
+            seen.push(old.clone());
+            let id = self.generator.next_unique.get();
+            self.generator.next_unique.set(id.wrapping_add(1));
+            let var = self.factory.var(
+                crate::state::identifiers::Identifier::new(format!("fresh__{id}")),
+                old.sort().clone(),
+                false,
+            );
+            result = self
+                .factory
+                .replace(&result, &HashMap::from([(old, var.clone())]))
+                .map_err(NativeTriggerSearchError::Transform)?;
+            fresh.push(var);
         }
-        Ok((exp.clone(), vec![]))
+        Ok((result, fresh))
     }
     fn additional_relevant(
         &self,
-        node: &Term,
+        _: &Term,
         _: &[Term],
         _: &[Term],
     ) -> Result<Vec<Term>, Self::Error> {
-        if matches!(node.kind(), TermKind::Let(..)) {
-            return Err(NativeTriggerSearchError::UnsupportedLet);
-        }
         Ok(vec![])
     }
     fn modify(
@@ -355,31 +381,241 @@ impl ferrum_silver::ast::utility::generic_trigger_generator::TriggerAdapter
 }
 impl TriggerGenerator {
     /// Try each search term in source order and return its first nonempty trigger group.
-    pub fn generate_simple_group(
+    pub fn generate_group(
         &self,
         factory: &TermFactory,
         variables: &[Term],
         search: &[Term],
-    ) -> Result<Vec<crate::state::terms::Trigger>, NativeTriggerSearchError> {
+        advanced: bool,
+    ) -> Result<(Vec<crate::state::terms::Trigger>, Vec<Term>), NativeTriggerSearchError> {
         use ferrum_silver::ast::utility::generic_trigger_generator::generate_trigger_set_groups;
         let mut adapter = NativeTriggerAdapter {
             factory,
             generator: self,
+            advanced,
         };
         for term in search {
             if let Some((sets, extra)) = generate_trigger_set_groups(&mut adapter, variables, term)?
                 .into_iter()
                 .next()
             {
-                if !extra.is_empty() {
-                    return Err(NativeTriggerSearchError::RequiresAxiomRewrite);
-                }
-                return Ok(sets
-                    .into_iter()
-                    .map(|set| crate::state::terms::Trigger { terms: set.exps })
-                    .collect());
+                return Ok((
+                    sets.into_iter()
+                        .map(|set| crate::state::terms::Trigger { terms: set.exps })
+                        .collect(),
+                    extra,
+                ));
             }
         }
-        Ok(vec![])
+        Ok((vec![], vec![]))
+    }
+}
+
+impl From<UnsupportedSubterms> for NativeTriggerSearchError {
+    fn from(error: UnsupportedSubterms) -> Self {
+        Self::Traversal(error)
+    }
+}
+struct NativeAxiomAdapter<'a> {
+    factory: &'a TermFactory,
+    generator: &'a TriggerGenerator,
+}
+impl ferrum_silver::ast::utility::generic_axiom_rewriter::AxiomAdapter for NativeAxiomAdapter<'_> {
+    type Exp = Term;
+    type Var = Term;
+    type Quantifier = Term;
+    type Trigger = crate::state::terms::Trigger;
+    type Error = NativeTriggerSearchError;
+    fn invalid_terms(&self, expression: &Term) -> Result<Vec<Term>, Self::Error> {
+        expression
+            .shallow_collect(&mut |term| self.generator.is_forbidden(term).then(|| term.clone()))
+            .map_err(NativeTriggerSearchError::Traversal)
+    }
+    fn variables(&self, q: &Term) -> Vec<Term> {
+        match q.kind() {
+            TermKind::Quantification { vars, .. } => vars.clone(),
+            _ => vec![],
+        }
+    }
+    fn body(&self, q: &Term) -> Term {
+        match q.kind() {
+            TermKind::Quantification { body, .. } => body.clone(),
+            _ => q.clone(),
+        }
+    }
+    fn var_exp(&self, v: &Term) -> Term {
+        v.clone()
+    }
+    fn contains(&self, expression: &Term, value: &Term) -> Result<bool, Self::Error> {
+        expression
+            .contains(value)
+            .map_err(NativeTriggerSearchError::Traversal)
+    }
+    fn replace(
+        &self,
+        expression: &Term,
+        original: &Term,
+        replacement: &Term,
+    ) -> Result<Term, Self::Error> {
+        self.factory
+            .replace(
+                expression,
+                &HashMap::from([(original.clone(), replacement.clone())]),
+            )
+            .map_err(NativeTriggerSearchError::Transform)
+    }
+    fn fresh_for(&mut self, var: &Term, _: &Term) -> Result<Term, Self::Error> {
+        let TermKind::Var(value) = var.kind() else {
+            return Err(NativeTriggerSearchError::RequiresAxiomRewrite);
+        };
+        let id = self.generator.next_rewrite.get();
+        self.generator.next_rewrite.set(id.wrapping_add(1));
+        Ok(self.factory.var(
+            crate::state::identifiers::Identifier::new(format!("{}@rw{id}", value.id.name())),
+            var.sort().clone(),
+            false,
+        ))
+    }
+    fn solve(&self, lhs: &Term, rhs: &Term, variable: &Term) -> Result<Option<Term>, Self::Error> {
+        let solver = SimpleArithmeticSolver {
+            factory: self.factory,
+            render: |t: &Term| Ok::<_, NativeTriggerSearchError>(format!("{:?}", t.kind())),
+            render_sort: |sort: &crate::state::terms::Sort| {
+                Ok::<_, NativeTriggerSearchError>(sort.to_string())
+            },
+        };
+        match ferrum_silver::ast::utility::generic_arithmetic_solver::solve(&solver, lhs.clone(), rhs.clone(), variable.clone())? {
+            ferrum_silver::ast::utility::generic_arithmetic_solver::SolverResult::SolvingSuccess { rhs, .. } => Ok(Some(rhs)),
+            _ => Ok(None),
+        }
+    }
+    fn equal(&self, a: Term, b: Term) -> Term {
+        self.factory.equals(a, b)
+    }
+    fn and(&self, terms: Vec<Term>) -> Term {
+        self.factory.and(terms)
+    }
+    fn implies(&self, a: Term, b: Term) -> Term {
+        self.factory.implies(a, b)
+    }
+    fn trigger(&self, exps: Vec<Term>) -> Self::Trigger {
+        crate::state::terms::Trigger { terms: exps }
+    }
+    fn copy_quantifier(
+        &self,
+        q: &Term,
+        vars: Vec<Term>,
+        body: Term,
+        triggers: Vec<Self::Trigger>,
+    ) -> Result<Term, Self::Error> {
+        let TermKind::Quantification {
+            quantifier,
+            name,
+            is_global,
+            weight,
+            ..
+        } = q.kind()
+        else {
+            return Err(NativeTriggerSearchError::RequiresAxiomRewrite);
+        };
+        self.factory
+            .quantification(
+                *quantifier,
+                vars,
+                body,
+                triggers,
+                name.clone(),
+                *is_global,
+                *weight,
+            )
+            .map_err(NativeTriggerSearchError::Transform)
+    }
+}
+impl TriggerGenerator {
+    /// Apply the source arithmetic trigger rewrite, retaining the original quantifier
+    /// when isolation cannot solve every invalid trigger term.
+    pub fn rewrite_axiom(
+        &self,
+        factory: &TermFactory,
+        quantifier: &Term,
+    ) -> Result<Term, NativeTriggerSearchError> {
+        let TermKind::Quantification { triggers, .. } = quantifier.kind() else {
+            return Err(NativeTriggerSearchError::RequiresAxiomRewrite);
+        };
+        let sets = triggers
+            .iter()
+            .map(
+                |trigger| ferrum_silver::ast::utility::generic_trigger_generator::TriggerSet {
+                    exps: trigger.terms.clone(),
+                },
+            )
+            .collect::<Vec<_>>();
+        let mut adapter = NativeAxiomAdapter {
+            factory,
+            generator: self,
+        };
+        Ok(
+            ferrum_silver::ast::utility::generic_axiom_rewriter::rewrite(
+                &mut adapter,
+                quantifier,
+                &sets,
+            )?
+            .unwrap_or_else(|| quantifier.clone()),
+        )
+    }
+}
+
+#[cfg(test)]
+mod native_rewrite_tests {
+    use super::*;
+    use crate::state::{
+        identifiers::Identifier,
+        terms::{ApplicableData, ApplicableKind, Quantifier, Sort, TermOptions, Trigger},
+    };
+    #[test]
+    fn arithmetic_trigger_isolated_into_a_fresh_quantified_variable() {
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let x = factory.var(Identifier::new("x"), Sort::Int, false);
+        let f = factory.applicable(ApplicableData {
+            kind: ApplicableKind::Fun,
+            id: Identifier::new("f"),
+            arg_sorts: vec![Sort::Int],
+            result_sort: Sort::Int,
+        });
+        let application = factory.app(f, vec![factory.plus(x.clone(), factory.int_literal(1))]);
+        let q = factory
+            .quantification(
+                Quantifier::Forall,
+                vec![x.clone()],
+                factory.equals(application.clone(), x.clone()),
+                vec![Trigger {
+                    terms: vec![application],
+                }],
+                "test".into(),
+                false,
+                None,
+            )
+            .unwrap();
+        let result = TriggerGenerator::default()
+            .rewrite_axiom(&factory, &q)
+            .unwrap();
+        let TermKind::Quantification {
+            vars,
+            triggers,
+            body,
+            ..
+        } = result.kind()
+        else {
+            panic!("expected quantifier")
+        };
+        assert_eq!(vars.len(), 1);
+        assert_ne!(vars[0], x);
+        assert!(vars[0].free_variables().unwrap().contains(&vars[0]));
+        assert!(!triggers[0].terms[0].contains(&x).unwrap());
+        assert!(body.contains(&vars[0]).unwrap());
     }
 }

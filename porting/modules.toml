@@ -1827,7 +1827,7 @@ repository = "silicon"
 upstream = "src/main/scala/state/Triggers.scala"
 destination = "crates/ferrum-silicon/src/state/triggers.rs"
 status = "skeleton"
-remaining = ["Term trigger classification and arithmetic adapter exist; concrete trigger-generation integration and source-compatible rendering adapter remain."]
+remaining = ["Source trigger grouping and arithmetic rewriting are connected. Repeated structurally identical forbidden occurrences remain an explicit error; complete trigger compatibility and rendering remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2568,7 +2568,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Field/predicate quantified resources, heap-dependent quantifiers, current permission, field reads/writes and ForPerm connect to source snapshots/contributors/trigger services. Function QP contracts and recursive-function predicate triggers are connected. Full arithmetic/let trigger rewriting, wands, full joins, parallelism and advanced reporting remain incomplete."]
+remaining = ["Main verification is generic over Prover and connects source arithmetic trigger rewriting. Wand package/application, reserve-heap branches and snapshot services are implemented but remain gated pending independent integration review. Full joins, parallelism and advanced reporting remain incomplete."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"

@@ -12,7 +12,6 @@
 //! domain preambles and field/predicate quantified resources. Advanced trigger rewrites,
 //! wand execution and other unsupported modes return errors.
 
-use crate::interfaces::decider::prover::ProverLike;
 use crate::rules::chunk_supporter::ChunkExecutionError;
 use crate::rules::consumer::ConsumptionError;
 use crate::rules::executor::ExecutionError;
@@ -122,7 +121,6 @@ impl NativeOptions {
             || config.enable_branchcondition_reporting
             || config.alternative_function_verification_order
             || config.report_state_after.is_some()
-            || config.prover == "Z3-API"
             || (config.is_supplied("numberOfParallelVerifiers")
                 && config.number_of_parallel_verifiers != 1)
         {
@@ -1644,6 +1642,9 @@ where
             EvaluationError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
+        if let ExpKind::Applying(wand, in_expression) = expression.kind() {
+            return self.join_applying_expression(state, wand, in_expression, error, continuation);
+        }
         let ExpKind::Unfolding(access, in_expression) = expression.kind() else {
             return Err(EvaluationError::Context(NativeError::Unsupported(
                 "evaluate_special",
@@ -3611,9 +3612,46 @@ where
         crate::interfaces::verification::VerificationResult<VerificationError>,
         ChunkExecutionError<Self::Error>,
     > {
-        Err(ChunkExecutionError::Context(NativeError::Unsupported(
-            "transfer_wand",
-        )))
+        use crate::rules::magic_wand_supporter::WandTransferError as WE;
+        let full = error
+            .clone()
+            .ok_or(ChunkExecutionError::Context(NativeError::Unsupported(
+                "wand transfer failure context",
+            )))?;
+        let failure = self
+            .failure_full(full, state.retry_level)
+            .map_err(ChunkExecutionError::Context)?;
+        let factory = self.factory.clone();
+        let mut callback_error = None;
+        let result = crate::rules::magic_wand_supporter::transfer(
+            &factory,
+            self,
+            state,
+            permission.clone(),
+            debug_permission.cloned(),
+            failure,
+            &[],
+            &mut |ctx, state, heap, needed, needed_exp| {
+                let result = crate::rules::chunk_supporter::consume_greedy(
+                    ctx, state, heap, identifier, args, needed, needed_exp,
+                )
+                .map_err(|e| NativeError::Chunk(format!("wand transfer consume: {e:?}")))?;
+                Ok((result.result, result.state, result.heap, result.taken))
+            },
+            &mut |ctx, state, chunks| match continuation(ctx, state, chunks) {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(WE::Service(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| {
+            ChunkExecutionError::Context(NativeError::Execution(format!("wand transfer: {e:?}")))
+        })
     }
     fn smoke(&mut self, is_assert: bool) -> Result<bool, Self::Error> {
         self.base
@@ -3910,9 +3948,51 @@ where
             ChunkExecutionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ChunkExecutionError<Self::Error>> {
-        Err(ChunkExecutionError::Context(NativeError::Unsupported(
-            "create_wand_chunk",
-        )))
+        let ResourceKey::Wand(wand) = resource else {
+            return Err(ChunkExecutionError::Context(NativeError::Unsupported(
+                "non-wand chunk creation",
+            )));
+        };
+        let full = error
+            .clone()
+            .ok_or(ChunkExecutionError::Context(NativeError::Unsupported(
+                "wand error context",
+            )))?;
+        let partial = PartialVerificationError::new(move |reason| Ok(full.with_reason(reason)));
+        let snapshot = if matches!(
+            snapshot.kind(),
+            crate::state::terms::TermKind::MagicWandSnapshot(_)
+        ) {
+            snapshot
+        } else {
+            self.factory.magic_wand_snapshot(
+                self.factory
+                    .sort_wrapper(snapshot, Sort::MagicWandSnapFunction),
+            )
+        };
+        let mut callback_error = None;
+        let result = crate::rules::magic_wand_supporter::create_wand_chunk(
+            self,
+            state,
+            &wand.ghost_free_wand,
+            snapshot,
+            &partial,
+            &mut |ctx, state, chunk| match continuation(ctx, state, Chunk::MagicWand(chunk)) {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(EvaluationError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| {
+            ChunkExecutionError::Context(NativeError::Evaluation(format!(
+                "wand chunk creation: {e:?}"
+            )))
+        })
     }
     fn quantified_current_permission(
         &mut self,
@@ -4980,6 +5060,110 @@ where
             PredicateExecutionError, fold_predicate, unfold_predicate,
         };
         use ferrum_silver::ast::statement::StmtKind;
+        if let StmtKind::Package { wand, proof_script } = statement.kind() {
+            use crate::rules::magic_wand_supporter::PackageExecutionError as PE;
+            let error = PartialVerificationError::for_kind(VerificationErrorKind::PackageFailed(
+                statement.clone(),
+            ));
+            let original = state.clone();
+            let mut state = state;
+            state.is_in_package = true;
+            let factory = self.factory.clone();
+            let mut callback_error = None;
+            let result = crate::rules::magic_wand_supporter::package_wand(
+                &factory,
+                self,
+                state,
+                wand,
+                proof_script,
+                &error,
+                &mut |ctx, mut state, chunk| {
+                    if state.reserve_heaps.is_empty() {
+                        return Err(PE::MissingReserveHeap);
+                    }
+                    let trigger_args = if let Chunk::QuantifiedMagicWand(ref wand_chunk) = chunk {
+                        let args = wand_chunk.singleton_args_ref().clone().ok_or_else(|| {
+                            PE::Service(NativeError::Chunk(
+                                "missing quantified wand singleton arguments".into(),
+                            ))
+                        })?;
+                        Some((args, wand_chunk.singleton_arg_exps_ref().clone()))
+                    } else {
+                        None
+                    };
+                    let operations = Arc::new(state.reserve_heaps[0].with_chunk(chunk));
+                    if original.exhale_ext {
+                        if original.reserve_heaps.is_empty() {
+                            return Err(PE::MissingReserveHeap);
+                        }
+                        let mut reserve = vec![original.reserve_heaps[0].clone(), operations];
+                        reserve.extend_from_slice(&state.reserve_heaps[1..]);
+                        state.h = Arc::new(ListBackedHeap::new());
+                        state.exhale_ext = true;
+                        state.reserve_heaps = reserve;
+                    } else {
+                        if state.reserve_heaps.len() != 1 {
+                            return Err(PE::MissingReserveHeap);
+                        }
+                        state.h = operations;
+                        state.exhale_ext = false;
+                        state.reserve_heaps.clear();
+                    }
+                    if let Some((args, debug_args)) = trigger_args {
+                        state = crate::rules::consumer::ConsumptionContext::trigger_resource(
+                            ctx,
+                            state,
+                            wand,
+                            &args,
+                            debug_args.as_deref(),
+                        )
+                        .map_err(PE::Service)?;
+                    }
+                    state.is_in_package = original.is_in_package;
+                    match continuation(ctx, state) {
+                        Ok(value) => Ok(value),
+                        Err(e) => {
+                            callback_error = Some(e);
+                            Err(PE::Service(NativeError::ContinuationAbort))
+                        }
+                    }
+                },
+            );
+            if let Some(error) = callback_error {
+                return Err(error);
+            }
+            return result.map_err(|e| {
+                ExecutionError::Context(NativeError::Execution(format!("package wand: {e:?}")))
+            });
+        }
+        if let StmtKind::Apply(wand) = statement.kind() {
+            use crate::rules::magic_wand_supporter::WandApplicationError as WE;
+            let error = PartialVerificationError::for_kind(VerificationErrorKind::ApplyFailed(
+                statement.clone(),
+            ));
+            let factory = self.factory.clone();
+            let mut callback_error = None;
+            let result = crate::rules::magic_wand_supporter::apply_wand(
+                &factory,
+                self,
+                state,
+                wand,
+                &error,
+                &mut |ctx, state| match continuation(ctx, state) {
+                    Ok(result) => Ok(result),
+                    Err(e) => {
+                        callback_error = Some(e);
+                        Err(WE::Service(NativeError::ContinuationAbort))
+                    }
+                },
+            );
+            if let Some(error) = callback_error {
+                return Err(error);
+            }
+            return result.map_err(|e| {
+                ExecutionError::Context(NativeError::Execution(format!("apply wand: {e:?}")))
+            });
+        }
         let (access, folding) = match statement.kind() {
             StmtKind::Fold(access) => (access, true),
             StmtKind::Unfold(access) => (access, false),
@@ -5263,11 +5447,6 @@ where
         >,
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
         use crate::rules::brancher;
-        if state.exhale_ext {
-            return Err(ExecutionError::Context(NativeError::Unsupported(
-                "wand reserve heap",
-            )));
-        }
         let factory = self.factory.clone();
         let qvars = state
             .quantified_variables
@@ -6021,18 +6200,23 @@ pub struct NativeAnalysis {
     snapshot_sorts: crate::state::package::OrderedMap<String, Sort>,
     snapshot_formals: crate::state::package::OrderedMap<String, Vec<Term>>,
 }
-impl NativeContext {
-    /// Execute the actual main-verifier orchestration with one owned stdio solver.
+impl<S: Prover>
+    NativeVerifierContext<
+        S,
+        crate::supporters::predicate_verification_unit::PredicateData,
+        NativeFunctionData,
+    >
+where
+    S::Error: std::fmt::Debug,
+{
+    /// Execute the actual main-verifier orchestration with one owned solver.
     /// This first supported profile rejects constructs whose contributor, solver or
     /// worker services are not yet connected before starting any member proof.
     pub fn verify_program(
         &mut self,
         program: &ferrum_silver::ast::program::Program,
         cfgs: &[SilverCfg],
-    ) -> Result<
-        Vec<VerificationResult<VerificationError>>,
-        NativeError<crate::decider::prover_std_io::ProverError>,
-    > {
+    ) -> Result<Vec<VerificationResult<VerificationError>>, NativeError<S::Error>> {
         if !cfgs.is_empty() {
             return Err(NativeError::Unsupported("standalone CFG verification"));
         }
@@ -6043,7 +6227,7 @@ impl NativeContext {
         program: &ferrum_silver::ast::program::Program,
         analysis: &NativeAnalysis,
         member: ferrum_silver::ast::program::Member,
-    ) -> Result<NativeState, NativeError<crate::decider::prover_std_io::ProverError>> {
+    ) -> Result<NativeState, NativeError<S::Error>> {
         use ferrum_silver::ast::program::Member;
         let joins = match &member {
             Member::Method(method) => crate::supporters::annotation_supporter::join_mode(
@@ -6136,8 +6320,16 @@ impl NativeContext {
         Ok(state)
     }
 }
-impl crate::verifier::default_main_verifier::MainVerificationServices for NativeContext {
-    type Error = NativeError<crate::decider::prover_std_io::ProverError>;
+impl<S: Prover> crate::verifier::default_main_verifier::MainVerificationServices
+    for NativeVerifierContext<
+        S,
+        crate::supporters::predicate_verification_unit::PredicateData,
+        NativeFunctionData,
+    >
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
     type Result = VerificationResult<VerificationError>;
     type Analysis = NativeAnalysis;
     type FunctionUnit = ferrum_silver::ast::program::Function;
@@ -6331,8 +6523,18 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
             Sort::Snap,
         )
         .map_err(NativeError::Sort)?;
-        use crate::interfaces::{decider::prover::TextEmitter, preamble::PreambleReader};
+        use crate::interfaces::preamble::PreambleReader;
         let reader = crate::decider::smt_lib2_preamble_reader::SmtLib2PreambleReader::default();
+        let mut wand_functions = crate::supporters::magic_wand_snap_functions_contributor::MagicWandSnapFunctionsContributor::default();
+        wand_functions
+            .analyze(program, &reader)
+            .map_err(|e| NativeError::Preamble(format!("wand snapshot functions: {e:?}")))?;
+        wand_functions
+            .declare_sorts(&self.factory, &mut self.base.decider.prover)
+            .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+        wand_functions
+            .declare_symbols(&mut self.base.decider.prover)
+            .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
         let has_quantified = crate::verifier::native_preamble::uses_quantified_resource(program)
             .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
         let mut field_maps = crate::supporters::qps::field_value_functions_contributor::FieldValueFunctionsContributor::default();
@@ -6371,6 +6573,7 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         }
         let mut wrapper_sorts = vec![Sort::Int, Sort::Bool, Sort::Ref, Sort::Perm];
         wrapper_sorts.extend(contributed_sorts);
+        wrapper_sorts.extend(wand_functions.sorts.iter().cloned());
         wrapper_sorts.extend(field_maps.sorts.iter().cloned());
         wrapper_sorts.extend(predicate_maps.sorts.iter().cloned());
         for sort in wrapper_sorts {
@@ -6455,14 +6658,17 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         })
     }
     fn end_preamble_and_saturate(&mut self) -> Result<(), Self::Error> {
-        if let Some(ms) = self.options.after_prelude_timeout {
-            self.base
-                .decider
-                .prover
-                .saturate(ms, "after prelude")
-                .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
-        }
-        Ok(())
+        let timeout = self.options.after_prelude_timeout.map(|timeout_ms| {
+            crate::interfaces::decider::prover::ProverStateSaturationTimeout {
+                timeout_ms,
+                comment: "after prelude".into(),
+            }
+        });
+        self.base
+            .decider
+            .prover
+            .saturate_configured(timeout.as_ref())
+            .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))
     }
     fn function_units(&mut self) -> Result<Vec<Self::FunctionUnit>, Self::Error> {
         Ok(self.function_units.clone())
@@ -7176,6 +7382,159 @@ where
         let next = continuation(self, merged, value, debug)?;
         Ok(block.combine(|| next, false))
     }
+    fn join_applying_expression(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        wand: &Exp,
+        in_expression: &Exp,
+        error: &PartialVerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Term,
+            Option<Exp>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            EvaluationError<NativeError<S::Error>>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, EvaluationError<NativeError<S::Error>>> {
+        use crate::rules::joiner::{self, JoinDataEntry};
+        let factory = self.factory.clone();
+        self.base
+            .decider
+            .push_scope()
+            .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+        let mark = self.base.decider.pcs.mark();
+        let mut joined = state.clone();
+        joined.under_join = true;
+        let mut entries = Vec::new();
+        use crate::rules::magic_wand_supporter::WandApplicationError as WE;
+        let mut evaluation_error = None;
+        let block = crate::rules::magic_wand_supporter::apply_wand(
+            &factory,
+            self,
+            joined,
+            wand,
+            error,
+            &mut |ctx, result_state| {
+                let result = crate::rules::evaluator::evaluate(
+                    ctx,
+                    result_state,
+                    in_expression,
+                    error,
+                    &mut |ctx, result_state, value, debug| {
+                        let path_conditions = ctx
+                            .base
+                            .decider
+                            .pcs
+                            .after(mark)
+                            .map_err(EvaluationError::Path)?;
+                        entries.push(JoinDataEntry {
+                            state: joiner::restore_state(result_state, &state),
+                            data: (value, debug),
+                            path_conditions,
+                        });
+                        Ok(VerificationResult::success())
+                    },
+                );
+                match result {
+                    Ok(value) => Ok(value),
+                    Err(e) => {
+                        evaluation_error = Some(e);
+                        Err(WE::Service(NativeError::ContinuationAbort))
+                    }
+                }
+            },
+        );
+        let block = match (evaluation_error, block) {
+            (Some(error), _) => Err(error),
+            (None, result) => result.map_err(|e| {
+                EvaluationError::Context(NativeError::Execution(format!(
+                    "applying expression: {e:?}"
+                )))
+            }),
+        };
+        let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
+        let block = match (block, cleanup) {
+            (Ok(v), Ok(())) => v,
+            (Err(e), Err(cleanup)) => {
+                return Err(EvaluationError::TriggerCleanup {
+                    evaluation: Box::new(e),
+                    cleanup,
+                });
+            }
+            (Err(e), Ok(())) => return Err(e),
+            (Ok(_), Err(cleanup)) => return Err(EvaluationError::Context(cleanup)),
+        };
+        let block = VerificationResult::success().and_then(|| block);
+        if !block.continue_verification() {
+            return Ok(block);
+        }
+        if entries.is_empty() {
+            return Ok(block.combine(VerificationResult::success, false));
+        }
+        let (assumptions, feasible) = joiner::joined_conditions(&entries, &factory);
+        let (merged, value, debug) = if entries.len() == 1 {
+            let entry = &entries[0];
+            (
+                entry.state.clone(),
+                entry.data.0.clone(),
+                entry.data.1.clone(),
+            )
+        } else {
+            let sort = self
+                .base
+                .symbol_converter
+                .to_sort(
+                    &in_expression
+                        .typ()
+                        .map_err(EvaluationError::ExpressionType)?,
+                )
+                .map_err(|e| EvaluationError::Context(NativeError::Sort(e)))?;
+            let arguments: Vec<_> = state
+                .all_relevant_quantified_variables()
+                .into_iter()
+                .map(|(term, _)| term)
+                .collect();
+            let sorts: Vec<_> = arguments.iter().map(|term| term.sort().clone()).collect();
+            let (target, _) = self
+                .base
+                .decider
+                .fresh(&factory, "joined_applying", &sorts, &sort)
+                .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+            let value = match &target {
+                ApplicationTarget::Function(f) => factory.app(f.clone(), arguments),
+                _ => {
+                    return Err(EvaluationError::Context(NativeError::Unsupported(
+                        "applying join symbol",
+                    )));
+                }
+            };
+            let mut merged = entries[0].state.clone();
+            for entry in &entries[1..] {
+                merged = merged
+                    .merge_unconditional(&entry.state, &mut |warning| self.warnings.push(warning))
+                    .map_err(|e| EvaluationError::Context(NativeError::State(e)))?;
+            }
+            merged.function_recorder = merged.function_recorder.record_path_symbol(target);
+            for entry in &entries {
+                let guard = factory.and(entry.path_conditions.branch_conditions());
+                let equation = factory.builtin_equals(value.clone(), entry.data.0.clone());
+                self.assume_term(&factory.implies(guard, equation))
+                    .map_err(EvaluationError::Context)?;
+            }
+            (merged, value, None)
+        };
+        for group in assumptions {
+            for term in group {
+                self.assume_term(&term).map_err(EvaluationError::Context)?;
+            }
+        }
+        self.assume_term(&feasible)
+            .map_err(EvaluationError::Context)?;
+        let next = continuation(self, merged, value, debug)?;
+        Ok(block.combine(|| next, false))
+    }
 }
 
 impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
@@ -7556,7 +7915,12 @@ where
         variables: &[Term],
         body: &Term,
     ) -> Result<Option<(Vec<crate::state::terms::Trigger>, Vec<Term>)>, Self::Error> {
-        Err(NativeError::Unsupported("automatic quantifier triggers"))
+        let (triggers, extra) = self
+            .base
+            .trigger_generator
+            .generate_group(&self.factory, variables, std::slice::from_ref(body), false)
+            .map_err(|e| NativeError::Chunk(format!("quantifier trigger search: {e:?}")))?;
+        Ok((!triggers.is_empty()).then_some((triggers, extra)))
     }
     fn fresh_projection(&mut self, sort: &Sort) -> Result<Term, Self::Error> {
         self.base
@@ -9365,8 +9729,8 @@ where
             body,
             triggers,
             name,
-            is_global,
-            weight,
+            is_global: _,
+            weight: _,
         } = quantifier.kind()
         else {
             return Err(NativeError::Unsupported(
@@ -9376,20 +9740,25 @@ where
         if !triggers.is_empty() {
             return Ok(quantifier);
         }
-        let generated = self
+        let (generated, extra) = self
             .base
             .trigger_generator
-            .generate_simple_group(&self.factory, vars, std::slice::from_ref(body))
+            .generate_group(&self.factory, vars, std::slice::from_ref(body), false)
             .map_err(|e| NativeError::Chunk(format!("permission trigger generation: {e:?}")))?;
+        if generated.is_empty() {
+            return Ok(quantifier);
+        }
+        let mut variables = vars.clone();
+        variables.extend(extra);
         self.factory
             .quantification(
                 *kind,
-                vars.clone(),
+                variables,
                 body.clone(),
                 generated,
                 name.clone(),
-                *is_global,
-                *weight,
+                false,
+                None,
             )
             .map_err(|e| NativeError::Chunk(format!("permission trigger quantifier: {e:?}")))
     }
@@ -9737,28 +10106,32 @@ where
         name: &str,
         global: bool,
     ) -> Result<Term, Self::Error> {
-        let generated;
-        let triggers = if let Some(triggers) = explicit_triggers {
-            triggers
+        let (triggers, extra) = if let Some(triggers) = explicit_triggers {
+            (triggers.to_vec(), vec![])
         } else {
-            generated = self
-                .base
+            self.base
                 .trigger_generator
-                .generate_simple_group(&self.factory, variables, candidate_terms)
-                .map_err(|e| NativeError::Chunk(format!("inverse trigger generation: {e:?}")))?;
-            &generated
+                .generate_group(&self.factory, variables, candidate_terms, true)
+                .map_err(|e| NativeError::Chunk(format!("inverse trigger generation: {e:?}")))?
         };
-        self.factory
+        let mut vars = variables.to_vec();
+        vars.extend(extra);
+        let quantifier = self
+            .factory
             .quantification(
                 crate::state::terms::Quantifier::Forall,
-                variables.to_vec(),
+                vars,
                 body,
-                triggers.to_vec(),
+                triggers,
                 name.to_string(),
                 global,
                 None,
             )
-            .map_err(|e| NativeError::Chunk(format!("inverse quantifier: {e:?}")))
+            .map_err(|e| NativeError::Chunk(format!("inverse quantifier: {e:?}")))?;
+        self.base
+            .trigger_generator
+            .rewrite_axiom(&self.factory, &quantifier)
+            .map_err(|e| NativeError::Chunk(format!("inverse trigger rewrite: {e:?}")))
     }
 }
 
@@ -10413,3 +10786,538 @@ where
         .map_err(|e| NativeError::Consolidation(format!("wand operations heap: {e:?}")))
     }
 }
+
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::magic_wand_supporter::WandApplicationServices<PD, FD, JoinMode, VerificationError>
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    type VerificationError = PartialVerificationError;
+    fn consume_wand_assertion(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        assertion: &Exp,
+        error: &Self::VerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Option<Term>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::rules::magic_wand_supporter::WandApplicationError<Self::Error>,
+        >,
+    ) -> Result<
+        VerificationResult<VerificationError>,
+        crate::rules::magic_wand_supporter::WandApplicationError<Self::Error>,
+    > {
+        use crate::rules::magic_wand_supporter::WandApplicationError as WE;
+        let mut callback_error = None;
+        let result = crate::rules::consumer::consume_all(
+            self,
+            state,
+            std::slice::from_ref(assertion),
+            true,
+            &|_| error.clone(),
+            &mut |ctx, state, snapshot| match continuation(ctx, state, snapshot) {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ConsumptionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result
+            .map_err(|e| WE::Service(NativeError::Consumption(format!("wand application: {e:?}"))))
+    }
+    fn wand_evaluation_heap(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+    ) -> Result<Arc<ListBackedHeap>, Self::Error> {
+        crate::rules::magic_wand_supporter::evaluation_heap(self, state)
+            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))
+    }
+    fn assume_wand_token(&mut self, token: &Term) -> Result<(), Self::Error> {
+        self.assume_term(token)
+    }
+    fn produce_wand_rhs(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        rhs: &Exp,
+        snapshot: &Term,
+        error: &Self::VerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::rules::magic_wand_supporter::WandApplicationError<Self::Error>,
+        >,
+    ) -> Result<
+        VerificationResult<VerificationError>,
+        crate::rules::magic_wand_supporter::WandApplicationError<Self::Error>,
+    > {
+        use crate::rules::magic_wand_supporter::WandApplicationError as WE;
+        let mut callback_error = None;
+        let result = crate::rules::producer::produce_all(
+            self,
+            state,
+            NativeSnapshot::Projection(snapshot.clone()),
+            std::slice::from_ref(rhs),
+            &|_| error.clone(),
+            &mut |ctx, state| match continuation(ctx, state) {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ProductionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| {
+            WE::Service(NativeError::Production(format!(
+                "wand application RHS: {e:?}"
+            )))
+        })
+    }
+    fn consolidate_wand_state(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+    ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
+        let choice = self.consolidation_choice(&state)?;
+        let factory = self.factory.clone();
+        crate::rules::state_consolidator::consolidate(&factory, self, state, choice, false)
+            .map_err(|e| NativeError::Consolidation(format!("wand application: {e:?}")))
+    }
+}
+
+impl<S: Prover, PD, FD> crate::rules::magic_wand_supporter::WandHeapServices
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn check_wand_permissions(
+        &mut self,
+        assertion: &Term,
+        timeout_ms: i32,
+    ) -> Result<bool, Self::Error> {
+        self.base
+            .decider
+            .check(assertion, Some(timeout_ms))
+            .map_err(NativeError::Decider)
+    }
+    fn wand_check_timeout(&self) -> i32 {
+        self.base.decider.check_timeout.unwrap_or(0)
+    }
+    fn assume_wand_snapshot_definition(&mut self, definition: &Term) -> Result<(), Self::Error> {
+        self.base
+            .decider
+            .assume([(definition.clone(), None)], false, true)
+            .map_err(NativeError::Decider)
+    }
+    fn wand_smoke_check(&mut self) -> Result<bool, Self::Error> {
+        self.base
+            .decider
+            .check_smoke(false)
+            .map_err(NativeError::Decider)
+    }
+}
+
+type NativeWandTransferResult<E> = Result<
+    VerificationResult<VerificationError>,
+    crate::rules::magic_wand_supporter::WandTransferError<NativeError<E>>,
+>;
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::magic_wand_supporter::WandTransferServices<PD, FD, JoinMode, VerificationError>
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn retry_wand_transfer(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        action: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            &mut dyn FnMut(
+                &mut Self,
+                State<PD, FD, JoinMode>,
+                Vec<Arc<ListBackedHeap>>,
+                Vec<Option<Chunk>>,
+            ) -> NativeWandTransferResult<S::Error>,
+        ) -> NativeWandTransferResult<S::Error>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Vec<Arc<ListBackedHeap>>,
+            Vec<Option<Chunk>>,
+        ) -> NativeWandTransferResult<S::Error>,
+    ) -> NativeWandTransferResult<S::Error> {
+        use crate::rules::magic_wand_supporter::WandTransferError as WE;
+        self.retry_consumption(
+            state,
+            &mut |ctx, state, done| {
+                action(ctx, state, &mut |ctx, state, heaps, chunks| {
+                    done(ctx, state, (heaps, chunks))
+                        .map_err(|e| WE::Service(NativeError::Consumption(format!("{e:?}"))))
+                })
+                .map_err(|e| ConsumptionError::Context(NativeError::Execution(format!("{e:?}"))))
+            },
+            &mut |ctx, state, (heaps, chunks)| {
+                continuation(ctx, state, heaps, chunks).map_err(|e| {
+                    ConsumptionError::Context(NativeError::Execution(format!("{e:?}")))
+                })
+            },
+        )
+        .map_err(|e| WE::Service(NativeError::Consumption(format!("{e:?}"))))
+    }
+    fn merge_transferred_chunks(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        heap: &ListBackedHeap,
+        chunks: &[Chunk],
+    ) -> Result<(FunctionRecorder<FD>, ListBackedHeap), Self::Error> {
+        let factory = self.factory.clone();
+        let choice = self.consolidation_choice(state)?;
+        crate::rules::state_consolidator::merge_heaps(
+            &factory,
+            self,
+            state,
+            state.function_recorder.clone(),
+            heap,
+            &ListBackedHeap::from_chunks(chunks.iter().cloned()),
+            choice,
+        )
+        .map_err(|e| NativeError::Consolidation(format!("wand transferred chunks: {e:?}")))
+    }
+}
+
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::magic_wand_supporter::WandPackagingFinalization<PD, FD, JoinMode>
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+
+    fn fresh_unknown_lhs(&mut self) -> Result<Term, Self::Error> {
+        self.base
+            .decider
+            .fresh_variable(&self.factory, "snap", &Sort::Snap, false, None)
+            .map_err(NativeError::Decider)
+    }
+    fn empty_package_heap(
+        &mut self,
+        _: &State<PD, FD, JoinMode>,
+    ) -> Result<Arc<ListBackedHeap>, Self::Error> {
+        Ok(Arc::new(ListBackedHeap::new()))
+    }
+    fn assume_package_token_axiom(&mut self, axiom: &Term) -> Result<(), Self::Error> {
+        self.assume_term(axiom)
+    }
+    fn assume_package_definitions(&mut self, definitions: &[Term]) -> Result<(), Self::Error> {
+        self.base
+            .decider
+            .assume(
+                definitions.iter().cloned().map(|term| (term, None)),
+                false,
+                true,
+            )
+            .map_err(NativeError::Decider)
+    }
+    fn consolidate_package_branches(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+    ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
+        let choice = self.consolidation_choice(&state)?;
+        let factory = self.factory.clone();
+        crate::rules::state_consolidator::consolidate(&factory, self, state, choice, false)
+            .map_err(|e| NativeError::Consolidation(format!("wand package branches: {e:?}")))
+    }
+    fn create_packaged_wand(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        wand: &Exp,
+        args: &[Term],
+        arg_exps: Option<&[Exp]>,
+        snapshot: &Term,
+    ) -> Result<Chunk, Self::Error> {
+        let resource = crate::rules::quantified_chunk_support::SnapshotResource::Wand(wand.clone());
+        let id = crate::state::chunks::MagicWandIdentifier::new(wand.clone(), &state.program)
+            .map_err(|e| NativeError::Chunk(format!("wand identifier: {e:?}")))?;
+        if state
+            .is_quantified_resource(&resource)
+            .map_err(|e| NativeError::Chunk(format!("wand resource: {e:?}")))?
+        {
+            use crate::state::terms::TermKind;
+            let TermKind::MagicWandSnapshot(function) = snapshot.kind() else {
+                return Err(NativeError::Chunk("expected magic wand snapshot".into()));
+            };
+            let key = ResourceKey::Wand(id);
+            let formals = state
+                .formal_arg_vars(&resource, &self.base.symbol_converter, &self.factory)
+                .map_err(|e| NativeError::Chunk(format!("wand formals: {e:?}")))?;
+            let factory = self.factory.clone();
+            let (map, definition) = crate::rules::quantified_chunk_support::singleton_snapshot_map(
+                &factory,
+                self,
+                state,
+                &key,
+                args,
+                function.clone(),
+            )
+            .map_err(|e| NativeError::Chunk(format!("wand singleton map: {e:?}")))?;
+            self.base
+                .decider
+                .assume([(definition, None)], false, true)
+                .map_err(NativeError::Decider)?;
+            return crate::rules::quantified_chunk_support::singleton_quantified_chunk(
+                &factory,
+                &key,
+                formals,
+                None,
+                args.to_vec(),
+                arg_exps.map(<[Exp]>::to_vec),
+                factory.full_perm(),
+                None,
+                map,
+                None,
+                false,
+            )
+            .map_err(|e| NativeError::Chunk(format!("quantified wand chunk: {e:?}")));
+        }
+        use crate::state::store::Store;
+        let bindings = crate::state::chunks::ChunkBindings::new(state.g.values().iter().cloned());
+        Ok(Chunk::MagicWand(crate::state::chunks::MagicWandChunk::new(
+            id,
+            bindings,
+            args.to_vec(),
+            arg_exps.map(<[Exp]>::to_vec),
+            snapshot.clone(),
+            self.factory.full_perm(),
+            None,
+            None,
+        )))
+    }
+    fn package_merge_warning(&mut self, warning: String) {
+        self.warnings.push(warning);
+    }
+    fn debug_package_branches(&self) -> bool {
+        false
+    }
+}
+
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::magic_wand_supporter::WandPackageServices<PD, FD, JoinMode, VerificationError>
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type VerificationError = PartialVerificationError;
+    fn consolidate_before_package(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+    ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
+        <Self as crate::rules::magic_wand_supporter::WandPackagingFinalization<PD, FD, JoinMode>>::consolidate_package_branches(self, state)
+    }
+    fn fresh_package_root(&mut self) -> Result<Term, Self::Error> {
+        <Self as crate::rules::magic_wand_supporter::WandPackagingFinalization<PD, FD, JoinMode>>::fresh_unknown_lhs(self)
+    }
+    fn fresh_wand_snapshot_function(&mut self) -> Result<Term, Self::Error> {
+        let (target, _) = self
+            .base
+            .decider
+            .fresh(&self.factory, "mwsf", &[], &Sort::MagicWandSnapFunction)
+            .map_err(NativeError::Decider)?;
+        Ok(match target {
+            ApplicationTarget::Function(f) => self.factory.app(f, vec![]),
+            ApplicationTarget::Variable(v) => v,
+        })
+    }
+    fn package_root_debug_variable(
+        &mut self,
+    ) -> Result<Option<crate::state::store::AbstractLocalVar>, Self::Error> {
+        Ok(None)
+    }
+    fn evaluate_package_arguments(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        wand: &Exp,
+        error: &Self::VerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Vec<Term>,
+            Option<Vec<Exp>>,
+        ) -> NativePackageResult<S::Error>,
+    ) -> NativePackageResult<S::Error> {
+        use crate::rules::magic_wand_supporter::PackageExecutionError as PE;
+        let mut callback_error = None;
+        let result = crate::rules::magic_wand_supporter::evaluate_wand_arguments(
+            self,
+            state,
+            wand,
+            error,
+            &mut |ctx, state, args, exps| match continuation(ctx, state, args, exps) {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(EvaluationError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| {
+            PE::Service(NativeError::Evaluation(format!(
+                "wand package arguments: {e:?}"
+            )))
+        })
+    }
+    fn locally_package(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        action: &mut dyn FnMut(&mut Self, State<PD, FD, JoinMode>) -> NativePackageResult<S::Error>,
+    ) -> NativePackageResult<S::Error> {
+        use crate::rules::magic_wand_supporter::PackageExecutionError as PE;
+        self.base
+            .decider
+            .push_scope()
+            .map_err(|e| PE::Service(NativeError::Decider(e)))?;
+        let result = action(self, state);
+        let cleanup = self.base.decider.pop_scope();
+        match (result, cleanup) {
+            (Ok(v), Ok(())) => Ok(v),
+            (Err(e), Ok(())) => Err(e),
+            (Ok(_), Err(e)) => Err(PE::Service(NativeError::Decider(e))),
+            (Err(e), Err(cleanup)) => Err(PE::Service(NativeError::Cleanup(format!(
+                "{e:?}; cleanup: {cleanup:?}"
+            )))),
+        }
+    }
+    fn package_path_mark(&mut self) -> Result<crate::decider::path_conditions::Mark, Self::Error> {
+        Ok(self.base.decider.mark())
+    }
+    fn package_paths_after(
+        &mut self,
+        mark: crate::decider::path_conditions::Mark,
+    ) -> Result<crate::decider::path_conditions::RecordedPathConditions, Self::Error> {
+        self.base
+            .decider
+            .pcs
+            .after(mark)
+            .map_err(|e| NativeError::Decider(DeciderError::Path(e)))
+    }
+    fn produce_package_lhs(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        lhs: &Exp,
+        root: &Term,
+        error: &Self::VerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> NativePackageResult<S::Error>,
+    ) -> NativePackageResult<S::Error> {
+        use crate::rules::magic_wand_supporter::PackageExecutionError as PE;
+        let mut callback_error = None;
+        let result = crate::rules::producer::produce_all(
+            self,
+            state,
+            NativeSnapshot::Projection(root.clone()),
+            std::slice::from_ref(lhs),
+            &|_| error.clone(),
+            &mut |ctx, state| match continuation(ctx, state) {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ProductionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| PE::Service(NativeError::Production(format!("wand package LHS: {e:?}"))))
+    }
+    fn package_proof_cfg(&mut self, proof: &Stmt) -> Result<Arc<SilverCfg>, Self::Error> {
+        ferrum_silver::cfg::silver::cfg_generator::statement_to_cfg(proof, false, true)
+            .map(Arc::new)
+            .map_err(|e| NativeError::Execution(format!("wand proof CFG: {e:?}")))
+    }
+    fn execute_package_proof(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        cfg: Arc<SilverCfg>,
+        _: &Self::VerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> NativePackageResult<S::Error>,
+    ) -> NativePackageResult<S::Error> {
+        use crate::rules::magic_wand_supporter::PackageExecutionError as PE;
+        let mut callback_error = None;
+        let result = crate::rules::executor::execute_cfg(self, state, &cfg, &mut |ctx, state| {
+            match continuation(ctx, state) {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ExecutionError::Context(NativeError::ContinuationAbort))
+                }
+            }
+        });
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result
+            .map_err(|e| PE::Service(NativeError::Execution(format!("wand package proof: {e:?}"))))
+    }
+    fn consume_package_rhs(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        rhs: &Exp,
+        error: &Self::VerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Option<Term>,
+        ) -> NativePackageResult<S::Error>,
+    ) -> NativePackageResult<S::Error> {
+        use crate::rules::magic_wand_supporter::PackageExecutionError as PE;
+        let mut callback_error = None;
+        let result = crate::rules::consumer::consume_all(
+            self,
+            state,
+            std::slice::from_ref(rhs),
+            true,
+            &|_| error.clone(),
+            &mut |ctx, state, snapshot| match continuation(ctx, state, snapshot) {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ConsumptionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result
+            .map_err(|e| PE::Service(NativeError::Consumption(format!("wand package RHS: {e:?}"))))
+    }
+    fn assume_package_snapshot_definition(&mut self, definition: &Term) -> Result<(), Self::Error> {
+        self.assume_term(definition)
+    }
+}
+type NativePackageResult<E> = Result<
+    VerificationResult<VerificationError>,
+    crate::rules::magic_wand_supporter::PackageExecutionError<NativeError<E>>,
+>;
