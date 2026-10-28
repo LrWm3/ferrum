@@ -566,3 +566,10 @@ bind an inaccessible manager, and broad transformed-failure parity remains open.
 The injected Refute regression checks mapped entity and final outcomes with
 one/two workers: refuting false succeeds and refuting true reports the source
 refutation failure. It passes with both stdio and linked Z3.
+
+Evaluator implication and conditional-expression records now open before operand
+evaluation and close on the successful continuation. ForPerm records retain the
+source null expression, capture state before local definitions, and close after
+quantifier construction before processing remaining alternatives. Disabled
+logging remains inactive; active hooks use the full-state factory. These scopes
+complement the synchronous join records without enabling a reporting profile.

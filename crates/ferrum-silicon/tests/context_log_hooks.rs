@@ -119,6 +119,25 @@ fn context_scope_hooks_capture_full_state_and_reject_missing_factory() {
     worker.context.close_consumption_scope(consume).unwrap();
     worker.context.close_produce_scope(produce).unwrap();
     worker.context.close_evaluation_scope(evaluate).unwrap();
+    let implies = worker
+        .context
+        .open_implies_scope(&state, None, "ForPerm")
+        .unwrap();
+    let conditional = worker
+        .context
+        .open_conditional_scope(&state, &expr)
+        .unwrap();
+    let records = log.records().unwrap();
+    let for_perm = records.iter().find(|r| r.id() == implies.unwrap()).unwrap()
+        .as_any().downcast_ref::<ferrum_silicon::logger::records::data::implies_record::ImpliesRecord<NativeBranchState>>().unwrap();
+    assert!(for_perm.value.is_none());
+    assert_eq!(for_perm.env, "ForPerm");
+    let cond = records.iter().find(|r| r.id() == conditional.unwrap()).unwrap()
+        .as_any().downcast_ref::<ferrum_silicon::logger::records::data::cond_exp_record::CondExpRecord<NativeBranchState>>().unwrap();
+    assert!(cond.value.as_ref().unwrap().same_node(&expr));
+    assert_eq!(cond.env, "CondExp");
+    worker.context.close_expression_scope(conditional).unwrap();
+    worker.context.close_expression_scope(implies).unwrap();
     let disabled = NativeSymbExLogger::of_config(
         &config,
         Arc::new(ferrum_silver::reporter::reporter::NoopReporter),

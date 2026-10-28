@@ -169,6 +169,26 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
         self.close_evaluation()
     }
 
+    /// Scopes for source implication, conditional-expression, and ForPerm records.
+    fn open_implies_scope(
+        &mut self,
+        _state: &State<P, D, J>,
+        _expression: Option<&Exp>,
+        _environment: &str,
+    ) -> Result<Option<i32>, Self::Error> {
+        Ok(None)
+    }
+    fn open_conditional_scope(
+        &mut self,
+        _state: &State<P, D, J>,
+        _expression: &Exp,
+    ) -> Result<Option<i32>, Self::Error> {
+        Ok(None)
+    }
+    fn close_expression_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     fn eval_heap(&mut self, state: &State<P, D, J>) -> Result<Arc<ListBackedHeap>, Self::Error>;
     fn record_possible_trigger(
         &mut self,
@@ -898,6 +918,9 @@ where
         );
     }
     if let ExpKind::CondExp(condition, yes, no) = expression.kind() {
+        let scope = context
+            .open_conditional_scope(&state, expression)
+            .map_err(EvaluationError::Context)?;
         return evaluate(
             context,
             state,
@@ -942,12 +965,20 @@ where
                             Ok((state, a, a_exp))
                         }
                     },
-                    continuation,
+                    &mut |context, state, term, debug| {
+                        context
+                            .close_expression_scope(scope)
+                            .map_err(EvaluationError::Context)?;
+                        continuation(context, state, term, debug)
+                    },
                 )
             },
         );
     }
     if let ExpKind::Implies(left, right) = expression.kind() {
+        let scope = context
+            .open_implies_scope(&state, Some(expression), "Implies")
+            .map_err(EvaluationError::Context)?;
         return evaluate(
             context,
             state,
@@ -991,7 +1022,12 @@ where
                         };
                         Ok((state, factory.implies(lhs.clone(), first), debug))
                     },
-                    continuation,
+                    &mut |context, state, term, debug| {
+                        context
+                            .close_expression_scope(scope)
+                            .map_err(EvaluationError::Context)?;
+                        continuation(context, state, term, debug)
+                    },
                 )
             },
         );
@@ -3093,6 +3129,9 @@ where
         let debug = context.debugging().then(Vec::new);
         return continuation(context, state, Vec::new(), debug);
     };
+    let scope = context
+        .open_implies_scope(&state, None, "ForPerm")
+        .map_err(EvaluationError::Context)?;
     let mut state = state;
     state.g = Arc::new(state.g.with_store(&first.definitions));
     let factory = context.factory().clone();
@@ -3121,6 +3160,9 @@ where
             } else {
                 None
             };
+            context
+                .close_expression_scope(scope)
+                .map_err(EvaluationError::Context)?;
             state.g = store.clone();
             evaluate_for_perm_options(
                 context,
