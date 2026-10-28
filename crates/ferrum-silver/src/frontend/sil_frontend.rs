@@ -48,6 +48,62 @@ use crate::verifier::verification_result::{
 };
 use std::path::PathBuf;
 
+/// Result of the source SilFrontend.prepare step before frontend phases begin.
+#[derive(Debug)]
+pub enum PrepareOutcome {
+    Ready(crate::frontend::sil_front_end_config::SilFrontendConfig),
+    InvalidArguments,
+    NothingToDo,
+    /// Reset caught a source PluginException after preparation.
+    PluginSetupFailed,
+}
+
+/// Report the verifier signature, configure it, and report optional dependencies in source order.
+/// The caller supplies the backend's actual configuration operation and owned dependency values;
+/// this preserves backend-specific options and avoids inventing custom dependency rendering.
+pub fn prepare_frontend<V: crate::verifier::verifier::Verifier + ?Sized>(
+    verifier: &mut V,
+    reporter: &dyn crate::reporter::reporter::Reporter,
+    args: &[String],
+    configure: impl FnOnce(
+        &mut V,
+        &[String],
+    ) -> crate::frontend::sil_front_end_config::SilFrontendConfig,
+    dependencies: impl FnOnce(
+        &V,
+    ) -> Result<
+        Vec<std::sync::Arc<dyn crate::reporter::message::ReportDependency>>,
+        crate::reporter::reporter::ReportError,
+    >,
+) -> Result<PrepareOutcome, crate::reporter::reporter::ReportError> {
+    use crate::reporter::message::{Message, SimpleMessageKind};
+    let signature = verifier.signature();
+    reporter.report(Message::Simple {
+        kind: SimpleMessageKind::Copyright,
+        text: signature.clone(),
+    })?;
+    let config = configure(verifier, args);
+    if let Some(error) = &config.error {
+        reporter.report(Message::InvalidArguments {
+            tool_signature: verifier.signature(),
+            errors: vec![AbstractError::Frontend(FrontendError::new(
+                FrontendErrorKind::CliOptionError(format!("{error}.")),
+                Position::NoPosition,
+            ))],
+        })?;
+        return Ok(PrepareOutcome::InvalidArguments);
+    }
+    if config.exit() {
+        return Ok(PrepareOutcome::NothingToDo);
+    }
+    if config.dependencies {
+        reporter.report(Message::ExternalDependencies {
+            dependencies: dependencies(verifier)?,
+        })?;
+    }
+    Ok(PrepareOutcome::Ready(config))
+}
+
 const ADT_PLUGIN: &str = "viper.silver.plugin.standard.adt.AdtPlugin";
 const TERMINATION_PLUGIN: &str = "viper.silver.plugin.standard.termination.TerminationPlugin";
 const PREDICATE_INSTANCE_PLUGIN: &str =

@@ -302,7 +302,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ReformatterAstProvider.scala"
 destination = "crates/ferrum-silver/src/frontend/reformatter_ast_provider.rs"
 status = "skeleton"
-remaining = ["Parse-only macro preservation, construction verifier, configuration/plugin reset and completion reports are connected. Shared reporter reset hooks, custom plugins and full command-line orchestration remain."]
+remaining = ["Concrete parse-only execution, configuration/plugin reset, reporter binding and completion events are connected. Custom plugin resolution and captured exception provenance remain incomplete."]
 
 [[modules]]
 repository = "silver"
@@ -316,14 +316,14 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/SilFrontend.scala"
 destination = "crates/ferrum-silver/src/frontend/sil_frontend.rs"
 status = "skeleton"
-remaining = ["Configured plugins, import diagnostics, consistency checks and provider phase-warning events are connected. Remaining grammar, macro recovery, reporter reset hooks and diagnostic compatibility require completion."]
+remaining = ["Configured plugins, import diagnostics, consistency checks, phase warnings and shared source preparation are connected. Remaining grammar, macro recovery, complete solver frontend orchestration and diagnostic compatibility require completion."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ViperAstProvider.scala"
 destination = "crates/ferrum-silver/src/frontend/viper_ast_provider.rs"
 status = "skeleton"
-remaining = ["Concrete construction verifier, configuration/plugin reset and phase/result/finish paths are connected. Shared reporter reset hooks, custom plugin resolution and full command-line orchestration remain."]
+remaining = ["Concrete AST execution through consistency checking, configuration/plugin reset, reporter binding and completion events are connected. Custom plugin resolution, exception provenance and generic missing-dependency handling remain incomplete."]
 
 [[modules]]
 repository = "silver"

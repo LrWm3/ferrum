@@ -189,7 +189,72 @@ pub struct ViperAstProvider<F: FrontendPhases> {
     pub disable_plugins: bool,
     pub config: Option<super::sil_front_end_config::SilFrontendConfig>,
 }
+/// Failure while running the concrete AST-construction lifecycle.
+#[derive(Debug)]
+pub enum ProviderExecuteError {
+    Reporter(ReportError),
+    Setup(ProviderSetupError),
+    Finish(ProviderFinishError),
+    PluginReport {
+        plugin: crate::plugin::silver_plugin_manager::PluginResolutionError,
+        reporter: ReportError,
+    },
+}
 impl ViperAstProvider<super::sil_frontend::SilFrontendPhases> {
+    /// Execute preparation, reset, all AST-construction phases and finish reporting.
+    pub fn execute(
+        &mut self,
+        args: &[String],
+        load: impl FnOnce(&std::path::Path) -> std::io::Result<String>,
+    ) -> Result<super::sil_frontend::PrepareOutcome, ProviderExecuteError> {
+        use super::sil_frontend::{PrepareOutcome, prepare_frontend};
+        use crate::verifier::verifier::Verifier;
+        let started = std::time::Instant::now();
+        let mut verifier = AstProvidingVerifier::new(self.reporter.clone());
+        let outcome = prepare_frontend(
+            &mut verifier,
+            self.reporter.as_ref(),
+            args,
+            |verifier, args| {
+                verifier.parse_command_line(args);
+                verifier.config.clone().expect("configured verifier")
+            },
+            |_| Ok(vec![]),
+        )
+        .map_err(ProviderExecuteError::Reporter)?;
+        let PrepareOutcome::Ready(config) = outcome else {
+            return Ok(outcome);
+        };
+        let file = config.file.clone().ok_or(ProviderExecuteError::Setup(
+            ProviderSetupError::Frontend(FrontendError::MissingInput),
+        ))?;
+        self.frontend.phases.configure_consistency(&config);
+        self.frontend.init(Box::new(verifier));
+        self.config = Some(config.clone());
+        if let Err(error) = self.reset(std::path::Path::new(&file), load) {
+            use crate::plugin::silver_plugin_manager::PluginResolutionError;
+            match error {
+                ProviderSetupError::Plugin(
+                    plugin @ (PluginResolutionError::NotFound(_)
+                    | PluginResolutionError::WrongType(_)
+                    | PluginResolutionError::WrongArguments(_)),
+                ) => {
+                    let message = Message::exception(Arc::new(plugin.clone()));
+                    if let Err(reporter) = self.reporter.report(message) {
+                        return Err(ProviderExecuteError::PluginReport { plugin, reporter });
+                    }
+                    return Ok(PrepareOutcome::PluginSetupFailed);
+                }
+                other => return Err(ProviderExecuteError::Setup(other)),
+            }
+        }
+        self.frontend
+            .run_range(PHASES, Phase::Parsing, Phase::ConsistencyCheck)
+            .map_err(|error| ProviderExecuteError::Setup(ProviderSetupError::Frontend(error)))?;
+        let elapsed = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
+        self.finish(elapsed).map_err(ProviderExecuteError::Finish)?;
+        Ok(PrepareOutcome::Ready(config))
+    }
     pub fn initialize_configured(&mut self, args: &[String]) -> Result<(), ProviderSetupError> {
         let (verifier, config) = configured_verifier(self.reporter.clone(), args)?;
         self.frontend.phases.configure_consistency(&config);
@@ -262,6 +327,98 @@ pub enum ProviderFinishError {
 mod tests {
     use super::*;
     use crate::verifier::verifier::Verifier;
+    #[test]
+    fn execute_runs_ast_phases_and_reports_errors_and_plugin_failure() {
+        use super::super::sil_frontend::PrepareOutcome;
+        use crate::reporter::{
+            message::SimpleMessageKind,
+            reporter::{NoopReporter, PollingReporter},
+        };
+        let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+        let phases = super::super::sil_frontend::SilFrontendPhases::new(
+            "test.vpr".into(),
+            crate::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+        );
+        let mut provider =
+            ViperAstProvider::new(DefaultFrontend::new(phases), reporter.clone(), false);
+        let args = vec![
+            "--ignoreFile".into(),
+            "--disableDefaultPlugins".into(),
+            "--dependencies".into(),
+            "test.vpr".into(),
+        ];
+        assert!(matches!(
+            provider
+                .execute(&args, |_| Ok("method m() {}".into()))
+                .unwrap(),
+            PrepareOutcome::Ready(_)
+        ));
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::Simple {
+                kind: SimpleMessageKind::Copyright,
+                ..
+            }
+        ));
+        assert!(
+            matches!(reporter.get_new_message().unwrap(), Message::ExternalDependencies { dependencies } if dependencies.is_empty())
+        );
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::WarningsDuringParsing { .. }
+        ));
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::AstConstructionSuccess { .. }
+        ));
+        assert!(!reporter.has_new_message());
+        assert!(matches!(
+            provider
+                .execute(&args, |_| Ok("method m() { assert 1; }".into()))
+                .unwrap(),
+            PrepareOutcome::Ready(_)
+        ));
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::Simple {
+                kind: SimpleMessageKind::Copyright,
+                ..
+            }
+        ));
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::ExternalDependencies { .. }
+        ));
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::WarningsDuringParsing { .. }
+        ));
+        assert!(
+            matches!(reporter.get_new_message().unwrap(), Message::AstConstructionFailure { errors, .. } if !errors.is_empty())
+        );
+        let bad = vec![
+            "--ignoreFile".into(),
+            "--disableDefaultPlugins".into(),
+            "--plugin".into(),
+            "unknown.Plugin".into(),
+            "test.vpr".into(),
+        ];
+        assert!(matches!(
+            provider.execute(&bad, |_| Ok("".into())).unwrap(),
+            PrepareOutcome::PluginSetupFailed
+        ));
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::Simple {
+                kind: SimpleMessageKind::Copyright,
+                ..
+            }
+        ));
+        assert!(
+            matches!(reporter.get_new_message().unwrap(), Message::Exception { error, .. } if error.to_string() == "Plugin unknown.Plugin not found.")
+        );
+        assert!(!reporter.has_new_message());
+    }
     #[test]
     fn configured_ast_provider_disables_plugins_and_reports_duplicates() {
         use crate::reporter::{

@@ -24,7 +24,7 @@
 //!
 //! Status: partial; concrete parse-only provider, macro toggle, AST-constructor verifier and
 //! finish reporting, shared configuration and built-in plugin reset are wired. Complete
-//! command-line orchestration and custom plugin resolution remain pending.
+//! custom plugin resolution and native exception stack rendering remain pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -41,7 +41,78 @@ pub struct ReformatterAstProvider<F: FrontendPhases> {
     pub config: Option<super::sil_front_end_config::SilFrontendConfig>,
     pub disable_plugins: bool,
 }
+/// Failure to execute the concrete parse-only frontend lifecycle.
+#[derive(Debug)]
+pub enum ReformatterExecuteError {
+    Reporter(crate::reporter::reporter::ReportError),
+    Setup(super::viper_ast_provider::ProviderSetupError),
+    Finish(super::viper_ast_provider::ProviderFinishError),
+    PluginReport {
+        plugin: crate::plugin::silver_plugin_manager::PluginResolutionError,
+        reporter: crate::reporter::reporter::ReportError,
+    },
+}
 impl ReformatterAstProvider<super::sil_frontend::SilFrontendPhases> {
+    /// Execute the source frontend preparation, reset, parse, and finish sequence.
+    pub fn execute(
+        &mut self,
+        args: &[String],
+        load: impl FnOnce(&std::path::Path) -> std::io::Result<String>,
+    ) -> Result<super::sil_frontend::PrepareOutcome, ReformatterExecuteError> {
+        use super::{
+            sil_frontend::{PrepareOutcome, prepare_frontend},
+            viper_ast_provider::{AstProvidingVerifier, ProviderSetupError},
+        };
+        let started = std::time::Instant::now();
+        use crate::verifier::verifier::Verifier;
+        let mut verifier = AstProvidingVerifier::new(self.reporter.clone());
+        let outcome = prepare_frontend(
+            &mut verifier,
+            self.reporter.as_ref(),
+            args,
+            |verifier, args| {
+                verifier.parse_command_line(args);
+                verifier.config.clone().expect("configured verifier")
+            },
+            |_| Ok(vec![]),
+        )
+        .map_err(ReformatterExecuteError::Reporter)?;
+        let PrepareOutcome::Ready(config) = outcome else {
+            return Ok(outcome);
+        };
+        let file = config.file.clone().ok_or(ReformatterExecuteError::Setup(
+            ProviderSetupError::Frontend(FrontendError::MissingInput),
+        ))?;
+        self.frontend.phases.configure_consistency(&config);
+        self.frontend.init(Box::new(verifier));
+        self.config = Some(config.clone());
+        if let Err(error) = self.reset(std::path::Path::new(&file), load) {
+            use crate::plugin::silver_plugin_manager::PluginResolutionError;
+            match error {
+                ProviderSetupError::Plugin(
+                    plugin @ (PluginResolutionError::NotFound(_)
+                    | PluginResolutionError::WrongType(_)
+                    | PluginResolutionError::WrongArguments(_)),
+                ) => {
+                    let message = crate::reporter::message::Message::exception(
+                        std::sync::Arc::new(plugin.clone()),
+                    );
+                    if let Err(reporter) = self.reporter.report(message) {
+                        return Err(ReformatterExecuteError::PluginReport { plugin, reporter });
+                    }
+                    return Ok(PrepareOutcome::PluginSetupFailed);
+                }
+                other => return Err(ReformatterExecuteError::Setup(other)),
+            }
+        }
+        self.frontend
+            .run_range(PHASES, Phase::Parsing, Phase::Parsing)
+            .map_err(|error| ReformatterExecuteError::Setup(ProviderSetupError::Frontend(error)))?;
+        let elapsed = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
+        self.finish(elapsed)
+            .map_err(ReformatterExecuteError::Finish)?;
+        Ok(PrepareOutcome::Ready(config))
+    }
     /// Construct the source parse-only provider with macro expansion disabled.
     pub fn new(phases: super::sil_frontend::SilFrontendPhases) -> Self {
         Self::with_reporter(
@@ -128,6 +199,138 @@ mod tests {
     use crate::verifier::verifier::NoVerifier;
     use std::path::PathBuf;
 
+    #[test]
+    fn execute_reports_plugin_exception_and_preserves_reporter_failure() {
+        use super::super::sil_frontend::PrepareOutcome;
+        use crate::plugin::silver_plugin_manager::PluginResolutionError;
+        use crate::reporter::{
+            message::{Message, SimpleMessageKind},
+            reporter::{NoopReporter, PollingReporter, ReportError, Reporter},
+        };
+        let args = vec![
+            "--ignoreFile".into(),
+            "--disableDefaultPlugins".into(),
+            "--plugin".into(),
+            "unknown.Plugin".into(),
+            "test.vpr".into(),
+        ];
+        let reporter = std::sync::Arc::new(PollingReporter::new(std::sync::Arc::new(NoopReporter)));
+        let phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let mut provider = ReformatterAstProvider::with_reporter(phases, reporter.clone());
+        assert!(matches!(
+            provider
+                .execute(&args, |_| Ok("method m() {}".into()))
+                .unwrap(),
+            PrepareOutcome::PluginSetupFailed
+        ));
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::Simple {
+                kind: SimpleMessageKind::Copyright,
+                ..
+            }
+        ));
+        assert!(
+            matches!(reporter.get_new_message().unwrap(), Message::Exception { error, details: None } if error.to_string() == "Plugin unknown.Plugin not found.")
+        );
+        assert!(!reporter.has_new_message());
+        struct Reject;
+        impl Reporter for Reject {
+            fn name(&self) -> &str {
+                "reject"
+            }
+            fn report(&self, message: Message) -> Result<(), ReportError> {
+                if matches!(message, Message::Exception { .. }) {
+                    Err(ReportError::Unsupported("exception"))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        let phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let mut provider =
+            ReformatterAstProvider::with_reporter(phases, std::sync::Arc::new(Reject));
+        assert!(
+            matches!(provider.execute(&args, |_| Ok("".into())), Err(ReformatterExecuteError::PluginReport { plugin: PluginResolutionError::NotFound(name), reporter: ReportError::Unsupported("exception") }) if name == "unknown.Plugin")
+        );
+    }
+    #[test]
+    fn execute_reports_prepare_then_parsing_and_finish_and_handles_early_exits() {
+        use super::super::sil_frontend::PrepareOutcome;
+        use crate::reporter::{
+            message::{Message, SimpleMessageKind},
+            reporter::{NoopReporter, PollingReporter},
+        };
+        let reporter = std::sync::Arc::new(PollingReporter::new(std::sync::Arc::new(NoopReporter)));
+        let phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let mut provider = ReformatterAstProvider::with_reporter(phases, reporter.clone());
+        let args = vec![
+            "--ignoreFile".into(),
+            "--disableDefaultPlugins".into(),
+            "--dependencies".into(),
+            "test.vpr".into(),
+        ];
+        assert!(matches!(
+            provider
+                .execute(&args, |_| Ok("method m() {}".into()))
+                .unwrap(),
+            PrepareOutcome::Ready(_)
+        ));
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::Simple {
+                kind: SimpleMessageKind::Copyright,
+                ..
+            }
+        ));
+        assert!(
+            matches!(reporter.get_new_message().unwrap(), Message::ExternalDependencies { dependencies } if dependencies.is_empty())
+        );
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::WarningsDuringParsing { .. }
+        ));
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::AstConstructionSuccess { .. }
+        ));
+        assert!(!reporter.has_new_message());
+        assert!(matches!(
+            provider
+                .execute(&["--unknown".into()], |_| panic!(
+                    "load after invalid arguments"
+                ))
+                .unwrap(),
+            PrepareOutcome::InvalidArguments
+        ));
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::Simple {
+                kind: SimpleMessageKind::Copyright,
+                ..
+            }
+        ));
+        assert!(
+            matches!(reporter.get_new_message().unwrap(), Message::InvalidArguments { errors, .. } if errors.len() == 1 && errors[0].full_id() == "clioption.error")
+        );
+        assert!(matches!(
+            provider
+                .execute(&["--help".into()], |_| panic!("load after help"))
+                .unwrap(),
+            PrepareOutcome::NothingToDo
+        ));
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::Simple {
+                kind: SimpleMessageKind::Copyright,
+                ..
+            }
+        ));
+        assert!(!reporter.has_new_message());
+    }
     #[test]
     fn configured_reset_recreates_plugins_and_honors_disable_override() {
         use crate::parser::fast_parser::ParserFeature;

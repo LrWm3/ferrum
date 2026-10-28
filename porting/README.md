@@ -621,3 +621,11 @@ Minimal and mask paths keep their source behavior. Retry logging captures the
 post-consolidation state and closes only when the retry reaches its continuation,
 before restoring retry flags. Native reporting profiles remain gated pending
 run-root attachment and remaining record coverage.
+
+Concrete AST and reformatter providers now execute the source frontend sequence:
+copyright, configuration and early exits, requested dependencies, reset, selected
+phases and finish reporting. The AST provider includes semantic, translation and
+consistency phases; reformatting remains parse-only. Source plugin resolution
+failures emit exception events and stop before phases. Reporter failures retain
+the original plugin error. Native exception stack provenance and the generic
+missing-dependency catch remain incomplete; no stack trace is synthesized.
