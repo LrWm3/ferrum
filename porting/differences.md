@@ -3,6 +3,23 @@
 Implementation has begun. Unresolved upstream issues remain proposals in source
 comments; the following changes are adopted explicitly.
 
+## Dominator label update
+
+Silver `cfg/utility/Dominators.scala` evaluates `label(index) == ancestorLabel`
+where path compression requires assigning the ancestor's better label. The
+source-compatible translation was committed separately before this correction.
+
+For blocks 0 through 3, entry 0, and edges in order
+`0->1, 0->2, 1->2, 1->3, 2->3`, upstream behavior gives immediate dominator 1
+for block 3. Path `0->2->3` avoids block 1, so only block 0 can immediately
+dominate block 3. A temporary independent iterative-dominator implementation
+and the compiled source-compatible Rust port confirmed the mismatch.
+
+Ferrum assigns the better label during compression. The four-block regression
+checks the correct result, guarding a graph relation needed by loop detection.
+This is an explicit correctness fix, not a claim that every CFG algorithm has
+been broadly validated.
+
 ## Canonical rational hashing
 
 Silver `utility/Common.scala` compares normalized rational values but hashes its

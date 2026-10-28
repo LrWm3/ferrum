@@ -1,9 +1,8 @@
 //! Lengauer-Tarjan immediate dominators and natural-loop backedges.
 //! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/cfg/utility/Dominators.scala
 //! Status: implemented; integration with Silver loop detection remains pending.
-//! The upstream `evaluate` compares `label(index) == ancestorLabel` rather than
-//! assigning it. This port deliberately preserves the comparison's no-op; the
-//! resulting relation may differ from standard dominators on some graphs.
+//! Corrects the upstream comparison/no-assignment in `evaluate`; see
+//! porting/differences.md for the minimal counterexample and rationale.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -40,7 +39,7 @@ impl<S, E> Dominators<S, E> {
         let mut blocks: Vec<Option<Block<S, E>>> = (0..n).map(|_| None).collect();
         let mut parents = vec![0; n];
         let mut ancestors: Vec<usize> = (0..n).collect();
-        let label: Vec<usize> = (0..n).collect();
+        let mut label: Vec<usize> = (0..n).collect();
         let mut buckets: Vec<HashSet<usize>> = (0..n).map(|_| HashSet::new()).collect();
         let mut sdom = vec![0; n];
         let mut idom = vec![0; n];
@@ -76,15 +75,14 @@ impl<S, E> Dominators<S, E> {
         fn evaluate(
             index: usize,
             ancestors: &mut [usize],
-            label: &[usize],
+            label: &mut [usize],
             sdom: &[usize],
         ) -> usize {
             let ancestor = ancestors[index];
             if ancestor != index {
                 let ancestor_label = evaluate(ancestor, ancestors, label, sdom);
                 if sdom[ancestor_label] < sdom[label[index]] {
-                    // Upstream uses == here, not =. The comparison has no effect.
-                    let _comparison = label[index] == ancestor_label;
+                    label[index] = ancestor_label;
                 }
                 ancestors[index] = ancestors[ancestor];
             }
@@ -107,14 +105,14 @@ impl<S, E> Dominators<S, E> {
                 let pred = *indices
                     .get(&predecessor)
                     .ok_or(DominatorError::PredecessorOutsideReachableGraph)?;
-                let evaluated = evaluate(pred, &mut ancestors, &label, &sdom);
+                let evaluated = evaluate(pred, &mut ancestors, &mut label, &sdom);
                 sdom[index] = sdom[index].min(sdom[evaluated]);
             }
             buckets[sdom[index]].insert(index);
             let parent = parents[index];
             ancestors[index] = parent;
             for v in buckets[parent].drain() {
-                let u = evaluate(v, &mut ancestors, &label, &sdom);
+                let u = evaluate(v, &mut ancestors, &mut label, &sdom);
                 idom[v] = if sdom[u] < sdom[v] { u } else { parent };
             }
         }
@@ -167,5 +165,33 @@ impl<S, E> Dominators<S, E> {
             .get(edge.source())
             .ok_or(DominatorError::UnknownBlock)?;
         Ok(target <= source && self.dominates(edge.target(), edge.source())?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::cfg::{
+        block::Block,
+        cfg::Cfg,
+        edge::{Edge, Kind},
+        utility::dominators::Dominators,
+    };
+    #[test]
+    fn diamond_with_cross_edge_has_entry_as_join_dominator() {
+        let blocks: Vec<Block<(), ()>> = (0..4).map(|_| Block::statement(vec![])).collect();
+        let edges = [(0, 1), (0, 2), (1, 2), (1, 3), (2, 3)]
+            .into_iter()
+            .map(|(source, target)| {
+                Edge::unconditional(blocks[source].clone(), blocks[target].clone(), Kind::Normal)
+            })
+            .collect();
+        let cfg = Cfg::new(
+            blocks.clone(),
+            edges,
+            blocks[0].clone(),
+            Some(blocks[3].clone()),
+        );
+        let dominators = Dominators::new(&cfg).unwrap();
+        assert_eq!(dominators.dominator(&blocks[3]).unwrap(), &blocks[0]);
     }
 }
