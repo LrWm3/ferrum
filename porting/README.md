@@ -735,3 +735,9 @@ ASCII control/space characters, decimal suffixes and Java special-value spelling
 Rust-only infinity/NaN spellings no longer produce misleading deltas. Hexadecimal
 float parsing and exact JVM double output remain explicit compatibility gaps;
 the output formatter is still supplied separately.
+
+Quantifier debug services now reconstruct guarded auxiliary records with their
+original/rewritten expressions, bound variables and AST/term triggers. Global
+and non-global assumptions retain source grouping, comments and order. A real
+quantifier evaluation now succeeds with the injected debug settings; absent
+required debug payloads still fail explicitly. Other debug services remain gated.

@@ -2158,9 +2158,54 @@ where
             >,
         )>,
     ) -> Result<(), Self::Error> {
-        for term in globals.iter().chain(non_globals) {
-            self.assume_term(term)?;
+        self.checkpoint()?;
+        if self.base.decider.debug_mode && debug.is_none() {
+            return Err(NativeError::Unsupported(
+                "missing quantified auxiliary debug expressions",
+            ));
         }
+        self.base
+            .decider
+            .prover
+            .comment(&mut || "Nested auxiliary terms: globals (aux)".into())
+            .map_err(|error| NativeError::Decider(DeciderError::Prover(error)))?;
+        let global_debug = debug.map(|(global, _)| {
+            crate::debugger::debug_exp::DebugExp::group(
+                "Nested auxiliary terms: globals (aux)".into(),
+                global.clone(),
+            )
+        });
+        self.base
+            .decider
+            .assume_terms(
+                &self.factory,
+                globals.iter().cloned(),
+                global_debug.as_ref(),
+                false,
+                false,
+            )
+            .map_err(NativeError::Decider)?;
+        self.base
+            .decider
+            .prover
+            .comment(&mut || "Nested auxiliary terms: non-globals (aux)".into())
+            .map_err(|error| NativeError::Decider(DeciderError::Prover(error)))?;
+        let local_debug = debug.map(|(_, local)| {
+            crate::debugger::debug_exp::DebugExp::group(
+                "Nested auxiliary terms: non-globals (aux)".into(),
+                local.clone(),
+            )
+        });
+        self.base
+            .decider
+            .assume_terms(
+                &self.factory,
+                non_globals.iter().cloned(),
+                local_debug.as_ref(),
+                false,
+                false,
+            )
+            .map_err(NativeError::Decider)?;
         Ok(())
     }
     fn precondition_function(
@@ -11933,9 +11978,35 @@ where
         original: Exp,
         rewritten: Option<Exp>,
     ) -> Result<(), Self::Error> {
+        let simplify = |e: &Exp| {
+            ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                Ok::<_, std::convert::Infallible>(true)
+            })
+        };
+        let debug = if let Some(final_exp) = &rewritten {
+            Some(
+                crate::debugger::debug_exp::DebugExp::create(
+                    None,
+                    Some(original.clone()),
+                    Some(final_exp.clone()),
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .map_err(|e| {
+                    NativeError::Diagnostic(format!(
+                        "quantifier branch debug simplification: {e:?}"
+                    ))
+                })?,
+            )
+        } else {
+            None
+        };
         self.base
             .decider
-            .set_branch_condition(condition, (original, rewritten), None)
+            .set_branch_condition(condition, (original, rewritten), debug)
             .map_err(NativeError::Decider)
     }
     fn path_after(
@@ -11984,7 +12055,33 @@ where
         ),
         Self::Error,
     > {
-        Err(NativeError::Unsupported("quantifier debugging"))
+        if paths
+            .branch_condition_exps()
+            .iter()
+            .any(|(original, rewritten)| {
+                !matches!(original.kind(), ExpKind::TrueLit) && rewritten.is_none()
+            })
+        {
+            return Err(NativeError::Unsupported(
+                "missing quantified branch debug expression",
+            ));
+        }
+        let simplify = |e: &Exp| {
+            ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                Ok::<_, std::convert::Infallible>(true)
+            })
+        };
+        paths
+            .quantified_exp(
+                quantifier,
+                variable_expressions.to_vec(),
+                variables.to_vec(),
+                ast_triggers.to_vec(),
+                term_triggers.to_vec(),
+                condition,
+                &simplify,
+            )
+            .map_err(|e| NativeError::Diagnostic(format!("quantifier debug simplification: {e:?}")))
     }
 }
 #[allow(unused_variables)]
@@ -18623,25 +18720,87 @@ mod owned_branch_worker_tests {
         ));
         let quantified = Exp::new(
             ExpKind::Forall(
-                vec![binder],
+                vec![binder.clone()],
                 vec![],
                 Exp::new(ExpKind::TrueLit, Default::default()),
             ),
             Default::default(),
         );
+        let mut quantified_debug = None;
         let result = crate::rules::evaluator::evaluate(
             &mut worker.context,
             state.clone(),
             &quantified,
             &error,
-            &mut |_, _, _, _| Ok(VerificationResult::success()),
+            &mut |_, _, _, debug| {
+                quantified_debug = debug;
+                Ok(VerificationResult::success())
+            },
+        )
+        .unwrap();
+        assert!(!result.is_fatal());
+        assert!(
+            matches!(quantified_debug.unwrap().kind(), ExpKind::Forall(vars, _, _) if vars.len() == 1)
         );
-        assert!(matches!(
-            result,
-            Err(EvaluationError::Context(NativeError::Unsupported(
-                "quantifier debugging"
-            )))
-        ));
+        let binder_exp = Exp::new(ExpKind::LocalVar(binder.local_var()), binder.meta.clone());
+        let guard = Exp::new(
+            ExpKind::GtCmp(
+                binder_exp,
+                Exp::new(ExpKind::IntLit(0.into()), Default::default()),
+            ),
+            Default::default(),
+        );
+        let mut auxiliary = None;
+        crate::rules::evaluator::evaluate_quantified(
+            &mut worker.context,
+            state.clone(),
+            crate::state::terms::Quantifier::Forall,
+            &[binder],
+            std::slice::from_ref(&guard),
+            &[Exp::new(ExpKind::TrueLit, Default::default())],
+            Some(&[]),
+            "debug-test",
+            &error,
+            &mut |_, _, result| {
+                auxiliary = result.second.and_then(|body| body.auxiliary_debug);
+                Ok(VerificationResult::success())
+            },
+        )
+        .unwrap();
+        let (global_auxiliary, local_auxiliary) = auxiliary.expect("quantified debug auxiliary");
+        assert!(local_auxiliary.iter().any(|entry| matches!(entry.kind(), crate::debugger::debug_exp::DebugExpKind::Quantified { qvars, term_qvars, triggers, term_triggers, .. } if qvars.len() == 1 && term_qvars.len() == 1 && triggers.is_empty() && term_triggers.is_empty())));
+        assert!(
+            local_auxiliary
+                .iter()
+                .any(|entry| entry.children().iter().any(|child| matches!(
+                    child.kind(),
+                    crate::debugger::debug_exp::DebugExpKind::Implication
+                ) && child
+                    .original_exp()
+                    .is_some()
+                    && child.final_exp().is_some()))
+        );
+        let bool_type = ferrum_silver::parser::parse_ast::type_from_signature(
+            &ferrum_silver::parser::parse_ast_keyword::SignatureType::Bool,
+        );
+        let auxiliary_term = worker
+            .context
+            .base
+            .decider
+            .fresh_variable(&factory, "auxprobe", &Sort::Bool, false, Some(bool_type))
+            .unwrap();
+        worker
+            .context
+            .assume_quantifier_auxiliaries(
+                std::slice::from_ref(&auxiliary_term),
+                &[],
+                Some(&(global_auxiliary, local_auxiliary)),
+            )
+            .unwrap();
+        let recorded = worker.context.base.decider.pcs.recorded().assumption_exps();
+        assert!(recorded.iter().any(|entry| entry.description()
+            == Some("Nested auxiliary terms: globals (aux)")
+            && entry.term() == Some(&auxiliary_term)));
         worker.context.executor_debug_for_test = false;
         worker.context.evaluator_debug_for_test = false;
         worker.context.base.decider.debug_mode = false;
