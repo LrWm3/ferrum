@@ -646,31 +646,99 @@ impl Exp {
             -> std::result::Result<crate::ast::expression::PredicateAccess, E>,
         trigger: &mut impl FnMut(&Trigger) -> std::result::Result<Trigger, E>,
     ) -> std::result::Result<Exp, E> {
+        self.map_expression_children_impl(f, extension, field, predicate, trigger, false)
+    }
+
+    pub fn map_expression_children_by_identity<E>(
+        &self,
+        f: &mut impl FnMut(&Exp) -> std::result::Result<Exp, E>,
+        extension: &mut impl FnMut(&ExtensionExpHandle) -> std::result::Result<ExtensionExpHandle, E>,
+        field: &mut impl FnMut(
+            &crate::ast::expression::FieldAccess,
+        ) -> std::result::Result<crate::ast::expression::FieldAccess, E>,
+        predicate: &mut impl FnMut(
+            &crate::ast::expression::PredicateAccess,
+        )
+            -> std::result::Result<crate::ast::expression::PredicateAccess, E>,
+        trigger: &mut impl FnMut(&Trigger) -> std::result::Result<Trigger, E>,
+    ) -> std::result::Result<Exp, E> {
+        self.map_expression_children_impl(f, extension, field, predicate, trigger, true)
+    }
+
+    fn map_expression_children_impl<E>(
+        &self,
+        f: &mut impl FnMut(&Exp) -> std::result::Result<Exp, E>,
+        extension: &mut impl FnMut(&ExtensionExpHandle) -> std::result::Result<ExtensionExpHandle, E>,
+        field: &mut impl FnMut(
+            &crate::ast::expression::FieldAccess,
+        ) -> std::result::Result<crate::ast::expression::FieldAccess, E>,
+        predicate: &mut impl FnMut(
+            &crate::ast::expression::PredicateAccess,
+        )
+            -> std::result::Result<crate::ast::expression::PredicateAccess, E>,
+        trigger: &mut impl FnMut(&Trigger) -> std::result::Result<Trigger, E>,
+        preserve_identity_changes: bool,
+    ) -> std::result::Result<Exp, E> {
         use ExpKind::*;
         let changed = std::cell::Cell::new(false);
         let mut map_exp = |old: &Exp| {
             let new = f(old)?;
-            changed.set(changed.get() || new != *old);
+            changed.set(
+                changed.get()
+                    || if preserve_identity_changes {
+                        !new.same_node(old)
+                    } else {
+                        new != *old
+                    },
+            );
             Ok(new)
         };
         let mut map_field = |old: &crate::ast::expression::FieldAccess| {
             let new = field(old)?;
-            changed.set(changed.get() || new != *old);
+            changed.set(
+                changed.get()
+                    || if preserve_identity_changes {
+                        !new.same_node(old)
+                    } else {
+                        new != *old
+                    },
+            );
             Ok(new)
         };
         let mut map_predicate = |old: &crate::ast::expression::PredicateAccess| {
             let new = predicate(old)?;
-            changed.set(changed.get() || new != *old);
+            changed.set(
+                changed.get()
+                    || if preserve_identity_changes {
+                        !new.same_node(old)
+                    } else {
+                        new != *old
+                    },
+            );
             Ok(new)
         };
         let mut map_trigger = |old: &Trigger| {
             let new = trigger(old)?;
-            changed.set(changed.get() || new != *old);
+            changed.set(
+                changed.get()
+                    || if preserve_identity_changes {
+                        !new.same_node(old)
+                    } else {
+                        new != *old
+                    },
+            );
             Ok(new)
         };
         let mut map_extension = |old: &ExtensionExpHandle| {
             let new = extension(old)?;
-            changed.set(changed.get() || new != *old);
+            changed.set(
+                changed.get()
+                    || if preserve_identity_changes {
+                        !std::sync::Arc::ptr_eq(&new.0, &old.0)
+                    } else {
+                        new != *old
+                    },
+            );
             Ok(new)
         };
         let f = &mut map_exp;
@@ -746,31 +814,50 @@ impl Exp {
                 let location = predicate(&a.location)?;
                 let permission = a.permission.as_ref().map(&mut *f).transpose()?;
                 let permission_same = match (&permission, &a.permission) {
-                    (Some(x), Some(y)) => x == y,
+                    (Some(x), Some(y)) => {
+                        if preserve_identity_changes {
+                            x.same_node(y)
+                        } else {
+                            x == y
+                        }
+                    }
                     (None, None) => true,
                     _ => false,
                 };
-                PredicateAccessPredicate(if location == a.location && permission_same {
-                    a.clone()
-                } else {
-                    crate::ast::statement::PredicateAccessPredicate::new(
-                        location,
-                        permission,
-                        a.meta.clone(),
-                    )
-                })
+                PredicateAccessPredicate(
+                    if (if preserve_identity_changes {
+                        location.same_node(&a.location)
+                    } else {
+                        location == a.location
+                    }) && permission_same
+                    {
+                        a.clone()
+                    } else {
+                        crate::ast::statement::PredicateAccessPredicate::new(
+                            location,
+                            permission,
+                            a.meta.clone(),
+                        )
+                    },
+                )
             }
             FieldAccess(a) => {
                 let receiver = f(&a.receiver)?;
-                FieldAccess(if receiver == a.receiver {
-                    a.clone()
-                } else {
-                    crate::ast::expression::FieldAccess::new(
-                        receiver,
-                        a.field.clone(),
-                        a.meta.clone(),
-                    )
-                })
+                FieldAccess(
+                    if if preserve_identity_changes {
+                        receiver.same_node(&a.receiver)
+                    } else {
+                        receiver == a.receiver
+                    } {
+                        a.clone()
+                    } else {
+                        crate::ast::expression::FieldAccess::new(
+                            receiver,
+                            a.field.clone(),
+                            a.meta.clone(),
+                        )
+                    },
+                )
             }
             PredicateAccess(a) => {
                 let args = a
@@ -778,15 +865,23 @@ impl Exp {
                     .iter()
                     .map(&mut *f)
                     .collect::<std::result::Result<Vec<_>, _>>()?;
-                PredicateAccess(if args.iter().zip(&a.args).all(|(x, y)| x == y) {
-                    a.clone()
-                } else {
-                    crate::ast::expression::PredicateAccess::new(
-                        args,
-                        a.predicate_name.clone(),
-                        a.meta.clone(),
-                    )
-                })
+                PredicateAccess(
+                    if args.iter().zip(&a.args).all(|(x, y)| {
+                        if preserve_identity_changes {
+                            x.same_node(y)
+                        } else {
+                            x == y
+                        }
+                    }) {
+                        a.clone()
+                    } else {
+                        crate::ast::expression::PredicateAccess::new(
+                            args,
+                            a.predicate_name.clone(),
+                            a.meta.clone(),
+                        )
+                    },
+                )
             }
             FuncApp(n, args) => FuncApp(
                 n.clone(),
@@ -886,5 +981,46 @@ impl Exp {
         program: &super::program::Program,
     ) -> Result<Vec<Exp>, super::utility::expressions::MagicWandError> {
         super::utility::expressions::magic_wand_subexpressions(self, program)
+    }
+}
+
+#[cfg(test)]
+mod identity_reconstruction_tests {
+    use super::*;
+
+    #[test]
+    fn identity_child_mapping_keeps_equal_expression_with_changed_extra_type() {
+        let meta = Metadata::default();
+        let original = Exp::with_extra(
+            ExpKind::FuncApp("f".into(), vec![]),
+            meta.clone(),
+            ExpExtra {
+                typ: Some(Type::Int),
+                ..Default::default()
+            },
+        );
+        let replacement = Exp::with_extra(
+            original.kind().clone(),
+            meta.clone(),
+            ExpExtra {
+                typ: Some(Type::Bool),
+                ..Default::default()
+            },
+        );
+        assert_eq!(original, replacement);
+        let parent = Exp::new(ExpKind::Not(original), meta);
+        let result: Result<Exp, ()> = parent.map_expression_children_by_identity(
+            &mut |_| Ok(replacement.clone()),
+            &mut |e| Ok(e.clone()),
+            &mut |f| Ok(f.clone()),
+            &mut |p| Ok(p.clone()),
+            &mut |t| Ok(t.clone()),
+        );
+        let result = result.unwrap();
+        let ExpKind::Not(child) = result.kind() else {
+            panic!("expected Not")
+        };
+        assert!(matches!(child.0.extra.typ, Some(Type::Bool)));
+        assert!(!parent.same_node(&result));
     }
 }

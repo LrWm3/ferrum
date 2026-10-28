@@ -1068,11 +1068,185 @@ impl From<TraversalError> for IdentifierCheckError {
     }
 }
 
+#[derive(Debug)]
+struct MemberDeclaration(crate::ast::program::ExtensionMemberHandle);
+impl crate::ast::program::ExtensionDeclaration for MemberDeclaration {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn name(&self) -> &str {
+        self.0.0.name()
+    }
+    fn equals(&self, other: &dyn crate::ast::program::ExtensionDeclaration) -> bool {
+        other
+            .as_any()
+            .downcast_ref::<Self>()
+            .is_some_and(|other| self.0 == other.0)
+    }
+    fn metadata(
+        &self,
+    ) -> Result<&crate::ast::ast::Metadata, crate::verifier::verification_result::DiagnosticError>
+    {
+        self.0.0.metadata()
+    }
+}
+fn scope_declarations(
+    n: &Node,
+) -> Result<Option<Vec<crate::ast::program::Declaration>>, IdentifierCheckError> {
+    use crate::ast::{
+        program::{AnyLocalVarDecl, Declaration, DomainAxiomKind, Member},
+        statement::StmtKind,
+    };
+    Ok(match n {
+        Node::Program(p) => {
+            let mut ds: Vec<Declaration> = p
+                .domains
+                .iter()
+                .cloned()
+                .map(Declaration::Domain)
+                .chain(p.fields.iter().cloned().map(Declaration::Field))
+                .chain(p.functions.iter().cloned().map(Declaration::Function))
+                .chain(p.predicates.iter().cloned().map(Declaration::Predicate))
+                .chain(p.methods.iter().cloned().map(Declaration::Method))
+                .collect();
+            ds.extend(p.extensions.iter().cloned().map(|v| {
+                Declaration::Extension(crate::ast::program::ExtensionDeclarationHandle(
+                    std::sync::Arc::new(MemberDeclaration(v)),
+                ))
+            }));
+            for d in &p.domains {
+                ds.extend(
+                    d.axioms
+                        .iter()
+                        .filter(|a| matches!(a.kind(), DomainAxiomKind::Named { .. }))
+                        .cloned()
+                        .map(Declaration::NamedDomainAxiom),
+                );
+                ds.extend(d.functions.iter().cloned().map(Declaration::DomainFunc));
+            }
+            Some(ds)
+        }
+        Node::Member(m) => Some(match m {
+            Member::Domain(_) | Member::Field(_) => vec![],
+            Member::Function(f) => f
+                .formal_args
+                .iter()
+                .cloned()
+                .map(Declaration::Local)
+                .collect(),
+            Member::Predicate(p) => p
+                .formal_args
+                .iter()
+                .cloned()
+                .map(Declaration::Local)
+                .collect(),
+            Member::Method(m) => m.scoped_declarations()?,
+            Member::Extension(v) => {
+                v.0.scope_declarations()
+                    .map_err(IdentifierCheckError::Extension)?
+            }
+        }),
+        Node::DomainFunc(f) => Some(
+            f.formal_args
+                .iter()
+                .filter_map(|v| match v {
+                    AnyLocalVarDecl::Named(v) => Some(Declaration::Local(v.clone())),
+                    _ => None,
+                })
+                .collect(),
+        ),
+        Node::DomainAxiom(_) => Some(vec![]),
+        Node::Stmt(s) => match s.kind() {
+            StmtKind::Seqn { .. } => Some(s.scoped_declarations()),
+            StmtKind::Extension(v) => {
+                v.0.scope_declarations()
+                    .map_err(IdentifierCheckError::Extension)?
+            }
+            StmtKind::Quasihavocall { variables, .. } => {
+                Some(variables.iter().cloned().map(Declaration::Local).collect())
+            }
+            _ => None,
+        },
+        Node::Exp(e) => match e.kind() {
+            ExpKind::Extension(v) => {
+                v.0.scope_declarations()
+                    .map_err(IdentifierCheckError::Extension)?
+            }
+            ExpKind::Let(v, ..) => Some(vec![Declaration::Local(v.clone())]),
+            ExpKind::Forall(v, ..) | ExpKind::Exists(v, ..) | ExpKind::ForPerm(v, ..) => {
+                Some(v.iter().cloned().map(Declaration::Local).collect())
+            }
+            _ => None,
+        },
+        Node::Type(Type::Extension(v)) => v
+            .scope_declarations()
+            .map_err(IdentifierCheckError::Extension)?,
+        _ => None,
+    })
+}
+
+/// The source Scope.transitiveScopedDecls order, including duplicate declarations.
+/// Unknown extension traversal or scope membership is reported rather than skipped.
+pub fn transitive_scoped_declarations(
+    program: &Program,
+) -> Result<Vec<crate::ast::program::Declaration>, IdentifierCheckError> {
+    fn descend(
+        root: &Node,
+        current: &Node,
+        output: &mut Vec<crate::ast::program::Declaration>,
+    ) -> Result<(), IdentifierCheckError> {
+        if current != root {
+            if let Some(declarations) = scope_declarations(current)? {
+                output.extend(declarations);
+                for child in subnodes(current)? {
+                    descend(current, &child, output)?;
+                }
+                return Ok(());
+            }
+        }
+        for child in subnodes(current)? {
+            descend(root, &child, output)?;
+        }
+        Ok(())
+    }
+    let root = Node::Program(program.clone());
+    let mut result = scope_declarations(&root)?.expect("program is a scope");
+    for child in subnodes(&root)? {
+        descend(&root, &child, &mut result)?;
+    }
+    Ok(result)
+}
+
+/// Names in the same order as `transitive_scoped_declarations`.
+pub fn transitive_scoped_names(program: &Program) -> Result<Vec<String>, IdentifierCheckError> {
+    use crate::ast::program::{Declaration, DomainAxiomKind};
+    transitive_scoped_declarations(program)?
+        .into_iter()
+        .map(|d| {
+            Ok(match d {
+                Declaration::Local(v) => v.name.clone(),
+                Declaration::Field(v) => v.name.clone(),
+                Declaration::Predicate(v) => v.name.clone(),
+                Declaration::Method(v) => v.name.clone(),
+                Declaration::Function(v) => v.name.clone(),
+                Declaration::Domain(v) => v.name.clone(),
+                Declaration::DomainFunc(v) => v.name.clone(),
+                Declaration::Label(v) => v.name.clone(),
+                Declaration::Extension(v) => v.0.name().to_owned(),
+                Declaration::NamedDomainAxiom(v) => match v.kind() {
+                    DomainAxiomKind::Named { name, .. } => name.clone(),
+                    _ => return Err(IdentifierCheckError::UnsupportedExtension),
+                },
+            })
+        })
+        .collect()
+}
+
 /// Source Program.checkIdentifiers: scope shadowing, duplicates, and typed uses.
 pub fn check_identifiers(program: &Program) -> Result<Vec<FrontendError>, IdentifierCheckError> {
     use crate::ast::{
         position::Position,
-        program::{AnyLocalVarDecl, Declaration, DomainAxiomKind, Member},
+        program::{Declaration, DomainAxiomKind},
         statement::StmtKind,
     };
     use std::collections::HashMap;
@@ -1155,116 +1329,6 @@ pub fn check_identifiers(program: &Program) -> Result<Vec<FrontendError>, Identi
             },
         })
     }
-    #[derive(Debug)]
-    struct MemberDeclaration(crate::ast::program::ExtensionMemberHandle);
-    impl crate::ast::program::ExtensionDeclaration for MemberDeclaration {
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
-        }
-        fn name(&self) -> &str {
-            self.0.0.name()
-        }
-        fn equals(&self, other: &dyn crate::ast::program::ExtensionDeclaration) -> bool {
-            other
-                .as_any()
-                .downcast_ref::<Self>()
-                .is_some_and(|other| self.0 == other.0)
-        }
-        fn metadata(
-            &self,
-        ) -> Result<&crate::ast::ast::Metadata, crate::verifier::verification_result::DiagnosticError>
-        {
-            self.0.0.metadata()
-        }
-    }
-    fn declarations(n: &Node) -> Result<Option<Vec<Declaration>>, IdentifierCheckError> {
-        Ok(match n {
-            Node::Program(p) => {
-                let mut ds: Vec<Declaration> = p
-                    .domains
-                    .iter()
-                    .cloned()
-                    .map(Declaration::Domain)
-                    .chain(p.fields.iter().cloned().map(Declaration::Field))
-                    .chain(p.functions.iter().cloned().map(Declaration::Function))
-                    .chain(p.predicates.iter().cloned().map(Declaration::Predicate))
-                    .chain(p.methods.iter().cloned().map(Declaration::Method))
-                    .collect();
-                ds.extend(p.extensions.iter().cloned().map(|v| {
-                    Declaration::Extension(crate::ast::program::ExtensionDeclarationHandle(
-                        std::sync::Arc::new(MemberDeclaration(v)),
-                    ))
-                }));
-                for d in &p.domains {
-                    ds.extend(
-                        d.axioms
-                            .iter()
-                            .filter(|a| matches!(a.kind(), DomainAxiomKind::Named { .. }))
-                            .cloned()
-                            .map(Declaration::NamedDomainAxiom),
-                    );
-                    ds.extend(d.functions.iter().cloned().map(Declaration::DomainFunc));
-                }
-                Some(ds)
-            }
-            Node::Member(m) => Some(match m {
-                Member::Domain(_) | Member::Field(_) => vec![],
-                Member::Function(f) => f
-                    .formal_args
-                    .iter()
-                    .cloned()
-                    .map(Declaration::Local)
-                    .collect(),
-                Member::Predicate(p) => p
-                    .formal_args
-                    .iter()
-                    .cloned()
-                    .map(Declaration::Local)
-                    .collect(),
-                Member::Method(m) => m.scoped_declarations()?,
-                Member::Extension(v) => {
-                    v.0.scope_declarations()
-                        .map_err(IdentifierCheckError::Extension)?
-                }
-            }),
-            Node::DomainFunc(f) => Some(
-                f.formal_args
-                    .iter()
-                    .filter_map(|v| match v {
-                        AnyLocalVarDecl::Named(v) => Some(Declaration::Local(v.clone())),
-                        _ => None,
-                    })
-                    .collect(),
-            ),
-            Node::DomainAxiom(_) => Some(vec![]),
-            Node::Stmt(s) => match s.kind() {
-                StmtKind::Seqn { .. } => Some(s.scoped_declarations()),
-                StmtKind::Extension(v) => {
-                    v.0.scope_declarations()
-                        .map_err(IdentifierCheckError::Extension)?
-                }
-                StmtKind::Quasihavocall { variables, .. } => {
-                    Some(variables.iter().cloned().map(Declaration::Local).collect())
-                }
-                _ => None,
-            },
-            Node::Exp(e) => match e.kind() {
-                ExpKind::Extension(v) => {
-                    v.0.scope_declarations()
-                        .map_err(IdentifierCheckError::Extension)?
-                }
-                ExpKind::Let(v, ..) => Some(vec![Declaration::Local(v.clone())]),
-                ExpKind::Forall(v, ..) | ExpKind::Exists(v, ..) | ExpKind::ForPerm(v, ..) => {
-                    Some(v.iter().cloned().map(Declaration::Local).collect())
-                }
-                _ => None,
-            },
-            Node::Type(Type::Extension(v)) => v
-                .scope_declarations()
-                .map_err(IdentifierCheckError::Extension)?,
-            _ => None,
-        })
-    }
     fn issue(out: &mut Vec<FrontendError>, pos: &Position, message: String) {
         out.push(FrontendError::new(
             FrontendErrorKind::ConsistencyError(message),
@@ -1279,7 +1343,7 @@ pub fn check_identifiers(program: &Program) -> Result<Vec<FrontendError>, Identi
         outer: &HashMap<String, Entry>,
         out: &mut Vec<FrontendError>,
     ) -> Result<(), IdentifierCheckError> {
-        let ds = declarations(root)?.expect("scope caller");
+        let ds = scope_declarations(root)?.expect("scope caller");
         let mut own = HashMap::new();
         for d in ds {
             let e = entry(&d)?;
@@ -1308,7 +1372,7 @@ pub fn check_identifiers(program: &Program) -> Result<Vec<FrontendError>, Identi
             scope: &HashMap<String, Entry>,
             out: &mut Vec<FrontendError>,
         ) -> Result<(), IdentifierCheckError> {
-            if n != root && declarations(n)?.is_some() {
+            if n != root && scope_declarations(n)?.is_some() {
                 return if matches!(n, Node::DomainFunc(_)) {
                     check_scope(n, &HashMap::new(), out)
                 } else {
@@ -3310,5 +3374,42 @@ mod transitive_consistency_tests {
                 NodeConsistencyError::Extension(_)
             ))
         ));
+    }
+}
+
+#[cfg(test)]
+mod scoped_name_tests {
+    use super::*;
+    use crate::ast::{
+        ast::Metadata,
+        program::{Function, FunctionData, LocalVarDecl},
+    };
+    #[test]
+    fn transitive_names_include_nested_scopes_after_program_declarations() {
+        let meta = Metadata::default();
+        let arg = LocalVarDecl::new("x".into(), Type::Int, meta.clone());
+        let bound = LocalVarDecl::new("y".into(), Type::Int, meta.clone());
+        let body = Exp::new(
+            ExpKind::Forall(
+                vec![bound],
+                vec![],
+                Exp::new(ExpKind::TrueLit, meta.clone()),
+            ),
+            meta.clone(),
+        );
+        let function = Function::new(FunctionData {
+            name: "f".into(),
+            formal_args: vec![arg],
+            typ: Type::Bool,
+            pres: vec![],
+            posts: vec![],
+            body: Some(body),
+            meta: meta.clone(),
+        });
+        let program = Program::new(vec![], vec![], vec![function], vec![], vec![], vec![], meta);
+        assert_eq!(
+            transitive_scoped_names(&program).unwrap(),
+            vec!["f", "x", "y"]
+        );
     }
 }

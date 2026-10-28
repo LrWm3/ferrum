@@ -1068,7 +1068,7 @@ pub fn map_node_tree(
     node: &Node,
     rule: &dyn Fn(&Node) -> Result<Node, crate::verifier::verification_result::DiagnosticError>,
 ) -> Result<Node, crate::verifier::verification_result::DiagnosticError> {
-    map_node_tree_impl(node, rule, true)
+    map_node_tree_impl(node, rule, true, false, false)
 }
 
 /// Visit source checkTransitively product fields, which exclude maps.
@@ -1076,12 +1076,25 @@ pub fn visit_check_products(
     node: &Node,
     rule: &dyn Fn(&Node) -> Result<Node, crate::verifier::verification_result::DiagnosticError>,
 ) -> Result<Node, crate::verifier::verification_result::DiagnosticError> {
-    map_node_tree_impl(node, rule, false)
+    map_node_tree_impl(node, rule, false, false, false)
+}
+/// Bottom-up typed product rewriting. Forced mode also traverses the extra return
+/// types of function applications, as needed by ADT type encoding. It rebuilds
+/// parents so extra-list changes survive structural equality; narrowed child slots
+/// reject incompatible replacements. Extension reconstruction hooks remain fallible.
+pub fn map_node_tree_bottom_up(
+    node: &Node,
+    rule: &dyn Fn(&Node) -> Result<Node, crate::verifier::verification_result::DiagnosticError>,
+    force_copy: bool,
+) -> Result<Node, crate::verifier::verification_result::DiagnosticError> {
+    map_node_tree_impl(node, rule, true, true, force_copy)
 }
 fn map_node_tree_impl(
     node: &Node,
     rule: &dyn Fn(&Node) -> Result<Node, crate::verifier::verification_result::DiagnosticError>,
     visit_maps: bool,
+    bottom_up: bool,
+    force_copy: bool,
 ) -> Result<Node, crate::verifier::verification_result::DiagnosticError> {
     use crate::ast::{
         expression::{Exp, ExpKind, FieldAccess, PredicateAccess, Trigger},
@@ -1093,12 +1106,155 @@ fn map_node_tree_impl(
     struct Walker<'a> {
         rule: &'a dyn Fn(&Node) -> Result<Node, DiagnosticError>,
         visit_maps: bool,
+        bottom_up: bool,
+        force_copy: bool,
     }
     impl Walker<'_> {
-        fn pre(&self, node: &Node) -> Result<Node, DiagnosticError> {
-            (self.rule)(node)
-        }
         fn typ(
+            &self,
+            v: &crate::ast::r#type::Type,
+        ) -> Result<crate::ast::r#type::Type, DiagnosticError> {
+            let value = self.typ_inner(v)?;
+            if self.bottom_up {
+                match (self.rule)(&Node::Type(value))? {
+                    Node::Type(v) => Ok(v),
+                    _ => Err(DiagnosticError::InvalidNode("type replacement")),
+                }
+            } else {
+                Ok(value)
+            }
+        }
+        fn unnamed(
+            &self,
+            v: &crate::ast::program::UnnamedLocalVarDecl,
+        ) -> Result<crate::ast::program::UnnamedLocalVarDecl, DiagnosticError> {
+            let value = self.unnamed_inner(v)?;
+            if self.bottom_up {
+                match (self.rule)(&Node::UnnamedLocalDecl(value))? {
+                    Node::UnnamedLocalDecl(v) => Ok(v),
+                    _ => Err(DiagnosticError::InvalidNode(
+                        "unnamed declaration replacement",
+                    )),
+                }
+            } else {
+                Ok(value)
+            }
+        }
+        fn local(&self, v: &LocalVarDecl) -> Result<LocalVarDecl, DiagnosticError> {
+            let value = self.local_inner(v)?;
+            if self.bottom_up {
+                match (self.rule)(&Node::LocalDecl(value))? {
+                    Node::LocalDecl(v) => Ok(v),
+                    _ => Err(DiagnosticError::InvalidNode(
+                        "local declaration replacement",
+                    )),
+                }
+            } else {
+                Ok(value)
+            }
+        }
+        fn trigger(&self, v: &Trigger) -> Result<Trigger, DiagnosticError> {
+            let value = self.trigger_inner(v)?;
+            if self.bottom_up {
+                match (self.rule)(&Node::Trigger(value))? {
+                    Node::Trigger(v) => Ok(v),
+                    _ => Err(DiagnosticError::InvalidNode("trigger replacement")),
+                }
+            } else {
+                Ok(value)
+            }
+        }
+        fn exp(&self, v: &Exp) -> Result<Exp, DiagnosticError> {
+            let mut value = self.exp_inner(v)?;
+            if self.force_copy {
+                let mut extra = value.0.extra.clone();
+                if matches!(
+                    value.kind(),
+                    ExpKind::FuncApp(..) | ExpKind::DomainFuncApp(..)
+                ) {
+                    if let Some(t) = &extra.typ {
+                        extra.typ = Some(self.typ(t)?);
+                    }
+                }
+                value = Exp::with_extra(value.kind().clone(), value.metadata().clone(), extra);
+            }
+            if self.bottom_up {
+                let view = match value.kind() {
+                    ExpKind::LocalVar(v) => Node::LocalVar(v.clone()),
+                    ExpKind::FieldAccess(v) => Node::FieldAccess(v.clone()),
+                    ExpKind::PredicateAccess(v) => Node::PredicateAccess(v.clone()),
+                    ExpKind::PredicateAccessPredicate(v) => {
+                        Node::PredicateAccessPredicate(v.clone())
+                    }
+                    _ => Node::Exp(value),
+                };
+                self.as_exp((self.rule)(&view)?)
+            } else {
+                Ok(value)
+            }
+        }
+        fn domain_func(
+            &self,
+            v: &crate::ast::program::DomainFunc,
+        ) -> Result<crate::ast::program::DomainFunc, DiagnosticError> {
+            let value = self.domain_func_inner(v)?;
+            if self.bottom_up {
+                match (self.rule)(&Node::DomainFunc(value))? {
+                    Node::DomainFunc(v) => Ok(v),
+                    _ => Err(DiagnosticError::InvalidNode("domain function replacement")),
+                }
+            } else {
+                Ok(value)
+            }
+        }
+        fn axiom(
+            &self,
+            v: &crate::ast::program::DomainAxiom,
+        ) -> Result<crate::ast::program::DomainAxiom, DiagnosticError> {
+            let value = self.axiom_inner(v)?;
+            if self.bottom_up {
+                match (self.rule)(&Node::DomainAxiom(value))? {
+                    Node::DomainAxiom(v) => Ok(v),
+                    _ => Err(DiagnosticError::InvalidNode("axiom replacement")),
+                }
+            } else {
+                Ok(value)
+            }
+        }
+        fn member(&self, v: &Member) -> Result<Member, DiagnosticError> {
+            let value = self.member_inner(v)?;
+            if self.bottom_up {
+                match (self.rule)(&Node::Member(value))? {
+                    Node::Member(v) => Ok(v),
+                    _ => Err(DiagnosticError::InvalidNode("member replacement")),
+                }
+            } else {
+                Ok(value)
+            }
+        }
+        fn program(
+            &self,
+            v: &crate::ast::program::Program,
+        ) -> Result<crate::ast::program::Program, DiagnosticError> {
+            let value = self.program_inner(v)?;
+            if self.bottom_up {
+                match (self.rule)(&Node::Program(value))? {
+                    Node::Program(v) => Ok(v),
+                    _ => Err(DiagnosticError::InvalidNode("program replacement")),
+                }
+            } else {
+                Ok(value)
+            }
+        }
+
+        fn pre(&self, node: &Node) -> Result<Node, DiagnosticError> {
+            if self.bottom_up {
+                Ok(node.clone())
+            } else {
+                (self.rule)(node)
+            }
+        }
+        fn typ_inner(
             &self,
             original: &crate::ast::r#type::Type,
         ) -> Result<crate::ast::r#type::Type, DiagnosticError> {
@@ -1109,7 +1265,7 @@ fn map_node_tree_impl(
             let rebuilt = match &current {
                 Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => {
                     let child = self.typ(t)?;
-                    if child == **t {
+                    if !self.force_copy && child == **t {
                         return Ok(current);
                     }
                     match &current {
@@ -1121,7 +1277,7 @@ fn map_node_tree_impl(
                 Type::Map(pair) => {
                     let key = self.typ(&pair.0)?;
                     let value = self.typ(&pair.1)?;
-                    if key == pair.0 && value == pair.1 {
+                    if !self.force_copy && key == pair.0 && value == pair.1 {
                         return Ok(current);
                     }
                     Type::map(key, value)
@@ -1139,13 +1295,22 @@ fn map_node_tree_impl(
                         };
                         mappings.insert(var, self.typ(value)?);
                     }
-                    if mappings == domain.partial_type_vars {
+                    if !self.force_copy && mappings == domain.partial_type_vars {
                         return Ok(current);
                     }
                     Type::Domain(DomainType::new(
                         domain.domain_name.clone(),
                         mappings,
                         domain.type_parameters.clone(),
+                    ))
+                }
+                Type::Var(var) if self.force_copy => {
+                    Type::Var(crate::ast::r#type::TypeVar::new(var.name.clone()))
+                }
+                Type::Backend(backend) if self.force_copy => {
+                    Type::Backend(crate::ast::r#type::BackendType::new(
+                        backend.viper_name.clone(),
+                        backend.interpretations.clone(),
                     ))
                 }
                 Type::Extension(extension) => {
@@ -1156,7 +1321,7 @@ fn map_node_tree_impl(
                         return Ok(current);
                     }
                     let mapped = extension.map_types(&|t| self.typ(t))?;
-                    if extension.equals(mapped.as_ref()) {
+                    if !self.force_copy && extension.equals(mapped.as_ref()) {
                         return Ok(current);
                     }
                     Type::Extension(mapped)
@@ -1174,7 +1339,7 @@ fn map_node_tree_impl(
                 _ => Err(DiagnosticError::InvalidNode("type variable replacement")),
             }
         }
-        fn unnamed(
+        fn unnamed_inner(
             &self,
             v: &crate::ast::program::UnnamedLocalVarDecl,
         ) -> Result<crate::ast::program::UnnamedLocalVarDecl, DiagnosticError> {
@@ -1184,7 +1349,7 @@ fn map_node_tree_impl(
                 ));
             };
             let typ = self.typ(&v.typ)?;
-            Ok(if typ == v.typ {
+            Ok(if !self.force_copy && typ == v.typ {
                 v
             } else {
                 v.copy_with(|data| data.typ = typ)
@@ -1204,18 +1369,18 @@ fn map_node_tree_impl(
                 _ => return Err(DiagnosticError::InvalidNode("expression backlink")),
             })
         }
-        fn local(&self, v: &LocalVarDecl) -> Result<LocalVarDecl, DiagnosticError> {
+        fn local_inner(&self, v: &LocalVarDecl) -> Result<LocalVarDecl, DiagnosticError> {
             let Node::LocalDecl(v) = self.pre(&Node::LocalDecl(v.clone()))? else {
                 return Err(DiagnosticError::InvalidNode("local declaration backlink"));
             };
             let typ = self.typ(&v.typ)?;
-            Ok(if typ == v.typ {
+            Ok(if !self.force_copy && typ == v.typ {
                 v
             } else {
                 LocalVarDecl::new(v.name.clone(), typ, v.meta.clone())
             })
         }
-        fn trigger(&self, t: &Trigger) -> Result<Trigger, DiagnosticError> {
+        fn trigger_inner(&self, t: &Trigger) -> Result<Trigger, DiagnosticError> {
             let Node::Trigger(current) = self.pre(&Node::Trigger(t.clone()))? else {
                 return Err(DiagnosticError::InvalidNode("trigger replacement"));
             };
@@ -1225,7 +1390,7 @@ fn map_node_tree_impl(
                 .iter()
                 .map(|v| self.exp(v))
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(if exps == t.exps {
+            Ok(if !self.force_copy && exps == t.exps {
                 t.clone()
             } else {
                 Trigger::new(exps, t.meta.clone())
@@ -1247,7 +1412,7 @@ fn map_node_tree_impl(
                 _ => Err(DiagnosticError::InvalidNode("predicate access backlink")),
             }
         }
-        fn exp(&self, e: &Exp) -> Result<Exp, DiagnosticError> {
+        fn exp_inner(&self, e: &Exp) -> Result<Exp, DiagnosticError> {
             let view = match e.kind() {
                 ExpKind::LocalVar(v) => Node::LocalVar(v.clone()),
                 ExpKind::FieldAccess(v) => Node::FieldAccess(v.clone()),
@@ -1259,7 +1424,7 @@ fn map_node_tree_impl(
             let special = match current.kind() {
                 ExpKind::LocalVar(v) => {
                     let typ = self.typ(&v.typ)?;
-                    if typ == v.typ {
+                    if !self.force_copy && typ == v.typ {
                         return Ok(current);
                     }
                     Some(ExpKind::LocalVar(crate::ast::expression::LocalVar::new(
@@ -1270,28 +1435,28 @@ fn map_node_tree_impl(
                 }
                 ExpKind::Result(t) => {
                     let typ = self.typ(t)?;
-                    if typ == *t {
+                    if !self.force_copy && typ == *t {
                         return Ok(current);
                     }
                     Some(ExpKind::Result(typ))
                 }
                 ExpKind::LocalVarWithVersion(name, t) => {
                     let typ = self.typ(t)?;
-                    if typ == *t {
+                    if !self.force_copy && typ == *t {
                         return Ok(current);
                     }
                     Some(ExpKind::LocalVarWithVersion(name.clone(), typ))
                 }
                 ExpKind::BackendValueLit(value, t) => {
                     let typ = self.typ(t)?;
-                    if typ == *t {
+                    if !self.force_copy && typ == *t {
                         return Ok(current);
                     }
                     Some(ExpKind::BackendValueLit(value.clone(), typ))
                 }
                 ExpKind::EmptySeq(t) | ExpKind::EmptySet(t) | ExpKind::EmptyMultiset(t) => {
                     let typ = self.typ(t)?;
-                    if typ == *t {
+                    if !self.force_copy && typ == *t {
                         return Ok(current);
                     }
                     Some(match current.kind() {
@@ -1303,7 +1468,7 @@ fn map_node_tree_impl(
                 ExpKind::EmptyMap(k, v) => {
                     let nk = self.typ(k)?;
                     let nv = self.typ(v)?;
-                    if nk == *k && nv == *v {
+                    if !self.force_copy && nk == *k && nv == *v {
                         return Ok(current);
                     }
                     Some(ExpKind::EmptyMap(nk, nv))
@@ -1321,7 +1486,7 @@ fn map_node_tree_impl(
                     } else {
                         substitutions2 = substitutions.clone();
                     }
-                    if args2 == *args && substitutions2 == *substitutions {
+                    if !self.force_copy && args2 == *args && substitutions2 == *substitutions {
                         return Ok(current);
                     }
                     Some(ExpKind::DomainFuncApp(name.clone(), args2, substitutions2))
@@ -1334,7 +1499,7 @@ fn map_node_tree_impl(
                             return Err(DiagnosticError::InvalidNode("field declaration backlink"));
                         }
                     };
-                    if receiver == f.receiver && member == f.field {
+                    if !self.force_copy && receiver == f.receiver && member == f.field {
                         return Ok(current);
                     }
                     Some(ExpKind::FieldAccess(FieldAccess::new(
@@ -1347,7 +1512,7 @@ fn map_node_tree_impl(
                     let nv = self.local(v)?;
                     let value2 = self.exp(value)?;
                     let body2 = self.exp(body)?;
-                    if nv == *v && value2 == *value && body2 == *body {
+                    if !self.force_copy && nv == *v && value2 == *value && body2 == *body {
                         return Ok(current);
                     }
                     Some(ExpKind::Let(nv, value2, body2))
@@ -1362,7 +1527,7 @@ fn map_node_tree_impl(
                         .map(|v| self.trigger(v))
                         .collect::<Result<Vec<_>, _>>()?;
                     let nb = self.exp(body)?;
-                    if nv == *vars && nt == *triggers && nb == *body {
+                    if !self.force_copy && nv == *vars && nt == *triggers && nb == *body {
                         return Ok(current);
                     }
                     Some(if matches!(current.kind(), ExpKind::Forall(..)) {
@@ -1378,7 +1543,7 @@ fn map_node_tree_impl(
                         .collect::<Result<Vec<_>, _>>()?;
                     let nr = self.exp(resource)?;
                     let nb = self.exp(body)?;
-                    if nv == *vars && nr == *resource && nb == *body {
+                    if !self.force_copy && nv == *vars && nr == *resource && nb == *body {
                         return Ok(current);
                     }
                     Some(ExpKind::ForPerm(nv, nr, nb))
@@ -1400,16 +1565,26 @@ fn map_node_tree_impl(
                     return Ok(current);
                 }
             }
-            current.map_expression_children(
-                &mut |v| self.exp(v),
-                &mut |extension| extension.0.map_expressions(&|e| self.exp(e)),
-                &mut |v| self.field(v),
-                &mut |v| self.predicate(v),
-                &mut |v| self.trigger(v),
-            )
+            if self.force_copy {
+                current.map_expression_children_by_identity(
+                    &mut |v| self.exp(v),
+                    &mut |extension| extension.0.map_expressions(&|e| self.exp(e)),
+                    &mut |v| self.field(v),
+                    &mut |v| self.predicate(v),
+                    &mut |v| self.trigger(v),
+                )
+            } else {
+                current.map_expression_children(
+                    &mut |v| self.exp(v),
+                    &mut |extension| extension.0.map_expressions(&|e| self.exp(e)),
+                    &mut |v| self.field(v),
+                    &mut |v| self.predicate(v),
+                    &mut |v| self.trigger(v),
+                )
+            }
         }
         fn stmt(&self, s: &Stmt) -> Result<Stmt, DiagnosticError> {
-            statements::map_statement_tree_with_extensions(
+            statements::map_statement_tree_with_post(
                 s,
                 &|e| self.exp(e),
                 &|n| self.pre(n),
@@ -1424,9 +1599,15 @@ fn map_node_tree_impl(
                         Ok(ext.clone())
                     }
                 },
+                if self.bottom_up {
+                    Some(self.rule)
+                } else {
+                    None
+                },
+                self.force_copy,
             )
         }
-        fn domain_func(
+        fn domain_func_inner(
             &self,
             f: &crate::ast::program::DomainFunc,
         ) -> Result<crate::ast::program::DomainFunc, DiagnosticError> {
@@ -1447,16 +1628,18 @@ fn map_node_tree_impl(
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let typ = self.typ(&f.typ)?;
-            Ok(if args == f.formal_args && typ == f.typ {
-                f
-            } else {
-                f.copy_with(|d| {
-                    d.formal_args = args;
-                    d.typ = typ;
-                })
-            })
+            Ok(
+                if !self.force_copy && args == f.formal_args && typ == f.typ {
+                    f
+                } else {
+                    f.copy_with(|d| {
+                        d.formal_args = args;
+                        d.typ = typ;
+                    })
+                },
+            )
         }
-        fn axiom(
+        fn axiom_inner(
             &self,
             a: &crate::ast::program::DomainAxiom,
         ) -> Result<crate::ast::program::DomainAxiom, DiagnosticError> {
@@ -1465,7 +1648,7 @@ fn map_node_tree_impl(
                 return Err(DiagnosticError::InvalidNode("domain axiom backlink"));
             };
             let changed = self.exp(a.exp())?;
-            Ok(if changed == *a.exp() {
+            Ok(if !self.force_copy && changed == *a.exp() {
                 a
             } else {
                 a.copy_with(|kind| match kind {
@@ -1475,7 +1658,7 @@ fn map_node_tree_impl(
                 })
             })
         }
-        fn member(&self, m: &Member) -> Result<Member, DiagnosticError> {
+        fn member_inner(&self, m: &Member) -> Result<Member, DiagnosticError> {
             let Node::Member(m) = self.pre(&Node::Member(m.clone()))? else {
                 return Err(DiagnosticError::InvalidNode("member backlink"));
             };
@@ -1497,7 +1680,11 @@ fn map_node_tree_impl(
                         .map(|v| self.type_var(v))
                         .collect::<Result<Vec<_>, _>>()?;
                     Member::Domain(
-                        if funcs == d.functions && axioms == d.axioms && type_vars == d.type_vars {
+                        if !self.force_copy
+                            && funcs == d.functions
+                            && axioms == d.axioms
+                            && type_vars == d.type_vars
+                        {
                             d
                         } else {
                             d.copy_with(|v| {
@@ -1510,7 +1697,7 @@ fn map_node_tree_impl(
                 }
                 Member::Field(f) => {
                     let typ = self.typ(&f.typ)?;
-                    Member::Field(if typ == f.typ {
+                    Member::Field(if !self.force_copy && typ == f.typ {
                         f
                     } else {
                         f.copy_with(|v| v.typ = typ)
@@ -1535,7 +1722,8 @@ fn map_node_tree_impl(
                         .collect::<Result<Vec<_>, _>>()?;
                     let body = f.body.as_ref().map(|v| self.exp(v)).transpose()?;
                     Member::Function(
-                        if args == f.formal_args
+                        if !self.force_copy
+                            && args == f.formal_args
                             && typ == f.typ
                             && pres == f.pres
                             && posts == f.posts
@@ -1560,14 +1748,16 @@ fn map_node_tree_impl(
                         .map(|v| self.local(v))
                         .collect::<Result<Vec<_>, _>>()?;
                     let body = p.body.as_ref().map(|v| self.exp(v)).transpose()?;
-                    Member::Predicate(if args == p.formal_args && body == p.body {
-                        p
-                    } else {
-                        p.copy_with(|v| {
-                            v.formal_args = args;
-                            v.body = body;
-                        })
-                    })
+                    Member::Predicate(
+                        if !self.force_copy && args == p.formal_args && body == p.body {
+                            p
+                        } else {
+                            p.copy_with(|v| {
+                                v.formal_args = args;
+                                v.body = body;
+                            })
+                        },
+                    )
                 }
                 Member::Method(m) => {
                     let args = m
@@ -1592,7 +1782,8 @@ fn map_node_tree_impl(
                         .collect::<Result<Vec<_>, _>>()?;
                     let body = m.body.as_ref().map(|v| self.stmt(v)).transpose()?;
                     Member::Method(
-                        if args == m.formal_args
+                        if !self.force_copy
+                            && args == m.formal_args
                             && returns == m.formal_returns
                             && pres == m.pres
                             && posts == m.posts
@@ -1618,11 +1809,15 @@ fn map_node_tree_impl(
                         return Ok(Member::Extension(v));
                     }
                     let rebuilt = v.0.map_nodes(&|n| self.pass(n))?;
-                    Member::Extension(if rebuilt == v { v } else { rebuilt })
+                    Member::Extension(if !self.force_copy && rebuilt == v {
+                        v
+                    } else {
+                        rebuilt
+                    })
                 }
             })
         }
-        fn program(
+        fn program_inner(
             &self,
             p: &crate::ast::program::Program,
         ) -> Result<crate::ast::program::Program, DiagnosticError> {
@@ -1678,7 +1873,8 @@ fn map_node_tree_impl(
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(
-                if domains == p.domains
+                if !self.force_copy
+                    && domains == p.domains
                     && fields == p.fields
                     && functions == p.functions
                     && predicates == p.predicates
@@ -1748,7 +1944,13 @@ fn map_node_tree_impl(
             })
         }
     }
-    Walker { rule, visit_maps }.pass(node)
+    Walker {
+        rule,
+        visit_maps,
+        bottom_up,
+        force_copy,
+    }
+    .pass(node)
 }
 
 #[cfg(test)]
@@ -1780,6 +1982,129 @@ mod reconstruction_tests {
         })
         .unwrap();
         assert_eq!(seen.get(), 1);
+    }
+    #[test]
+    fn bottom_up_rebuilds_extra_type_through_statement() {
+        use crate::ast::{
+            expression::ExpExtra,
+            statement::{Stmt, StmtKind},
+        };
+        let meta = Metadata::default();
+        let app = Exp::with_extra(
+            ExpKind::FuncApp("f".into(), vec![]),
+            meta.clone(),
+            ExpExtra {
+                typ: Some(Type::Int),
+                ..Default::default()
+            },
+        );
+        let expression = Exp::new(ExpKind::Not(app), meta.clone());
+        let statement = Stmt::new(StmtKind::Assert(expression), meta);
+        let result = map_node_tree_bottom_up(
+            &Node::Stmt(statement),
+            &|n| {
+                Ok(if matches!(n, Node::Type(Type::Int)) {
+                    Node::Type(Type::Bool)
+                } else {
+                    n.clone()
+                })
+            },
+            true,
+        )
+        .unwrap();
+        let Node::Stmt(stmt) = result else {
+            panic!("statement")
+        };
+        let StmtKind::Assert(expression) = stmt.kind() else {
+            panic!("assert")
+        };
+        let ExpKind::Not(app) = expression.kind() else {
+            panic!("not")
+        };
+        assert!(matches!(app.0.extra.typ, Some(Type::Bool)));
+    }
+    #[test]
+    fn bottom_up_force_preserves_extra_type_through_program_member() {
+        use crate::ast::{
+            expression::ExpExtra,
+            program::{FunctionData, Program},
+        };
+        let meta = Metadata::default();
+        let app = Exp::with_extra(
+            ExpKind::FuncApp("g".into(), vec![]),
+            meta.clone(),
+            ExpExtra {
+                typ: Some(Type::Int),
+                ..Default::default()
+            },
+        );
+        let function = Function::new(FunctionData {
+            name: "f".into(),
+            formal_args: vec![],
+            typ: Type::Bool,
+            pres: vec![],
+            posts: vec![],
+            body: Some(app),
+            meta: meta.clone(),
+        });
+        let program = Program::new(vec![], vec![], vec![function], vec![], vec![], vec![], meta);
+        let Node::Program(result) = map_node_tree_bottom_up(
+            &Node::Program(program),
+            &|n| {
+                Ok(if matches!(n, Node::Type(Type::Int)) {
+                    Node::Type(Type::Bool)
+                } else {
+                    n.clone()
+                })
+            },
+            true,
+        )
+        .unwrap() else {
+            panic!("program")
+        };
+        assert!(matches!(
+            result.functions[0].body.as_ref().unwrap().0.extra.typ,
+            Some(Type::Bool)
+        ));
+    }
+    #[test]
+    fn forced_type_reconstruction_copies_case_class_identity() {
+        use crate::ast::r#type::TypeVar;
+        let variable = TypeVar::new("T");
+        let Node::Type(Type::Var(result)) = map_node_tree_bottom_up(
+            &Node::Type(Type::Var(variable.clone())),
+            &|n| Ok(n.clone()),
+            true,
+        )
+        .unwrap() else {
+            panic!("type variable")
+        };
+        assert_eq!(variable, result);
+        assert!(!variable.same_node(&result));
+    }
+    #[test]
+    fn bottom_up_visits_children_before_statement() {
+        use crate::ast::statement::{Stmt, StmtKind};
+        let meta = Metadata::default();
+        let stmt = Stmt::new(
+            StmtKind::Assert(Exp::new(ExpKind::TrueLit, meta.clone())),
+            meta,
+        );
+        let order = std::cell::RefCell::new(Vec::new());
+        map_node_tree_bottom_up(
+            &Node::Stmt(stmt),
+            &|node| {
+                match node {
+                    Node::Exp(_) => order.borrow_mut().push("expression"),
+                    Node::Stmt(_) => order.borrow_mut().push("statement"),
+                    _ => {}
+                }
+                Ok(node.clone())
+            },
+            false,
+        )
+        .unwrap();
+        assert_eq!(*order.borrow(), vec!["expression", "statement"]);
     }
     #[test]
     fn shared_node_mapper_rewrites_nested_type_product_fields() {

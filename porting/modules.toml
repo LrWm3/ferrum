@@ -14,7 +14,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Expression.scala"
 destination = "crates/ferrum-silver/src/ast/expression.rs"
 status = "skeleton"
-remaining = ["Expression representation, identity and cached automatic triggers exist; complete local consistency and general reconstruction remain."]
+remaining = ["Native AST construction and traversal exist; complete source extension reconstruction, strategy integration and edge-case coverage remain."]
 
 [[modules]]
 repository = "silver"
@@ -60,7 +60,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Consistency.scala"
 destination = "crates/ferrum-silver/src/ast/utility/consistency.rs"
 status = "skeleton"
-remaining = ["Built-in local, transitive, scope and use checks exist; quantified extension contexts, complete diagnostics and wider integration validation remain."]
+remaining = ["Native AST construction and traversal exist; complete source extension reconstruction, strategy integration and edge-case coverage remain."]
 
 [[modules]]
 repository = "silver"
@@ -129,7 +129,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Nodes.scala"
 destination = "crates/ferrum-silver/src/ast/utility/nodes.rs"
 status = "skeleton"
-remaining = ["Shared preorder reconstruction covers built-in typed nodes; full strategy/context modes and extension declaration hooks remain."]
+remaining = ["Native AST construction and traversal exist; complete source extension reconstruction, strategy integration and edge-case coverage remain."]
 
 [[modules]]
 repository = "silver"
@@ -157,7 +157,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Statements.scala"
 destination = "crates/ferrum-silver/src/ast/utility/statements.rs"
 status = "skeleton"
-remaining = ["Per-occurrence expression mapping and fallible extension callbacks exist; universal statement reconstruction remains."]
+remaining = ["Native AST construction and traversal exist; complete source extension reconstruction, strategy integration and edge-case coverage remain."]
 
 [[modules]]
 repository = "silver"
@@ -480,13 +480,15 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/adt/AdtPlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/adt/adt_plugin.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed ADT lowering and bottom-up reconstruction exist; source ADT parsing/pre-resolution and full extension reconstruction remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/adt/encoding/AdtEncoder.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/adt/encoding/adt_encoder.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed ADT lowering and bottom-up reconstruction exist; source ADT parsing/pre-resolution and full extension reconstruction remain."]
 
 [[modules]]
 repository = "silver"

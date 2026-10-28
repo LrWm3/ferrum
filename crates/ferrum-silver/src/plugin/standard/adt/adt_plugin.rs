@@ -25,4 +25,113 @@
 //! Open decisions:
 //! Reconcile per-run derivesImported lifetime and plugin ordering with frontend and parser.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; derives-import tracking, termination configuration and AST encoding hook are
+//! implemented. ADT grammar and pre-resolution parse-tree rewriting remain pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2022 ETH Zurich.
+
+use super::encoding::adt_encoder::AdtEncoder;
+use crate::ast::program::Program;
+use crate::ast::utility::consistency::transitive_scoped_names;
+use crate::plugin::silver_plugin::{PluginHookError, SilverPlugin};
+
+/// Parser registration and pre-resolution ADT rewrites are still pending.
+/// This hook can encode already constructed, checked ADT ASTs.
+#[derive(Clone, Debug, Default)]
+pub struct AdtPlugin {
+    pub has_config: bool,
+    pub disabled: bool,
+    pub disable_termination: bool,
+    pub disable_default_plugins: bool,
+    pub explicit_plugins: Vec<String>,
+    derives_imported: bool,
+}
+impl AdtPlugin {
+    fn deactivated(&self) -> bool {
+        self.has_config && self.disabled
+    }
+    pub fn derives_imported(&self) -> bool {
+        self.derives_imported
+    }
+    pub fn termination_active(&self) -> bool {
+        self.has_config
+            && !self.disable_termination
+            && (!self.disable_default_plugins
+                || self.explicit_plugins.iter().any(|name| {
+                    name == "viper.silver.plugin.standard.termination.TerminationPlugin"
+                }))
+    }
+}
+impl SilverPlugin for AdtPlugin {
+    fn before_parse(&mut self, input: String, _: bool) -> String {
+        if !self.deactivated() {
+            self.derives_imported |= input.match_indices("import").any(|(i, _)| {
+                let tail = &input[i + "import".len()..];
+                let is_source_space =
+                    |c| matches!(c, ' ' | '\t' | '\n' | '\r' | '\u{000b}' | '\u{000c}');
+                tail.chars().next().is_some_and(is_source_space)
+                    && tail
+                        .trim_start_matches(is_source_space)
+                        .starts_with("<adt/derives.vpr>")
+            });
+        }
+        input
+    }
+    fn before_verify(&mut self, input: Program) -> Result<Program, PluginHookError> {
+        if self.deactivated() {
+            return Ok(input);
+        }
+        let names = transitive_scoped_names(&input)
+            .map_err(|e| PluginHookError(format!("ADT scoped-name collection: {e:?}")))?;
+        AdtEncoder::new(input, names)
+            .encode(self.termination_active())
+            .map_err(|e| PluginHookError(format!("ADT encoding: {e:?}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::ast::Metadata;
+    use crate::ast::program::ExtensionMemberHandle;
+    use crate::plugin::standard::adt::adt_ast_extension::{Adt, AdtConstructor};
+    use std::{collections::HashMap, sync::Arc};
+
+    #[test]
+    fn encodes_checked_adt_program_and_tracks_configuration() {
+        let meta = Metadata::default();
+        let constructor = Arc::new(AdtConstructor::new(
+            "Tree",
+            vec![],
+            "Leaf",
+            vec![],
+            meta.clone(),
+        ));
+        let adt = Adt {
+            name: "Tree".into(),
+            constructors: vec![constructor],
+            type_vars: vec![],
+            deriving_info: HashMap::new(),
+            meta: meta.clone(),
+        };
+        let program = Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![ExtensionMemberHandle(Arc::new(adt))],
+            meta,
+        );
+        let mut plugin = AdtPlugin::default();
+        assert!(!plugin.termination_active());
+        plugin.before_parse("import  <adt/derives.vpr>".into(), true);
+        assert!(plugin.derives_imported());
+        let output = plugin.before_verify(program).unwrap();
+        assert!(output.extensions.is_empty());
+        assert_eq!(output.domains[0].name, "Tree");
+    }
+}

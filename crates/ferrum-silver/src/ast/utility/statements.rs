@@ -619,6 +619,21 @@ pub fn map_statement_tree_with_extensions<E: From<StatementReplacementError>>(
         &dyn Fn(&crate::ast::expression::Exp) -> Result<crate::ast::expression::Exp, E>,
     ) -> Result<crate::ast::statement::ExtensionStmtHandle, E>,
 ) -> Result<Stmt, E> {
+    map_statement_tree_with_post(stmt, replace, pre, child, extension, None, false)
+}
+
+pub fn map_statement_tree_with_post<E: From<StatementReplacementError>>(
+    stmt: &Stmt,
+    replace: &dyn Fn(&crate::ast::expression::Exp) -> Result<crate::ast::expression::Exp, E>,
+    pre: &dyn Fn(&super::nodes::Node) -> Result<super::nodes::Node, E>,
+    child: &dyn Fn(&super::nodes::Node) -> Result<super::nodes::Node, E>,
+    extension: &dyn Fn(
+        &crate::ast::statement::ExtensionStmtHandle,
+        &dyn Fn(&crate::ast::expression::Exp) -> Result<crate::ast::expression::Exp, E>,
+    ) -> Result<crate::ast::statement::ExtensionStmtHandle, E>,
+    post: Option<&dyn Fn(&super::nodes::Node) -> Result<super::nodes::Node, E>>,
+    force_copy: bool,
+) -> Result<Stmt, E> {
     use crate::ast::expression::{Exp, ExpKind};
     use crate::ast::statement::{PredicateAccessPredicate, ResourceAccess};
     fn local<E: From<StatementReplacementError>>(
@@ -762,12 +777,14 @@ pub fn map_statement_tree_with_extensions<E: From<StatementReplacementError>>(
             proof_script,
         } => StmtKind::Package {
             wand: wand(w, replace)?,
-            proof_script: map_statement_tree_with_extensions(
+            proof_script: map_statement_tree_with_post(
                 proof_script,
                 replace,
                 pre,
                 child,
                 extension,
+                post,
+                force_copy,
             )?,
         },
         StmtKind::Apply(w) => StmtKind::Apply(wand(w, replace)?),
@@ -777,7 +794,11 @@ pub fn map_statement_tree_with_extensions<E: From<StatementReplacementError>>(
         } => StmtKind::Seqn {
             statements: statements
                 .iter()
-                .map(|s| map_statement_tree_with_extensions(s, replace, pre, child, extension))
+                .map(|s| {
+                    map_statement_tree_with_post(
+                        s, replace, pre, child, extension, post, force_copy,
+                    )
+                })
                 .collect::<Result<_, _>>()?,
             declarations: declarations
                 .iter()
@@ -845,19 +866,23 @@ pub fn map_statement_tree_with_extensions<E: From<StatementReplacementError>>(
             else_branch,
         } => StmtKind::If {
             condition: exp(condition)?,
-            then_branch: map_statement_tree_with_extensions(
+            then_branch: map_statement_tree_with_post(
                 then_branch,
                 replace,
                 pre,
                 child,
                 extension,
+                post,
+                force_copy,
             )?,
-            else_branch: map_statement_tree_with_extensions(
+            else_branch: map_statement_tree_with_post(
                 else_branch,
                 replace,
                 pre,
                 child,
                 extension,
+                post,
+                force_copy,
             )?,
         },
         StmtKind::While {
@@ -867,11 +892,13 @@ pub fn map_statement_tree_with_extensions<E: From<StatementReplacementError>>(
         } => StmtKind::While {
             condition: exp(condition)?,
             invariants: exps(invariants)?,
-            body: map_statement_tree_with_extensions(body, replace, pre, child, extension)?,
+            body: map_statement_tree_with_post(
+                body, replace, pre, child, extension, post, force_copy,
+            )?,
         },
         StmtKind::Label(label) => {
             let invariants = exps(&label.invariants)?;
-            StmtKind::Label(if invariants == label.invariants {
+            StmtKind::Label(if !force_copy && invariants == label.invariants {
                 label.clone()
             } else {
                 label.copy_with(|d| d.invariants = invariants)
@@ -897,11 +924,27 @@ pub fn map_statement_tree_with_extensions<E: From<StatementReplacementError>>(
         },
         StmtKind::Extension(value) => StmtKind::Extension(extension(value, replace)?),
     };
-    Ok(if &kind == stmt.kind() {
+    let rebuilt = if !force_copy && &kind == stmt.kind() {
         stmt.clone()
     } else {
         Stmt::new(kind, stmt.metadata().clone())
-    })
+    };
+    if let Some(post) = post {
+        let view = match rebuilt.kind() {
+            StmtKind::Label(label) => Node::LabelDecl(label.clone()),
+            _ => Node::Stmt(rebuilt.clone()),
+        };
+        match post(&view)? {
+            Node::Stmt(stmt) => Ok(stmt),
+            Node::LabelDecl(label) => Ok(Stmt::new(
+                StmtKind::Label(label.clone()),
+                label.meta.clone(),
+            )),
+            _ => Err(StatementReplacementError::InvalidStatement.into()),
+        }
+    } else {
+        Ok(rebuilt)
+    }
 }
 
 #[cfg(test)]
