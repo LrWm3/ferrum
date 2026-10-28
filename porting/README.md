@@ -799,3 +799,11 @@ restoration and error draining. Real Z3 checks confirm producer jobs run with on
 and two workers and match pinned JVM outcomes for permission tails, nested
 conjunction/Let fallback and failing postconditions. Consumer and additional
 caller frames remain gated work.
+
+Owned exhale and ordinary assert continuations now carry conjunct/heap completion
+and exact retry attempts through worker branches. Per-attempt success signals
+prevent downstream failures from retrying successful consumption; synchronous
+retry keeps its original local Boolean without shared allocation. Actual Z3
+checks cover nested permission branches, assertion heap restoration, missing
+permissions and downstream failure with one and two workers, matching the pinned
+JVM. Method contract and other caller ownership remain separate pending work.

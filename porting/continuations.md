@@ -37,6 +37,16 @@ inhale saturation, statement completion and the caller tail. Implication false
 branches retain the empty-snapshot assumption. The same terminal-job scheduler
 handles CFG and producer actions, preserving typed native errors.
 
+Direct CFG exhale and ordinary assert statements also have owned consumption
+frames. Each frame retains remaining projected conjuncts, their errors, heap
+completion and the exact retry attempt. A shared success signal records entry
+into the consumed assertion's continuation before later work runs. This prevents
+a failure in the tail from incorrectly retrying successful consumption. Retry
+frames restore the source retry level/modes and close the retry scope at the
+original success boundary. Assert completion restores the original heap and
+reserve heaps before resuming the statement tail. Ordinary synchronous retries
+retain their local Boolean and do not allocate a shared signal.
+
 ## Solver ownership and restoration
 
 Each solver remains on its owning thread. Jobs carry symbolic state and immutable
@@ -66,9 +76,9 @@ and two workers. The same-worker isolation fix is shared by terminal, joined and
 evaluation jobs; a regression prevents an outer branch from falsely proving an
 assertion using the suspended inner branch's assumptions.
 
-Nonjoined consumption, additional producer callers, predicate contents, active
-logger scope migration and general borrowed callback entry points still need
-owned caller frames. Direct inhale conditional/implication jobs are executable;
+Additional producer/consumer callers, snapshot-returning consumption, predicate
+contents, active logger scope migration and general borrowed callback entry
+points still need owned caller frames. Direct inhale conditional/implication jobs are executable;
 production nested inside a generic let remains local, as do nested statement
 sequences, TryBlock and loop-head statement callbacks. They retain synchronous execution. Joined CFG/predicate dispatch
 also falls back synchronously when member logging, packaging or extended exhale

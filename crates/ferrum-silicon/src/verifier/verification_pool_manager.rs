@@ -1799,6 +1799,11 @@ pub enum NativeJoinAction {
             ferrum_silver::verifier::verification_error::PartialVerificationError,
         >,
     ),
+    Consumption(
+        crate::rules::consumer::OwnedConsumptionAction<
+            ferrum_silver::verifier::verification_error::PartialVerificationError,
+        >,
+    ),
 }
 pub struct NativeJoinJob<
     PD = crate::supporters::predicate_verification_unit::PredicateData,
@@ -1836,6 +1841,12 @@ pub(crate) static CONTINUATION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize 
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static CONTINUATION_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static RULE_CONSUMPTION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static RULE_CONSUMPTION_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static RULE_PRODUCTION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
@@ -1970,6 +1981,9 @@ where
             }
             NativeJoinAction::Production(_) => {
                 RULE_PRODUCTION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            NativeJoinAction::Consumption(_) => {
+                RULE_CONSUMPTION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
         }
         let task = self.queue.submit(NativeWorkerTask {
@@ -4247,6 +4261,105 @@ method bad(b: Bool, x: Ref, y: Ref)
                     RULE_PRODUCTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
                         > executed,
                     "no production job executed"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_consumer_permission_tails() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let cases = [
+            r#"field f: Int
+method producer(b: Bool, x: Ref, y: Ref)
+  requires x != y
+  ensures b ? acc(x.f) : acc(y.f)
+{
+  inhale b ? acc(x.f) : acc(y.f);
+  assert b ? acc(x.f) : acc(y.f);
+}
+method consumer(b: Bool, x: Ref, y: Ref)
+  requires acc(x.f) && acc(y.f)
+  ensures b ? acc(y.f) : acc(x.f)
+{
+  exhale b ? acc(x.f) : acc(y.f);
+  assert b ? acc(y.f) : acc(x.f);
+}
+method bad(b: Bool, x: Ref, y: Ref)
+  requires acc(x.f) && acc(y.f)
+{
+  exhale b ? acc(x.f) : acc(y.f);
+  assert false;
+}
+"#,
+            r#"field f: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref)
+  requires acc(x.f) && acc(y.f) && acc(z.f)
+  ensures b ? (c ? acc(y.f) && acc(z.f) : acc(x.f) && acc(z.f)) : acc(x.f) && acc(y.f)
+{
+  exhale b ? (c ? acc(x.f) : acc(y.f)) : acc(z.f);
+  assert b ? (c ? acc(y.f) && acc(z.f) : acc(x.f) && acc(z.f)) : acc(x.f) && acc(y.f);
+}
+method bad(b: Bool, x: Ref, y: Ref)
+  requires acc(x.f) && acc(y.f)
+{
+  exhale (b ? acc(x.f) : acc(y.f)) && true;
+  assert false;
+}
+"#,
+            r#"field f: Int
+method good(b: Bool, x: Ref, y: Ref)
+  requires acc(x.f) && acc(y.f)
+  ensures acc(x.f) && acc(y.f)
+{
+  assert b ? acc(x.f) : acc(y.f);
+  assert b ? acc(y.f) : acc(x.f);
+}
+method bad(b: Bool, x: Ref, y: Ref)
+  requires x != y && acc(x.f)
+{
+  exhale b ? acc(x.f) : acc(y.f);
+}
+"#,
+        ];
+        for source in cases {
+            for workers in [1, 2] {
+                let submitted =
+                    RULE_CONSUMPTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let executed =
+                    RULE_CONSUMPTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert!(fatal.iter().any(|fatal| *fatal));
+                assert!(
+                    RULE_CONSUMPTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > submitted,
+                    "no consumption job submitted"
+                );
+                assert!(
+                    RULE_CONSUMPTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > executed,
+                    "no consumption job executed"
                 );
             }
         }

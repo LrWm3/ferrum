@@ -220,6 +220,21 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
     fn statement_scope_transferable(&self, _scope: Option<i32>) -> bool {
         false
     }
+    fn consume_with_owned_tail(
+        &mut self,
+        state: State<P, D, J>,
+        statement: &Stmt,
+        assertion: &Exp,
+        _completion: crate::rules::consumer::OwnedConsumptionCompletion,
+        _tail: Option<&CfgStatementTail>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<P, D, J>,
+        )
+            -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
+    ) -> Result<VerificationResult<V>, ExecutionError<Self::Error>> {
+        self.consume(state, statement, assertion, continuation)
+    }
     fn consume(
         &mut self,
         state: State<P, D, J>,
@@ -639,22 +654,35 @@ where
             let state = context
                 .start_key_heap(state, statement, debug_snapshot.as_ref())
                 .map_err(ExecutionError::Context)?;
-            context.consume(state, statement, assertion, &mut |context, mut state| {
-                if exhale_ext {
-                    state.h = state
-                        .reserve_heaps
-                        .first()
-                        .cloned()
-                        .ok_or(ExecutionError::MissingReserveHeap)?;
-                } else {
-                    state.h = original_heap.clone();
-                    state.reserve_heaps = original_reserve.clone();
-                }
-                let state = context
-                    .finish_key_heap(state)
-                    .map_err(ExecutionError::Context)?;
-                finish(context, state)
-            })
+            let tail =
+                owned_tail.filter(|_| context.statement_scope_transferable(scope) && !exhale_ext);
+            let completion = crate::rules::consumer::OwnedConsumptionCompletion::Assert {
+                heap: original_heap.clone(),
+                reserve: original_reserve.clone(),
+            };
+            context.consume_with_owned_tail(
+                state,
+                statement,
+                assertion,
+                completion,
+                tail,
+                &mut |context, mut state| {
+                    if exhale_ext {
+                        state.h = state
+                            .reserve_heaps
+                            .first()
+                            .cloned()
+                            .ok_or(ExecutionError::MissingReserveHeap)?;
+                    } else {
+                        state.h = original_heap.clone();
+                        state.reserve_heaps = original_reserve.clone();
+                    }
+                    let state = context
+                        .finish_key_heap(state)
+                        .map_err(ExecutionError::Context)?;
+                    finish(context, state)
+                },
+            )
         }
         StmtKind::Inhale(assertion) if matches!(assertion.kind(), ExpKind::FalseLit) => {
             Ok(VerificationResult::success())
@@ -684,12 +712,20 @@ where
             let state = context
                 .start_key_heap(state, statement, debug_snapshot.as_ref())
                 .map_err(ExecutionError::Context)?;
-            context.consume(state, statement, assertion, &mut |context, state| {
-                let state = context
-                    .finish_key_heap(state)
-                    .map_err(ExecutionError::Context)?;
-                finish(context, state)
-            })
+            let tail = owned_tail.filter(|_| context.statement_scope_transferable(scope));
+            context.consume_with_owned_tail(
+                state,
+                statement,
+                assertion,
+                crate::rules::consumer::OwnedConsumptionCompletion::Exhale,
+                tail,
+                &mut |context, state| {
+                    let state = context
+                        .finish_key_heap(state)
+                        .map_err(ExecutionError::Context)?;
+                    finish(context, state)
+                },
+            )
         }
         StmtKind::Extension(extension)
             if extension

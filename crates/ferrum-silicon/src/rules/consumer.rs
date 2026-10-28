@@ -53,16 +53,86 @@ pub enum ConsumptionError<E> {
     Context(E),
     Projection(UnsupportedExtensionProjection),
     UnexpectedSnapshot,
+    OwnedSchedulerUnavailable,
     MissingPredicate(String),
     Wand(ferrum_silver::ast::utility::expressions::MagicWandError),
     MissingDebugExpression,
     Precondition(crate::state::function_precondition_transformer::PreconditionTransformError<E>),
     Trigger(crate::state::terms::UnsupportedTriggerTransform),
 }
+/// Statement-specific continuation after successful owned consumption.
+#[derive(Clone)]
+pub enum OwnedConsumptionCompletion {
+    Exhale,
+    Assert {
+        heap: Arc<ListBackedHeap>,
+        reserve: Vec<Arc<ListBackedHeap>>,
+    },
+}
+#[derive(Clone)]
+pub enum OwnedConsumptionFrame<E> {
+    Retry(crate::rules::execution_flow_controller::RetryAttempt),
+    More {
+        assertions: Vec<Exp>,
+        errors: Vec<E>,
+    },
+    Finish {
+        partial: Option<Arc<ListBackedHeap>>,
+        completion: OwnedConsumptionCompletion,
+        tail: crate::rules::executor::CfgStatementTail,
+    },
+}
+#[derive(Clone)]
+pub struct OwnedConsumptionAction<E> {
+    pub body: Option<Exp>,
+    pub heap: Arc<ListBackedHeap>,
+    pub error: E,
+    pub frames: Vec<OwnedConsumptionFrame<E>>,
+}
+
 /// Verifier services needed to consume each conjunct, including failure-driven retry.
 pub trait ConsumptionContext<P, D, J, V>: Sized {
     type Error;
     type PartialError: Clone;
+    fn supports_owned_consumption(&self, _state: &State<P, D, J>) -> bool {
+        false
+    }
+    fn consume_owned_retry(
+        &mut self,
+        _state: State<P, D, J>,
+        _heap: Arc<ListBackedHeap>,
+        _assertion: &Exp,
+        _error: &Self::PartialError,
+        _frames: &[OwnedConsumptionFrame<Self::PartialError>],
+    ) -> Result<VerificationResult<V>, ConsumptionError<Self::Error>> {
+        Err(ConsumptionError::OwnedSchedulerUnavailable)
+    }
+    fn resume_owned_retry(
+        &mut self,
+        _state: State<P, D, J>,
+        _attempt: &crate::rules::execution_flow_controller::RetryAttempt,
+    ) -> Option<Result<State<P, D, J>, Self::Error>> {
+        None
+    }
+    fn try_branch_owned_consumption(
+        &mut self,
+        _state: &State<P, D, J>,
+        _condition: &Term,
+        _original: &Exp,
+        _rewritten: Option<&Exp>,
+        _yes: OwnedConsumptionAction<Self::PartialError>,
+        _no: OwnedConsumptionAction<Self::PartialError>,
+    ) -> Option<Result<VerificationResult<V>, ConsumptionError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_consumption(
+        &mut self,
+        _state: State<P, D, J>,
+        _completion: &OwnedConsumptionCompletion,
+        _tail: &crate::rules::executor::CfgStatementTail,
+    ) -> Result<VerificationResult<V>, ConsumptionError<Self::Error>> {
+        Err(ConsumptionError::OwnedSchedulerUnavailable)
+    }
     /// Native contexts use this safe point for cancellation; other hosts may omit it.
     fn cancellation_checkpoint(&self) -> Result<(), Self::Error> {
         Ok(())
@@ -400,6 +470,182 @@ where
         },
     )
 }
+/// Consume a direct statement with an explicitly owned caller and no snapshot result.
+pub(crate) fn consume_all_owned<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    assertion: &Exp,
+    error: C::PartialError,
+    completion: OwnedConsumptionCompletion,
+    tail: &crate::rules::executor::CfgStatementTail,
+) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
+where
+    C: ConsumptionContext<P, D, J, V>,
+{
+    let projected = when_exhaling(assertion).map_err(ConsumptionError::Projection)?;
+    let assertions = projected.top_level_conjuncts();
+    let errors = vec![error; assertions.len()];
+    let heap = state.h.clone();
+    let frames = vec![OwnedConsumptionFrame::Finish {
+        partial: state.partially_consumed_heap.clone(),
+        completion,
+        tail: tail.clone(),
+    }];
+    consume_owned_conjuncts(context, state, heap, &assertions, &errors, &frames)
+}
+fn consume_owned_conjuncts<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    heap: Arc<ListBackedHeap>,
+    assertions: &[Exp],
+    errors: &[C::PartialError],
+    frames: &[OwnedConsumptionFrame<C::PartialError>],
+) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
+where
+    C: ConsumptionContext<P, D, J, V>,
+{
+    let Some((first, rest)) = assertions.split_first() else {
+        return resume_owned_consumption(context, state, heap, frames);
+    };
+    let mut next = Vec::new();
+    if !rest.is_empty() {
+        next.push(OwnedConsumptionFrame::More {
+            assertions: rest.to_vec(),
+            errors: errors[1..].to_vec(),
+        });
+    }
+    next.extend_from_slice(frames);
+    context.consume_owned_retry(state, heap, first, &errors[0], &next)
+}
+fn resume_owned_consumption<C, P, D, J: Clone, V>(
+    context: &mut C,
+    mut state: State<P, D, J>,
+    heap: Arc<ListBackedHeap>,
+    frames: &[OwnedConsumptionFrame<C::PartialError>],
+) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
+where
+    C: ConsumptionContext<P, D, J, V>,
+{
+    let (first, rest) = frames
+        .split_first()
+        .ok_or(ConsumptionError::UnexpectedSnapshot)?;
+    match first {
+        OwnedConsumptionFrame::Retry(attempt) => {
+            state = context
+                .resume_owned_retry(state, attempt)
+                .ok_or(ConsumptionError::OwnedSchedulerUnavailable)?
+                .map_err(ConsumptionError::Context)?;
+            resume_owned_consumption(context, state, heap, rest)
+        }
+        OwnedConsumptionFrame::More { assertions, errors } => {
+            consume_owned_conjuncts(context, state, heap, assertions, errors, rest)
+        }
+        OwnedConsumptionFrame::Finish {
+            partial,
+            completion,
+            tail,
+        } => {
+            state.h = heap;
+            state.partially_consumed_heap = partial.clone();
+            context.finish_owned_consumption(state, completion, tail)
+        }
+    }
+}
+pub(crate) fn consume_owned_one<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    heap: Arc<ListBackedHeap>,
+    assertion: &Exp,
+    error: &C::PartialError,
+    attempt: crate::rules::execution_flow_controller::RetryAttempt,
+    frames: &[OwnedConsumptionFrame<C::PartialError>],
+) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
+where
+    C: ConsumptionContext<P, D, J, V>,
+{
+    context
+        .cancellation_checkpoint()
+        .map_err(ConsumptionError::Context)?;
+    let mut next = vec![OwnedConsumptionFrame::Retry(attempt)];
+    next.extend_from_slice(frames);
+    if !assertion.is_pure()
+        && context.supports_owned_consumption(&state)
+        && !context.join_impure(&state)
+    {
+        let conditional = match assertion.kind() {
+            ExpKind::Implies(c, y) => Some((c, y, None)),
+            ExpKind::CondExp(c, y, n) => Some((c, y, Some(n))),
+            _ => None,
+        };
+        if let Some((condition, yes, no)) = conditional {
+            let scope = context
+                .open_consumption_scope(&state, assertion)
+                .map_err(ConsumptionError::Context)?;
+            let inner = context
+                .open_consumption_conditional_scope(&state, assertion)
+                .map_err(ConsumptionError::Context)?;
+            if scope.is_some() || inner.is_some() {
+                return Err(ConsumptionError::OwnedSchedulerUnavailable);
+            }
+            return context.evaluate(
+                state,
+                condition,
+                error,
+                &mut |context, state, term, rewritten| {
+                    let make = |body| OwnedConsumptionAction {
+                        body,
+                        heap: heap.clone(),
+                        error: error.clone(),
+                        frames: next.clone(),
+                    };
+                    context
+                        .try_branch_owned_consumption(
+                            &state,
+                            &term,
+                            condition,
+                            rewritten.as_ref(),
+                            make(Some(yes.clone())),
+                            make(no.cloned()),
+                        )
+                        .ok_or(ConsumptionError::OwnedSchedulerUnavailable)?
+                },
+            );
+        }
+    }
+    consume_one_logged(
+        context,
+        state,
+        heap,
+        assertion,
+        false,
+        error,
+        &mut |context, state, heap, _| resume_owned_consumption(context, state, heap, &next),
+    )
+}
+pub(crate) fn execute_owned_consumption_action<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    action: &OwnedConsumptionAction<C::PartialError>,
+) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
+where
+    C: ConsumptionContext<P, D, J, V>,
+{
+    if let Some(body) = &action.body {
+        let assertions = body.top_level_conjuncts();
+        let errors = vec![action.error.clone(); assertions.len()];
+        consume_owned_conjuncts(
+            context,
+            state,
+            action.heap.clone(),
+            &assertions,
+            &errors,
+            &action.frames,
+        )
+    } else {
+        resume_owned_consumption(context, state, action.heap.clone(), &action.frames)
+    }
+}
+
 /// Recursive consumption uses already-projected assertions and source per-conjunct retry.
 pub fn consume_recursive<C, P, D, J: Clone, V>(
     context: &mut C,

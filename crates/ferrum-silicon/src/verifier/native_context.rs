@@ -3856,6 +3856,108 @@ where
             &mut |ctx, state, (heap, snapshot)| continuation(ctx, state, heap, snapshot),
         )
     }
+    fn supports_owned_consumption(&self, state: &State<PD, FD, JoinMode>) -> bool {
+        self.joined_branch_scheduler_enabled
+            && self.joined_branch_scheduler.is_some()
+            && self.member_log.is_none()
+            && state.parallelize_branches
+            && !state.under_join
+            && !state.is_in_package
+            && !state.exhale_ext
+    }
+    fn consume_owned_retry(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        heap: Arc<ListBackedHeap>,
+        assertion: &Exp,
+        error: &Self::PartialError,
+        frames: &[crate::rules::consumer::OwnedConsumptionFrame<Self::PartialError>],
+    ) -> Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>> {
+        let original_heap = state.h.clone();
+        let mut working = state;
+        working.h = heap;
+        let mut action = OwnedConsumerRetryAction {
+            original_heap,
+            assertion,
+            error,
+            frames,
+            attempt: None,
+        };
+        crate::rules::execution_flow_controller::try_or_fail_with_success(
+            self,
+            working,
+            &mut action,
+            crate::rules::execution_flow_controller::RetrySuccess::default(),
+            &mut |_, _, ()| {
+                Err(NativeError::Unsupported(
+                    "owned retry requires a frame continuation",
+                ))
+            },
+        )
+        .map_err(ConsumptionError::Context)
+    }
+    fn resume_owned_retry(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        attempt: &crate::rules::execution_flow_controller::RetryAttempt,
+    ) -> Option<Result<State<PD, FD, JoinMode>, Self::Error>> {
+        Some(attempt.resume(self, state))
+    }
+    fn try_branch_owned_consumption(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        condition: &Term,
+        original: &Exp,
+        rewritten: Option<&Exp>,
+        yes: crate::rules::consumer::OwnedConsumptionAction<Self::PartialError>,
+        no: crate::rules::consumer::OwnedConsumptionAction<Self::PartialError>,
+    ) -> Option<Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>>> {
+        use super::verification_pool_manager::NativeJoinAction;
+        Some(
+            self.branch_owned_actions(
+                state.clone(),
+                condition.clone(),
+                original,
+                rewritten,
+                NativeJoinAction::Consumption(yes),
+                NativeJoinAction::Consumption(no),
+            )
+            .map_err(|e| match e {
+                ExecutionError::Context(e) => ConsumptionError::Context(e),
+                other => ConsumptionError::Context(NativeError::Execution(format!(
+                    "owned consumption branch: {other:?}"
+                ))),
+            }),
+        )
+    }
+    fn finish_owned_consumption(
+        &mut self,
+        mut state: State<PD, FD, JoinMode>,
+        completion: &crate::rules::consumer::OwnedConsumptionCompletion,
+        tail: &crate::rules::executor::CfgStatementTail,
+    ) -> Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>> {
+        use crate::rules::executor::ExecutionContext;
+        if let crate::rules::consumer::OwnedConsumptionCompletion::Assert { heap, reserve } =
+            completion
+        {
+            state.h = heap.clone();
+            state.reserve_heaps = reserve.clone();
+        }
+        let state = self
+            .finish_key_heap(state)
+            .map_err(ConsumptionError::Context)?;
+        let state = self
+            .move_to_reserve_heap(state)
+            .map_err(ConsumptionError::Context)?;
+        self.close_statement_scope(None)
+            .map_err(ConsumptionError::Context)?;
+        crate::rules::executor::execute_cfg_statement_tail(self, state, tail).map_err(|e| match e {
+            ExecutionError::Context(e) => ConsumptionError::Context(e),
+            other => ConsumptionError::Context(NativeError::Execution(format!(
+                "owned consumption tail: {other:?}"
+            ))),
+        })
+    }
     fn open_consumption_scope(
         &mut self,
         state: &State<PD, FD, JoinMode>,
@@ -4924,6 +5026,59 @@ where
 }
 
 /// Adapt the consumer's fallible continuation to the shared source retry algorithm.
+struct OwnedConsumerRetryAction<'a, E> {
+    original_heap: Arc<ListBackedHeap>,
+    assertion: &'a Exp,
+    error: &'a E,
+    frames: &'a [crate::rules::consumer::OwnedConsumptionFrame<E>],
+    attempt: Option<crate::rules::execution_flow_controller::RetryAttempt>,
+}
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::execution_flow_controller::RetryAction<
+        NativeVerifierContext<S, PD, FD>,
+        PD,
+        FD,
+        JoinMode,
+        (),
+        VerificationError,
+    > for OwnedConsumerRetryAction<'_, PartialVerificationError>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn set_owned_attempt(
+        &mut self,
+        attempt: crate::rules::execution_flow_controller::RetryAttempt,
+    ) {
+        self.attempt = Some(attempt);
+    }
+    fn run(
+        &mut self,
+        context: &mut NativeVerifierContext<S, PD, FD>,
+        mut state: State<PD, FD, JoinMode>,
+        _: &mut dyn FnMut(
+            &mut NativeVerifierContext<S, PD, FD>,
+            State<PD, FD, JoinMode>,
+            (),
+        )
+            -> Result<VerificationResult<VerificationError>, NativeError<S::Error>>,
+    ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
+        let heap = state.h.clone();
+        state.h = self.original_heap.clone();
+        crate::rules::consumer::consume_owned_one(
+            context,
+            state,
+            heap,
+            self.assertion,
+            self.error,
+            self.attempt.clone().expect("retry attempt"),
+            self.frames,
+        )
+        .map_err(|e| match e {
+            ConsumptionError::Context(e) => e,
+            other => NativeError::Consumption(format!("{other:?}")),
+        })
+    }
+}
 struct ConsumerRetryAction<'a, S: Prover, PD, FD, T> {
     action: &'a mut dyn FnMut(
         &mut NativeVerifierContext<S, PD, FD>,
@@ -7308,6 +7463,48 @@ where
         result.map_err(|e| match e {
             ProductionError::Context(error) => ExecutionError::Context(error),
             other => ExecutionError::Context(NativeError::Production(format!("{other:?}"))),
+        })
+    }
+    fn consume_with_owned_tail(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        statement: &Stmt,
+        assertion: &Exp,
+        completion: crate::rules::consumer::OwnedConsumptionCompletion,
+        tail: Option<&crate::rules::executor::CfgStatementTail>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ExecutionError<Self::Error>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
+        use crate::rules::consumer::ConsumptionContext;
+        use ferrum_silver::ast::statement::StmtKind;
+        let Some(tail) = tail.filter(|_| self.supports_owned_consumption(&state)) else {
+            return self.consume(state, statement, assertion, continuation);
+        };
+        let kind = match statement.kind() {
+            StmtKind::Assert(_) => VerificationErrorKind::AssertFailed(statement.clone()),
+            StmtKind::Exhale(_) => VerificationErrorKind::ExhaleFailed(statement.clone()),
+            _ => {
+                return Err(ExecutionError::Context(NativeError::Unsupported(
+                    "owned consumption reason",
+                )));
+            }
+        };
+        crate::rules::consumer::consume_all_owned(
+            self,
+            state,
+            assertion,
+            PartialVerificationError::for_kind(kind),
+            completion,
+            tail,
+        )
+        .map_err(|e| match e {
+            ConsumptionError::Context(e) => ExecutionError::Context(e),
+            other => ExecutionError::Context(NativeError::Consumption(format!("{other:?}"))),
         })
     }
     fn consume(
@@ -9944,6 +10141,14 @@ where
         #[cfg(test)]
         if matches!(
             &branch.action,
+            super::verification_pool_manager::NativeJoinAction::Consumption(_)
+        ) {
+            super::verification_pool_manager::RULE_CONSUMPTION_TEST_EXECUTIONS
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        #[cfg(test)]
+        if matches!(
+            &branch.action,
             super::verification_pool_manager::NativeJoinAction::Production(_)
         ) {
             super::verification_pool_manager::RULE_PRODUCTION_TEST_EXECUTIONS
@@ -10085,6 +10290,7 @@ where
                         &branch.action,
                         super::verification_pool_manager::NativeJoinAction::Continuation(_)
                             | super::verification_pool_manager::NativeJoinAction::Production(_)
+                            | super::verification_pool_manager::NativeJoinAction::Consumption(_)
                     ) =>
                 {
                     Err(error)
@@ -13011,6 +13217,15 @@ where
             super::verification_pool_manager::NativeJoinAction::Production(action) => self
                 .execute_worker_owned_production(state, action)
                 .map_err(ExecutionError::Context),
+            super::verification_pool_manager::NativeJoinAction::Consumption(action) => {
+                crate::rules::consumer::execute_owned_consumption_action(self, state, action)
+                    .map_err(|e| match e {
+                        ConsumptionError::Context(e) => ExecutionError::Context(e),
+                        other => {
+                            ExecutionError::Context(NativeError::Consumption(format!("{other:?}")))
+                        }
+                    })
+            }
             super::verification_pool_manager::NativeJoinAction::Predicate(action) => {
                 let result = crate::rules::predicate_supporter::execute_predicate_contents_action(
                     self,

@@ -137,6 +137,8 @@ pub trait RetryAction<C, P, D, J, Data, Diagnostic>
 where
     C: RetryContext<P, D, J>,
 {
+    /// The optional owned continuation must carry this exact invocation's retry boundary.
+    fn set_owned_attempt(&mut self, _attempt: RetryAttempt) {}
     fn run(
         &mut self,
         context: &mut C,
@@ -148,6 +150,65 @@ where
         ) -> Result<VerificationResult<Diagnostic>, C::Error>,
     ) -> Result<VerificationResult<Diagnostic>, C::Error>;
 }
+/// Per-attempt completion signal shared with an owned, transferable continuation.
+/// A fresh signal must be used for each retry invocation.
+#[derive(Clone, Default)]
+pub struct RetrySuccess(std::sync::Arc<std::sync::atomic::AtomicBool>);
+impl RetrySuccess {
+    /// Record entry into the first-attempt success continuation, before running Q.
+    pub fn mark(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    pub fn observed(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// Source success-continuation boundary for a particular retry invocation.
+#[derive(Clone)]
+pub enum RetryAttempt {
+    First {
+        success: RetrySuccess,
+        retry_level: i32,
+    },
+    Retry {
+        scope: Option<i32>,
+        more_complete: bool,
+        more_complete_qp: bool,
+    },
+}
+impl RetryAttempt {
+    pub fn resume<C, P, D, J>(
+        &self,
+        context: &mut C,
+        mut state: crate::state::state::State<P, D, J>,
+    ) -> Result<crate::state::state::State<P, D, J>, C::Error>
+    where
+        C: RetryContext<P, D, J>,
+    {
+        match self {
+            Self::First {
+                success,
+                retry_level,
+            } => {
+                success.mark();
+                state.retry_level = *retry_level;
+            }
+            Self::Retry {
+                scope,
+                more_complete,
+                more_complete_qp,
+            } => {
+                context.close_retry_scope(*scope)?;
+                state.retrying = false;
+                state.more_complete_exhale = *more_complete;
+                state.more_complete_exhale_qp = *more_complete_qp;
+            }
+        }
+        Ok(state)
+    }
+}
+
 /// Retry only when no action continuation succeeded and the first result was fatal.
 /// On retry, restore caller retry/exhale flags only on a successful continuation, as upstream.
 pub fn try_or_fail<C, P, D, J: Clone, Data, Diagnostic, A>(
@@ -201,4 +262,171 @@ where
             continuation(context, result_state, data)
         },
     )
+}
+
+/// Like `try_or_fail`, with a fresh signal that an owned continuation can carry.
+pub fn try_or_fail_with_success<C, P, D, J: Clone, Data, Diagnostic, A>(
+    context: &mut C,
+    state: crate::state::state::State<P, D, J>,
+    action: &mut A,
+    success: RetrySuccess,
+    continuation: &mut impl FnMut(
+        &mut C,
+        crate::state::state::State<P, D, J>,
+        Data,
+    ) -> Result<VerificationResult<Diagnostic>, C::Error>,
+) -> Result<VerificationResult<Diagnostic>, C::Error>
+where
+    C: RetryContext<P, D, J>,
+    A: RetryAction<C, P, D, J, Data, Diagnostic>,
+{
+    let mark = context.mark();
+    let retry_level = state.retry_level;
+    let mut first_state = state.clone();
+    first_state.retry_level = retry_level.wrapping_add(1);
+    let first_attempt = RetryAttempt::First {
+        success: success.clone(),
+        retry_level,
+    };
+    action.set_owned_attempt(first_attempt.clone());
+    let first = action.run(context, first_state, &mut |context, result_state, data| {
+        let result_state = first_attempt.resume(context, result_state)?;
+        continuation(context, result_state, data)
+    })?;
+    if success.observed() || !first.is_fatal() {
+        return Ok(first);
+    }
+    context.rollback_to(mark)?;
+    let original = context.consolidate(state)?;
+    let retry_scope = context.open_retry_scope(&original)?;
+    let (more_complete, more_complete_qp) = context.retry_exhale_modes(&original)?;
+    let mut retry_state = original.clone();
+    retry_state.retrying = true;
+    retry_state.retry_level = retry_level;
+    retry_state.more_complete_exhale = more_complete;
+    retry_state.more_complete_exhale_qp = more_complete_qp;
+    let retry_attempt = RetryAttempt::Retry {
+        scope: retry_scope,
+        more_complete: original.more_complete_exhale,
+        more_complete_qp: original.more_complete_exhale_qp,
+    };
+    action.set_owned_attempt(retry_attempt.clone());
+    action.run(context, retry_state, &mut |context, result_state, data| {
+        let result_state = retry_attempt.resume(context, result_state)?;
+        continuation(context, result_state, data)
+    })
+}
+
+#[cfg(test)]
+mod transferable_retry_tests {
+    use super::*;
+    use crate::state::{
+        state::State,
+        terms::{TermFactory, TermOptions},
+    };
+    use ferrum_silver::ast::{ast::Metadata, program::Program};
+    struct Context {
+        rollbacks: usize,
+    }
+    impl ScopedContext for Context {
+        type Error = ();
+        fn push_scope(&mut self) -> Result<(), ()> {
+            Ok(())
+        }
+        fn pop_scope(&mut self) -> Result<(), ()> {
+            Ok(())
+        }
+    }
+    impl RetryContext<(), (), ()> for Context {
+        type Mark = ();
+        fn mark(&mut self) {}
+        fn rollback_to(&mut self, _: ()) -> Result<(), ()> {
+            self.rollbacks += 1;
+            Ok(())
+        }
+        fn consolidate(&mut self, state: State<(), (), ()>) -> Result<State<(), (), ()>, ()> {
+            Ok(state)
+        }
+        fn retry_exhale_modes(&mut self, _: &State<(), (), ()>) -> Result<(bool, bool), ()> {
+            Ok((false, false))
+        }
+        fn open_retry_log(&mut self, _: &State<(), (), ()>) -> Result<(), ()> {
+            Ok(())
+        }
+        fn close_retry_log(&mut self) -> Result<(), ()> {
+            Ok(())
+        }
+    }
+    struct Action {
+        signal: RetrySuccess,
+        success: bool,
+        calls: usize,
+    }
+    impl RetryAction<Context, (), (), (), (), ()> for Action {
+        fn run(
+            &mut self,
+            _: &mut Context,
+            _: State<(), (), ()>,
+            _: &mut dyn FnMut(
+                &mut Context,
+                State<(), (), ()>,
+                (),
+            ) -> Result<VerificationResult<()>, ()>,
+        ) -> Result<VerificationResult<()>, ()> {
+            self.calls += 1;
+            if self.success {
+                let signal = self.signal.clone();
+                std::thread::spawn(move || signal.mark()).join().unwrap();
+            }
+            Ok(VerificationResult::failure((), false))
+        }
+    }
+    #[test]
+    fn transferred_success_prevents_retry_of_downstream_failure() {
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let program = Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Metadata::default(),
+        );
+        for success in [false, true] {
+            let state = State::new(
+                program.clone(),
+                Default::default(),
+                Default::default(),
+                (),
+                &factory,
+                false,
+                false,
+            );
+            let signal = RetrySuccess::default();
+            let mut action = Action {
+                signal: signal.clone(),
+                success,
+                calls: 0,
+            };
+            let mut context = Context { rollbacks: 0 };
+            assert!(
+                try_or_fail_with_success(
+                    &mut context,
+                    state,
+                    &mut action,
+                    signal,
+                    &mut |_, _, _| Ok(VerificationResult::success())
+                )
+                .unwrap()
+                .is_fatal()
+            );
+            assert_eq!(action.calls, if success { 1 } else { 2 });
+            assert_eq!(context.rollbacks, if success { 0 } else { 1 });
+        }
+    }
 }

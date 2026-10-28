@@ -1634,7 +1634,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Consumer.scala"
 destination = "crates/ferrum-silicon/src/rules/consumer.rs"
 status = "skeleton"
-remaining = ["Exhale projection, branch/let handling, pure and quantified consumption dispatch exist; concrete evaluation/heap/verifier services remain."]
+remaining = ["Owned conditional consumption from direct CFG exhale/ordinary assert carries heap, conjunct and exact retry frames. Method/other callers, returned snapshots, active logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1654,14 +1654,14 @@ repository = "silicon"
 upstream = "src/main/scala/rules/ExecutionFlowController.scala"
 destination = "crates/ferrum-silicon/src/rules/execution_flow_controller.rs"
 status = "skeleton"
-remaining = ["Retry and solver-scope orchestration exist; concrete consolidation and verifier adapters remain."]
+remaining = ["Source local scopes and retry ordering connect native execution. Opt-in owned RetryAttempt frames retain shared success and state restoration; synchronous retries retain local state. Broader failure/parallel compatibility remains."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/Executor.scala"
 destination = "crates/ferrum-silicon/src/rules/executor.rs"
 status = "skeleton"
-remaining = ["Owned CFG/loop terminals and direct statement tails connect conditional inhale jobs to method completion. Consumer, nested statement and further caller frames, public scheduling and broader compatibility remain."]
+remaining = ["Owned CFG/loop and direct inhale/exhale/assert statement tails reach method completion. Nested/other caller frames, public scheduling and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2036,7 +2036,7 @@ repository = "silicon"
 upstream = "src/main/scala/verifier/VerificationPoolManager.scala"
 destination = "crates/ferrum-silicon/src/verifier/verification_pool_manager.rs"
 status = "skeleton"
-remaining = ["Owner-thread cooperative execution carries joined, CFG terminal and producer actions with shared restoration and error draining. Consumer/additional caller frames, public activation, active logger migration and broader compatibility remain."]
+remaining = ["Owner-thread cooperative execution carries joined, CFG, producer and consumer actions with shared restoration and error draining. Additional caller frames, public activation, active logger migration and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2567,7 +2567,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Owned CFG/producer terminals and joined jobs share same-worker/foreign solver isolation and error draining. Consumer/additional caller frames, public scheduling, debug/reporting profiles and CFG-only contributor analysis remain."]
+remaining = ["Owned CFG/producer/consumer terminals share solver isolation, error draining and retry boundaries. Method/other caller frames, returned consumption snapshots, public scheduling, debug/reporting and CFG-only contributor analysis remain."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"
