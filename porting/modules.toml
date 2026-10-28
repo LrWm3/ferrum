@@ -1452,127 +1452,127 @@ status = "mapped"
 repository = "silicon"
 upstream = "src/main/scala/rules/Brancher.scala"
 destination = "crates/ferrum-silicon/src/rules/brancher.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/ChunkSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/chunk_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/Consumer.scala"
 destination = "crates/ferrum-silicon/src/rules/consumer.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/ConsumptionResult.scala"
 destination = "crates/ferrum-silicon/src/rules/consumption_result.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/Evaluator.scala"
 destination = "crates/ferrum-silicon/src/rules/evaluator.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/ExecutionFlowController.scala"
 destination = "crates/ferrum-silicon/src/rules/execution_flow_controller.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/Executor.scala"
 destination = "crates/ferrum-silicon/src/rules/executor.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/FunctionSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/function_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/HavocSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/havoc_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/HeapSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/heap_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/Joiner.scala"
 destination = "crates/ferrum-silicon/src/rules/joiner.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/LetSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/let_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/MagicWandSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/magic_wand_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/MaskHeapSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/mask_heap_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/MoreCompleteExhaleSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/more_complete_exhale_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/PermissionSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/permission_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/PredicateSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/predicate_supporter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/Producer.scala"
 destination = "crates/ferrum-silicon/src/rules/producer.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/QuantifiedChunkSupport.scala"
 destination = "crates/ferrum-silicon/src/rules/quantified_chunk_support.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/StateConsolidator.scala"
 destination = "crates/ferrum-silicon/src/rules/state_consolidator.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/SymbolicExecutionRules.scala"
 destination = "crates/ferrum-silicon/src/rules/symbolic_execution_rules.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silicon"
