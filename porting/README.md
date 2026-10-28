@@ -43,6 +43,14 @@ collection arguments, conditional heaps, loops and wand combinations. Nine
 permanent native CLI regressions also pass. Parallel execution and advanced
 configuration profiles still require integration.
 
+The opt-in SIF plugin now connects paired domain/permission values, relational
+predicate helpers, optimized loops and AST return/termination control. Source
+`old` assertions and inactive `inhale false` guards retain their transformed
+obligations. A frozen 66-case CLI suite and ten constructed-program cases passed
+through both solver transports, along with positive/negative ForPerm probes.
+Break/continue/exception paths and broader relational compatibility still require
+integration; passing these probes is not a soundness or compatibility proof.
+
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and
   records reviewed progress. Symbol outlines live in the destination comments.

@@ -48,6 +48,37 @@ fn check(source: &str, expected: i32) {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn sif_loops_and_dependent_predicates_preserve_relational_obligations() {
+    let predicate = "field f: Int
+        predicate Q(r: Ref) { acc(r.f) && low(r.f) }
+        predicate P(r: Ref) { acc(Q(r)) }
+        method m(r: Ref) requires acc(r.f) && low(r) && low(r.f) {
+            fold acc(Q(r)); fold acc(P(r)); unfold acc(P(r)); unfold acc(Q(r));
+            assert low(r.f);
+        }";
+    let loop_source = "method m(n: Int) requires low(n) {
+        var x: Int := n;
+        while (x > 0) invariant low(x) { x := x - 1; }
+        assert low(x);
+    }";
+    for (source, expected) in [
+        (predicate.to_owned(), 0),
+        (predicate.replace(" && low(r.f) {", " {"), 1),
+        (loop_source.to_owned(), 0),
+        (loop_source.replace(" requires low(n)", ""), 1),
+    ] {
+        let output = run(&source, &["--plugin", "viper.silver.plugin.sif.SIFPlugin"]);
+        assert_eq!(
+            output.status.code(),
+            Some(expected),
+            "{source}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn sif_inactive_inhale_false_cannot_hide_a_failed_assertion() {
     for (guard, expected) in [("false", 1), ("true", 0)] {
         let source = format!("method m() {{ if ({guard}) {{ inhale false; }} assert false; }}");

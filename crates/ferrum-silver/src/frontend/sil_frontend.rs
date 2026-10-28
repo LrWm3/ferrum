@@ -692,6 +692,89 @@ mod tests {
             PathBuf::from("test.vpr"),
             standard_plugin_manager(&config).unwrap(),
         );
+        let parsed = phases
+            .parse("method old_low(x: Int) requires low(x) ensures old(low(x)) {}")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        assert!(matches!(
+            product.methods[0].posts[0].kind(),
+            crate::ast::expression::ExpKind::Old(_)
+        ));
+        phases.check_consistency(product).unwrap();
+        let parsed = phases.parse("method loop_product(n: Int) requires low(n) { var x: Int := n; while (x > 0) invariant low(x) { x := x - 1; } assert low(x); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases.parse("field f: Int predicate Q(r: Ref) { acc(r.f) && low(r.f) } predicate P(r: Ref) { acc(Q(r)) } method m(r: Ref) requires acc(r.f) && low(r) && low(r.f) { fold acc(Q(r)); fold acc(P(r)); unfold acc(P(r)); unfold acc(Q(r)); assert low(r.f); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        assert_eq!(
+            product
+                .functions
+                .iter()
+                .map(|f| f.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Q$_low", "P$_low"]
+        );
+        phases.check_consistency(product).unwrap();
+        let parsed = phases.parse("field f: Int predicate P(r: Ref) { acc(r.f) && low(r.f) } method relpred(r: Ref) requires acc(r.f) && low(r) && low(r.f) { fold acc(P(r)); unfold acc(P(r)); assert low(r.f); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        assert!(product.functions.iter().any(|f| f.name == "P$_low"));
+        phases.check_consistency(product).unwrap();
+        let parsed = phases
+            .parse(
+                "method disjunction(x: Int, y: Int) requires low(x) { assert low(x) || low(y); }",
+            )
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases
+            .parse("field f: Int method forperm_test() { assert forperm r: Ref [r.f] :: r == r; }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases.parse("field f: Int method wand_contract(r: Ref) requires acc(r.f) --* acc(r.f) { assert true; }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases.parse("domain D { function value(x: D): Int } method domain_value(x: D) requires low(x) { assert low(value(x)); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases
+            .parse("domain D { axiom { low(true) } } method m() {}")
+            .unwrap();
+        assert!(phases.analyze(parsed).is_err());
+        let parsed = phases
+            .parse(
+                "method permissions(p: Perm) requires low(p) { var q: Perm := p; assert low(q); }",
+            )
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
         let parsed = phases.parse("field f: Int predicate P(r: Ref) { acc(r.f) } method pred(r: Ref) requires acc(r.f) { fold acc(P(r)); unfold acc(P(r)); assert acc(r.f); }").unwrap();
         let analyzed = phases.analyze(parsed).unwrap();
         let program = phases.translate(analyzed).unwrap();
@@ -854,11 +937,22 @@ mod tests {
         let program = phases.check_consistency(program).unwrap();
         let product = phases.prepare_verification(program).unwrap();
         phases.check_consistency(product).unwrap();
-        let parsed = phases.parse("method m() { while (false) {} }").unwrap();
+        let parsed = phases
+            .parse("method m() { while (false) invariant [true, false] {} }")
+            .unwrap();
         let analyzed = phases.analyze(parsed).unwrap();
         let program = phases.translate(analyzed).unwrap();
         let program = phases.check_consistency(program).unwrap();
-        assert!(phases.prepare_verification(program).is_err());
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases
+            .parse("method m() { while (false) invariant [[true, false], true] {} }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
     }
     #[test]
     fn macro_arp_expression_uses_plugin_copy_hook() {
