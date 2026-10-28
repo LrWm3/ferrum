@@ -29,31 +29,64 @@
 //! Reconcile CLI compatibility, intentional Ferrum naming, signal cancellation and help/version
 //! exit behavior with the configuration port; record adopted differences before implementation.
 //!
-//! Status: CLI skeleton; verification requests explicitly fail as incomplete.
+//! Status: configuration, frontend and native solver session connected; unsupported
+//! features report execution failure.
 
 fn main() -> std::process::ExitCode {
-    let args: Vec<_> = std::env::args_os().skip(1).collect();
-    match args.as_slice() {
-        [arg] if arg == "--help" || arg == "-h" => {
-            println!(
-                "Ferrum native Viper port (implementation in progress)\nUsage: ferrum <file.vpr>\nVerification is not yet available."
-            );
+    use ferrum::{RunOutcome, silver::verifier::verification_result::VerificationResult};
+    let args = match std::env::args_os()
+        .skip(1)
+        .map(|a| a.into_string())
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(args) => args,
+        Err(_) => {
+            eprintln!("Arguments must be UTF-8");
+            return std::process::ExitCode::from(2);
+        }
+    };
+    let config = match ferrum::silicon::config::Config::parse(&args) {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("{error}");
+            return std::process::ExitCode::from(2);
+        }
+    };
+    if config.frontend.print_help {
+        println!(
+            "Ferrum native Viper port\nUsage: ferrum [options] <file.vpr>\n\n  --parseOnly                 Parse source without verification\n  --z3Exe <path>              Select the Z3 executable\n  --prover <Z3|cvc5|Z3-API>   Select solver (native API binding pending)\n  --assertTimeout <ms>        Limit each assertion query\n  --proverEnableTimeBounds    Use time bounds instead of resource bounds\n  --numberOfErrorsToReport N  Error limit per member (0: unlimited)\n  --disableDefaultPlugins    Disable default source transformations\n\nPort in progress; unconnected features return an explicit error."
+        );
+        return std::process::ExitCode::SUCCESS;
+    }
+    if config.frontend.print_version {
+        println!("ferrum {}", env!("CARGO_PKG_VERSION"));
+        return std::process::ExitCode::SUCCESS;
+    }
+    let report = match ferrum::run_file(config) {
+        Ok(report) => report,
+        Err(error) => {
+            eprintln!("{error}");
+            return std::process::ExitCode::from(2);
+        }
+    };
+    for warning in report.warnings {
+        eprintln!("{warning}");
+    }
+    match report.outcome {
+        RunOutcome::Parsed => {
+            println!("Parsing completed.");
             std::process::ExitCode::SUCCESS
         }
-        [arg] if arg == "--version" => {
-            println!("ferrum {} (incomplete port)", env!("CARGO_PKG_VERSION"));
+        RunOutcome::Verified(VerificationResult::Success) => {
+            println!("Verification succeeded.");
             std::process::ExitCode::SUCCESS
         }
-        [path] => match ferrum::verify_file(std::path::Path::new(path)) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("{error}");
-                std::process::ExitCode::from(2)
+        RunOutcome::Verified(VerificationResult::Failure(errors)) => {
+            for error in &errors {
+                eprintln!("{}", error.render().unwrap_or_else(|_| error.full_id()));
             }
-        },
-        _ => {
-            eprintln!("Usage: ferrum <file.vpr> (verification implementation incomplete)");
-            std::process::ExitCode::from(2)
+            eprintln!("Verification failed with {} error(s).", errors.len());
+            std::process::ExitCode::from(1)
         }
     }
 }

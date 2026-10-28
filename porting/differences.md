@@ -170,3 +170,20 @@ specific error. Debugger input/worker/solver services propagate typed failures;
 the interactive loop, complete printing and failure-context assembly are pending.
 The dormant flyweight annotation has an explicit native pool rather than a new
 procedural macro. Concurrent creation returns the canonical stored handle.
+
+
+## Native execution assembly
+
+The first concrete runtime composes the translated rule algorithms in one owned
+worker and solver. The source default uses a separate preamble verifier and a
+worker pool; native parallel scheduling remains pending. Repeated public session
+runs recreate the owned context and replay source preambles, rather than retain
+a process across resets. Unsupported semantics and requested runtime policies
+return explicit errors. Native CLI exit codes distinguish success (0), failed
+proof obligations (1), and input/configuration/execution errors (2).
+
+Ferrum's `--parseOnly` actually loads and parses the source and its imports,
+matching the option's documented purpose. The pinned Silver runner instead exits
+in `prepare` because `SilFrontendConfig.exit` includes `parseOnly`; Ferrum does
+not reproduce that early-return bug. Native help covers common options; exact
+Scallop help, abbreviation and diagnostic compatibility remains pending.

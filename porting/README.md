@@ -1,15 +1,18 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 400 mapped and assembly modules. `described` files
+The Cargo workspace now has 401 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
 
-The CLI still returns `PortIncomplete` for verification. A native solver protocol
-round trip works, but the concrete execution services and complete verification
-pipeline are not connected. No end-to-end verification or speed improvement has
-been demonstrated.
+The CLI connects configuration, parsing, default plugins, consistency checks and
+source-shaped Silicon rules to the native Z3 stdio transport. End-to-end smoke
+checks cover valid and invalid ordinary methods, contracts, branches, allocation,
+field permissions and method calls. Unsupported features return execution errors.
+The default runtime currently uses one worker; functions, domains, loops,
+fold/unfold, quantified permissions, wands, complete exhale and advanced reporting
+remain incomplete. No comparative speed improvement has been established.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and
@@ -57,9 +60,10 @@ and inventory entry.
 The final first-pass workspace checks, build and test-target compilation passed
 with the lockfile and offline dependencies. Clippy completed with warnings about
 source-shaped type/API complexity, nested conditionals, mutable key types and
-other cleanup items; these remain review work. A CLI smoke check returned exit 2
-and `PortIncomplete` for a verification request. Focused tests accompanied the
-reviewed semantic corrections; the broad upstream suite has not been run.
+other cleanup items; these remain review work. Subsequent native integration
+checks distinguish successful verification (exit 0), proof failure (exit 1), and
+syntax/unsupported execution errors (exit 2). The source frontend and diagnostic
+regressions pass; the broad upstream compatibility suite has not been run.
 
 Run the inventory and implementation checks from the repository root:
 

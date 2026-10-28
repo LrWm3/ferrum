@@ -30,8 +30,12 @@ partial and require concrete services or additional source cases. This does not
 mark language/backend assembly or compatibility milestones complete. Reviewed
 per-file progress and remaining gaps are tracked in [porting/modules.toml](porting/modules.toml);
 [porting/README.md](porting/README.md) lists checks and current limitations.
-The native CLI currently rejects verification with `PortIncomplete` until the
-frontend, solver and verification pipeline are connected.
+The native CLI now connects the frontend and default plugins to source-shaped
+Silicon execution rules and a native Z3 process. Ordinary methods, contracts,
+branches, field permissions and method calls have end-to-end smoke coverage.
+Functions, domains, loops, fold/unfold, quantified permissions, wands and advanced
+execution/reporting profiles still need concrete integration; unsupported paths
+return execution errors. Full compatibility and performance remain unmeasured.
 
 ## Upstream baseline and scope
 

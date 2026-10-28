@@ -2248,12 +2248,12 @@ status = "described"
 [[scaffolding]]
 destination = "src/lib.rs"
 status = "skeleton"
-remaining = ["Verification pipeline unavailable; verify_file always returns PortIncomplete."]
+remaining = ["Native source and AST sessions run source-shaped ordinary method/heap rules with explicit lifecycle cleanup; full language, timeout/reporting and embedding compatibility remain."]
 
 [[scaffolding]]
 destination = "src/main.rs"
 status = "skeleton"
-remaining = ["CLI help/version only; verification arguments exit with status 2."]
+remaining = ["CLI connects configuration, frontend/default plugins and native solver verification; advanced options and full source help/reporting compatibility remain."]
 
 [[scaffolding]]
 destination = "crates/ferrum-silver/src/lib.rs"
@@ -2569,4 +2569,4 @@ role = "assembly"
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
 role = "assembly"
-remaining = ["Connect concrete execution services across evaluator, heap rules, member verification and program orchestration."]
+remaining = ["Ordinary method/predicate/field/call and branch services are connected; functions, domains, loops, fold/unfold, quantified permissions, wands, native API and advanced execution profiles remain."]
