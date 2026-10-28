@@ -130,6 +130,9 @@ Source AST reconstruction retains Scala's structural-equality behavior: an
 unforced parent copy can discard equal-syntax child metadata changes. The new
 bottom-up forced-copy traversal is used where extra return-type changes must be
 preserved; it does not silently change the existing preorder reconstruction rule.
+Domain-instance type substitution currently forces reconstruction, so unchanged
+node identities can differ from Scala while reconstructed metadata and return
+types are retained. Exact reuse during that substitution remains a porting gap.
 
 Complete source printers remain explicit dependencies where required. Native
 Debug strings are not accepted as equivalent AST/term rendering. Silver cache

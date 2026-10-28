@@ -17,8 +17,9 @@ connects recursive domain dependencies and ADTs inside collections.
 Impure branch joins preserve conditional ownership and consumed snapshots in
 focused positive and negative checks. Pure and heap-dependent functions now run
 the source contract/body phases and use recorded snapshots for their axioms.
-Recursive calls under predicate unfoldings, interpreted domain types, quantified
-resources, wands, complete exhale and advanced
+Interpreted backend types, including bitvectors and floating-point values, now
+reach their source SMT operations and snapshot wrappers. Recursive calls under
+predicate unfoldings, quantified resources, wands, complete exhale and advanced
 reporting remain incomplete. No comparative speed improvement has been established.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.

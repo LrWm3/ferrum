@@ -1574,6 +1574,7 @@ fn mixed_collection_type(typ: &Type, allow_domains: bool) -> bool {
             mixed_collection_type(&pair.0, allow_domains)
                 && mixed_collection_type(&pair.1, allow_domains)
         }
+        Type::Backend(_) => allow_domains,
         Type::Domain(domain) => {
             allow_domains
                 && domain
@@ -1687,10 +1688,14 @@ pub fn analyze_collections(
 pub struct NativeGeneralPreamble {
     pub domains: NativePreambleData,
     pub collections: NativeCollectionsPreamble,
+    backend_sorts: Vec<crate::state::terms::Sort>,
 }
 impl NativeGeneralPreamble {
     pub fn sorts(&self) -> impl Iterator<Item = &crate::state::terms::Sort> {
-        self.domains.sorts().chain(self.collections.sorts())
+        self.domains
+            .sorts()
+            .chain(self.collections.sorts())
+            .chain(self.backend_sorts.iter())
     }
     pub fn declare_sorts<P: ProverLike>(
         &self,
@@ -1735,6 +1740,32 @@ pub fn analyze_general(
         find_necessary_type_instances(program, threshold)
     }
     .map_err(NativePreambleError::GroundTypes)?;
+    // The source linked set deduplicates BackendType values, not SMT sort names.
+    fn gather_backend_sorts(
+        node: &Node,
+        converter: &DefaultSymbolConverter,
+        seen: &mut std::collections::HashSet<Type>,
+        out: &mut Vec<crate::state::terms::Sort>,
+    ) -> Result<(), NativePreambleError<std::convert::Infallible>> {
+        if let Node::Type(t @ Type::Backend(_)) = node {
+            if seen.insert(t.clone()) {
+                out.push(converter.to_sort(t).map_err(NativePreambleError::Symbol)?);
+            }
+        }
+        for child in ferrum_silver::ast::utility::nodes::subnodes(node)
+            .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?
+        {
+            gather_backend_sorts(&child, converter, seen, out)?;
+        }
+        Ok(())
+    }
+    let mut backend_sorts = Vec::new();
+    gather_backend_sorts(
+        &Node::Program(program.clone()),
+        converter,
+        &mut std::collections::HashSet::new(),
+        &mut backend_sorts,
+    )?;
     let collections = NativeCollectionsPreamble {
         sequences: analyze_sequences_inner(
             program,
@@ -1849,6 +1880,7 @@ pub fn analyze_general(
     Ok(NativeGeneralPreamble {
         domains,
         collections,
+        backend_sorts,
     })
 }
 
@@ -2405,6 +2437,86 @@ mod multiset_tests {
             .iter()
             .chain(preamble.collections.sequences.contributor.axioms.iter())
         {
+            smt.convert_term(axiom).unwrap();
+        }
+    }
+    #[test]
+    fn general_preamble_rejects_backend_type_without_smt_interpretation() {
+        let meta = Metadata::default();
+        let typ = Type::Backend(ferrum_silver::ast::r#type::BackendType::new(
+            "B".into(),
+            [("Boogie".into(), "bv32".into())].into_iter().collect(),
+        ));
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![LocalVarDecl::new("b".into(), typ, meta.clone())],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta);
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        assert!(matches!(
+            analyze_general(&program, &converter, &factory, false, 1),
+            Err(NativePreambleError::Symbol(
+                SymbolConversionError::MissingSmtlibName
+            ))
+        ));
+    }
+    #[test]
+    fn general_preamble_collects_interpreted_sorts_and_sequence_instances() {
+        use ferrum_silver::ast::utility::backend_type_factories::BVFactory;
+        let meta = Metadata::default();
+        let bitvec = BVFactory { size: 32 };
+        let backend = bitvec.typ();
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![
+                LocalVarDecl::new("b".into(), backend.clone(), meta.clone()),
+                LocalVarDecl::new("s".into(), Type::Seq(Arc::new(backend)), meta.clone()),
+            ],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(
+            vec![bitvec.construct_domain(vec![bitvec.from_int("toBV32")])],
+            vec![],
+            vec![],
+            vec![],
+            vec![method],
+            vec![],
+            meta,
+        );
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        let preamble = analyze_general(&program, &converter, &factory, false, 1).unwrap();
+        let backend_sort =
+            Sort::SmtSort(crate::state::identifiers::Identifier::new("(_ BitVec 32)"));
+        assert!(preamble.sorts().any(|s| *s == backend_sort));
+        assert!(
+            preamble
+                .collections
+                .sorts()
+                .any(|s| *s == Sort::Seq(Box::new(backend_sort.clone())))
+        );
+        assert!(preamble.domains.domains.sorts.is_empty());
+        let mut smt =
+            crate::decider::term_to_smt_lib2_converter::TermToSmtLib2Converter::new(factory);
+        for axiom in &preamble.collections.sequences.contributor.axioms {
             smt.convert_term(axiom).unwrap();
         }
     }

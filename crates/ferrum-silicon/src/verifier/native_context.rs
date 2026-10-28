@@ -8,8 +8,9 @@
 //! Upstream service composition:
 //! https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/verifier/BaseVerifier.scala
 //! Status: native execution connects the prover, basic heap and predicate operations,
-//! branching, loop invariants and method calls. Quantified resources and other
-//! unconnected modes remain explicit errors.
+//! function phases and calls, branching, loop invariants, method calls, collection and
+//! domain preambles. Quantified-resource services are partially connected but remain gated;
+//! unsupported execution modes and resource rules return explicit errors.
 
 use crate::interfaces::decider::prover::ProverLike;
 use crate::rules::chunk_supporter::ChunkExecutionError;
@@ -78,6 +79,8 @@ pub struct NativeOptions {
     pub disable_short_circuiting: bool,
     pub error_limit: usize,
     pub respect_function_pre_permission_amounts: bool,
+    pub qp_split_timeout: i32,
+    pub assume_injectivity_on_inhale: bool,
 }
 impl NativeOptions {
     /// Select only features for which the native execution and reporting context is connected.
@@ -163,6 +166,8 @@ impl NativeOptions {
             respect_function_pre_permission_amounts: config
                 .frontend
                 .respect_function_pre_perm_amounts,
+            qp_split_timeout: config.qp_split_timeout,
+            assume_injectivity_on_inhale: config.frontend.assume_injectivity_on_inhale,
         })
     }
 }
@@ -2007,9 +2012,27 @@ where
             ProductionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ProductionError<Self::Error>> {
-        Err(ProductionError::Context(NativeError::Unsupported(
-            "evaluate_quantified_permission",
-        )))
+        let mut callback_error = None;
+        let result = self.evaluate_native_quantified_permission(
+            state,
+            forall,
+            condition,
+            permission,
+            arguments,
+            qid,
+            error,
+            &mut |ctx, state, data| match continuation(ctx, state, data) {
+                Ok(value) => Ok(value),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(EvaluationError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| ProductionError::Context(NativeError::Evaluation(format!("{e:?}"))))
     }
     fn produce_quantified(
         &mut self,
@@ -2028,9 +2051,93 @@ where
             ProductionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ProductionError<Self::Error>> {
-        Err(ProductionError::Context(NativeError::Unsupported(
-            "produce_quantified",
-        )))
+        use crate::rules::quantified_chunk_support::{
+            GeneralProductionInput, GeneralProductionOutcome, SnapshotResource,
+        };
+        let source = match resource {
+            ResourceKey::Field(field) => SnapshotResource::Field(field.clone()),
+            ResourceKey::Predicate(predicate) => SnapshotResource::Predicate(predicate.clone()),
+            ResourceKey::Wand(wand) => SnapshotResource::Wand(wand.ghost_free_wand.clone()),
+        };
+        let formals = state
+            .formal_arg_vars(&source, &self.base.symbol_converter, &self.factory)
+            .map_err(|e| ProductionError::Context(NativeError::Diagnostic(format!("{e:?}"))))?;
+        let sort = match resource {
+            ResourceKey::Field(field) => Sort::FieldValueFunction {
+                codomain: Box::new(
+                    self.base
+                        .symbol_converter
+                        .to_sort(&field.typ)
+                        .map_err(|e| ProductionError::Context(NativeError::Sort(e)))?,
+                ),
+                field_name: field.name.clone(),
+            },
+            ResourceKey::Predicate(predicate) => Sort::PredicateSnapFunction {
+                codomain: Box::new(
+                    state
+                        .predicate_snap_map
+                        .get(&predicate.name)
+                        .cloned()
+                        .ok_or(ProductionError::Context(NativeError::Unsupported(
+                            "predicate snapshot sort",
+                        )))?,
+                ),
+                predicate_name: predicate.name.clone(),
+            },
+            ResourceKey::Wand(wand) => Sort::PredicateSnapFunction {
+                codomain: Box::new(Sort::MagicWandSnapFunction),
+                predicate_name: wand.to_string(),
+            },
+        };
+        let snapshot_map = self
+            .snapshot_term(snapshot, sort)
+            .map_err(ProductionError::Context)?;
+        let (_, _, access) =
+            ferrum_silver::ast::utility::quantified_permissions::quantified_permission_assertion(
+                forall,
+            )
+            .ok_or(ProductionError::Context(NativeError::Unsupported(
+                "quantified permission shape",
+            )))?;
+        let permission = access.permission_or_full().ok_or(ProductionError::Context(
+            NativeError::Unsupported("quantified permission expression"),
+        ))?;
+        let has_explicit_triggers =
+            matches!(forall.kind(), ExpKind::Forall(_, triggers, _) if !triggers.is_empty());
+        let failure = NativeQuantifiedProductionError {
+            partial: error.clone(),
+            permission,
+            access,
+        };
+        let input = GeneralProductionInput {
+            qvars: data.qvars.clone(),
+            qvar_exps: data.qvar_expressions.clone(),
+            formal_vars: formals,
+            formal_var_exps: None,
+            qid: qid.into(),
+            has_explicit_triggers,
+            triggers: data.triggers.clone(),
+            aux_globals: data.auxiliary_globals.clone(),
+            aux_non_globals: data.auxiliary_non_globals.clone(),
+            condition: data.condition.clone(),
+            condition_exp: data.condition_exp.clone(),
+            args: data.arguments.clone(),
+            arg_exps: data.argument_expressions.clone(),
+            snapshot_map,
+            permission: data.permission.clone(),
+            permission_exp: data.permission_exp.clone(),
+            debugging: false,
+        };
+        let factory = self.factory.clone();
+        match crate::rules::quantified_chunk_support::produce_general_quantified(
+            &factory, self, state, resource, input, &failure,
+        )
+        .map_err(|e| {
+            ProductionError::Context(NativeError::Chunk(format!("quantified production: {e:?}")))
+        })? {
+            GeneralProductionOutcome::Produced(state) => continuation(self, state),
+            GeneralProductionOutcome::Failed(result) => Ok(result),
+        }
     }
     fn produce_special(
         &mut self,
@@ -2567,9 +2674,27 @@ where
             ConsumptionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>> {
-        Err(ConsumptionError::Context(NativeError::Unsupported(
-            "evaluate_quantified_permission",
-        )))
+        let mut callback_error = None;
+        let result = self.evaluate_native_quantified_permission(
+            state,
+            forall,
+            condition,
+            permission,
+            arguments,
+            qid,
+            error,
+            &mut |ctx, state, data| match continuation(ctx, state, data) {
+                Ok(value) => Ok(value),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(EvaluationError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| ConsumptionError::Context(NativeError::Evaluation(format!("{e:?}"))))
     }
     fn consume_quantified(
         &mut self,
@@ -2592,9 +2717,112 @@ where
             ConsumptionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>> {
-        Err(ConsumptionError::Context(NativeError::Unsupported(
-            "consume_quantified",
-        )))
+        use crate::rules::quantified_chunk_support::{
+            GeneralConsumptionExecutionError, GeneralConsumptionPreparation,
+            GeneralProductionInput, SnapshotResource,
+        };
+        let source = match resource {
+            ResourceKey::Field(field) => SnapshotResource::Field(field.clone()),
+            ResourceKey::Predicate(predicate) => SnapshotResource::Predicate(predicate.clone()),
+            ResourceKey::Wand(wand) => SnapshotResource::Wand(wand.ghost_free_wand.clone()),
+        };
+        let formals = state
+            .formal_arg_vars(&source, &self.base.symbol_converter, &self.factory)
+            .map_err(|e| ConsumptionError::Context(NativeError::Diagnostic(format!("{e:?}"))))?;
+        let identifier = match resource {
+            ResourceKey::Field(f) => {
+                ChunkIdentifier::Basic(crate::state::chunks::BasicChunkIdentifier(f.name.clone()))
+            }
+            ResourceKey::Predicate(p) => {
+                ChunkIdentifier::Basic(crate::state::chunks::BasicChunkIdentifier(p.name.clone()))
+            }
+            ResourceKey::Wand(w) => ChunkIdentifier::Wand(w.clone()),
+        };
+        let (_, _, access) =
+            ferrum_silver::ast::utility::quantified_permissions::quantified_permission_assertion(
+                forall,
+            )
+            .ok_or(ConsumptionError::Context(NativeError::Unsupported(
+                "quantified permission shape",
+            )))?;
+        let permission = access
+            .permission_or_full()
+            .ok_or(ConsumptionError::Context(NativeError::Unsupported(
+                "quantified permission expression",
+            )))?;
+        let failure = NativeQuantifiedProductionError {
+            partial: error.clone(),
+            permission,
+            access,
+        };
+        let has_explicit_triggers =
+            matches!(forall.kind(), ExpKind::Forall(_, triggers, _) if !triggers.is_empty());
+        let input = GeneralProductionInput {
+            qvars: data.qvars.clone(),
+            qvar_exps: data.qvar_expressions.clone(),
+            formal_vars: formals,
+            formal_var_exps: None,
+            qid: qid.into(),
+            has_explicit_triggers,
+            triggers: data.triggers.clone(),
+            aux_globals: data.auxiliary_globals.clone(),
+            aux_non_globals: data.auxiliary_non_globals.clone(),
+            condition: data.condition.clone(),
+            condition_exp: data.condition_exp.clone(),
+            args: data.arguments.clone(),
+            arg_exps: data.argument_expressions.clone(),
+            // The shared input's snapshot map is consumed only by production; preparation never reads it.
+            snapshot_map: self.factory.unit(),
+            permission: data.permission.clone(),
+            permission_exp: data.permission_exp.clone(),
+            debugging: false,
+        };
+        let factory = self.factory.clone();
+        let plan =
+            match crate::rules::quantified_chunk_support::prepare_general_quantified_consumption(
+                &factory,
+                self,
+                state,
+                &heap,
+                resource,
+                &identifier,
+                input,
+                &failure,
+            )
+            .map_err(|e| {
+                ConsumptionError::Context(NativeError::Chunk(format!(
+                    "quantified consumption preparation: {e:?}"
+                )))
+            })? {
+                GeneralConsumptionPreparation::Ready(plan) => plan,
+                GeneralConsumptionPreparation::Failed(result) => return Ok(result),
+            };
+        let mut callback_error = None;
+        let result = crate::rules::quantified_chunk_support::execute_general_quantified_consumption(
+            &factory,
+            self,
+            plan,
+            heap,
+            resource,
+            &identifier,
+            return_snapshot,
+            &failure,
+            &mut |ctx, state, heap, snapshot| match continuation(ctx, state, heap, snapshot) {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(GeneralConsumptionExecutionError::Service(
+                        NativeError::ContinuationAbort,
+                    ))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| {
+            ConsumptionError::Context(NativeError::Chunk(format!("quantified consumption: {e:?}")))
+        })
     }
     fn consume_special(
         &mut self,
@@ -3419,9 +3647,59 @@ where
             ChunkExecutionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ChunkExecutionError<Self::Error>> {
-        Err(ChunkExecutionError::Context(NativeError::Unsupported(
-            "consume_quantified_single",
-        )))
+        use crate::rules::quantified_chunk_support::{SingleConsumptionError, SnapshotResource};
+        let source = match resource {
+            ResourceKey::Field(field) => SnapshotResource::Field(field.clone()),
+            ResourceKey::Predicate(predicate) => SnapshotResource::Predicate(predicate.clone()),
+            ResourceKey::Wand(wand) => SnapshotResource::Wand(wand.ghost_free_wand.clone()),
+        };
+        let variables = state
+            .formal_arg_vars(&source, &self.base.symbol_converter, &self.factory)
+            .map_err(|e| ChunkExecutionError::Context(NativeError::Diagnostic(format!("{e:?}"))))?;
+        let identifier = match resource {
+            ResourceKey::Field(f) => {
+                ChunkIdentifier::Basic(crate::state::chunks::BasicChunkIdentifier(f.name.clone()))
+            }
+            ResourceKey::Predicate(p) => {
+                ChunkIdentifier::Basic(crate::state::chunks::BasicChunkIdentifier(p.name.clone()))
+            }
+            ResourceKey::Wand(w) => ChunkIdentifier::Wand(w.clone()),
+        };
+        let factory = self.factory.clone();
+        let mut callback_error = None;
+        let result = crate::rules::quantified_chunk_support::consume_single_quantified_location(
+            &factory,
+            self,
+            state,
+            heap,
+            resource,
+            &identifier,
+            &variables,
+            None,
+            args,
+            debug_args,
+            permission,
+            debug_permission,
+            return_snapshot,
+            error,
+            &mut |ctx, state, heap, snapshot| match continuation(ctx, state, heap, snapshot) {
+                Ok(value) => Ok(value),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(SingleConsumptionError::Service(
+                        NativeError::ContinuationAbort,
+                    ))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| {
+            ChunkExecutionError::Context(NativeError::Chunk(format!(
+                "quantified single consumption: {e:?}"
+            )))
+        })
     }
     fn create_wand_chunk(
         &mut self,
@@ -5231,6 +5509,64 @@ impl NativeContext {
                 state.perm_locations = wildcard_permission_locations(program, method)?;
             }
         }
+        use ferrum_silver::ast::utility::{
+            nodes::Node,
+            quantified_permissions::{self, Resource},
+        };
+        state.qp_fields = quantified_permissions::quantified_fields(&member, program)
+            .map_err(|e| NativeError::Diagnostic(format!("quantified field analysis: {e:?}")))?;
+        state.qp_predicates = quantified_permissions::quantified_predicates(&member, program)
+            .map_err(|e| {
+                NativeError::Diagnostic(format!("quantified predicate analysis: {e:?}"))
+            })?;
+        state.qp_magic_wands =
+            quantified_permissions::quantified_magic_wands(&Node::Member(member.clone()), program)
+                .map_err(|e| NativeError::Diagnostic(format!("quantified wand analysis: {e:?}")))?
+                .into_iter()
+                .map(|wand| {
+                    crate::state::chunks::MagicWandIdentifier::new(wand, program)
+                        .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))
+                })
+                .collect::<Result<_, _>>()?;
+        state.heap_dependent_triggers = quantified_permissions::resource_triggers(&member, program)
+            .map_err(|e| NativeError::Diagnostic(format!("resource trigger analysis: {e:?}")))?
+            .into_iter()
+            .map(|resource| match resource {
+                Resource::Field(field) => Ok(ResourceKey::Field(Arc::new(field))),
+                Resource::Predicate(predicate) => Ok(ResourceKey::Predicate(Arc::new(predicate))),
+                Resource::MagicWand(wand) => {
+                    crate::state::chunks::MagicWandIdentifier::new(wand, program)
+                        .map(ResourceKey::Wand)
+                        .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))
+                }
+            })
+            .collect::<Result<_, _>>()?;
+        let info = match &member {
+            Member::Domain(m) => &m.meta.info,
+            Member::Field(m) => &m.meta.info,
+            Member::Function(m) => &m.meta.info,
+            Member::Predicate(m) => &m.meta.info,
+            Member::Method(m) => &m.meta.info,
+            Member::Extension(_) => {
+                return Err(NativeError::Unsupported("extension member annotations"));
+            }
+        };
+        let mut mode = |quantified| {
+            crate::supporters::annotation_supporter::exhale_mode(
+                member.name(),
+                info,
+                quantified,
+                |message| {
+                    self.warnings.push(message);
+                    Ok::<_, ()>(())
+                },
+            )
+            .map_err(|_| NativeError::Unsupported("exhale annotation"))
+        };
+        state.more_complete_exhale = mode(false)?.unwrap_or(self.options.exhale_mode)
+            == crate::config::ExhaleMode::MoreComplete;
+        state.more_complete_exhale_qp = mode(true)?.unwrap_or(self.options.exhale_mode_qp)
+            == crate::config::ExhaleMode::MoreComplete;
         state.current_member = Some(member);
         state.predicate_snap_map = analysis.snapshot_sorts.clone();
         state.predicate_formal_var_map = analysis.snapshot_formals.clone();
@@ -5303,8 +5639,7 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
             if matches!(node, Node::DomainAxiom(_)) {
                 return Ok(());
             }
-            if matches!(node, Node::Type(typ) if matches!(typ,Type::Backend(_) | Type::Extension(_)))
-            {
+            if matches!(node, Node::Type(typ) if matches!(typ,Type::Extension(_))) {
                 return Err("collection or domain preamble analysis");
             }
             if let Node::Exp(exp) = node {
@@ -6717,15 +7052,34 @@ fn use_general_preamble(
         r#type::Type,
         utility::nodes::{Node, subnodes},
     };
+    fn contains_backend(node: &Node) -> Result<bool, String> {
+        if matches!(node, Node::Type(Type::Backend(_))) {
+            return Ok(true);
+        }
+        for child in subnodes(node).map_err(|e| format!("{e:?}"))? {
+            if contains_backend(&child)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+    let backend = contains_backend(&Node::Program(program.clone()))?
+        || program.domains.iter().any(|domain| {
+            domain
+                .functions
+                .iter()
+                .any(|function| function.interpretation.is_some())
+        });
     let collection = collection_program(program);
     let legacy = native_domain_preamble(program, converter, factory);
     if let Ok((seq, set, map, multiset)) = collection
         && legacy.is_ok()
+        && !backend
         && (!(seq || set || map || multiset) || program.domains.is_empty())
     {
         return Ok(false);
     }
-    if program.domains.is_empty() {
+    if program.domains.is_empty() && !backend {
         return Err("general domain preamble requires a user domain".into());
     }
     fn inspect(
@@ -6734,7 +7088,7 @@ fn use_general_preamble(
         name: &str,
         dependencies: &mut Vec<String>,
     ) -> Result<(), String> {
-        if matches!(node, Node::Type(Type::Backend(_) | Type::Extension(_))) {
+        if matches!(node, Node::Type(Type::Extension(_))) {
             return Err("backend or extension types in the general domain preamble".into());
         }
         if let Node::Type(Type::Domain(domain)) = node {
@@ -6744,8 +7098,8 @@ fn use_general_preamble(
         }
         if let Node::Exp(exp) = node {
             match exp.kind() {
-                ExpKind::FuncApp(..) | ExpKind::BackendFuncApp(..) => {
-                    return Err("heap or backend function in general domain axioms".into());
+                ExpKind::FuncApp(..) => {
+                    return Err("heap function in general domain axioms".into());
                 }
                 ExpKind::DomainFuncApp(function, ..) => {
                     let target = program
@@ -6765,11 +7119,6 @@ fn use_general_preamble(
     }
     let mut dependencies = std::collections::HashMap::<String, Vec<String>>::new();
     for domain in &program.domains {
-        if domain.functions.iter().any(|f| f.interpretation.is_some()) {
-            return Err(
-                "interpreted domain functions are unsupported in the general preamble".into(),
-            );
-        }
         let mut targets = Vec::new();
         inspect(
             &Node::Member(ferrum_silver::ast::program::Member::Domain(domain.clone())),
@@ -8047,17 +8396,1015 @@ where
     }
     fn trigger_single_location(
         &mut self,
-        _: &State<PD, FD, JoinMode>,
-        _: &ListBackedHeap,
-        _: &ResourceKey,
-        _: &[Term],
-        _: &[Term],
+        state: &State<PD, FD, JoinMode>,
+        heap: &ListBackedHeap,
+        resource: &ResourceKey,
+        formals: &[Term],
+        args: &[Term],
     ) -> Result<crate::state::snapshot_map_cache::SnapshotMapCache, Self::Error> {
-        Err(NativeError::Unsupported(
-            "quantified singleton resource trigger",
-        ))
+        use crate::interfaces::state::chunks::GeneralChunk;
+        use crate::rules::quantified_chunk_support::{SnapshotMapDefinition, SnapshotResource};
+        use crate::state::{
+            heap::Heap,
+            snapshot_map_cache::{CacheKey, QuantifiedBasicChunk},
+        };
+        let source = match resource {
+            ResourceKey::Field(f) => SnapshotResource::Field(f.clone()),
+            ResourceKey::Predicate(p) => SnapshotResource::Predicate(p.clone()),
+            ResourceKey::Wand(w) => SnapshotResource::Wand(w.ghost_free_wand.clone()),
+        };
+        let mut chunks = Vec::new();
+        let mut cached_chunks = Vec::new();
+        for chunk in heap.values() {
+            match (resource, chunk) {
+                (ResourceKey::Field(f), Chunk::QuantifiedField(c)) if c.id_ref().0 == f.name => {
+                    chunks.push(chunk.clone());
+                    cached_chunks.push(QuantifiedBasicChunk::Field(c.clone()));
+                }
+                (ResourceKey::Predicate(p), Chunk::QuantifiedPredicate(c))
+                    if c.id_ref().0 == p.name =>
+                {
+                    chunks.push(chunk.clone());
+                    cached_chunks.push(QuantifiedBasicChunk::Predicate(c.clone()));
+                }
+                (ResourceKey::Wand(w), Chunk::QuantifiedMagicWand(c)) if c.id_ref() == w => {
+                    chunks.push(chunk.clone());
+                    cached_chunks.push(QuantifiedBasicChunk::Wand(c.clone()));
+                }
+                _ => {}
+            }
+        }
+        let key = CacheKey {
+            resource: source.clone(),
+            relevant_chunks: cached_chunks,
+        };
+        let cached = (!state.exhale_ext)
+            .then(|| state.sm_cache.get(&key, None))
+            .flatten()
+            .map(|(definition, _)| definition.clone());
+        let factory = self.factory.clone();
+        let mut cache = state.sm_cache.clone();
+        let definition = if let Some(cached) = cached {
+            cached
+        } else {
+            let (snapshot_map, value_definitions, domain_definitions) =
+                crate::rules::quantified_chunk_support::summarise_snapshot_map(
+                    &factory, self, state, resource, formals, &chunks, None, true, false,
+                )
+                .map_err(|e| NativeError::Chunk(format!("singleton trigger summary: {e:?}")))?;
+            let definition = SnapshotMapDefinition {
+                resource: source,
+                snapshot_map,
+                value_definitions,
+                domain_definitions,
+            };
+            let mut total = factory.no_perm();
+            for chunk in &chunks {
+                let permission = match chunk {
+                    Chunk::QuantifiedField(c) => c.permission(&factory),
+                    Chunk::QuantifiedPredicate(c) => c.permission(&factory),
+                    Chunk::QuantifiedMagicWand(c) => c.permission(&factory),
+                    _ => unreachable!(),
+                };
+                total = factory.perm_plus(total, permission);
+            }
+            cache = cache.with_entry(key, definition.clone(), total, None);
+            definition
+        };
+        if state.sm_domain_needed {
+            for term in &definition.domain_definitions {
+                self.assume_term(term)?;
+            }
+        }
+        for term in &definition.value_definitions {
+            self.assume_term(term)?;
+        }
+        self.assume_term(&factory.resource_trigger(
+            resource,
+            definition.snapshot_map,
+            args.to_vec(),
+        ))?;
+        Ok(cache)
     }
     fn is_resource_trigger(&self, state: &State<PD, FD, JoinMode>, resource: &ResourceKey) -> bool {
         state.heap_dependent_triggers.contains(resource)
+    }
+}
+
+impl<S: Prover, PD, FD> crate::rules::quantified_chunk_support::QuantifiedReadPermissionSolver
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn check_read_permission(&mut self, goal: &Term, timeout_ms: i32) -> Result<bool, Self::Error> {
+        self.base
+            .decider
+            .check(goal, Some(timeout_ms))
+            .map_err(NativeError::Decider)
+    }
+    fn quantified_assert_timeout(&self) -> i32 {
+        self.base.decider.assert_timeout.unwrap_or(0)
+    }
+}
+impl<S: Prover, PD, FD> crate::rules::quantified_chunk_support::QuantifiedRemovalServices
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn check_removal_goal(&mut self, goal: &Term, timeout_ms: i32) -> Result<bool, Self::Error> {
+        self.base
+            .decider
+            .check(goal, Some(timeout_ms))
+            .map_err(NativeError::Decider)
+    }
+    fn removal_check_timeout(&self) -> i32 {
+        self.base.decider.check_timeout.unwrap_or(0)
+    }
+    fn removal_split_timeout(&self) -> i32 {
+        self.options.qp_split_timeout
+    }
+    fn saturate_before_removal(&mut self) -> Result<(), Self::Error> {
+        if let Some(timeout) = self.options.before_repetition_timeout {
+            self.base
+                .decider
+                .prover
+                .saturate(timeout, "before iteration")
+                .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+        }
+        Ok(())
+    }
+    fn removal_macros_enabled(&self) -> bool {
+        true
+    }
+    fn fresh_permission_macro(
+        &mut self,
+        arguments: &[Term],
+        body: &Term,
+    ) -> Result<(Term, crate::state::terms::Declaration), Self::Error> {
+        use crate::state::terms::{ApplicableData, ApplicableKind};
+        let declaration = self
+            .base
+            .decider
+            .fresh_macro(
+                &self.factory,
+                &mut self.base.identifiers,
+                "pTaken",
+                arguments.to_vec(),
+                body.clone(),
+            )
+            .map_err(NativeError::Decider)?;
+        let applicable = self.factory.applicable(ApplicableData {
+            kind: ApplicableKind::Macro,
+            id: declaration.id(),
+            arg_sorts: arguments.iter().map(|a| a.sort().clone()).collect(),
+            result_sort: body.sort().clone(),
+        });
+        Ok((
+            self.factory.app(applicable, arguments.to_vec()),
+            declaration,
+        ))
+    }
+    fn auto_trigger_permission_constraint(&mut self, _: Term) -> Result<Term, Self::Error> {
+        Err(NativeError::Unsupported(
+            "quantified permission automatic triggers",
+        ))
+    }
+    fn assume_permission_constraint(
+        &mut self,
+        term: &Term,
+        _: Option<&Exp>,
+    ) -> Result<(), Self::Error> {
+        self.assume_term(term)
+    }
+    fn next_permission_constraint_id(&mut self) -> i32 {
+        let id = self.quantified_counter as i32;
+        self.quantified_counter = self.quantified_counter.wrapping_add(1);
+        id
+    }
+    fn removal_constraint_debug(
+        &mut self,
+        _: Option<&[ferrum_silver::ast::program::LocalVarDecl]>,
+        _: Option<&Exp>,
+        _: Option<&Exp>,
+        _: Option<&Exp>,
+    ) -> Result<Option<Exp>, Self::Error> {
+        Err(NativeError::Unsupported("quantified removal debugging"))
+    }
+}
+
+type NativeSingleResult<E> = Result<
+    VerificationResult<VerificationError>,
+    crate::rules::quantified_chunk_support::SingleConsumptionError<NativeError<E>>,
+>;
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::quantified_chunk_support::SingleLocationConsumption<
+        PD,
+        FD,
+        JoinMode,
+        VerificationError,
+    > for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type VerificationError = Option<VerificationError>;
+    fn retry_single_quantified(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        action: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            &mut dyn FnMut(
+                &mut Self,
+                State<PD, FD, JoinMode>,
+                Arc<ListBackedHeap>,
+                Option<Term>,
+            ) -> NativeSingleResult<S::Error>,
+        ) -> NativeSingleResult<S::Error>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Arc<ListBackedHeap>,
+            Option<Term>,
+        ) -> NativeSingleResult<S::Error>,
+    ) -> NativeSingleResult<S::Error> {
+        use crate::rules::quantified_chunk_support::SingleConsumptionError as SE;
+        crate::rules::chunk_supporter::ChunkExecutionContext::retry_chunk(
+            self,
+            state,
+            &mut |ctx, state, done| {
+                action(ctx, state, &mut |ctx, state, heap, snapshot| {
+                    done(ctx, state, heap, snapshot)
+                        .map_err(|e| SE::Service(NativeError::Chunk(format!("{e:?}"))))
+                })
+                .map_err(|e| ChunkExecutionError::Context(NativeError::Chunk(format!("{e:?}"))))
+            },
+            &mut |ctx, state, heap, snapshot| {
+                continuation(ctx, state, heap, snapshot)
+                    .map_err(|e| ChunkExecutionError::Context(NativeError::Chunk(format!("{e:?}"))))
+            },
+        )
+        .map_err(|e| SE::Service(NativeError::Chunk(format!("{e:?}"))))
+    }
+    fn single_consumption_failure(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        error: &Self::VerificationError,
+        _: bool,
+    ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
+        let error = error.clone().ok_or(NativeError::Unsupported(
+            "failure from null partial verification error",
+        ))?;
+        self.failure_full(error, state.retry_level)
+    }
+    fn consume_single_in_package(
+        &mut self,
+        _: State<PD, FD, JoinMode>,
+        _: &ResourceKey,
+        _: &[Term],
+        _: &Term,
+        _: Option<&Exp>,
+        _: bool,
+        _: &Self::VerificationError,
+        _: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Arc<ListBackedHeap>,
+            Option<Term>,
+        ) -> NativeSingleResult<S::Error>,
+    ) -> NativeSingleResult<S::Error> {
+        Err(
+            crate::rules::quantified_chunk_support::SingleConsumptionError::Service(
+                NativeError::Unsupported("quantified consumption inside wand package"),
+            ),
+        )
+    }
+    fn summarise_consumed_snapshot(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        resource: &ResourceKey,
+        formals: &[Term],
+        consumed: &[Chunk],
+        args: &[Term],
+    ) -> Result<
+        (
+            crate::rules::quantified_chunk_support::SnapshotMapDefinition,
+            crate::state::snapshot_map_cache::SnapshotMapCache,
+        ),
+        NativeError<S::Error>,
+    > {
+        use crate::interfaces::state::chunks::GeneralChunk;
+        use crate::rules::quantified_chunk_support::{SnapshotMapDefinition, SnapshotResource};
+        use crate::state::snapshot_map_cache::{CacheKey, QuantifiedBasicChunk};
+        let source = match resource {
+            ResourceKey::Field(f) => SnapshotResource::Field(f.clone()),
+            ResourceKey::Predicate(p) => SnapshotResource::Predicate(p.clone()),
+            ResourceKey::Wand(w) => SnapshotResource::Wand(w.ghost_free_wand.clone()),
+        };
+        let chunks = consumed
+            .iter()
+            .map(|chunk| match chunk {
+                Chunk::QuantifiedField(c) => Ok(QuantifiedBasicChunk::Field(c.clone())),
+                Chunk::QuantifiedPredicate(c) => Ok(QuantifiedBasicChunk::Predicate(c.clone())),
+                Chunk::QuantifiedMagicWand(c) => Ok(QuantifiedBasicChunk::Wand(c.clone())),
+                _ => Err(NativeError::Unsupported(
+                    "non-quantified snapshot summary chunk",
+                )),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let key = CacheKey {
+            resource: source.clone(),
+            relevant_chunks: chunks,
+        };
+        let cached = (!state.exhale_ext)
+            .then(|| state.sm_cache.get(&key, None))
+            .flatten()
+            .map(|(definition, _)| definition.clone());
+        let factory = self.factory.clone();
+        let mut cache = state.sm_cache.clone();
+        let definition = if let Some(definition) = cached {
+            definition
+        } else {
+            let (snapshot_map, value_definitions, domain_definitions) =
+                crate::rules::quantified_chunk_support::summarise_snapshot_map(
+                    &factory,
+                    self,
+                    state,
+                    resource,
+                    formals,
+                    consumed,
+                    None,
+                    state.heap_dependent_triggers.contains(resource),
+                    false,
+                )
+                .map_err(|e| NativeError::Chunk(format!("consumed snapshot summary: {e:?}")))?;
+            let definition = SnapshotMapDefinition {
+                resource: source,
+                snapshot_map,
+                value_definitions,
+                domain_definitions,
+            };
+            let mut total = factory.no_perm();
+            for chunk in consumed {
+                let permission = match chunk {
+                    Chunk::QuantifiedField(c) => c.permission(&factory),
+                    Chunk::QuantifiedPredicate(c) => c.permission(&factory),
+                    Chunk::QuantifiedMagicWand(c) => c.permission(&factory),
+                    _ => {
+                        return Err(NativeError::Unsupported(
+                            "non-quantified snapshot summary chunk",
+                        ));
+                    }
+                };
+                total = factory.perm_plus(total, permission);
+            }
+            cache = cache.with_entry(key, definition.clone(), total, None);
+            definition
+        };
+        let instantiations = match resource {
+            ResourceKey::Field(_) => args.to_vec(),
+            _ => vec![factory.to_snap_tree(args.to_vec())],
+        };
+        for term in definition
+            .value_definitions
+            .iter()
+            .chain(if state.sm_domain_needed {
+                definition.domain_definitions.iter()
+            } else {
+                [].iter()
+            })
+        {
+            let instantiated = factory.instantiate(term, &instantiations).map_err(|e| {
+                NativeError::Chunk(format!("snapshot summary instantiation: {e:?}"))
+            })?;
+            self.assume_term(&instantiated)?;
+        }
+        Ok((definition, cache))
+    }
+    fn next_consumption_tag(&mut self) -> i32 {
+        let id = self.quantified_counter as i32;
+        self.quantified_counter = self.quantified_counter.wrapping_add(1);
+        id
+    }
+    fn use_complete_quantified_exhale(&self) -> bool {
+        self.options.exhale_mode_qp == crate::config::ExhaleMode::MoreComplete
+    }
+    fn disable_quantified_chunk_ordering(&self) -> bool {
+        false
+    }
+    fn disable_quantified_triggers(&self) -> bool {
+        false
+    }
+    fn debug_quantified_consumption(&self) -> bool {
+        false
+    }
+}
+
+impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn evaluate_native_quantified_permission(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        forall: &Exp,
+        condition: &Exp,
+        permission: &Exp,
+        arguments: &[Exp],
+        qid: &str,
+        error: &PartialVerificationError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Option<QuantifiedProductionData>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            EvaluationError<NativeError<S::Error>>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, EvaluationError<NativeError<S::Error>>> {
+        let ExpKind::Forall(vars, triggers, _) = forall.kind() else {
+            return Err(EvaluationError::Context(NativeError::Unsupported(
+                "quantified permission shape",
+            )));
+        };
+        let second: Vec<_> = std::iter::once(permission.clone())
+            .chain(arguments.iter().cloned())
+            .collect();
+        crate::rules::evaluator::evaluate_quantified(
+            self,
+            state,
+            crate::state::terms::Quantifier::Forall,
+            vars,
+            std::slice::from_ref(condition),
+            &second,
+            (!triggers.is_empty()).then_some(triggers.as_slice()),
+            qid,
+            error,
+            &mut |ctx, state, data| {
+                let Some(body) = data.second else {
+                    return continuation(ctx, state, None);
+                };
+                if data.first_terms.len() != 1 || body.terms.len() != arguments.len() + 1 {
+                    return Err(EvaluationError::InvalidJoinEntries);
+                }
+                let mut terms = body.terms.into_iter();
+                let permission = terms.next().ok_or(EvaluationError::InvalidJoinEntries)?;
+                let mut expressions = body.expressions;
+                if expressions
+                    .as_ref()
+                    .is_some_and(|items| items.len() != arguments.len() + 1)
+                {
+                    return Err(EvaluationError::InvalidJoinEntries);
+                }
+                let permission_exp = expressions.as_mut().map(|items| items.remove(0));
+                let condition_exp = data.first_expressions.and_then(|mut items| {
+                    if items.len() == 1 {
+                        Some(items.remove(0))
+                    } else {
+                        None
+                    }
+                });
+                continuation(
+                    ctx,
+                    state,
+                    Some(QuantifiedProductionData {
+                        qvars: data.variables,
+                        qvar_expressions: data.variable_expressions,
+                        condition: data.first_terms[0].clone(),
+                        condition_exp,
+                        permission,
+                        permission_exp,
+                        arguments: terms.collect(),
+                        argument_expressions: expressions,
+                        triggers: body.triggers,
+                        auxiliary_globals: body.auxiliary_globals,
+                        auxiliary_non_globals: body.auxiliary_non_globals,
+                        auxiliary_debug: body.auxiliary_debug,
+                    }),
+                )
+            },
+        )
+    }
+}
+
+impl<S: Prover, PD, FD> crate::rules::quantified_chunk_support::InverseFunctionServices
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn fresh_inverse_function(
+        &mut self,
+        name: &str,
+        arguments: &[Sort],
+        result: &Sort,
+    ) -> Result<ApplicationTarget, Self::Error> {
+        self.base
+            .decider
+            .fresh(&self.factory, name, arguments, result)
+            .map(|(target, _)| target)
+            .map_err(NativeError::Decider)
+    }
+    fn assemble_inverse_quantifier(
+        &mut self,
+        variables: &[Term],
+        body: Term,
+        _: &[Term],
+        explicit_triggers: Option<&[crate::state::terms::Trigger]>,
+        name: &str,
+        global: bool,
+    ) -> Result<Term, Self::Error> {
+        let triggers = explicit_triggers.ok_or(NativeError::Unsupported(
+            "automatic inverse-function triggers",
+        ))?;
+        self.factory
+            .quantification(
+                crate::state::terms::Quantifier::Forall,
+                variables.to_vec(),
+                body,
+                triggers.to_vec(),
+                name.to_string(),
+                global,
+                None,
+            )
+            .map_err(|e| NativeError::Chunk(format!("inverse quantifier: {e:?}")))
+    }
+}
+
+pub struct NativeQuantifiedProductionError {
+    partial: PartialVerificationError,
+    permission: Exp,
+    access: Exp,
+}
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::quantified_chunk_support::GeneralQuantifiedProduction<
+        PD,
+        FD,
+        JoinMode,
+        VerificationError,
+    > for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type VerificationError = NativeQuantifiedProductionError;
+    fn transform_precondition(
+        &mut self,
+        _: &State<PD, FD, JoinMode>,
+        term: &Term,
+    ) -> Result<Term, Self::Error> {
+        let factory = self.factory.clone();
+        crate::state::function_precondition_transformer::transform(&factory, term, &mut |fun| {
+            Ok::<_, Self::Error>(crate::rules::function_supporter::precondition_version(
+                &factory, fun,
+            ))
+        })
+        .map_err(|e| NativeError::Chunk(format!("quantified precondition: {e:?}")))
+    }
+    fn assume_quantified_terms(
+        &mut self,
+        terms: &[Term],
+        definitions: bool,
+    ) -> Result<(), Self::Error> {
+        self.base
+            .decider
+            .assume(terms.iter().cloned().map(|t| (t, None)), false, definitions)
+            .map_err(NativeError::Decider)
+    }
+    fn assert_quantified_goal(&mut self, goal: &Term) -> Result<bool, Self::Error> {
+        self.base
+            .decider
+            .check(goal, self.base.decider.assert_timeout)
+            .map_err(NativeError::Decider)
+    }
+    fn quantified_production_failure(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        error: &Self::VerificationError,
+        reason: crate::rules::quantified_chunk_support::QuantifiedProductionFailure,
+        _: &Term,
+    ) -> Result<VerificationResult<VerificationError>, Self::Error> {
+        let reason = match reason {
+            crate::rules::quantified_chunk_support::QuantifiedProductionFailure::NegativePermission => ErrorReason::NegativePermission(error.permission.clone()),
+            crate::rules::quantified_chunk_support::QuantifiedProductionFailure::NotInjective => ErrorReason::QPAssertionNotInjective(ferrum_silver::ast::utility::nodes::Node::Exp(error.access.clone())),
+        };
+        self.failure(&error.partial, reason, state.retry_level)
+    }
+    fn warn_missing_quantified_triggers(&mut self) -> Result<(), Self::Error> {
+        self.warnings
+            .push("Quantified permission has no usable trigger".into());
+        Ok(())
+    }
+    fn assume_quantified_properties(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        chunk: &Chunk,
+        args: &[Term],
+        permission: &Term,
+        condition: &Term,
+        qvars: &[Term],
+        triggers: &[crate::state::terms::Trigger],
+        qid: &str,
+    ) -> Result<(), Self::Error> {
+        use crate::interfaces::state::chunks::GeneralChunk;
+        let factory = self.factory.clone();
+        let properties = match chunk {
+            Chunk::QuantifiedField(c) => c
+                .resource_id()
+                .description()
+                .instance_properties(state.may_assume_upper_bounds()),
+            Chunk::QuantifiedPredicate(c) => c
+                .resource_id()
+                .description()
+                .instance_properties(state.may_assume_upper_bounds()),
+            Chunk::QuantifiedMagicWand(c) => c
+                .resource_id()
+                .description()
+                .instance_properties(state.may_assume_upper_bounds()),
+            _ => return Err(NativeError::Unsupported("quantified property chunk")),
+        };
+        for property in properties {
+            let term = match chunk {
+                Chunk::QuantifiedField(c) => {
+                    crate::resources::quantified_property_interpreter::build_for_chunk(
+                        &factory,
+                        c,
+                        &property,
+                        qvars.to_vec(),
+                        args,
+                        permission,
+                        condition,
+                        triggers.to_vec(),
+                        qid,
+                    )
+                }
+                Chunk::QuantifiedPredicate(c) => {
+                    crate::resources::quantified_property_interpreter::build_for_chunk(
+                        &factory,
+                        c,
+                        &property,
+                        qvars.to_vec(),
+                        args,
+                        permission,
+                        condition,
+                        triggers.to_vec(),
+                        qid,
+                    )
+                }
+                Chunk::QuantifiedMagicWand(c) => {
+                    crate::resources::quantified_property_interpreter::build_for_chunk(
+                        &factory,
+                        c,
+                        &property,
+                        qvars.to_vec(),
+                        args,
+                        permission,
+                        condition,
+                        triggers.to_vec(),
+                        qid,
+                    )
+                }
+                _ => unreachable!(),
+            }
+            .map_err(|e| NativeError::ResourceProperty(format!("{e:?}")))?;
+            self.assume_term(&term)?;
+        }
+        Ok(())
+    }
+    fn merge_produced_quantified_chunk(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        chunk: &Chunk,
+    ) -> Result<(FunctionRecorder<FD>, ListBackedHeap), Self::Error> {
+        crate::rules::quantified_chunk_support::SingleLocationProduction::merge_quantified_chunk(
+            self, state, chunk,
+        )
+    }
+    fn production_resource_trigger(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        resource: &ResourceKey,
+        _: &ListBackedHeap,
+        _: &crate::rules::quantified_chunk_support::InverseFunctions,
+        _: &Term,
+    ) -> Result<
+        Option<(
+            crate::rules::quantified_chunk_support::SnapshotMapDefinition,
+            crate::state::snapshot_map_cache::SnapshotMapCache,
+        )>,
+        Self::Error,
+    > {
+        if state.heap_dependent_triggers.contains(resource) {
+            return Err(NativeError::Unsupported(
+                "general quantified production resource trigger",
+            ));
+        }
+        Ok(None)
+    }
+    fn next_production_tag(&mut self) -> i32 {
+        let id = self.quantified_counter as i32;
+        self.quantified_counter = self.quantified_counter.wrapping_add(1);
+        id
+    }
+    fn assume_injectivity_on_inhale(&self) -> bool {
+        self.options.assume_injectivity_on_inhale
+    }
+    fn unsafe_wildcard_optimization(&self) -> bool {
+        self.options.unsafe_wildcard_optimization
+    }
+    fn disable_isc_triggers(&self) -> bool {
+        false
+    }
+}
+
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::quantified_chunk_support::GeneralQuantifiedConsumptionPreparation<
+        PD,
+        FD,
+        JoinMode,
+        VerificationError,
+    > for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type VerificationError = NativeQuantifiedProductionError;
+    fn consume_transform_precondition(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        term: &Term,
+    ) -> Result<Term, Self::Error> {
+        crate::rules::quantified_chunk_support::GeneralQuantifiedProduction::transform_precondition(
+            self, state, term,
+        )
+    }
+    fn consume_assume_terms(&mut self, terms: &[Term]) -> Result<(), Self::Error> {
+        crate::rules::quantified_chunk_support::GeneralQuantifiedProduction::assume_quantified_terms(
+            self, terms, false,
+        )
+    }
+    fn consume_assert_goal(&mut self, term: &Term) -> Result<bool, Self::Error> {
+        crate::rules::quantified_chunk_support::GeneralQuantifiedProduction::assert_quantified_goal(
+            self, term,
+        )
+    }
+    fn general_consumption_failure(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        error: &Self::VerificationError,
+        reason: crate::rules::quantified_chunk_support::QuantifiedProductionFailure,
+        goal: &Term,
+    ) -> Result<VerificationResult<VerificationError>, Self::Error> {
+        crate::rules::quantified_chunk_support::GeneralQuantifiedProduction::quantified_production_failure(self, state, error, reason, goal)
+    }
+    fn consume_trigger_summary(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        _: &ListBackedHeap,
+        resource: &ResourceKey,
+        _: &[Term],
+        _: &ChunkIdentifier,
+    ) -> Result<
+        Option<(
+            crate::rules::quantified_chunk_support::SnapshotMapDefinition,
+            crate::state::snapshot_map_cache::SnapshotMapCache,
+        )>,
+        Self::Error,
+    > {
+        if state.heap_dependent_triggers.contains(resource) {
+            return Err(NativeError::Unsupported(
+                "general quantified consumption resource trigger",
+            ));
+        }
+        Ok(None)
+    }
+    fn consume_assume_inverse_trigger(
+        &mut self,
+        _: &State<PD, FD, JoinMode>,
+        _: &ResourceKey,
+        _: &[Term],
+        _: &Term,
+        _: &crate::rules::quantified_chunk_support::InverseFunctions,
+        _: &crate::rules::quantified_chunk_support::SnapshotMapDefinition,
+    ) -> Result<(), Self::Error> {
+        Err(NativeError::Unsupported(
+            "general quantified inverse trigger",
+        ))
+    }
+    fn consumption_unsafe_wildcard(&self) -> bool {
+        self.options.unsafe_wildcard_optimization
+    }
+    fn consumption_disable_isc_triggers(&self) -> bool {
+        false
+    }
+}
+
+type NativeGeneralResult<E> = Result<
+    VerificationResult<VerificationError>,
+    crate::rules::quantified_chunk_support::GeneralConsumptionExecutionError<NativeError<E>>,
+>;
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::quantified_chunk_support::GeneralConsumptionExecution<
+        PD,
+        FD,
+        JoinMode,
+        VerificationError,
+    > for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type VerificationError = NativeQuantifiedProductionError;
+    fn retry_general_quantified(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        action: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            &mut dyn FnMut(
+                &mut Self,
+                State<PD, FD, JoinMode>,
+                Arc<ListBackedHeap>,
+                Option<Term>,
+            ) -> NativeGeneralResult<S::Error>,
+        ) -> NativeGeneralResult<S::Error>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Arc<ListBackedHeap>,
+            Option<Term>,
+        ) -> NativeGeneralResult<S::Error>,
+    ) -> NativeGeneralResult<S::Error> {
+        use crate::rules::quantified_chunk_support::GeneralConsumptionExecutionError as GE;
+        crate::rules::chunk_supporter::ChunkExecutionContext::retry_chunk(
+            self,
+            state,
+            &mut |ctx, state, done| {
+                action(ctx, state, &mut |ctx, state, heap, snapshot| {
+                    done(ctx, state, heap, snapshot)
+                        .map_err(|e| GE::Service(NativeError::Chunk(format!("{e:?}"))))
+                })
+                .map_err(|e| ChunkExecutionError::Context(NativeError::Chunk(format!("{e:?}"))))
+            },
+            &mut |ctx, state, heap, snapshot| {
+                continuation(ctx, state, heap, snapshot)
+                    .map_err(|e| ChunkExecutionError::Context(NativeError::Chunk(format!("{e:?}"))))
+            },
+        )
+        .map_err(|e| GE::Service(NativeError::Chunk(format!("{e:?}"))))
+    }
+    fn general_insufficient_permission(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        error: &Self::VerificationError,
+    ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
+        use ferrum_silver::ast::utility::nodes::Node;
+        let reason = match error.access.kind() {
+            ExpKind::FieldAccessPredicate(access, _) => {
+                ErrorReason::InsufficientPermission(Node::FieldAccess(access.clone()))
+            }
+            ExpKind::PredicateAccessPredicate(access) => {
+                ErrorReason::InsufficientPermission(Node::PredicateAccess(access.location.clone()))
+            }
+            ExpKind::MagicWand(..) => ErrorReason::MagicWandChunkNotFound(error.access.clone()),
+            _ => {
+                return Err(NativeError::Unsupported(
+                    "quantified permission failure reason",
+                ));
+            }
+        };
+        self.failure(&error.partial, reason, state.retry_level)
+    }
+    fn consume_general_in_package(
+        &mut self,
+        _: State<PD, FD, JoinMode>,
+        _: &ResourceKey,
+        _: &crate::rules::quantified_chunk_support::GeneralConsumptionTerms,
+        _: &Self::VerificationError,
+        _: bool,
+        _: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Arc<ListBackedHeap>,
+            Option<Term>,
+        ) -> NativeGeneralResult<S::Error>,
+    ) -> NativeGeneralResult<S::Error> {
+        Err(
+            crate::rules::quantified_chunk_support::GeneralConsumptionExecutionError::Service(
+                NativeError::Unsupported("general quantified consumption inside wand package"),
+            ),
+        )
+    }
+    fn summarise_general_consumed(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        resource: &ResourceKey,
+        formals: &[Term],
+        consumed: &[Chunk],
+        domain_condition: Option<&Term>,
+    ) -> Result<
+        (
+            crate::rules::quantified_chunk_support::SnapshotMapDefinition,
+            crate::state::snapshot_map_cache::SnapshotMapCache,
+        ),
+        NativeError<S::Error>,
+    > {
+        use crate::interfaces::state::chunks::GeneralChunk;
+        use crate::rules::quantified_chunk_support::{SnapshotMapDefinition, SnapshotResource};
+        use crate::state::snapshot_map_cache::{CacheKey, QuantifiedBasicChunk};
+        let source = match resource {
+            ResourceKey::Field(f) => SnapshotResource::Field(f.clone()),
+            ResourceKey::Predicate(p) => SnapshotResource::Predicate(p.clone()),
+            ResourceKey::Wand(w) => SnapshotResource::Wand(w.ghost_free_wand.clone()),
+        };
+        let chunks = consumed
+            .iter()
+            .map(|chunk| match chunk {
+                Chunk::QuantifiedField(c) => Ok(QuantifiedBasicChunk::Field(c.clone())),
+                Chunk::QuantifiedPredicate(c) => Ok(QuantifiedBasicChunk::Predicate(c.clone())),
+                Chunk::QuantifiedMagicWand(c) => Ok(QuantifiedBasicChunk::Wand(c.clone())),
+                _ => Err(NativeError::Unsupported(
+                    "non-quantified snapshot summary chunk",
+                )),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let key = CacheKey {
+            resource: source.clone(),
+            relevant_chunks: chunks,
+        };
+        let cached = (!state.exhale_ext)
+            .then(|| state.sm_cache.get(&key, domain_condition))
+            .flatten()
+            .map(|(definition, _)| definition.clone());
+        let factory = self.factory.clone();
+        let mut cache = state.sm_cache.clone();
+        let definition = if let Some(definition) = cached {
+            definition
+        } else {
+            let (snapshot_map, value_definitions, domain_definitions) =
+                crate::rules::quantified_chunk_support::summarise_snapshot_map(
+                    &factory,
+                    self,
+                    state,
+                    resource,
+                    formals,
+                    consumed,
+                    domain_condition,
+                    state.heap_dependent_triggers.contains(resource),
+                    false,
+                )
+                .map_err(|e| {
+                    NativeError::Chunk(format!("general consumed snapshot summary: {e:?}"))
+                })?;
+            let definition = SnapshotMapDefinition {
+                resource: source,
+                snapshot_map,
+                value_definitions,
+                domain_definitions,
+            };
+            let mut total = factory.no_perm();
+            for chunk in consumed {
+                let permission = match chunk {
+                    Chunk::QuantifiedField(c) => c.permission(&factory),
+                    Chunk::QuantifiedPredicate(c) => c.permission(&factory),
+                    Chunk::QuantifiedMagicWand(c) => c.permission(&factory),
+                    _ => {
+                        return Err(NativeError::Unsupported(
+                            "non-quantified snapshot summary chunk",
+                        ));
+                    }
+                };
+                total = factory.perm_plus(total, permission);
+            }
+            cache = cache.with_entry(key, definition.clone(), total, domain_condition.cloned());
+            definition
+        };
+        if state.sm_domain_needed {
+            for term in &definition.domain_definitions {
+                self.assume_term(term)?;
+            }
+        }
+        for term in &definition.value_definitions {
+            self.assume_term(term)?;
+        }
+        Ok((definition, cache))
+    }
+    fn clear_general_consumption_model(&mut self) -> Result<(), NativeError<S::Error>> {
+        self.base.decider.clear_model();
+        Ok(())
+    }
+    fn next_general_consumption_tag(&mut self) -> i32 {
+        let id = self.quantified_counter as i32;
+        self.quantified_counter = self.quantified_counter.wrapping_add(1);
+        id
+    }
+    fn complete_general_quantified_exhale(&self) -> bool {
+        self.options.exhale_mode_qp == crate::config::ExhaleMode::MoreComplete
+    }
+    fn disable_general_chunk_ordering(&self) -> bool {
+        false
+    }
+    fn disable_general_isc_triggers(&self) -> bool {
+        false
+    }
+    fn debug_general_consumption(&self) -> bool {
+        false
     }
 }

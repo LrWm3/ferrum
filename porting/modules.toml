@@ -2568,7 +2568,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Native methods, predicates, functions and generic/recursive user domains with mixed collections reach source rules and solver contributors. Quantified resource matching/snapshot foundations exist but general quantified execution remains gated. Recursive function predicate triggers, wands, complete exhale, full joins, parallelism and advanced reporting need completion."]
+remaining = ["Native user-domain and interpreted backend sorts are connected. Quantified assertion evaluation, singleton and general production/consumption services are translated but execution remains gated pending contributor preambles, automatic triggers, access services and real solver validation. Wands, full joins, complete exhale, parallelism and advanced reporting remain incomplete."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"
@@ -2578,4 +2578,4 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_preamble.rs"
 status = "skeleton"
-remaining = ["Source thresholded ground-instance closure, axiom unification, typed substitution/member filtering and lazy program cache feed mixed user-domain/collection preambles, including ADTs and recursive type dependencies. Interpreted/backend/extension types and heap-function domain axioms remain incomplete; broader compatibility review continues."]
+remaining = ["General user-domain/collection assembly and source interpreted backend types provide required snapshot wrappers without redeclaring SMT sorts. Unsupported extension and heap-function domain axioms remain explicit errors; exact unchanged-node substitution identity remains a compatibility gap."]
