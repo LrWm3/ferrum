@@ -40,6 +40,10 @@ matrix across all three quantified exhale modes passes through both transports,
 including split permissions, disjoint values and missing footprints. A permanent
 regression checks transferred ownership and preserved values. This focused
 coverage does not establish full source compatibility.
+Wand proof scripts now check the source empty-reserve invariant before assertions,
+then preserve asserted permissions for the remaining proof. Seven valid/invalid
+value, footprint, quantified-resource and conditional cases pass on both
+transports; the permanent wand regression exercises repeated proof assertions.
 More-complete and on-demand exhale (`--exhaleMode 1` or `2`) and CFG joins
 (`--moreJoins 2`) now connect the source summaries, permission consumption and
 branch merging. A frozen suite of 115 cases passed through both solver transports,

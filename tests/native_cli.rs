@@ -265,12 +265,21 @@ fn wand_packaging_transfers_permissions_and_application_consumes_the_wand() {
     let prefix = "field first: Int field second: Int
         method test(r: Ref)
             requires acc(r.first) && acc(r.second) && r.second == 3
-        { package acc(r.first) --* acc(r.second) {}";
+        { package acc(r.first) --* acc(r.second) {
+            assert acc(r.second); assert r.second == 3;
+        }";
     check(
         &format!("{prefix} apply acc(r.first) --* acc(r.second); assert r.second == 3; }}"),
         0,
     );
     check(&format!("{prefix} assert acc(r.second); }}"), 1);
+    check(
+        &format!(
+            "{} }}",
+            prefix.replace("assert r.second == 3", "assert r.second == 4")
+        ),
+        1,
+    );
     let output = run(
         "field value: Int method test(r: Ref) requires acc(r.value) {
             package acc(r.value) --* acc(r.value) {}

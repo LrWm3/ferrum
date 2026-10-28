@@ -5271,11 +5271,16 @@ where
         &mut self,
         state: &State<PD, FD, JoinMode>,
     ) -> Result<(), Self::Error> {
-        if state.exhale_ext {
-            Err(NativeError::Unsupported("wand exhale reserve check"))
-        } else {
-            Ok(())
+        use crate::state::heap::Heap;
+        let used = state.reserve_heaps.first().ok_or_else(|| {
+            NativeError::Execution("wand assertion is missing its used reserve heap".into())
+        })?;
+        if !state.h.values().is_empty() || !used.values().is_empty() {
+            return Err(NativeError::Execution(
+                "wand assertion requires empty execution and used reserve heaps".into(),
+            ));
         }
+        Ok(())
     }
     fn retry_smoke_assertion(
         &mut self,
