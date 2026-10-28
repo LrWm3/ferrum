@@ -164,10 +164,12 @@ ARP-generated method-call locals inside TryBlock still expose the pinned source'
 CFG/executor scope gap: these programs fail with a missing store value rather than
 verify. The port retains that limitation and records the source locations.
 Domain-axiom typechecking now allows ordinary function calls only when they have
-no actual `requires` clause, matching the pinned resolver. Two upstream fixtures
-advance through the frontend and the preconditioned fixture remains rejected.
-The native domain contributor still rejects these ordinary-function calls;
-end-to-end support remains unfinished.
+no actual `requires` clause, matching the pinned resolver. The native contributor translates calls with the source Unit snapshot and
+conjoined precondition symbols, declaring all contributor symbols before axioms.
+Positive and negative source fixtures now reach the intended result on both Z3
+transports, while preconditioned calls remain rejected. Combining ordinary-function
+domain axioms with mask heaps retains the pinned source solver-signature failure;
+mask function symbols use a different state-argument signature.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and

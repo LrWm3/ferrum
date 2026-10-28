@@ -7606,6 +7606,8 @@ where
         let general = use_general_preamble(program, &self.base.symbol_converter, &self.factory)
             .map_err(NativeError::Preamble)?;
         let mut contributed_sorts = Vec::new();
+        let mut general_preamble = None;
+        let mut legacy_preamble = None;
         if general {
             let preamble = crate::verifier::native_preamble::analyze_general_with_sources(
                 program,
@@ -7622,10 +7624,8 @@ where
             preamble
                 .declare_symbols(&self.factory, &mut self.base.decider.prover)
                 .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-            preamble
-                .emit_axioms(&self.factory, &mut self.base.decider.prover)
-                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
             contributed_sorts.extend(preamble.sorts().cloned());
+            general_preamble = Some(preamble);
         } else {
             let (has_sequence, has_set, has_map, has_multiset) =
                 collection_program(program).map_err(NativeError::Preamble)?;
@@ -7666,18 +7666,11 @@ where
                     .declare_symbols(&self.factory, &mut self.base.decider.prover)
                     .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
             }
-            domain_preamble
-                .emit_axioms(&self.factory, &mut self.base.decider.prover)
-                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-            if let Some(preamble) = &collections {
-                preamble
-                    .emit_axioms(&mut self.base.decider.prover)
-                    .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-            }
             contributed_sorts.extend(domain_preamble.sorts().cloned());
             if let Some(preamble) = &collections {
                 contributed_sorts.extend(preamble.sorts().cloned());
             }
+            legacy_preamble = Some((domain_preamble, collections));
         }
         let predicates = crate::supporters::predicate_verification_unit::analyze_predicates(
             program,
@@ -7769,12 +7762,7 @@ where
                 .emit_all(&commands)
                 .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
         }
-        for blocks in [
-            &field_maps.function_blocks,
-            &predicate_maps.function_blocks,
-            &field_maps.axiom_blocks,
-            &predicate_maps.axiom_blocks,
-        ] {
+        for blocks in [&field_maps.function_blocks, &predicate_maps.function_blocks] {
             crate::supporters::qps::field_value_functions_contributor::FieldValueFunctionsContributor::emit_blocks(blocks, &mut self.base.decider.prover)
                 .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
         }
@@ -7792,6 +7780,30 @@ where
         if !program.functions.is_empty() {
             functions
                 .declare_analysis_symbols(&factory, &mut self.base.decider.prover, |_| vec![])
+                .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+        }
+        // Domain axioms can mention ordinary function and precondition symbols, so
+        // emit them only after all contributor symbols have been declared.
+        if let Some(preamble) = &general_preamble {
+            preamble
+                .emit_axioms(&factory, &mut self.base.decider.prover)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        }
+        if let Some((domains, collections)) = &legacy_preamble {
+            domains
+                .emit_uniqueness(&factory, &mut self.base.decider.prover)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+            if let Some(collections) = collections {
+                collections
+                    .emit_axioms(&mut self.base.decider.prover)
+                    .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+            }
+            domains
+                .emit_domain_axioms(&mut self.base.decider.prover)
+                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
+        }
+        for blocks in [&field_maps.axiom_blocks, &predicate_maps.axiom_blocks] {
+            crate::supporters::qps::field_value_functions_contributor::FieldValueFunctionsContributor::emit_blocks(blocks, &mut self.base.decider.prover)
                 .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
         }
         let mut function_handles = crate::state::package::OrderedMap::default();
@@ -9354,9 +9366,6 @@ fn use_general_preamble(
         }
         if let Node::Exp(exp) = node {
             match exp.kind() {
-                ExpKind::FuncApp(..) => {
-                    return Err("heap function in general domain axioms".into());
-                }
                 ExpKind::DomainFuncApp(function, ..) => {
                     let target = program
                         .find_domain_function_optionally(function)

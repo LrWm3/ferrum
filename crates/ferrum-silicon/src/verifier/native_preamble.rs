@@ -194,6 +194,23 @@ impl NativePreambleData {
             .emit_uniqueness(factory, prover)
             .map_err(NativePreambleError::Sink)
     }
+    pub fn emit_uniqueness<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.domains
+            .emit_uniqueness(factory, prover)
+            .map_err(NativePreambleError::Sink)
+    }
+    pub fn emit_domain_axioms<P: ProverLike>(
+        &self,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.domains
+            .emit_axioms(prover)
+            .map_err(NativePreambleError::Sink)
+    }
     pub fn emit<P: ProverLike>(
         &self,
         factory: &TermFactory,
@@ -598,6 +615,49 @@ mod tests {
         },
         r#type::DomainType,
     };
+    #[test]
+    fn domain_axiom_function_call_uses_precondition_symbol_and_rejects_preconditions() {
+        use ferrum_silver::ast::expression::{Exp, ExpKind};
+        let source = "function f(x: Int): Int { x + 1 } domain D { function g(x: Int): Int axiom { forall x: Int :: {g(x)} g(x) == f(x) } } method m() { assert g(1) == 2 }";
+        let parsed = ferrum_silver::parser::fast_parser::parse_program(source, "test.vpr").unwrap();
+        ferrum_silver::parser::parse_ast::init_properties(parsed.node()).unwrap();
+        assert!(
+            ferrum_silver::parser::resolver::NameAnalyser::default()
+                .run(parsed.node())
+                .unwrap()
+        );
+        ferrum_silver::parser::resolver::check_program_core(&parsed, &mut |_, _| {}).unwrap();
+        let program = ferrum_silver::parser::translator::translate_program_core(&parsed).unwrap();
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        let data = analyze_general(&program, &converter, &factory, false, 1).unwrap();
+        let mut smt = crate::decider::term_to_smt_lib2_converter::TermToSmtLib2Converter::new(
+            factory.clone(),
+        );
+        let rendered = data
+            .domains
+            .domains
+            .axioms
+            .iter()
+            .map(|axiom| smt.convert_term(axiom).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("f%precondition"));
+        let invalid = program.copy_with(|contents| {
+            contents.functions[0] = contents.functions[0]
+                .copy_with(|f| f.pres.push(Exp::new(ExpKind::TrueLit, Metadata::default())));
+        });
+        assert!(matches!(
+            analyze_general(&invalid, &converter, &factory, false, 1),
+            Err(NativePreambleError::Unsupported(
+                "function with preconditions in domain axiom"
+            ))
+        ));
+    }
     #[test]
     fn generic_domain_axiom_is_instantiated_for_atomic_type() {
         let source = "domain D[T] { function id(x: T): T axiom identity { forall x: T :: { id(x) } id(x) == x } } method m(d: D[Int]) {}";
@@ -1829,9 +1889,9 @@ impl NativeCollectionsPreamble {
         factory: &TermFactory,
         prover: &mut P,
     ) -> Result<(), NativePreambleError<P::Error>> {
-        self.sequences.declare_symbols(factory, prover)?;
         self.sets.declare_symbols(factory, prover)?;
         self.multisets.declare_symbols(factory, prover)?;
+        self.sequences.declare_symbols(factory, prover)?;
         self.maps.declare_symbols(factory, prover)
     }
     pub fn emit_axioms<P: ProverLike>(
@@ -1935,16 +1995,17 @@ impl NativeGeneralPreamble {
         factory: &TermFactory,
         prover: &mut P,
     ) -> Result<(), NativePreambleError<P::Error>> {
-        self.domains.declare_symbols(factory, prover)?;
-        self.collections.declare_symbols(factory, prover)
+        self.collections.declare_symbols(factory, prover)?;
+        self.domains.declare_symbols(factory, prover)
     }
     pub fn emit_axioms<P: ProverLike>(
         &self,
         factory: &TermFactory,
         prover: &mut P,
     ) -> Result<(), NativePreambleError<P::Error>> {
-        self.domains.emit_axioms(factory, prover)?;
-        self.collections.emit_axioms(prover)
+        self.domains.emit_uniqueness(factory, prover)?;
+        self.collections.emit_axioms(prover)?;
+        self.domains.emit_domain_axioms(prover)
     }
 }
 /// Analyze the upstream ground closure and instantiate each domain's surviving members.
@@ -1977,6 +2038,46 @@ pub fn analyze_general_with_sources(
     use ferrum_silver::ast::utility::domain_instances::{
         find_necessary_type_instances, get_instance_members,
     };
+    fn validate_axiom_functions(
+        node: &Node,
+        program: &Program,
+        converter: &DefaultSymbolConverter,
+    ) -> Result<(), NativePreambleError<std::convert::Infallible>> {
+        if let Node::Exp(expression) = node {
+            if let ferrum_silver::ast::expression::ExpKind::FuncApp(name, args) = expression.kind()
+            {
+                let function = program.find_function_optionally(name).ok_or(
+                    NativePreambleError::Unsupported("unknown function in domain axiom"),
+                )?;
+                if !function.pres.is_empty() {
+                    return Err(NativePreambleError::Unsupported(
+                        "function with preconditions in domain axiom",
+                    ));
+                }
+                if args.len() != function.formal_args.len()
+                    || args.iter().zip(&function.formal_args).any(|(arg, formal)| {
+                        let Ok(actual) = arg.typ() else { return true };
+                        !actual.is_subtype(&formal.typ)
+                            || !matches!(
+                                (converter.to_sort(&actual), converter.to_sort(&formal.typ)),
+                                (Ok(a), Ok(b)) if a == b
+                            )
+                    })
+                    || expression.typ().ok().as_ref() != Some(&function.typ)
+                {
+                    return Err(NativePreambleError::Unsupported(
+                        "invalid function signature in domain axiom",
+                    ));
+                }
+            }
+        }
+        for child in ferrum_silver::ast::utility::nodes::subnodes(node)
+            .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?
+        {
+            validate_axiom_functions(&child, program, converter)?;
+        }
+        Ok(())
+    }
     let ground = if threshold == 1 {
         program.ground_type_instances()
     } else {
@@ -2081,6 +2182,7 @@ pub fn analyze_general_with_sources(
             |sort: &crate::state::terms::Sort| Ok::<_, std::convert::Infallible>(sort.to_string()),
         );
         for axiom in axioms {
+            validate_axiom_functions(&Node::Exp(axiom.exp().clone()), program, converter)?;
             let mut term = translator
                 .translate(axiom.exp())
                 .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
@@ -2116,9 +2218,9 @@ pub fn analyze_general_with_sources(
             }
             domains
                 .domains
-                .collect_axiom(factory, term, &mut |_| {
-                    Err::<crate::state::terms::Applicable, _>(
-                        "heap-dependent function in domain axiom",
+                .collect_axiom(factory, term, &mut |function| {
+                    Ok::<_, std::convert::Infallible>(
+                        crate::rules::function_supporter::precondition_version(factory, function),
                     )
                 })
                 .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;

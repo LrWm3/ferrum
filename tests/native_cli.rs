@@ -566,3 +566,20 @@ fn cached_predicates_preserve_branch_values_and_permission_amounts() {
         }
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn domain_axioms_can_call_precondition_free_functions() {
+    let source = "function interp(i: Int): Int { i + 1 }
+        domain D {
+            function unint(i: Int): Int
+            axiom { forall i: Int :: {unint(i)} unint(i) == interp(i) + 1 }
+        }
+        method m() { assert unint(4) == 6; }";
+    check(source, 0);
+    check(&source.replace("unint(4) == 6", "unint(4) == 7"), 1);
+    let invalid = source.replace("Int { i + 1 }", "Int requires i >= 0 { i + 1 }");
+    let output = run(&invalid, &[]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("FunctionPreconditionInDomainAxiom"));
+}
