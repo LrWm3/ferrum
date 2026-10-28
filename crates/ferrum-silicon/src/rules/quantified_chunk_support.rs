@@ -49,8 +49,8 @@
 //! Inverse/trigger identity, caches, snapshot map and continuation/solver ownership with all heap
 //! encodings.
 //!
-//! Status: InverseFunctions data contract implemented; SnapshotMapDefinition,
-//! PermMapDefinition and quantified execution rules remain pending.
+//! Status: InverseFunctions, SnapshotMapDefinition and PermMapDefinition data
+//! contracts implemented; quantified execution rules remain pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -268,4 +268,26 @@ impl InverseFunctions {
     pub fn qvars_to_images_ref(&self) -> &VariableFunctions {
         &self.qvars_to_images
     }
+}
+
+/// Source AST resource for snapshot/permission definitions. Wand equality here is
+/// structural AST equality, not the structure-index equality of a chunk identifier.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SnapshotResource {
+    Field(std::sync::Arc<ferrum_silver::ast::program::Field>),
+    Predicate(std::sync::Arc<ferrum_silver::ast::program::Predicate>),
+    Wand(Exp),
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SnapshotMapDefinition {
+    pub resource: SnapshotResource,
+    pub snapshot_map: Term,
+    pub value_definitions: Vec<Term>,
+    pub domain_definitions: Vec<Term>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PermMapDefinition {
+    pub resource: SnapshotResource,
+    pub permission_map: Term,
+    pub value_definitions: Vec<Term>,
 }

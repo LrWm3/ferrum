@@ -7,7 +7,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // Copyright (c) 2011-2019 ETH Zurich.
 
-use crate::interfaces::decider::prover::ProverLike;
+use crate::interfaces::decider::prover::TextEmitter;
 use std::io;
 
 /// Resolves an upstream resource name such as `/preamble.smt2`.
@@ -47,7 +47,7 @@ pub trait PreambleReader {
         substitutions: &[(String, String)],
     ) -> io::Result<Vec<String>>;
 
-    fn emit_preamble<S: ProverLike>(
+    fn emit_preamble<S: TextEmitter>(
         &self,
         commands: &[String],
         sink: &mut S,
@@ -59,7 +59,7 @@ pub trait PreambleReader {
             sink.emit_all(commands)
         }
     }
-    fn emit_resource<S: ProverLike>(
+    fn emit_resource<S: TextEmitter>(
         &self,
         resource: &str,
         sink: &mut S,
@@ -71,7 +71,7 @@ pub trait PreambleReader {
         self.emit_preamble(&commands, sink, is_options)
             .map_err(PreambleError::Sink)
     }
-    fn emit_parametric_preamble<S: ProverLike>(
+    fn emit_parametric_preamble<S: TextEmitter>(
         &self,
         resource: &str,
         substitutions: &[(String, String)],

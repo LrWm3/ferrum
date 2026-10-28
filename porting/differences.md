@@ -79,6 +79,26 @@ term/chunk formatting is not ported. It preserves stable sorting by Java UTF-16
 string order, including ties, then compares chunks. Supplying Rust Debug output
 would not establish source compatibility; default rendering remains a tracked gap.
 
+## Native solver process boundary
+
+The stdio adapter owns one Unix solver process and merges stdout and stderr into
+one native stream. RAII cleanup replaces JVM shutdown hooks. Query failures attempt
+to pop their temporary assertion scope before propagating the original error;
+model-read I/O errors propagate instead of printing an exception and returning an
+empty model string. Stop attempts all cleanup even when a flush fails. Non-Unix
+process creation remains unsupported until a merged-stream adapter is supplied.
+
+Solver profiles and settings are explicit constructor inputs; configuration and
+reporter adapters remain to be connected. SMT output uses equivalent token syntax
+without reproducing the source pretty-printer's line wrapping. Empty-binder
+quantifiers retain the source warning-and-body behavior with a typed warning;
+exact diagnostic term formatting remains a gap. Assertion timing comments use
+elapsed milliseconds rather than the source's localized duration formatter.
+
+A native Z3 4.16.0 probe exercised both assertion modes, successful and failed
+proofs, model parsing, push/pop, satisfiability and statistics. This validates a
+solver round trip, not the unassembled verification engine or all SMT encodings.
+
 ## Native resource loading
 
 Pinned text resources are embedded byte-for-byte; no Java classloader is required.

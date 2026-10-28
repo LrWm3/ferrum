@@ -1024,7 +1024,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/debugger/DebugExp.scala"
 destination = "crates/ferrum-silicon/src/debugger/debug_exp.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Debug identity, construction, classification and editing exist; real Silver simplifier/printer and Silicon term renderer integration remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1048,7 +1049,7 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/decider/CVC5ProverStdIO.scala"
 destination = "crates/ferrum-silicon/src/decider/cvc5_prover_std_io.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
@@ -1060,13 +1061,15 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/decider/PathConditions.scala"
 destination = "crates/ferrum-silicon/src/decider/path_conditions.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Layered assumptions, scopes, marks and quantified/debug projections exist; real Silver simplifier callback integration remains."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/decider/ProverStdIO.scala"
 destination = "crates/ferrum-silicon/src/decider/prover_std_io.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native Unix process lifecycle, protocol, assertions, models, scopes and statistics exist; Config/reporter wiring and non-Unix process adapter remain. Native cleanup and model-read errors are explicit."]
 
 [[modules]]
 repository = "silicon"
@@ -1084,7 +1087,8 @@ status = "ported"
 repository = "silicon"
 upstream = "src/main/scala/decider/TermToSMTLib2Converter.scala"
 destination = "crates/ferrum-silicon/src/decider/term_to_smt_lib2_converter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Current term/sort/declaration families render SMT-LIB; source-untranslatable variants still error. Native wrapping and empty-quantifier diagnostic text differ; broader encoding validation remains."]
 
 [[modules]]
 repository = "silicon"
@@ -1102,7 +1106,7 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/decider/Z3ProverStdIO.scala"
 destination = "crates/ferrum-silicon/src/decider/z3_prover_std_io.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
@@ -1133,7 +1137,7 @@ repository = "silicon"
 upstream = "src/main/scala/interfaces/Preamble.scala"
 destination = "crates/ferrum-silicon/src/interfaces/preamble.rs"
 status = "skeleton"
-remaining = ["Preamble contributor contracts await term and verifier implementations."]
+remaining = ["Resource/reader and text emission interfaces exist; contributor and verification-stage interfaces remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1151,14 +1155,13 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/interfaces/decider/Prover.scala"
 destination = "crates/ferrum-silicon/src/interfaces/decider/prover.rs"
-status = "skeleton"
-remaining = ["Only ProverLike emission subset is implemented; solver and term contracts remain."]
+status = "ported"
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/interfaces/decider/TermConverter.scala"
 destination = "crates/ferrum-silicon/src/interfaces/decider/term_converter.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
@@ -1586,7 +1589,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/QuantifiedChunkSupport.scala"
 destination = "crates/ferrum-silicon/src/rules/quantified_chunk_support.rs"
 status = "skeleton"
-remaining = ["InverseFunctions data and substitution contract exists; snapshot/permission definitions, quantified execution rules and proof obligations remain."]
+remaining = ["InverseFunctions, SnapshotMapDefinition and PermMapDefinition data exist; quantified construction/consumption/production rules and proof obligations remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1631,7 +1634,7 @@ remaining = ["Identifier variants and fresh names exist; sort templates support 
 repository = "silicon"
 upstream = "src/main/scala/state/SnapshotMapCache.scala"
 destination = "crates/ferrum-silicon/src/state/snapshot_map_cache.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
