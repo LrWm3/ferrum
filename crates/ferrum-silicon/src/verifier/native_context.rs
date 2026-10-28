@@ -294,6 +294,8 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub options: NativeOptions,
     pub warnings: Vec<String>,
     debug_heap_recorder: crate::verifier::verifier::DebugHeapRecorder,
+    #[cfg(test)]
+    evaluator_debug_for_test: bool,
     /// Owner-local symbolic logger and record constructor. Both are inactive until
     /// the verification lifecycle explicitly installs a member log.
     pub(crate) logging_root: Option<Arc<crate::logger::symb_ex_logger::NativeSymbExLogger>>,
@@ -346,6 +348,8 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             options,
             warnings: Vec::new(),
             debug_heap_recorder: Default::default(),
+            #[cfg(test)]
+            evaluator_debug_for_test: false,
             logging_root: None,
             trace_reporting_enabled: false,
             member_log: None,
@@ -1275,7 +1279,14 @@ where
         &self.factory
     }
     fn debugging(&self) -> bool {
-        false
+        #[cfg(test)]
+        {
+            return self.evaluator_debug_for_test;
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
     fn verifier_unique_id(&self) -> &str {
         &self.base.unique_id
@@ -1479,23 +1490,65 @@ where
         )
     }
     fn fresh_arp(&mut self) -> Result<(Term, Term, Option<Exp>), Self::Error> {
-        {
-            let (v, c) = self
-                .base
-                .decider
-                .fresh_arp(&self.factory, "arp", None)
-                .map_err(NativeError::Decider)?;
-            Ok((v, c, None))
-        }
+        let debug = self.base.decider.debug_mode;
+        let debug_type = debug.then(|| {
+            ferrum_silver::parser::parse_ast::type_from_signature(
+                &ferrum_silver::parser::parse_ast_keyword::SignatureType::Perm,
+            )
+        });
+        let (variable, constraint) = self
+            .base
+            .decider
+            .fresh_arp(&self.factory, "$k", debug_type)
+            .map_err(NativeError::Decider)?;
+        let expression = if debug {
+            let crate::state::terms::TermKind::Var(var) = variable.kind() else {
+                return Err(NativeError::Unsupported("debug fresh permission variable"));
+            };
+            let name = var.id.name();
+            let name = crate::utils::ast::simplify_variable_name(&name)
+                .map_err(NativeError::Unsupported)?;
+            Some(Exp::new(
+                ExpKind::LocalVarWithVersion(name.into(), ferrum_silver::ast::r#type::Type::Perm),
+                Default::default(),
+            ))
+        } else {
+            None
+        };
+        Ok((variable, constraint, expression))
     }
     fn assume_arp_definition(
         &mut self,
         constraint: &Term,
         debug_variable: Option<&Exp>,
     ) -> Result<(), Self::Error> {
+        let debug = if self.base.decider.debug_mode {
+            let variable = debug_variable.ok_or(NativeError::Unsupported(
+                "missing debug permission variable",
+            ))?;
+            let name = ferrum_silver::ast::pretty::pretty_printer::pretty_expression(variable)
+                .map_err(|e| {
+                    NativeError::Diagnostic(format!("debug permission variable: {e:?}"))
+                })?;
+            Some(
+                crate::debugger::debug_exp::DebugExp::create(
+                    Some(format!("{name} > none")),
+                    None,
+                    None,
+                    None,
+                    true,
+                    Default::default(),
+                    false,
+                    &|e: &Exp| Ok::<_, std::convert::Infallible>(e.clone()),
+                )
+                .expect("infallible debug expression"),
+            )
+        } else {
+            None
+        };
         self.base
             .decider
-            .assume([(constraint.clone(), None)], false, true)
+            .assume([(constraint.clone(), debug)], false, true)
             .map_err(NativeError::Decider)
     }
     fn consolidate_old(
@@ -18385,6 +18438,57 @@ mod owned_branch_worker_tests {
             false,
             false,
         );
+        worker.context.base.decider.debug_mode = true;
+        worker.context.base.decider.pcs =
+            crate::decider::path_conditions::LayeredPathConditionStack::new(true);
+        worker.context.evaluator_debug_for_test = true;
+        let wildcard = Exp::new(ExpKind::WildcardPerm, Default::default());
+        let error = ferrum_silver::verifier::verification_error::PartialVerificationError::for_kind(
+            ferrum_silver::verifier::verification_error::VerificationErrorKind::Internal(None),
+        );
+        let mut result_value = None;
+        let result = crate::rules::evaluator::evaluate(
+            &mut worker.context,
+            state.clone(),
+            &wildcard,
+            &error,
+            &mut |_, _, term, debug| {
+                result_value = Some((term, debug));
+                Ok(VerificationResult::success())
+            },
+        )
+        .unwrap();
+        assert!(!result.is_fatal());
+        let (permission, debug) = result_value.unwrap();
+        let crate::state::terms::TermKind::Var(var) = permission.kind() else {
+            panic!("expected permission variable");
+        };
+        let debug = debug.unwrap();
+        let ExpKind::LocalVarWithVersion(name, typ) = debug.kind() else {
+            panic!("expected versioned permission");
+        };
+        assert_eq!(typ, &ferrum_silver::ast::r#type::Type::Perm);
+        assert_eq!(
+            name,
+            crate::utils::ast::simplify_variable_name(&var.id.name()).unwrap()
+        );
+        let saved_type = worker
+            .context
+            .base
+            .decider
+            .debug_variable_types
+            .get(&var.id.name())
+            .unwrap();
+        assert!(
+            matches!(saved_type.kind(), PTypeKind::Primitive { name } if *name.value() == ferrum_silver::parser::parse_ast_keyword::PKw::Perm)
+        );
+        let recorded = worker.context.base.decider.pcs.recorded().assumption_exps();
+        assert!(recorded.iter().any(|item| item.is_internal()
+            && item.description() == Some(format!("{name} > none").as_str())));
+        worker.context.evaluator_debug_for_test = false;
+        worker.context.base.decider.debug_mode = false;
+        worker.context.base.decider.pcs =
+            crate::decider::path_conditions::LayeredPathConditionStack::new(false);
         let mut invalid_wand_state = state.clone();
         invalid_wand_state.exhale_ext = true;
         assert!(

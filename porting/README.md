@@ -700,3 +700,9 @@ Statement/loop and method locals share the source conversion, including typed
 domain-function argument metadata and Unknown fallback when metadata lacks a
 source type. Malformed domain argument nodes fail explicitly. Public debug
 configuration remains gated while other expression families are incomplete.
+
+Wildcard permissions now use the source fresh `$k` identifier and register
+permission parser types and versioned variables when decider debugging is
+injected. Their positive-permission assumption carries the source internal
+debug description. An actual wildcard evaluation exercises this path through
+a test-only evaluator switch; production debug activation remains gated.
