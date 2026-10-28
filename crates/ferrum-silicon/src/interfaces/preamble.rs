@@ -14,7 +14,7 @@
 //! and verification stages and their declarations separate.
 //!
 //! Integration:
-//! decider::prover, supporters and interfaces::verification_unit.
+//! interfaces::decider::prover, supporters and interfaces::verification_unit.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for representation, ownership, ordering, identity,

@@ -2020,16 +2020,16 @@ status = "described"
 
 [[scaffolding]]
 destination = "src/lib.rs"
-status = "mapped"
+status = "described"
 
 [[scaffolding]]
 destination = "src/main.rs"
-status = "mapped"
+status = "described"
 
 [[scaffolding]]
 destination = "crates/ferrum-silver/src/lib.rs"
-status = "mapped"
+status = "described"
 
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/lib.rs"
-status = "mapped"
+status = "described"

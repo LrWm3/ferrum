@@ -14,7 +14,7 @@
 //! arguments use resource-specific heaps, otherwise leading Snap.
 //!
 //! Integration:
-//! silver::ast, state::terms, rules::mask_heap_supporter and verifier config.
+//! ferrum_silver::ast, state::terms, rules::mask_heap_supporter and verifier config.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for representation, ownership, ordering, identity,

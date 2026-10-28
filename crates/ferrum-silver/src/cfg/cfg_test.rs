@@ -16,7 +16,7 @@
 //! optional results are unwrapped upstream.
 //!
 //! Integration:
-//! Uses parser::{fast_parser,resolver,translator}, verifier::ParseWarning, ast::program and
+//! Uses parser::{fast_parser,resolver,translator}, verifier::verification_result::ParseWarning, ast::program and
 //! cfg::silver.
 //!
 //! Rust adaptations:

@@ -11,8 +11,10 @@
 //! groups.
 //!
 //! Behavior to preserve:
-//! Reset per-transform names and fields, discover relational predicates in both dependency
-//! directions, duplicate fields, heap-dependent functions and predicates, and report unsupported
+//! Clear primedNames, used names, fields and predicates per transform, then rebuild relational
+//! predicate closure in both dependency directions. Other singleton state, including
+//! primedNamesPerMethod, configured replacements and domainFuncsToDuplicate, is not cleared
+//! there. Duplicate fields, heap-dependent functions and predicates, and report unsupported
 //! relational domain/function assertions. Preserve options for control-flow and sequential
 //! optimization, restriction of active variables, selective methods, all-low functions,
 //! experimental rel/goto, Nagini adaptations, timing and callbacks. Duplicate method
@@ -25,8 +27,9 @@
 //! unsupported-feature reports and source-specific naming/triggers.
 //!
 //! Integration:
-//! sif_ast_extensions, sif_error and sif_plugin; predicateinstance and refute extensions,
-//! ast::utility::simplifier/rewriter and verifier diagnostics.
+//! plugin::sif::{sif_ast_extensions,sif_error,sif_plugin},
+//! plugin::standard::{predicateinstance,refute}, ast::utility::{simplifier,rewriter} and
+//! verifier diagnostics.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for product-state independence, ordered collections, metadata and

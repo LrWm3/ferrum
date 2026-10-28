@@ -12,8 +12,10 @@
 //! Build domain and extension signatures first, then domain functions and other signatures before
 //! bodies. Preserve positions and SourcePNodeInfo/annotations; translate field call targets using
 //! receiver temporaries before call and field writes afterward, reporting duplicate fields.
-//! Rewrite impure assumes, desugar impure forall quantified permissions, validate forperm and
-//! triggers; return None when consistency messages exist. Preserve operator/type-dependent
+//! Rewrite impure assumes after assembling the program, desugar impure forall quantified
+//! permissions, validate forperm and triggers; return None when consistency messages exist.
+//! Field targets also receive NodeTrafo back to the original access; duplicate field targets
+//! are diagnosed by field identity even if receivers differ. Preserve operator/type-dependent
 //! arithmetic, collections, domain substitutions and extensions.
 //!
 //! Integration:

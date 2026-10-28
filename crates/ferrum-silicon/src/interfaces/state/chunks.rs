@@ -14,7 +14,7 @@
 //! functions and quantified variables; condition and permission updates return chunks.
 //!
 //! Integration:
-//! state::chunks, resources and rules::quantified_chunk_supporter.
+//! state::chunks, resources and rules::quantified_chunk_support.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for representation, ownership, ordering, identity,

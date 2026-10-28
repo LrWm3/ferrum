@@ -13,14 +13,15 @@
 //! Assign constructor tags by sorted name. Bottom-up replace declarations and applications, then
 //! rewrite all ADT types, then add contains transitivity domain when derived. Generate
 //! constructor/destructor/tag functions and axioms with source triggers; optional well-founded
-//! domains depend on termination enabled and existing declarations. Traverse nested ADT
+//! domains require termination enabled, an existing well-founded-order declaration domain and
+//! absence of the ADT-specific well-founded domain. Traverse nested ADT
 //! constructor types with visited-set guard for decreases axioms; derive contains excluding
 //! blocklisted fields and build concrete-type transitive closure. Preserve order, metadata, type
 //! maps and actual trigger generation, including exclusivity’s last destructor-call list.
 //!
 //! Integration:
-//! adt_plugin, adt_ast_extension and adt_name_manager; ast domain/type/expression rewriter,
-//! termination and ADT resources.
+//! plugin::standard::adt::{adt_plugin,adt_ast_extension,encoding::adt_name_manager};
+//! ast domain/type/expression rewriter, termination and ADT resources.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for ordering, typed maps, metadata and explicit reconstruction.

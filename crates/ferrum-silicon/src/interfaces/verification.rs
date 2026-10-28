@@ -16,7 +16,7 @@
 //! and renames snapshot values consistently as hp_N.
 //!
 //! Integration:
-//! silver::verifier, reporting converter/interpreter, state and verifier.
+//! ferrum_silver::verifier, reporting converter/interpreter, state and verifier.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for representation, ownership, ordering, identity,

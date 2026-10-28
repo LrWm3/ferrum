@@ -25,8 +25,8 @@
 //! created only in debugging mode.
 //!
 //! Integration:
-//! interfaces::state::chunks, state::terms, resources, rules::inverse_functions and
-//! silver::ast.
+//! interfaces::state::chunks, state::terms, resources, rules::quantified_chunk_support
+//! (InverseFunctions) and ferrum_silver::ast.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for representation, ownership, ordering, identity,

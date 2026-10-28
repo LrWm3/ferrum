@@ -18,7 +18,7 @@
 //!
 //! Integration:
 //! ast::{ast,expression}, ast::utility::rewriter::{strategy,regex_strategy,t_regex} and
-//! verifier::errors.
+//! verifier::verification_error::errors.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for identity, ordering, explicit ownership, errors and

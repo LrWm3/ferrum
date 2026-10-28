@@ -14,7 +14,7 @@
 //! reset. The stub verifier succeeds but is not a verification phase.
 //!
 //! Integration:
-//! frontend::sil_frontend, parser and reporter::messages; reformatter_ast_provider specializes
+//! frontend::sil_frontend, parser and reporter::message; reformatter_ast_provider specializes
 //! this provider.
 //!
 //! Rust adaptations:

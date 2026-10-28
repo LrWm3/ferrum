@@ -17,8 +17,7 @@
 //! Preserve try-catch subnode traversal as written.
 //!
 //! Integration:
-//! sif_plugin, sifp_ast_extensions and sif_extended_transformer; ast::expression/statement/info
-//! and pretty printer.
+//! sif_plugin, sifp_ast_extensions and sif_extended_transformer; ast::{expression,statement,ast} metadata and pretty printer.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for metadata, node identity and extension dispatch.

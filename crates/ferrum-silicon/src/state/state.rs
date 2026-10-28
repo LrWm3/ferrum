@@ -16,7 +16,8 @@
 //! debug expressions. Merge checks compatible fields and reports mismatches; combines
 //! recorders, caches and flags according to each merge path. Conditional branch merge keeps
 //! common chunks unconditional, conditions branch-only chunks, and merges mask chunks by
-//! resource; store and old heaps receive branch conditions. Preserve retry, visited and
+//! resource; matching mask chunks merge with Ite, while a mask chunk present on only one
+//! branch is retained as-is. Store and old heaps receive branch conditions. Preserve retry, visited and
 //! reserve-heap rules and independent branch state.
 //!
 //! Unconditional merge requires matching store and heap and unions ordered

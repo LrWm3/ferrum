@@ -14,7 +14,7 @@
 //! filenames; file reading failures yield empty text; only Success counts as success.
 //!
 //! Integration:
-//! frontend::sil_frontend, ast::pretty::fast_pretty_printer and verifier::result.
+//! frontend::sil_frontend, ast::pretty::pretty_printer and verifier::verification_result.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for shared ownership, errors and collection semantics; native

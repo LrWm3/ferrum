@@ -15,7 +15,7 @@
 //! rather than ax0.
 //!
 //! Integration:
-//! utility::cache_helper and ast::program.
+//! utility::caching::CacheHelper and ast::program.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for identity, ordering, diagnostics and provisional ownership.

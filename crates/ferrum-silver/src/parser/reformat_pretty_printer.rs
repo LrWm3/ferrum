@@ -16,7 +16,7 @@
 //!
 //! Integration:
 //! parser::parse_ast and parse_ast_keyword, fast_parser trivia parser,
-//! ast::pretty::fast_pretty_printer; frontend::reformatter_ast_provider.
+//! ast::pretty::pretty_printer; frontend::reformatter_ast_provider.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for shared ownership, errors, source positions and collection

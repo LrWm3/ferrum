@@ -74,7 +74,7 @@
 //! representation outside the equality-defining fields.
 //!
 //! Integration:
-//! state::utils, triggers, chunks, symbol_converter; decider converters, rules and
+//! state::utils, state::triggers, state::chunks, state::symbol_converter; decider converters, rules and
 //! supporters.
 //!
 //! Rust adaptations:

@@ -15,7 +15,7 @@
 //! after argument transforms.
 //!
 //! Integration:
-//! state::terms, rules::function_supporter and silver::ast.
+//! state::terms, rules::function_supporter and ferrum_silver::ast.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for representation, ownership, ordering, identity,

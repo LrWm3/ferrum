@@ -17,7 +17,7 @@
 //! before comparing reference files.
 //!
 //! Integration:
-//! ast::utility::rewriter::{t_regex,regex_strategy}, viper_strategy, test_helpers and
+//! ast::utility::{rewriter::{t_regex,regex_strategy},viper_strategy}, test_helpers and
 //! transformations fixtures.
 //!
 //! Rust adaptations:

@@ -16,7 +16,7 @@
 //! original term, not pre-rewritten term.
 //!
 //! Integration:
-//! state::terms, state::chunks, state::state and silver::ast.
+//! state::terms, state::chunks, state::state and ferrum_silver::ast.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for representation, ownership, ordering, identity,

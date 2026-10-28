@@ -15,7 +15,7 @@
 //! partially independent contexts and pre-reserved counter suffixes.
 //!
 //! Integration:
-//! utility::name_generator and parser identifier restrictions.
+//! utility::{name_generator,sil_name_generator} and parser identifier restrictions.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for identity, ordering, diagnostics and provisional ownership.

@@ -23,7 +23,7 @@
 //!
 //! Integration:
 //! Coordinate ast::utility::{nodes,visitor,viper_strategy,rewriter},
-//! ast::{program,position,pretty::pretty_printer}, parser and verifier::errors.
+//! ast::{program,position,pretty::pretty_printer}, parser and verifier::verification_error::errors.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for ownership, identity, ordering and errors; proposed interfaces

@@ -18,7 +18,7 @@
 //! after search; the mutable generator is explicitly not thread-safe.
 //!
 //! Integration:
-//! state::terms, state::utils and silver::ast::utility trigger machinery.
+//! state::terms, state::utils and ferrum_silver::ast::utility trigger machinery.
 //!
 //! Rust adaptations:
 //! Follow porting/conventions.md for representation, ownership, ordering, identity,

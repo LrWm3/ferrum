@@ -17,7 +17,7 @@
 //! than success. Preserve dependency information and reporter access.
 //!
 //! Integration:
-//! components::lifetime_component, ast::program, reporter::reporter, verifier::verification_result
+//! components::components::LifetimeComponent, ast::program, reporter::reporter, verifier::verification_result
 //! and Silicon verifier.
 //!
 //! Rust adaptations:
