@@ -1095,6 +1095,14 @@ impl Session {
         silicon.start().map_err(execution)?;
         Ok(Self { silicon })
     }
+    /// Construct a native session that delivers verifier events to the supplied reporter.
+    /// The session remains owner-thread bound and uses the same configuration gates as `new`.
+    pub fn new_with_reporter(
+        config: Config,
+        reporter: Arc<dyn silver::reporter::reporter::Reporter>,
+    ) -> Result<Self, FerrumError> {
+        Self::new_with_warning_sink(config, Arc::new(Mutex::new(Vec::new())), reporter)
+    }
     /// Share the backend warning sink from construction onward, including failed startup.
     fn new_with_warning_sink(
         config: Config,
@@ -1913,5 +1921,57 @@ mod run_logging_factory_tests {
             .unwrap()
             .join()
             .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod direct_session_reporter_tests {
+    use super::*;
+    use silver::{
+        frontend::frontend::FrontendPhases,
+        reporter::{
+            message::Message,
+            reporter::{NoopReporter, PollingReporter, ReportError, Reporter},
+        },
+    };
+
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn direct_session_reports_events_and_propagates_reporter_failure() {
+        struct RejectEntity;
+        impl Reporter for RejectEntity {
+            fn name(&self) -> &str {
+                "reject-entity"
+            }
+            fn report(&self, message: Message) -> Result<(), ReportError> {
+                if matches!(message, Message::EntitySuccess { .. }) {
+                    Err(ReportError::Unsupported("entity rejected"))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        std::thread::Builder::new().stack_size(VERIFICATION_STACK_SIZE).spawn(|| {
+            let z3 = std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+            let mut phases = SilFrontendPhases::new("injected.vpr".into(), silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+            let parsed = phases.parse("method m() { assert true; }").unwrap();
+            let checked = phases.analyze(parsed).unwrap();
+            let program = phases.translate(checked).unwrap();
+            for workers in [1, 2] {
+                let config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "--numberOfParallelVerifiers".into(), workers.to_string(), "injected.vpr".into()]).unwrap();
+                let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+                let mut session = Session::new_with_reporter(config.clone(), reporter.clone()).unwrap();
+                assert!(matches!(session.verify(&program, &[]).unwrap(), VerificationResult::Success));
+                assert!(matches!(reporter.get_new_message().unwrap(), Message::EntitySuccess { concerning, .. } if concerning.name() == "m"));
+                assert!(matches!(reporter.get_new_message().unwrap(), Message::VerificationTermination));
+                session.stop().unwrap();
+                let mut session = Session::new_with_reporter(config.clone(), Arc::new(RejectEntity)).unwrap();
+                assert!(session.verify(&program, &[]).is_err());
+                session.stop().unwrap();
+                let mut unsupported = config;
+                unsupported.frontend.ide_mode_advanced = true;
+                assert!(Session::new_with_reporter(unsupported, Arc::new(NoopReporter)).is_err());
+            }
+        }).unwrap().join().unwrap();
     }
 }

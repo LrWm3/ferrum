@@ -741,3 +741,9 @@ original/rewritten expressions, bound variables and AST/term triggers. Global
 and non-global assumptions retain source grouping, comments and order. A real
 quantifier evaluation now succeeds with the injected debug settings; absent
 required debug payloads still fail explicitly. Other debug services remain gated.
+
+Direct native AST clients can now supply a reporter through
+`Session::new_with_reporter`. It uses the existing owner-thread startup and
+warning sink and delivers member/termination events through the same runtime
+as the injected frontend. One/two-worker checks cover successful delivery,
+reporter failure and continued rejection of unconnected advanced profiles.
