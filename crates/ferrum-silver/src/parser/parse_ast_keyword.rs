@@ -66,6 +66,7 @@ pub enum PToken {
     SymbolOperator(PSymOp),
     KeywordOperator(PKwOp),
     ExtensionKeyword(PExtensionKeyword),
+    ExtensionSymbol(PExtensionSymbol),
 }
 /// Runtime plugin keywords retain spelling and their source keyword category.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -99,8 +100,34 @@ impl PFormatting for PExtensionKeyword {
         }
     }
 }
+/// Runtime plugin symbols are distinct from keywords and retain their source category.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PExtensionSymbolCategory {
+    Language,
+    Other,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct PExtensionSymbol {
+    pub spelling: String,
+    pub category: PExtensionSymbolCategory,
+}
+impl PReservedString for PExtensionSymbol {
+    fn token(&self) -> &str {
+        &self.spelling
+    }
+}
+impl PFormatting for PExtensionSymbol {
+    fn formatting(&self) -> Formatting {
+        Formatting::default()
+    }
+}
 pub trait PTokenValue: Clone {
     fn graph_token(&self) -> PToken;
+}
+impl PTokenValue for PExtensionSymbol {
+    fn graph_token(&self) -> PToken {
+        PToken::ExtensionSymbol(self.clone())
+    }
 }
 impl PTokenValue for PExtensionKeyword {
     fn graph_token(&self) -> PToken {

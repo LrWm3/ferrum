@@ -523,6 +523,9 @@ pub enum PTypeKind {
     Primitive {
         name: super::parse_ast_keyword::PReserved<super::parse_ast_keyword::PKw>,
     },
+    ExtensionPrimitive {
+        name: super::parse_ast_keyword::PReserved<super::parse_ast_keyword::PExtensionKeyword>,
+    },
     Domain {
         domain: PNodeHandle,
         args: Option<PTypeArguments>,
@@ -719,7 +722,11 @@ impl PTypeHandle {
                     && result_type.is_valid_or_undeclared()
             }
             Macro { .. } => panic!("upstream PMacroType validity is unavailable before expansion"),
-            Primitive { .. } | BoolImpure | BoolWand | BoolPredicate => true,
+            Primitive { .. }
+            | ExtensionPrimitive { .. }
+            | BoolImpure
+            | BoolWand
+            | BoolPredicate => true,
         }
     }
     pub fn is_ground(&self) -> bool {
@@ -739,6 +746,7 @@ impl PTypeHandle {
             Map { types, .. } => types.inner.first.is_ground() && types.inner.second.is_ground(),
             // Upstream PFunctionType is an internal type, inheriting PType.isGround=true.
             Primitive { .. }
+            | ExtensionPrimitive { .. }
             | Unknown
             | BoolImpure
             | BoolWand
@@ -791,7 +799,12 @@ impl PTypeHandle {
             Macro { .. } => {
                 panic!("upstream PMacroType type subnodes are unavailable before expansion")
             }
-            Primitive { .. } | Unknown | BoolImpure | BoolWand | BoolPredicate => {}
+            Primitive { .. }
+            | ExtensionPrimitive { .. }
+            | Unknown
+            | BoolImpure
+            | BoolWand
+            | BoolPredicate => {}
         }
         variables
     }
@@ -1829,6 +1842,7 @@ pub fn subnodes(node: &PNodeHandle) -> Result<Vec<PNodeHandle>, ChildrenNotPorte
             let mut children = Vec::new();
             match kind {
                 PTypeKind::Primitive { name } => children.extend(name.graph_nodes()),
+                PTypeKind::ExtensionPrimitive { name } => children.extend(name.graph_nodes()),
                 PTypeKind::Domain { domain, args, .. } => {
                     children.extend(domain.graph_nodes());
                     children.extend(args.graph_nodes());
@@ -2511,6 +2525,7 @@ impl PTypeHandle {
         use PTypeKind::*;
         match (self.kind(), other.kind()) {
             (Primitive { name: a }, Primitive { name: b }) => a == b,
+            (ExtensionPrimitive { name: a }, ExtensionPrimitive { name: b }) => a == b,
             (
                 Domain {
                     domain: a,
@@ -2720,7 +2735,12 @@ impl PTypeHandle {
             Macro { .. } => {
                 panic!("upstream PMacroType substitution is unavailable before expansion")
             }
-            Primitive { .. } | Unknown | BoolImpure | BoolWand | BoolPredicate => self.clone(),
+            Primitive { .. }
+            | ExtensionPrimitive { .. }
+            | Unknown
+            | BoolImpure
+            | BoolWand
+            | BoolPredicate => self.clone(),
         }
     }
 }

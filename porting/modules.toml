@@ -7,7 +7,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Ast.scala"
 destination = "crates/ferrum-silver/src/ast/ast.rs"
 status = "skeleton"
-remaining = ["Common metadata and info composition exist; full Node contracts, consistency and executable typed diagnostic backtransformation remain."]
+remaining = ["Metadata composition and typed rewrite backlinks exist; executable error transformations and full common Node contracts remain."]
 
 [[modules]]
 repository = "silver"
@@ -27,7 +27,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Program.scala"
 destination = "crates/ferrum-silver/src/ast/program.rs"
 status = "skeleton"
-remaining = ["Declarations, member lookup, operator signatures and cached wand structures exist; consistency, dependency hashing, domain instantiation and CFG conversion remain."]
+remaining = ["Identity-bearing member handles, lookup and wand structures exist; consistency, dependency hashes, domain instantiation and CFG integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -123,7 +123,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Nodes.scala"
 destination = "crates/ferrum-silver/src/ast/utility/nodes.rs"
 status = "skeleton"
-remaining = ["Ordered child dispatch and member references exist; complete product reconstruction and identity for value node families remain."]
+remaining = ["Ordered traversal, member discovery and expression replacement exist; complete product reconstruction and extension integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -148,7 +148,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Statements.scala"
 destination = "crates/ferrum-silver/src/ast/utility/statements.rs"
 status = "skeleton"
-remaining = ["Statement collection and variable queries exist; complete extension and reconstruction integration remain."]
+remaining = ["Statement queries and expression replacement exist; general reconstruction and extension families remain."]
 
 [[modules]]
 repository = "silver"
@@ -201,7 +201,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/rewriter/Strategy.scala"
 destination = "crates/ferrum-silver/src/ast/utility/rewriter/strategy.rs"
 status = "skeleton"
-remaining = ["Context-aware top-down/bottom-up/innermost traversal, noRec, repetition and selection exist; outermost/composition and concrete adapters remain."]
+remaining = ["Generic strategies and expression replacement exist; universal Node reconstruction, full strategy composition and parser adapters remain."]
 
 [[modules]]
 repository = "silver"
@@ -343,7 +343,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/FastParser.scala"
 destination = "crates/ferrum-silver/src/parser/fast_parser.rs"
 status = "skeleton"
-remaining = ["Common program/method/control-flow grammar, typed expressions, types and quantifiers exist; imports, domains/macros, extensions/recovery and remaining syntax remain."]
+remaining = ["Core expression, type and program grammar exists; imports, macros, domains, complete plugins and parser recovery remain."]
 
 [[modules]]
 repository = "silver"
@@ -376,14 +376,14 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/Resolver.scala"
 destination = "crates/ferrum-silver/src/parser/resolver.rs"
 status = "skeleton"
-remaining = ["Core declaration scopes, name resolution, ordered substitution and partial expression inference exist; whole-program checking/grounding, domains/macros/extensions and remaining inference remain."]
+remaining = ["Name resolution and core program typechecking exist; complete domain/plugin constraints, diagnostic recovery and source-wide semantic coverage remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/Translator.scala"
 destination = "crates/ferrum-silver/src/parser/translator.rs"
 status = "skeleton"
-remaining = ["Core typed expressions/types/statements with source metadata exist; whole-program declarations/signatures, remaining statements and plugin translation remain."]
+remaining = ["Core program and statement translation preserve shared field identity; domains, macros, extensions and impure-assume lowering remain."]
 
 [[modules]]
 repository = "silver"

@@ -63,9 +63,37 @@ impl std::ops::Deref for LocalVarDecl {
     }
 }
 #[derive(Clone, Debug)]
-pub struct UnnamedLocalVarDecl {
+pub struct UnnamedLocalVarDeclData {
     pub typ: Type,
     pub meta: Metadata,
+}
+/// Immutable identity-bearing UnnamedLocalVarDecl handle. Mutation uses copy-on-write with fresh identity.
+#[derive(Clone, Debug)]
+pub struct UnnamedLocalVarDecl(Arc<UnnamedLocalVarDeclData>);
+impl UnnamedLocalVarDecl {
+    pub fn new(data: UnnamedLocalVarDeclData) -> Self {
+        Self(Arc::new(data))
+    }
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub fn copy_with(&self, edit: impl FnOnce(&mut UnnamedLocalVarDeclData)) -> Self {
+        let mut data = (*self.0).clone();
+        edit(&mut data);
+        Self::new(data)
+    }
+}
+impl std::ops::Deref for UnnamedLocalVarDecl {
+    type Target = UnnamedLocalVarDeclData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for UnnamedLocalVarDecl {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0 = Arc::new((*self.0).clone());
+        Arc::get_mut(&mut self.0).expect("fresh identity")
+    }
 }
 structural_eq!(UnnamedLocalVarDecl, typ);
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,18 +111,74 @@ impl AnyLocalVarDecl {
 }
 
 #[derive(Clone, Debug)]
-pub struct Field {
+pub struct FieldData {
     pub name: String,
     pub typ: Type,
     pub meta: Metadata,
 }
+/// Immutable identity-bearing Field handle. Mutation uses copy-on-write with fresh identity.
+#[derive(Clone, Debug)]
+pub struct Field(Arc<FieldData>);
+impl Field {
+    pub fn new(data: FieldData) -> Self {
+        Self(Arc::new(data))
+    }
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub fn copy_with(&self, edit: impl FnOnce(&mut FieldData)) -> Self {
+        let mut data = (*self.0).clone();
+        edit(&mut data);
+        Self::new(data)
+    }
+}
+impl std::ops::Deref for Field {
+    type Target = FieldData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for Field {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0 = Arc::new((*self.0).clone());
+        Arc::get_mut(&mut self.0).expect("fresh identity")
+    }
+}
 structural_eq!(Field, name, typ);
 #[derive(Clone, Debug)]
-pub struct Predicate {
+pub struct PredicateData {
     pub name: String,
     pub formal_args: Vec<LocalVarDecl>,
     pub body: Option<Exp>,
     pub meta: Metadata,
+}
+/// Immutable identity-bearing Predicate handle. Mutation uses copy-on-write with fresh identity.
+#[derive(Clone, Debug)]
+pub struct Predicate(Arc<PredicateData>);
+impl Predicate {
+    pub fn new(data: PredicateData) -> Self {
+        Self(Arc::new(data))
+    }
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub fn copy_with(&self, edit: impl FnOnce(&mut PredicateData)) -> Self {
+        let mut data = (*self.0).clone();
+        edit(&mut data);
+        Self::new(data)
+    }
+}
+impl std::ops::Deref for Predicate {
+    type Target = PredicateData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for Predicate {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0 = Arc::new((*self.0).clone());
+        Arc::get_mut(&mut self.0).expect("fresh identity")
+    }
 }
 structural_eq!(Predicate, name, formal_args, body);
 impl Predicate {
@@ -103,7 +187,7 @@ impl Predicate {
     }
 }
 #[derive(Clone, Debug)]
-pub struct Method {
+pub struct MethodData {
     pub name: String,
     pub formal_args: Vec<LocalVarDecl>,
     pub formal_returns: Vec<LocalVarDecl>,
@@ -112,9 +196,37 @@ pub struct Method {
     pub body: Option<Stmt>,
     pub meta: Metadata,
 }
+/// Immutable identity-bearing Method handle. Mutation uses copy-on-write with fresh identity.
+#[derive(Clone, Debug)]
+pub struct Method(Arc<MethodData>);
+impl Method {
+    pub fn new(data: MethodData) -> Self {
+        Self(Arc::new(data))
+    }
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub fn copy_with(&self, edit: impl FnOnce(&mut MethodData)) -> Self {
+        let mut data = (*self.0).clone();
+        edit(&mut data);
+        Self::new(data)
+    }
+}
+impl std::ops::Deref for Method {
+    type Target = MethodData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for Method {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0 = Arc::new((*self.0).clone());
+        Arc::get_mut(&mut self.0).expect("fresh identity")
+    }
+}
 structural_eq!(Method, name, formal_args, formal_returns, pres, posts, body);
 #[derive(Clone, Debug)]
-pub struct Function {
+pub struct FunctionData {
     pub name: String,
     pub formal_args: Vec<LocalVarDecl>,
     pub typ: Type,
@@ -122,6 +234,34 @@ pub struct Function {
     pub posts: Vec<Exp>,
     pub body: Option<Exp>,
     pub meta: Metadata,
+}
+/// Immutable identity-bearing Function handle. Mutation uses copy-on-write with fresh identity.
+#[derive(Clone, Debug)]
+pub struct Function(Arc<FunctionData>);
+impl Function {
+    pub fn new(data: FunctionData) -> Self {
+        Self(Arc::new(data))
+    }
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub fn copy_with(&self, edit: impl FnOnce(&mut FunctionData)) -> Self {
+        let mut data = (*self.0).clone();
+        edit(&mut data);
+        Self::new(data)
+    }
+}
+impl std::ops::Deref for Function {
+    type Target = FunctionData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for Function {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0 = Arc::new((*self.0).clone());
+        Arc::get_mut(&mut self.0).expect("fresh identity")
+    }
 }
 structural_eq!(Function, name, formal_args, typ, pres, posts, body);
 impl Function {
@@ -136,7 +276,7 @@ impl Function {
 }
 
 #[derive(Clone, Debug)]
-pub struct DomainFunc {
+pub struct DomainFuncData {
     pub name: String,
     pub formal_args: Vec<AnyLocalVarDecl>,
     pub typ: Type,
@@ -145,9 +285,37 @@ pub struct DomainFunc {
     pub domain_name: String,
     pub meta: Metadata,
 }
+/// Immutable identity-bearing DomainFunc handle. Mutation uses copy-on-write with fresh identity.
+#[derive(Clone, Debug)]
+pub struct DomainFunc(Arc<DomainFuncData>);
+impl DomainFunc {
+    pub fn new(data: DomainFuncData) -> Self {
+        Self(Arc::new(data))
+    }
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub fn copy_with(&self, edit: impl FnOnce(&mut DomainFuncData)) -> Self {
+        let mut data = (*self.0).clone();
+        edit(&mut data);
+        Self::new(data)
+    }
+}
+impl std::ops::Deref for DomainFunc {
+    type Target = DomainFuncData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for DomainFunc {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0 = Arc::new((*self.0).clone());
+        Arc::get_mut(&mut self.0).expect("fresh identity")
+    }
+}
 structural_eq!(DomainFunc, name, formal_args, typ, unique, interpretation);
 #[derive(Clone, Debug)]
-pub enum DomainAxiom {
+pub enum DomainAxiomKind {
     Named {
         name: String,
         exp: Exp,
@@ -160,18 +328,40 @@ pub enum DomainAxiom {
         meta: Metadata,
     },
 }
+/// Named and anonymous axioms retain source object identity across handle clones.
+#[derive(Clone, Debug)]
+pub struct DomainAxiom(Arc<DomainAxiomKind>);
+impl DomainAxiom {
+    pub fn new(kind: DomainAxiomKind) -> Self {
+        Self(Arc::new(kind))
+    }
+    pub fn kind(&self) -> &DomainAxiomKind {
+        &self.0
+    }
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub fn copy_with(&self, edit: impl FnOnce(&mut DomainAxiomKind)) -> Self {
+        let mut kind = (*self.0).clone();
+        edit(&mut kind);
+        Self::new(kind)
+    }
+}
 impl PartialEq for DomainAxiom {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
+        match (self.kind(), other.kind()) {
             (
-                Self::Named {
+                DomainAxiomKind::Named {
                     name: a, exp: x, ..
                 },
-                Self::Named {
+                DomainAxiomKind::Named {
                     name: b, exp: y, ..
                 },
             ) => a == b && x == y,
-            (Self::Anonymous { exp: x, .. }, Self::Anonymous { exp: y, .. }) => x == y,
+            (
+                DomainAxiomKind::Anonymous { exp: x, .. },
+                DomainAxiomKind::Anonymous { exp: y, .. },
+            ) => x == y,
             _ => false,
         }
     }
@@ -179,19 +369,47 @@ impl PartialEq for DomainAxiom {
 impl Eq for DomainAxiom {}
 impl DomainAxiom {
     pub fn exp(&self) -> &Exp {
-        match self {
-            Self::Named { exp, .. } | Self::Anonymous { exp, .. } => exp,
+        match self.kind() {
+            DomainAxiomKind::Named { exp, .. } | DomainAxiomKind::Anonymous { exp, .. } => exp,
         }
     }
 }
 #[derive(Clone, Debug)]
-pub struct Domain {
+pub struct DomainData {
     pub name: String,
     pub functions: Vec<DomainFunc>,
     pub axioms: Vec<DomainAxiom>,
     pub type_vars: Vec<TypeVar>,
     pub interpretations: Option<HashMap<String, String>>,
     pub meta: Metadata,
+}
+/// Immutable identity-bearing Domain handle. Mutation uses copy-on-write with fresh identity.
+#[derive(Clone, Debug)]
+pub struct Domain(Arc<DomainData>);
+impl Domain {
+    pub fn new(data: DomainData) -> Self {
+        Self(Arc::new(data))
+    }
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub fn copy_with(&self, edit: impl FnOnce(&mut DomainData)) -> Self {
+        let mut data = (*self.0).clone();
+        edit(&mut data);
+        Self::new(data)
+    }
+}
+impl std::ops::Deref for Domain {
+    type Target = DomainData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for Domain {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0 = Arc::new((*self.0).clone());
+        Arc::get_mut(&mut self.0).expect("fresh identity")
+    }
 }
 structural_eq!(Domain, name, functions, axioms, type_vars, interpretations);
 impl Domain {
@@ -436,10 +654,38 @@ impl PartialEq for ExtensionDeclarationHandle {
 }
 impl Eq for ExtensionDeclarationHandle {}
 #[derive(Clone, Debug)]
-pub struct LabelDeclaration {
+pub struct LabelDeclarationData {
     pub name: String,
     pub invariants: Vec<Exp>,
     pub meta: Metadata,
+}
+/// Immutable identity-bearing LabelDeclaration handle. Mutation uses copy-on-write with fresh identity.
+#[derive(Clone, Debug)]
+pub struct LabelDeclaration(Arc<LabelDeclarationData>);
+impl LabelDeclaration {
+    pub fn new(data: LabelDeclarationData) -> Self {
+        Self(Arc::new(data))
+    }
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub fn copy_with(&self, edit: impl FnOnce(&mut LabelDeclarationData)) -> Self {
+        let mut data = (*self.0).clone();
+        edit(&mut data);
+        Self::new(data)
+    }
+}
+impl std::ops::Deref for LabelDeclaration {
+    type Target = LabelDeclarationData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for LabelDeclaration {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0 = Arc::new((*self.0).clone());
+        Arc::get_mut(&mut self.0).expect("fresh identity")
+    }
 }
 structural_eq!(LabelDeclaration, name, invariants);
 
@@ -605,5 +851,39 @@ impl Program {
         }
         *cache = Some(result.clone());
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod member_identity_tests {
+    use super::*;
+    #[test]
+    fn handles_share_clones_and_freshen_copies_without_mutating_original() {
+        let field = Field::new(FieldData {
+            name: "f".into(),
+            typ: Type::Int,
+            meta: Metadata::default(),
+        });
+        let mut changed = field.clone();
+        assert!(field.same_node(&changed));
+        changed.name = "g".into();
+        assert!(!field.same_node(&changed));
+        assert_eq!(field.name, "f");
+        let copied = field.copy_with(|_| {});
+        assert_eq!(field, copied);
+        assert!(!field.same_node(&copied));
+        let axiom = DomainAxiom::new(DomainAxiomKind::Anonymous {
+            exp: Exp::new(
+                super::super::expression::ExpKind::TrueLit,
+                Metadata::default(),
+            ),
+            domain_name: "D".into(),
+            meta: Metadata::default(),
+        });
+        let same = axiom.clone();
+        assert!(axiom.same_node(&same));
+        let copied = axiom.copy_with(|_| {});
+        assert_eq!(axiom, copied);
+        assert!(!axiom.same_node(&copied));
     }
 }

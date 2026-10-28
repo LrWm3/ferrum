@@ -348,3 +348,221 @@ mod review_tests {
         assert_eq!(*visits.lock().unwrap(), vec![1, 2]);
     }
 }
+
+/// Failure while replacing expressions inside a more specific source AST slot.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExpressionReplacementError {
+    Extension,
+    InvalidFieldAccess,
+    InvalidPredicateAccess,
+}
+/// Source `Exp.replace` uses structural map keys and an innermost strategy:
+/// a changed node is replaced once and its replacement is not traversed; an
+/// identity-preserving rule result continues into that node's children.
+/// Declaration and type replacement is a separate generic Node operation.
+pub fn replace_expressions(
+    expression: &crate::ast::expression::Exp,
+    replacements: &[(crate::ast::expression::Exp, crate::ast::expression::Exp)],
+) -> Result<crate::ast::expression::Exp, ExpressionReplacementError> {
+    use crate::ast::expression::{Exp, ExpKind, Trigger};
+    fn go(e: &Exp, replacements: &[(Exp, Exp)]) -> Result<Exp, ExpressionReplacementError> {
+        if let Some((_, replacement)) = replacements.iter().find(|(original, _)| original == e) {
+            if !replacement.same_node(e) {
+                return Ok(replacement.clone());
+            }
+        }
+        e.map_expression_children(
+            &mut |x| go(x, replacements),
+            &mut |_| Err(ExpressionReplacementError::Extension),
+            &mut |field| {
+                let node = Exp::new(ExpKind::FieldAccess(field.clone()), field.meta.clone());
+                let result = go(&node, replacements)?;
+                let ExpKind::FieldAccess(field) = result.kind() else {
+                    return Err(ExpressionReplacementError::InvalidFieldAccess);
+                };
+                Ok(field.clone())
+            },
+            &mut |predicate| {
+                let node = Exp::new(
+                    ExpKind::PredicateAccess(predicate.clone()),
+                    predicate.meta.clone(),
+                );
+                let result = go(&node, replacements)?;
+                let ExpKind::PredicateAccess(predicate) = result.kind() else {
+                    return Err(ExpressionReplacementError::InvalidPredicateAccess);
+                };
+                Ok(predicate.clone())
+            },
+            &mut |trigger: &Trigger| {
+                let exps = trigger
+                    .exps
+                    .iter()
+                    .map(|x| go(x, replacements))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(if exps == trigger.exps {
+                    trigger.clone()
+                } else {
+                    Trigger::new(exps, trigger.meta.clone())
+                })
+            },
+        )
+    }
+    if replacements.is_empty() {
+        return Ok(expression.clone());
+    }
+    go(expression, replacements)
+}
+
+/// Failure in a bottom-up, per-occurrence expression rewrite.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExpressionRewriteError<E> {
+    Callback(E),
+    InvalidFieldAccess,
+    InvalidPredicateAccess,
+}
+
+/// Rewrite each built-in expression occurrence bottom-up. Extension reconstruction
+/// is delegated to `extension`, which can rewrite its children via the supplied continuation.
+/// As with upstream product reconstruction, structurally equal children reuse
+/// their original parent, even if their metadata differs.
+pub fn rewrite_expression_bottom_up<E>(
+    expression: &crate::ast::expression::Exp,
+    rule: &mut impl FnMut(&crate::ast::expression::Exp) -> Result<crate::ast::expression::Exp, E>,
+    extension: &impl Fn(
+        &crate::ast::expression::ExtensionExpHandle,
+        &mut dyn FnMut(
+            &crate::ast::expression::Exp,
+        ) -> Result<crate::ast::expression::Exp, ExpressionRewriteError<E>>,
+    )
+        -> Result<crate::ast::expression::ExtensionExpHandle, ExpressionRewriteError<E>>,
+) -> Result<crate::ast::expression::Exp, ExpressionRewriteError<E>> {
+    use crate::ast::expression::{Exp, ExpKind, ExtensionExpHandle, Trigger};
+    fn go<E>(
+        e: &Exp,
+        rule: &std::cell::RefCell<&mut impl FnMut(&Exp) -> Result<Exp, E>>,
+        extension: &impl Fn(
+            &ExtensionExpHandle,
+            &mut dyn FnMut(&Exp) -> Result<Exp, ExpressionRewriteError<E>>,
+        ) -> Result<ExtensionExpHandle, ExpressionRewriteError<E>>,
+    ) -> Result<Exp, ExpressionRewriteError<E>> {
+        let rebuilt = e.map_expression_children(
+            &mut |x| go(x, rule, extension),
+            &mut |x| extension(x, &mut |child| go(child, rule, extension)),
+            &mut |field| {
+                let view = Exp::new(ExpKind::FieldAccess(field.clone()), field.meta.clone());
+                let result = go(&view, rule, extension)?;
+                match result.kind() {
+                    ExpKind::FieldAccess(v) => Ok(v.clone()),
+                    _ => Err(ExpressionRewriteError::InvalidFieldAccess),
+                }
+            },
+            &mut |predicate| {
+                let view = Exp::new(
+                    ExpKind::PredicateAccess(predicate.clone()),
+                    predicate.meta.clone(),
+                );
+                let result = go(&view, rule, extension)?;
+                match result.kind() {
+                    ExpKind::PredicateAccess(v) => Ok(v.clone()),
+                    _ => Err(ExpressionRewriteError::InvalidPredicateAccess),
+                }
+            },
+            &mut |trigger: &Trigger| {
+                let exps = trigger
+                    .exps
+                    .iter()
+                    .map(|x| go(x, rule, extension))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(if exps == trigger.exps {
+                    trigger.clone()
+                } else {
+                    Trigger::new(exps, trigger.meta.clone())
+                })
+            },
+        )?;
+        rule.borrow_mut()(&rebuilt).map_err(ExpressionRewriteError::Callback)
+    }
+    go(expression, &std::cell::RefCell::new(rule), extension)
+}
+
+#[cfg(test)]
+mod expression_replacement_tests {
+    use super::*;
+    use crate::ast::{
+        ast::Metadata,
+        expression::{Exp, ExpKind, FieldAccess, LocalVar},
+        program::Field,
+        r#type::Type,
+    };
+    #[test]
+    fn bottom_up_callback_visits_equal_occurrences_independently() {
+        let m = Metadata::default();
+        let left = Exp::new(ExpKind::TrueLit, m.clone());
+        let right = Exp::new(ExpKind::TrueLit, m.clone());
+        let root = Exp::new(ExpKind::And(left, right), m.clone());
+        let mut count = 0;
+        let result = rewrite_expression_bottom_up(
+            &root,
+            &mut |e| -> Result<Exp, ()> {
+                if matches!(e.kind(), ExpKind::TrueLit) {
+                    count += 1;
+                    Ok(if count == 1 {
+                        Exp::new(ExpKind::FalseLit, e.metadata().clone())
+                    } else {
+                        e.clone()
+                    })
+                } else {
+                    Ok(e.clone())
+                }
+            },
+            &|_, _| Err(ExpressionRewriteError::Callback(())),
+        )
+        .unwrap();
+        assert_eq!(count, 2);
+        assert!(
+            matches!(result.kind(), ExpKind::And(a, b) if matches!(a.kind(), ExpKind::FalseLit) && matches!(b.kind(), ExpKind::TrueLit))
+        );
+    }
+    #[test]
+    fn replacement_is_simultaneous_and_checks_narrow_location_slot() {
+        let m = Metadata::default();
+        let var = |name: &str| {
+            Exp::new(
+                ExpKind::LocalVar(LocalVar::new(name.into(), Type::Int, m.clone())),
+                m.clone(),
+            )
+        };
+        let x = var("x");
+        let y = var("y");
+        let z = var("z");
+        let pair = Exp::new(ExpKind::Add(x.clone(), y.clone()), m.clone());
+        let result =
+            replace_expressions(&pair, &[(x.clone(), y.clone()), (y.clone(), z.clone())]).unwrap();
+        assert!(matches!(result.kind(),ExpKind::Add(a,b) if a == &y && b == &z));
+        let identity = replace_expressions(
+            &pair,
+            &[(pair.clone(), pair.clone()), (x.clone(), z.clone())],
+        )
+        .unwrap();
+        assert!(matches!(identity.kind(),ExpKind::Add(a,b) if a == &z && b == &y));
+        let receiver = Exp::new(
+            ExpKind::LocalVar(LocalVar::new("r".into(), Type::Ref, m.clone())),
+            m.clone(),
+        );
+        let field = FieldAccess::new(
+            receiver,
+            Field::new(crate::ast::program::FieldData {
+                name: "f".into(),
+                typ: Type::Int,
+                meta: m.clone(),
+            }),
+            m.clone(),
+        );
+        let access = Exp::new(ExpKind::FieldAccess(field.clone()), m.clone());
+        let predicate = Exp::new(ExpKind::FieldAccessPredicate(field, None), m);
+        assert_eq!(
+            replace_expressions(&predicate, &[(access, x)]),
+            Err(ExpressionReplacementError::InvalidFieldAccess)
+        );
+    }
+}

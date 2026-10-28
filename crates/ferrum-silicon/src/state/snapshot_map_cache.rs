@@ -106,11 +106,13 @@ mod tests {
             use_old_axiomatization: false,
             mask_heap_mode: false,
         });
-        let resource = SnapshotResource::Field(Arc::new(Field {
-            name: "f".into(),
-            typ: Type::Int,
-            meta: Metadata::default(),
-        }));
+        let resource = SnapshotResource::Field(Arc::new(Field::new(
+            ferrum_silver::ast::program::FieldData {
+                name: "f".into(),
+                typ: Type::Int,
+                meta: Metadata::default(),
+            },
+        )));
         let key = CacheKey {
             resource: resource.clone(),
             relevant_chunks: vec![],

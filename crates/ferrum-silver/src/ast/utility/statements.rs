@@ -173,3 +173,251 @@ pub fn written_vars(stmt: &Stmt) -> Result<Vec<LocalVar>, VariableAnalysisError>
     }
     Ok(distinct)
 }
+
+/// Expression-only substitution through statement products; extension statements
+/// and declaration families requiring nested member reconstruction are explicit failures.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StatementReplacementError {
+    Expression(super::rewriter::strategy::ExpressionReplacementError),
+    InvalidLocalVar,
+    InvalidFieldAccess,
+    InvalidPredicateAccess,
+    InvalidAccessPredicate,
+    InvalidMagicWand,
+    Extension,
+    NestedDeclaration,
+}
+impl From<super::rewriter::strategy::ExpressionReplacementError> for StatementReplacementError {
+    fn from(e: super::rewriter::strategy::ExpressionReplacementError) -> Self {
+        Self::Expression(e)
+    }
+}
+pub fn replace_expressions(
+    stmt: &Stmt,
+    replacements: &[(crate::ast::expression::Exp, crate::ast::expression::Exp)],
+) -> Result<Stmt, StatementReplacementError> {
+    use super::rewriter::strategy::replace_expressions as replace;
+    use crate::ast::expression::{Exp, ExpKind};
+    use crate::ast::statement::{PredicateAccessPredicate, ResourceAccess};
+    fn local(
+        v: &LocalVar,
+        replacements: &[(Exp, Exp)],
+    ) -> Result<LocalVar, StatementReplacementError> {
+        let e = Exp::new(ExpKind::LocalVar(v.clone()), v.meta.clone());
+        let result = replace(&e, replacements)?;
+        if let ExpKind::LocalVar(v) = result.kind() {
+            Ok(v.clone())
+        } else {
+            Err(StatementReplacementError::InvalidLocalVar)
+        }
+    }
+    fn field(
+        v: &crate::ast::expression::FieldAccess,
+        replacements: &[(Exp, Exp)],
+    ) -> Result<crate::ast::expression::FieldAccess, StatementReplacementError> {
+        let e = Exp::new(ExpKind::FieldAccess(v.clone()), v.meta.clone());
+        let result = replace(&e, replacements)?;
+        if let ExpKind::FieldAccess(v) = result.kind() {
+            Ok(v.clone())
+        } else {
+            Err(StatementReplacementError::InvalidFieldAccess)
+        }
+    }
+    fn predicate(
+        v: &crate::ast::expression::PredicateAccess,
+        replacements: &[(Exp, Exp)],
+    ) -> Result<crate::ast::expression::PredicateAccess, StatementReplacementError> {
+        let e = Exp::new(ExpKind::PredicateAccess(v.clone()), v.meta.clone());
+        let result = replace(&e, replacements)?;
+        if let ExpKind::PredicateAccess(v) = result.kind() {
+            Ok(v.clone())
+        } else {
+            Err(StatementReplacementError::InvalidPredicateAccess)
+        }
+    }
+    fn access(
+        v: &PredicateAccessPredicate,
+        replacements: &[(Exp, Exp)],
+    ) -> Result<PredicateAccessPredicate, StatementReplacementError> {
+        let e = Exp::new(ExpKind::PredicateAccessPredicate(v.clone()), v.meta.clone());
+        let result = replace(&e, replacements)?;
+        if let ExpKind::PredicateAccessPredicate(v) = result.kind() {
+            Ok(v.clone())
+        } else {
+            Err(StatementReplacementError::InvalidAccessPredicate)
+        }
+    }
+    fn wand(v: &Exp, replacements: &[(Exp, Exp)]) -> Result<Exp, StatementReplacementError> {
+        let result = replace(v, replacements)?;
+        if matches!(result.kind(), ExpKind::MagicWand(..)) {
+            Ok(result)
+        } else {
+            Err(StatementReplacementError::InvalidMagicWand)
+        }
+    }
+    fn resource(
+        v: &ResourceAccess,
+        replacements: &[(Exp, Exp)],
+    ) -> Result<ResourceAccess, StatementReplacementError> {
+        Ok(match v {
+            ResourceAccess::Field(v) => ResourceAccess::Field(field(v, replacements)?),
+            ResourceAccess::Predicate(v) => ResourceAccess::Predicate(predicate(v, replacements)?),
+            ResourceAccess::MagicWand(v) => ResourceAccess::MagicWand(wand(v, replacements)?),
+        })
+    }
+    if replacements.is_empty() {
+        return Ok(stmt.clone());
+    }
+    let exp = |e: &Exp| replace(e, replacements).map_err(StatementReplacementError::from);
+    let exps = |es: &[Exp]| es.iter().map(exp).collect::<Result<Vec<_>, _>>();
+    let kind = match stmt.kind() {
+        StmtKind::NewStmt { lhs, fields } => StmtKind::NewStmt {
+            lhs: local(lhs, replacements)?,
+            fields: fields.clone(),
+        },
+        StmtKind::LocalVarAssign { lhs, rhs } => StmtKind::LocalVarAssign {
+            lhs: local(lhs, replacements)?,
+            rhs: exp(rhs)?,
+        },
+        StmtKind::FieldAssign { lhs, rhs } => StmtKind::FieldAssign {
+            lhs: field(lhs, replacements)?,
+            rhs: exp(rhs)?,
+        },
+        StmtKind::MethodCall {
+            method_name,
+            args,
+            targets,
+        } => StmtKind::MethodCall {
+            method_name: method_name.clone(),
+            args: exps(args)?,
+            targets: targets
+                .iter()
+                .map(|v| local(v, replacements))
+                .collect::<Result<_, _>>()?,
+        },
+        StmtKind::Exhale(e) => StmtKind::Exhale(exp(e)?),
+        StmtKind::Inhale(e) => StmtKind::Inhale(exp(e)?),
+        StmtKind::Assert(e) => StmtKind::Assert(exp(e)?),
+        StmtKind::Assume(e) => StmtKind::Assume(exp(e)?),
+        StmtKind::Fold(v) => StmtKind::Fold(access(v, replacements)?),
+        StmtKind::Unfold(v) => StmtKind::Unfold(access(v, replacements)?),
+        StmtKind::Package {
+            wand: w,
+            proof_script,
+        } => StmtKind::Package {
+            wand: wand(w, replacements)?,
+            proof_script: replace_expressions(proof_script, replacements)?,
+        },
+        StmtKind::Apply(w) => StmtKind::Apply(wand(w, replacements)?),
+        StmtKind::Seqn {
+            statements,
+            declarations,
+        } => {
+            if declarations
+                .iter()
+                .any(|d| !matches!(d, Declaration::Local(_) | Declaration::Label(_)))
+            {
+                return Err(StatementReplacementError::NestedDeclaration);
+            }
+            StmtKind::Seqn {
+                statements: statements
+                    .iter()
+                    .map(|s| replace_expressions(s, replacements))
+                    .collect::<Result<_, _>>()?,
+                declarations: declarations
+                    .iter()
+                    .map(|d| match d {
+                        Declaration::Local(v) => Ok(Declaration::Local(v.clone())),
+                        Declaration::Label(v) => {
+                            let invariants = exps(&v.invariants)?;
+                            Ok(Declaration::Label(if invariants == v.invariants {
+                                v.clone()
+                            } else {
+                                v.copy_with(|label| label.invariants = invariants)
+                            }))
+                        }
+                        _ => Err(StatementReplacementError::NestedDeclaration),
+                    })
+                    .collect::<Result<_, _>>()?,
+            }
+        }
+        StmtKind::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => StmtKind::If {
+            condition: exp(condition)?,
+            then_branch: replace_expressions(then_branch, replacements)?,
+            else_branch: replace_expressions(else_branch, replacements)?,
+        },
+        StmtKind::While {
+            condition,
+            invariants,
+            body,
+        } => StmtKind::While {
+            condition: exp(condition)?,
+            invariants: exps(invariants)?,
+            body: replace_expressions(body, replacements)?,
+        },
+        StmtKind::Label { name, invariants } => StmtKind::Label {
+            name: name.clone(),
+            invariants: exps(invariants)?,
+        },
+        StmtKind::Goto(name) => StmtKind::Goto(name.clone()),
+        StmtKind::LocalVarDeclStmt(v) => StmtKind::LocalVarDeclStmt(v.clone()),
+        StmtKind::Quasihavoc { guard, resource: r } => StmtKind::Quasihavoc {
+            guard: guard.as_ref().map(exp).transpose()?,
+            resource: resource(r, replacements)?,
+        },
+        StmtKind::Quasihavocall {
+            variables,
+            guard,
+            resource: r,
+        } => StmtKind::Quasihavocall {
+            variables: variables.clone(),
+            guard: guard.as_ref().map(exp).transpose()?,
+            resource: resource(r, replacements)?,
+        },
+        StmtKind::Extension(_) => return Err(StatementReplacementError::Extension),
+    };
+    Ok(if &kind == stmt.kind() {
+        stmt.clone()
+    } else {
+        Stmt::new(kind, stmt.metadata().clone())
+    })
+}
+
+#[cfg(test)]
+mod replacement_tests {
+    use super::*;
+    use crate::ast::{expression::Exp, program::LabelDeclaration};
+    #[test]
+    fn replaces_inside_statement_and_scoped_label() {
+        let m = Metadata::default();
+        let yes = Exp::new(ExpKind::TrueLit, m.clone());
+        let no = Exp::new(ExpKind::FalseLit, m.clone());
+        let s = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![Stmt::new(StmtKind::Assert(yes.clone()), m.clone())],
+                declarations: vec![Declaration::Label(LabelDeclaration::new(
+                    crate::ast::program::LabelDeclarationData {
+                        name: "l".into(),
+                        invariants: vec![yes.clone()],
+                        meta: m.clone(),
+                    },
+                ))],
+            },
+            m,
+        );
+        let updated = replace_expressions(&s, &[(yes, no.clone())]).unwrap();
+        let StmtKind::Seqn {
+            statements,
+            declarations,
+        } = updated.kind()
+        else {
+            panic!("sequence")
+        };
+        assert!(matches!(statements[0].kind(),StmtKind::Assert(e) if e==&no));
+        assert!(matches!(&declarations[0],Declaration::Label(l) if l.invariants==vec![no]));
+    }
+}

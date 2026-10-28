@@ -624,7 +624,7 @@ mod unification_tests {
 
 use super::parse_ast::{
     PExpHandle, PTypeHandle, PTypeSubstitution, fresh_type_renaming, is_subtype, p_type_var,
-    substitution_from_signature,
+    substitution_from_signature, type_from_signature,
 };
 
 #[derive(Clone, Debug)]
@@ -684,7 +684,7 @@ pub fn check_expression(
                 .iter()
                 .map(substitution_from_signature)
                 .collect();
-            check_operator(input, signatures, vec![exp], expected, false)?
+            check_operator(input, Some(signatures), vec![exp], expected, false)?
         }
         PExpressionKind::BinExp { left, op, right } => {
             let signatures = op
@@ -692,7 +692,177 @@ pub fn check_expression(
                 .signatures()
                 .ok_or(TypeCheckError::Unsupported("binary operator"))?;
             let require_pure = op.value().require_pure_args();
-            check_operator(input, signatures, vec![left, right], expected, require_pure)?
+            check_operator(
+                input,
+                Some(signatures),
+                vec![left, right],
+                expected,
+                require_pure,
+            )?
+        }
+        PExpressionKind::Call {
+            idnref,
+            call_args,
+            type_annotated,
+            ..
+        } => {
+            let name = match &idnref.read().expect("poisoned parse node").kind {
+                PNodeKind::IdnRef(r) => r.name.clone(),
+                _ => return Err(TypeCheckError::Unsupported("call identifier")),
+            };
+            let candidates = super::parse_ast::PIdnRef::decls(&idnref, |_| true);
+            if candidates.is_empty() {
+                return Err(TypeCheckError::Undeclared(name));
+            }
+            let predicate = std::sync::Arc::new(
+                |node: &PNodeHandle| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Member(member) if matches!(member.kind, PMemberKind::Function { .. } | PMemberKind::Predicate { .. })),
+            );
+            super::parse_ast::PIdnRef::filter_decls(&idnref, predicate, |_| true);
+            let candidates = super::parse_ast::PIdnRef::decls(&idnref, |_| true);
+            if candidates.is_empty() {
+                return Err(TypeCheckError::Unsupported(
+                    "call is not a function or predicate",
+                ));
+            }
+            if candidates.len() != 1 {
+                return Err(TypeCheckError::AmbiguousIdentifier(name));
+            }
+            let member = match &candidates[0].read().expect("poisoned parse node").kind {
+                PNodeKind::Member(member) => member.clone(),
+                _ => return Err(TypeCheckError::Unsupported("domain function calls")),
+            };
+            let (formals, result_type, predicate_call) = match member.kind {
+                PMemberKind::Function {
+                    args, result_type, ..
+                } => (args, result_type, false),
+                PMemberKind::Predicate { args, .. } => (
+                    args,
+                    type_from_signature(&super::parse_ast_keyword::SignatureType::Predicate),
+                    true,
+                ),
+                _ => return Err(TypeCheckError::Unsupported("call declaration")),
+            };
+            if predicate_call && type_annotated.is_some() {
+                return Err(TypeCheckError::Unsupported(
+                    "predicate call with explicit type",
+                ));
+            }
+            let args = call_args
+                .inner()
+                .to_seq()
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            if formals.inner().len() != args.len() {
+                return Err(TypeCheckError::Unsupported(
+                    "wrong number of call arguments",
+                ));
+            }
+            let mut bindings = HashMap::new();
+            for (index, declaration) in formals.inner().to_seq().into_iter().enumerate() {
+                let typ = match &declaration.node().read().expect("poisoned parse node").kind {
+                    PNodeKind::Declaration(declaration) => declaration.typ.clone(),
+                    _ => return Err(TypeCheckError::Unsupported("formal parameter")),
+                };
+                if !typ.is_valid_or_undeclared() {
+                    return Err(TypeCheckError::Unsupported("formal parameter type"));
+                }
+                bindings.insert(format!("#T{index}"), typ);
+            }
+            bindings.insert("#R".to_string(), result_type);
+            let annotation = type_annotated.as_ref().map(|(_, typ)| typ);
+            if annotation.is_some() && expected.is_some() {
+                return Err(TypeCheckError::Unsupported(
+                    "both annotated and contextual call constraints",
+                ));
+            }
+            check_operator(
+                input,
+                Some(vec![PTypeSubstitution::new(bindings, false)]),
+                args,
+                annotation.or(expected),
+                false,
+            )?
+        }
+        PExpressionKind::AccPred { amount, .. } => {
+            let location = amount.inner().first().clone();
+            let args = std::iter::once(location.clone())
+                .chain(amount.inner().second().map(|(_, e)| e.clone()))
+                .collect();
+            let result = check_operator(input, None, args, expected, false)?;
+            ensure_location_access(&location, false)?;
+            result
+        }
+        PExpressionKind::CurrentPerm { resource, .. } => {
+            let location = resource.inner().clone();
+            let result = check_operator(input, None, vec![location.clone()], expected, false)?;
+            ensure_location_access(&location, true)?;
+            result
+        }
+        PExpressionKind::CondExp { cond, thn, els, .. } => {
+            check_operator(input, None, vec![cond, thn, els], expected, false)?
+        }
+        PExpressionKind::MagicWandExp { left, right, .. } => {
+            check_operator(input, None, vec![left, right], expected, false)?
+        }
+        PExpressionKind::InhaleExhale { inhale, exhale, .. } => {
+            check_operator(input, None, vec![inhale, exhale], expected, false)?
+        }
+        PExpressionKind::FieldAccess { receiver, .. } => {
+            check_operator(input, None, vec![receiver], expected, false)?
+        }
+        PExpressionKind::OldExp { exp, .. } => {
+            check_operator(input, None, vec![exp.inner().clone()], expected, false)?
+        }
+        PExpressionKind::RangeSeq { low, high, .. } => {
+            check_operator(input, None, vec![low, high], expected, false)?
+        }
+        PExpressionKind::Lookup { base, index, .. } => {
+            check_operator(input, None, vec![base, index], expected, false)?
+        }
+        PExpressionKind::SeqSlice {
+            seq, start, end, ..
+        } => check_operator(
+            input,
+            None,
+            std::iter::once(seq).chain(start).chain(end).collect(),
+            expected,
+            false,
+        )?,
+        PExpressionKind::Update {
+            base, key, value, ..
+        } => check_operator(input, None, vec![base, key, value], expected, false)?,
+        PExpressionKind::Size { seq, .. } => {
+            check_operator(input, None, vec![seq], expected, false)?
+        }
+        PExpressionKind::Forall(q) | PExpressionKind::Exists(q) => {
+            use super::parse_ast_keyword::SignatureType;
+            for var in q.vars.to_seq() {
+                let typ = match &var.node().read().expect("poisoned parse node").kind {
+                    PNodeKind::Declaration(d) => d.typ.clone(),
+                    _ => return Err(TypeCheckError::Unsupported("quantifier variable")),
+                };
+                if !typ.is_valid_or_undeclared() {
+                    return Err(TypeCheckError::Unsupported("quantifier variable type"));
+                }
+            }
+            let expected_body =
+                if matches!(q.keyword.value(), super::parse_ast_keyword::PKw::Forall) {
+                    type_from_signature(&SignatureType::Impure)
+                } else {
+                    type_from_signature(&SignatureType::Bool)
+                };
+            let body_type = check_expression(&q.body, Some(&expected_body))?;
+            for trigger in q.triggers {
+                for exp in trigger.expressions().inner().to_seq() {
+                    check_expression(exp, None)?;
+                }
+            }
+            let substitutions = q
+                .body
+                .type_subs_distinct()
+                .ok_or(TypeCheckError::Unsupported("quantifier substitution state"))?;
+            (body_type, substitutions)
         }
         _ => return Err(TypeCheckError::Unsupported("expression typechecking")),
     };
@@ -713,9 +883,30 @@ pub fn check_expression(
     expression.type_substitutions = Some(substitutions);
     Ok(typ)
 }
+fn ensure_location_access(expression: &PExpHandle, allow_wand: bool) -> Result<(), TypeCheckError> {
+    let kind = match &expression.node().read().expect("poisoned parse node").kind {
+        PNodeKind::Expression(e) => e.kind.clone(),
+        _ => return Err(TypeCheckError::Unsupported("resource expression")),
+    };
+    match kind {
+        PExpressionKind::FieldAccess { .. } => Ok(()),
+        PExpressionKind::MagicWandExp { .. } if allow_wand => Ok(()),
+        PExpressionKind::Call { idnref, .. } => {
+            let declarations = super::parse_ast::PIdnRef::decls(&idnref, |_| true);
+            if declarations.len() == 1
+                && matches!(&declarations[0].read().expect("poisoned parse node").kind, PNodeKind::Member(member) if matches!(member.kind, PMemberKind::Predicate { .. }))
+            {
+                Ok(())
+            } else {
+                Err(TypeCheckError::Unsupported("resource is not a predicate"))
+            }
+        }
+        _ => Err(TypeCheckError::Unsupported("resource access")),
+    }
+}
 fn check_operator(
     input: &PExpHandle,
-    signatures: Vec<PTypeSubstitution>,
+    signatures: Option<Vec<PTypeSubstitution>>,
     arguments: Vec<PExpHandle>,
     expected: Option<&PTypeHandle>,
     require_pure: bool,
@@ -728,6 +919,12 @@ fn check_operator(
         }
         argument_types.push(typ);
     }
+    let signatures = match signatures {
+        Some(signatures) => signatures,
+        None => input
+            .signatures()
+            .map_err(|_| TypeCheckError::Unsupported("operator signatures"))?,
+    };
     let mut names: std::collections::HashSet<String> = ["#R".into()].into_iter().collect();
     for index in 0..arguments.len() {
         names.insert(format!("#T{index}"));
@@ -814,5 +1011,395 @@ mod expression_tests {
             )
             .is_err()
         );
+    }
+}
+
+#[cfg(test)]
+mod call_tests {
+    use super::*;
+    use crate::parser::fast_parser::parse_program;
+    use crate::parser::parse_ast_keyword::SignatureType;
+    #[test]
+    fn resolves_and_types_function_call_in_a_method_assertion() {
+        let program = parse_program(
+            "function f(x: Int): Int { x + 1 } method m(y: Int) { assert f(y) > 0; }",
+            "test.vpr",
+        )
+        .unwrap();
+        let mut names = NameAnalyser::default();
+        assert!(names.run(program.node()).unwrap());
+        fn find_assert(node: &PNodeHandle) -> Option<PExpHandle> {
+            if let PNodeKind::Statement(statement) = &node.read().unwrap().kind {
+                if let PStatementKind::Assert { exp, .. } = &statement.kind {
+                    return Some(exp.clone());
+                }
+            }
+            subnodes(node)
+                .unwrap()
+                .into_iter()
+                .find_map(|child| find_assert(&child))
+        }
+        let assertion = find_assert(program.node()).unwrap();
+        let typ =
+            check_expression(&assertion, Some(&type_from_signature(&SignatureType::Bool))).unwrap();
+        assert!(typ.structurally_equals(&type_from_signature(&SignatureType::Bool)));
+    }
+}
+
+/// Resolve a top-level expression's overloads, select the first surviving substitution,
+/// ground remaining free type variables to Int and propagate the substitution down the tree.
+/// The callback receives the source warning for each defaulted type variable.
+pub fn check_top_expression(
+    input: &PExpHandle,
+    expected: Option<&PTypeHandle>,
+    mut warn: impl FnMut(&PNodeHandle, &str),
+) -> Result<PTypeHandle, TypeCheckError> {
+    let actual = check_expression(input, None)?;
+    let candidates = input
+        .type_subs_distinct()
+        .ok_or(TypeCheckError::Unsupported("expression substitutions"))?;
+    let candidates = if let Some(expected) = expected {
+        candidates
+            .into_iter()
+            .filter_map(|s| s.add(&actual, expected).ok())
+            .collect::<Vec<_>>()
+    } else {
+        candidates
+    };
+    let Some(mut chosen) = candidates.into_iter().next() else {
+        return match expected {
+            Some(expected) => Err(TypeCheckError::Incompatible {
+                expression: input.node().clone(),
+                actual,
+                expected: expected.clone(),
+            }),
+            None => Err(TypeCheckError::Unsupported("no type substitution")),
+        };
+    };
+    let keys = chosen.key_set();
+    let mut free = std::collections::HashSet::new();
+    for (_, value) in chosen.iter() {
+        free.extend(
+            value
+                .free_type_variables()
+                .into_iter()
+                .filter(|key| !keys.contains(key)),
+        );
+    }
+    for variable in free {
+        warn(
+            input.node(),
+            "unconstrained type parameter, substituting default type Int",
+        );
+        chosen = chosen
+            .add(
+                &p_type_var(variable),
+                &type_from_signature(&super::parse_ast_keyword::SignatureType::Int),
+            )
+            .map_err(|_| TypeCheckError::Unsupported("default type substitution"))?;
+    }
+    input
+        .force_substitution(&chosen)
+        .map_err(|_| TypeCheckError::Unsupported("extension substitution"))?;
+    let grounded = match &input.node().read().expect("poisoned parse node").kind {
+        PNodeKind::Expression(expression) => expression.typ.clone(),
+        _ => return Err(TypeCheckError::Unsupported("not an expression")),
+    };
+    if expected.is_some_and(|e| !is_subtype(&grounded, e)) {
+        return Err(TypeCheckError::Incompatible {
+            expression: input.node().clone(),
+            actual: grounded,
+            expected: expected.expect("checked expected").clone(),
+        });
+    }
+    Ok(grounded)
+}
+
+#[cfg(test)]
+mod ground_tests {
+    use super::*;
+    use crate::parser::fast_parser::parse_expression;
+    use crate::parser::parse_ast_keyword::SignatureType;
+    #[test]
+    fn ground_selects_expected_division_overload() {
+        for expected in [SignatureType::Int, SignatureType::Perm] {
+            let expression = parse_expression("1 / 2", "test.vpr").unwrap().expression;
+            let expected = type_from_signature(&expected);
+            let got = check_top_expression(&expression, Some(&expected), |_, _| {}).unwrap();
+            assert!(got.structurally_equals(&expected));
+        }
+    }
+}
+
+fn check_supported_type(typ: &PTypeHandle) -> Result<(), TypeCheckError> {
+    let kind = match &typ.node().read().expect("poisoned parse node").kind {
+        PNodeKind::Type(kind) => kind.clone(),
+        _ => return Err(TypeCheckError::Unsupported("type node")),
+    };
+    match kind {
+        super::parse_ast::PTypeKind::Primitive { .. }
+        | super::parse_ast::PTypeKind::ExtensionPrimitive { .. } => Ok(()),
+        super::parse_ast::PTypeKind::Seq { element_type, .. }
+        | super::parse_ast::PTypeKind::Set { element_type, .. }
+        | super::parse_ast::PTypeKind::Multiset { element_type, .. } => {
+            check_supported_type(element_type.inner())
+        }
+        super::parse_ast::PTypeKind::Map { types, .. } => {
+            check_supported_type(types.inner().first())?;
+            check_supported_type(types.inner().second())
+        }
+        _ => Err(TypeCheckError::Unsupported(
+            "domain, macro or internal declaration type",
+        )),
+    }
+}
+fn check_declarations(declarations: &super::parse_ast::PFormalArgs) -> Result<(), TypeCheckError> {
+    for declaration in declarations.inner().to_seq() {
+        let typ = match &declaration.node().read().expect("poisoned parse node").kind {
+            PNodeKind::Declaration(d) => d.typ.clone(),
+            _ => return Err(TypeCheckError::Unsupported("formal declaration")),
+        };
+        check_supported_type(&typ)?;
+    }
+    Ok(())
+}
+fn check_program_expression(
+    input: &PExpHandle,
+    expected: Option<&PTypeHandle>,
+    warn: &mut impl FnMut(&PNodeHandle, &str),
+) -> Result<PTypeHandle, TypeCheckError> {
+    fn ensure_supported(node: &PNodeHandle) -> Result<(), TypeCheckError> {
+        let kind = node.read().expect("poisoned parse node").kind.clone();
+        if matches!(
+            kind,
+            PNodeKind::Expression(super::parse_ast::PExpression {
+                kind: PExpressionKind::CurrentPerm { .. }
+                    | PExpressionKind::ForPerm { .. }
+                    | PExpressionKind::MagicWandExp { .. },
+                ..
+            })
+        ) {
+            return Err(TypeCheckError::Unsupported(
+                "context-sensitive permission or wand restriction",
+            ));
+        }
+        for child in
+            subnodes(node).map_err(|_| TypeCheckError::Unsupported("expression traversal"))?
+        {
+            ensure_supported(&child)?;
+        }
+        Ok(())
+    }
+    ensure_supported(input.node())?;
+    check_top_expression(input, expected, warn)
+}
+/// Check core program signatures before bodies, as upstream requires. The first unsupported
+/// or erroneous construct is returned; full diagnostic accumulation and extensions remain pending.
+pub fn check_program_core(
+    program: &super::parse_ast::PProgramHandle,
+    warn: &mut impl FnMut(&PNodeHandle, &str),
+) -> Result<(), TypeCheckError> {
+    let members = program.all_members();
+    for handle in &members {
+        let member = match &handle.node().read().expect("poisoned parse node").kind {
+            PNodeKind::Member(member) => member.clone(),
+            _ => return Err(TypeCheckError::Unsupported("program member")),
+        };
+        match member.kind {
+            PMemberKind::Fields { fields, .. } => {
+                for field in fields.to_seq() {
+                    field.set_field_owner(handle);
+                    let typ = match &field.node().read().expect("poisoned parse node").kind {
+                        PNodeKind::Declaration(d) => d.typ.clone(),
+                        _ => return Err(TypeCheckError::Unsupported("field declaration")),
+                    };
+                    check_supported_type(&typ)?;
+                }
+            }
+            PMemberKind::Function {
+                args, result_type, ..
+            } => {
+                check_declarations(&args)?;
+                check_supported_type(&result_type)?;
+            }
+            PMemberKind::Predicate { args, .. } => check_declarations(&args)?,
+            PMemberKind::Method { args, returns, .. } => {
+                check_declarations(&args)?;
+                if let Some(returns) = returns {
+                    check_declarations(returns.formal_returns())?;
+                }
+            }
+            _ => return Err(TypeCheckError::Unsupported("program signature")),
+        }
+    }
+    let impure = type_from_signature(&super::parse_ast_keyword::SignatureType::Impure);
+    let boolean = type_from_signature(&super::parse_ast_keyword::SignatureType::Bool);
+    for handle in &members {
+        let member = match &handle.node().read().expect("poisoned parse node").kind {
+            PNodeKind::Member(member) => member.clone(),
+            _ => return Err(TypeCheckError::Unsupported("program member")),
+        };
+        match member.kind {
+            PMemberKind::Fields { .. } => {}
+            PMemberKind::Function {
+                pres,
+                posts,
+                body,
+                result_type,
+                ..
+            } => {
+                for spec in pres.specs().to_seq() {
+                    check_program_expression(spec.exp(), Some(&impure), &mut *warn)?;
+                }
+                for spec in posts.specs().to_seq() {
+                    check_program_expression(spec.exp(), Some(&boolean), &mut *warn)?;
+                }
+                if let Some(body) = body {
+                    check_program_expression(body.exp().inner(), Some(&result_type), &mut *warn)?;
+                }
+            }
+            PMemberKind::Predicate { body, .. } => {
+                if let Some(body) = body {
+                    check_program_expression(body.exp().inner(), Some(&impure), &mut *warn)?;
+                }
+            }
+            PMemberKind::Method {
+                pres, posts, body, ..
+            } => {
+                for spec in pres
+                    .specs()
+                    .to_seq()
+                    .into_iter()
+                    .chain(posts.specs().to_seq())
+                {
+                    check_program_expression(spec.exp(), Some(&impure), &mut *warn)?;
+                }
+                if let Some(body) = body {
+                    check_statement_core(&body, &mut *warn)?;
+                }
+            }
+            _ => return Err(TypeCheckError::Unsupported("program body")),
+        }
+    }
+    Ok(())
+}
+/// Core statement checks; extensions, method calls and field updates remain explicit gaps.
+pub fn check_statement_core(
+    statement: &super::parse_ast::PStmtHandle,
+    warn: &mut impl FnMut(&PNodeHandle, &str),
+) -> Result<(), TypeCheckError> {
+    use super::parse_ast::PStatementKind as S;
+    use super::parse_ast_keyword::SignatureType;
+    let kind = match &statement.node().read().expect("poisoned parse node").kind {
+        PNodeKind::Statement(s) => s.kind.clone(),
+        _ => return Err(TypeCheckError::Unsupported("statement node")),
+    };
+    let impure = type_from_signature(&SignatureType::Impure);
+    let boolean = type_from_signature(&SignatureType::Bool);
+    match kind {
+        S::Seqn { statements, .. } => {
+            for statement in statements.inner().to_seq() {
+                check_statement_core(statement, &mut *warn)?;
+            }
+        }
+        S::Assert { exp, .. }
+        | S::Assume { exp, .. }
+        | S::Inhale { exp, .. }
+        | S::Exhale { exp, .. } => {
+            check_program_expression(&exp, Some(&impure), &mut *warn)?;
+        }
+        S::If { cond, thn, els, .. } => {
+            check_program_expression(cond.inner(), Some(&boolean), &mut *warn)?;
+            check_statement_core(&thn, &mut *warn)?;
+            if let Some(els) = els {
+                check_statement_core(&els, &mut *warn)?;
+            }
+        }
+        S::Else { els, .. } => check_statement_core(&els, &mut *warn)?,
+        S::While {
+            cond, invs, body, ..
+        } => {
+            check_program_expression(cond.inner(), Some(&boolean), &mut *warn)?;
+            for inv in invs.specs().to_seq() {
+                check_program_expression(inv.exp(), Some(&impure), &mut *warn)?;
+            }
+            check_statement_core(&body, &mut *warn)?;
+        }
+        S::Label { invs, .. } => {
+            for inv in invs.to_seq() {
+                check_program_expression(inv.exp(), Some(&impure), &mut *warn)?;
+            }
+        }
+        S::Goto { .. } | S::Skip => {}
+        S::Vars { vars, init, .. } => {
+            for declaration in vars.to_seq() {
+                let typ = match &declaration.node().read().expect("poisoned parse node").kind {
+                    PNodeKind::Declaration(d) => d.typ.clone(),
+                    _ => return Err(TypeCheckError::Unsupported("local declaration")),
+                };
+                check_supported_type(&typ)?;
+            }
+            if let Some((_, rhs)) = init {
+                if vars.len() != 1 {
+                    return Err(TypeCheckError::Unsupported("multi-variable initialization"));
+                }
+                let typ = match &vars.head().node().read().expect("poisoned parse node").kind {
+                    PNodeKind::Declaration(d) => d.typ.clone(),
+                    _ => return Err(TypeCheckError::Unsupported("local declaration")),
+                };
+                check_program_expression(&rhs, Some(&typ), &mut *warn)?;
+            }
+        }
+        S::Assign {
+            targets,
+            op: Some(_),
+            rhs,
+        } if targets.len() == 1 => {
+            let target = targets.head();
+            let target_kind = match &target.node().read().expect("poisoned parse node").kind {
+                PNodeKind::Expression(e) => e.kind.clone(),
+                _ => return Err(TypeCheckError::Unsupported("assignment target")),
+            };
+            match target_kind {
+                PExpressionKind::IdnUse { idnref } => {
+                    if let PNodeKind::IdnRef(reference) =
+                        &mut idnref.write().expect("poisoned parse node").kind
+                    {
+                        reference.assign_use = true;
+                    }
+                    let filter = std::sync::Arc::new(
+                        |node: &PNodeHandle| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Declaration(d) if matches!(d.kind, PDeclarationKind::LocalVar | PDeclarationKind::FormalReturn)),
+                    );
+                    super::parse_ast::PIdnRef::filter_decls(&idnref, filter, |_| true);
+                }
+                PExpressionKind::FieldAccess { idnref, .. } => {
+                    if let PNodeKind::IdnRef(reference) =
+                        &mut idnref.write().expect("poisoned parse node").kind
+                    {
+                        reference.assign_use = true;
+                    }
+                }
+                _ => return Err(TypeCheckError::Unsupported("assignment target")),
+            }
+            let target_type = check_program_expression(target, None, &mut *warn)?;
+            check_program_expression(&rhs, Some(&target_type), &mut *warn)?;
+        }
+        _ => return Err(TypeCheckError::Unsupported("statement typechecking")),
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod program_tests {
+    use super::*;
+    use crate::parser::fast_parser::parse_program;
+    #[test]
+    fn checks_signatures_before_bodies_and_rejects_invalid_assignment() {
+        let program = parse_program("function f(x: Int): Int { x + 1 } method m(y: Int) { var z: Int := f(y); assert z > 0; }", "test.vpr").unwrap();
+        assert!(NameAnalyser::default().run(program.node()).unwrap());
+        check_program_core(&program, &mut |_, _| {}).unwrap();
+        let invalid = parse_program("method m(x: Int) { x := 1; }", "test.vpr").unwrap();
+        assert!(NameAnalyser::default().run(invalid.node()).unwrap());
+        assert!(check_program_core(&invalid, &mut |_, _| {}).is_err());
     }
 }

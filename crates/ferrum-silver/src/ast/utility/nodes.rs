@@ -83,9 +83,37 @@ impl Node {
         use Node::*;
         match (self, other) {
             (Program(a), Program(b)) => Some(a.same_node(b)),
+            (
+                Member(crate::ast::program::Member::Domain(a)),
+                Member(crate::ast::program::Member::Domain(b)),
+            ) => Some(a.same_node(b)),
+            (
+                Member(crate::ast::program::Member::Field(a)),
+                Member(crate::ast::program::Member::Field(b)),
+            ) => Some(a.same_node(b)),
+            (
+                Member(crate::ast::program::Member::Function(a)),
+                Member(crate::ast::program::Member::Function(b)),
+            ) => Some(a.same_node(b)),
+            (
+                Member(crate::ast::program::Member::Predicate(a)),
+                Member(crate::ast::program::Member::Predicate(b)),
+            ) => Some(a.same_node(b)),
+            (
+                Member(crate::ast::program::Member::Method(a)),
+                Member(crate::ast::program::Member::Method(b)),
+            ) => Some(a.same_node(b)),
+            (
+                Member(crate::ast::program::Member::Extension(a)),
+                Member(crate::ast::program::Member::Extension(b)),
+            ) => Some(std::sync::Arc::ptr_eq(&a.0, &b.0)),
+            (Member(_), Member(_)) => Some(false),
+            (DomainFunc(a), DomainFunc(b)) => Some(a.same_node(b)),
+            (DomainAxiom(a), DomainAxiom(b)) => Some(a.same_node(b)),
             (Exp(a), Exp(b)) => Some(a.same_node(b)),
             (Stmt(a), Stmt(b)) => Some(a.same_node(b)),
             (LocalDecl(a), LocalDecl(b)) => Some(a.same_node(b)),
+            (UnnamedLocalDecl(a), UnnamedLocalDecl(b)) => Some(a.same_node(b)),
             (LocalVar(a), LocalVar(b)) => Some(a.same_node(b)),
             (FieldAccess(a), FieldAccess(b)) => Some(a.same_node(b)),
             (PredicateAccess(a), PredicateAccess(b)) => Some(a.same_node(b)),
@@ -510,11 +538,11 @@ mod tests {
         let receiver = Exp::new(ExpKind::NullLit, Metadata::default());
         let access = FieldAccess::new(
             receiver,
-            Field {
+            Field::new(crate::ast::program::FieldData {
                 name: "f".into(),
                 typ: Type::Int,
                 meta: Metadata::default(),
-            },
+            }),
             Metadata::default(),
         );
         let predicate = Exp::new(
@@ -530,5 +558,267 @@ mod tests {
             }
             _ => panic!("expected default permission expression"),
         }
+    }
+}
+
+/// Errors from expression-only reconstruction of a general Silver node.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NodeReplacementError {
+    Expression(super::rewriter::strategy::ExpressionReplacementError),
+    Statement(super::statements::StatementReplacementError),
+    InvalidTypedNode(&'static str),
+    Extension(&'static str),
+}
+impl From<super::rewriter::strategy::ExpressionReplacementError> for NodeReplacementError {
+    fn from(e: super::rewriter::strategy::ExpressionReplacementError) -> Self {
+        Self::Expression(e)
+    }
+}
+impl From<super::statements::StatementReplacementError> for NodeReplacementError {
+    fn from(e: super::statements::StatementReplacementError) -> Self {
+        Self::Statement(e)
+    }
+}
+/// Simultaneous expression-key replacement throughout built-in program nodes. This
+/// does not replace declarations/types themselves; extension reconstruction is fallible.
+pub fn replace_expressions(
+    root: &Node,
+    replacements: &[(Exp, Exp)],
+) -> Result<Node, NodeReplacementError> {
+    use super::rewriter::strategy::replace_expressions as replace;
+    use crate::ast::program::{DomainAxiom, DomainAxiomKind, Member, Program};
+    fn axiom(
+        a: &DomainAxiom,
+        replacements: &[(Exp, Exp)],
+    ) -> Result<DomainAxiom, NodeReplacementError> {
+        let original = a.exp();
+        let changed = replace(original, replacements)?;
+        if changed == *original {
+            return Ok(a.clone());
+        }
+        Ok(a.copy_with(|kind| match kind {
+            DomainAxiomKind::Named { exp, .. } | DomainAxiomKind::Anonymous { exp, .. } => {
+                *exp = changed
+            }
+        }))
+    }
+    fn member(m: &Member, replacements: &[(Exp, Exp)]) -> Result<Member, NodeReplacementError> {
+        let exp = |e: &Exp| replace(e, replacements).map_err(NodeReplacementError::from);
+        let exps = |es: &[Exp]| es.iter().map(exp).collect::<Result<Vec<_>, _>>();
+        Ok(match m {
+            Member::Domain(d) => {
+                let axioms = d
+                    .axioms
+                    .iter()
+                    .map(|a| axiom(a, replacements))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Member::Domain(if axioms == d.axioms {
+                    d.clone()
+                } else {
+                    d.copy_with(|d| d.axioms = axioms)
+                })
+            }
+            Member::Field(f) => Member::Field(f.clone()),
+            Member::Function(f) => {
+                let pres = exps(&f.pres)?;
+                let posts = exps(&f.posts)?;
+                let body = f.body.as_ref().map(exp).transpose()?;
+                Member::Function(if pres == f.pres && posts == f.posts && body == f.body {
+                    f.clone()
+                } else {
+                    f.copy_with(|f| {
+                        f.pres = pres;
+                        f.posts = posts;
+                        f.body = body;
+                    })
+                })
+            }
+            Member::Predicate(p) => {
+                let body = p.body.as_ref().map(exp).transpose()?;
+                Member::Predicate(if body == p.body {
+                    p.clone()
+                } else {
+                    p.copy_with(|p| p.body = body)
+                })
+            }
+            Member::Method(m) => {
+                let pres = exps(&m.pres)?;
+                let posts = exps(&m.posts)?;
+                let body = m
+                    .body
+                    .as_ref()
+                    .map(|s| super::statements::replace_expressions(s, replacements))
+                    .transpose()?;
+                Member::Method(if pres == m.pres && posts == m.posts && body == m.body {
+                    m.clone()
+                } else {
+                    m.copy_with(|m| {
+                        m.pres = pres;
+                        m.posts = posts;
+                        m.body = body;
+                    })
+                })
+            }
+            Member::Extension(_) => {
+                return Err(NodeReplacementError::Extension("member reconstruction"));
+            }
+        })
+    }
+    if replacements.is_empty() {
+        return Ok(root.clone());
+    }
+    Ok(match root {
+        Node::Program(p) => {
+            let domains = p
+                .domains
+                .iter()
+                .map(|v| member(&Member::Domain(v.clone()), replacements))
+                .map(|v| match v? {
+                    Member::Domain(v) => Ok(v),
+                    _ => unreachable!(),
+                })
+                .collect::<Result<Vec<_>, NodeReplacementError>>()?;
+            let functions = p
+                .functions
+                .iter()
+                .map(|v| member(&Member::Function(v.clone()), replacements))
+                .map(|v| match v? {
+                    Member::Function(v) => Ok(v),
+                    _ => unreachable!(),
+                })
+                .collect::<Result<Vec<_>, NodeReplacementError>>()?;
+            let predicates = p
+                .predicates
+                .iter()
+                .map(|v| member(&Member::Predicate(v.clone()), replacements))
+                .map(|v| match v? {
+                    Member::Predicate(v) => Ok(v),
+                    _ => unreachable!(),
+                })
+                .collect::<Result<Vec<_>, NodeReplacementError>>()?;
+            let methods = p
+                .methods
+                .iter()
+                .map(|v| member(&Member::Method(v.clone()), replacements))
+                .map(|v| match v? {
+                    Member::Method(v) => Ok(v),
+                    _ => unreachable!(),
+                })
+                .collect::<Result<Vec<_>, NodeReplacementError>>()?;
+            if !p.extensions.is_empty() {
+                return Err(NodeReplacementError::Extension(
+                    "program extension reconstruction",
+                ));
+            }
+            if domains == p.domains
+                && functions == p.functions
+                && predicates == p.predicates
+                && methods == p.methods
+            {
+                Node::Program(p.clone())
+            } else {
+                Node::Program(Program::new(
+                    domains,
+                    p.fields.clone(),
+                    functions,
+                    predicates,
+                    methods,
+                    p.extensions.clone(),
+                    p.meta.clone(),
+                ))
+            }
+        }
+        Node::Member(m) => Node::Member(member(m, replacements)?),
+        Node::DomainAxiom(a) => Node::DomainAxiom(axiom(a, replacements)?),
+        Node::Exp(e) => Node::Exp(replace(e, replacements)?),
+        Node::Stmt(s) => Node::Stmt(super::statements::replace_expressions(s, replacements)?),
+        Node::LocalVar(v) => {
+            let e = Exp::new(ExpKind::LocalVar(v.clone()), v.meta.clone());
+            let e = replace(&e, replacements)?;
+            if let ExpKind::LocalVar(v) = e.kind() {
+                Node::LocalVar(v.clone())
+            } else {
+                return Err(NodeReplacementError::InvalidTypedNode("LocalVar"));
+            }
+        }
+        Node::FieldAccess(v) => {
+            let e = Exp::new(ExpKind::FieldAccess(v.clone()), v.meta.clone());
+            let e = replace(&e, replacements)?;
+            if let ExpKind::FieldAccess(v) = e.kind() {
+                Node::FieldAccess(v.clone())
+            } else {
+                return Err(NodeReplacementError::InvalidTypedNode("FieldAccess"));
+            }
+        }
+        Node::PredicateAccess(v) => {
+            let e = Exp::new(ExpKind::PredicateAccess(v.clone()), v.meta.clone());
+            let e = replace(&e, replacements)?;
+            if let ExpKind::PredicateAccess(v) = e.kind() {
+                Node::PredicateAccess(v.clone())
+            } else {
+                return Err(NodeReplacementError::InvalidTypedNode("PredicateAccess"));
+            }
+        }
+        Node::PredicateAccessPredicate(v) => {
+            let e = Exp::new(ExpKind::PredicateAccessPredicate(v.clone()), v.meta.clone());
+            let e = replace(&e, replacements)?;
+            if let ExpKind::PredicateAccessPredicate(v) = e.kind() {
+                Node::PredicateAccessPredicate(v.clone())
+            } else {
+                return Err(NodeReplacementError::InvalidTypedNode(
+                    "PredicateAccessPredicate",
+                ));
+            }
+        }
+        Node::Trigger(t) => {
+            let exps = t
+                .exps
+                .iter()
+                .map(|e| replace(e, replacements))
+                .collect::<Result<Vec<_>, _>>()?;
+            Node::Trigger(if exps == t.exps {
+                t.clone()
+            } else {
+                Trigger::new(exps, t.meta.clone())
+            })
+        }
+        Node::DomainFunc(_) | Node::LocalDecl(_) | Node::UnnamedLocalDecl(_) | Node::Type(_) => {
+            root.clone()
+        }
+    })
+}
+
+#[cfg(test)]
+mod reconstruction_tests {
+    use super::*;
+    use crate::ast::{ast::Metadata, program::Function, r#type::Type};
+    #[test]
+    fn program_replacement_preserves_or_freshens_identity_with_structure() {
+        let m = Metadata::default();
+        let yes = Exp::new(ExpKind::TrueLit, m.clone());
+        let no = Exp::new(ExpKind::FalseLit, m.clone());
+        let f = Function::new(crate::ast::program::FunctionData {
+            name: "f".into(),
+            formal_args: vec![],
+            typ: Type::Bool,
+            pres: vec![],
+            posts: vec![],
+            body: Some(yes.clone()),
+            meta: m.clone(),
+        });
+        let p = Program::new(vec![], vec![], vec![f], vec![], vec![], vec![], m);
+        let Node::Program(unchanged) =
+            replace_expressions(&Node::Program(p.clone()), &[(no.clone(), yes.clone())]).unwrap()
+        else {
+            panic!("program")
+        };
+        assert!(p.same_node(&unchanged));
+        let Node::Program(changed) =
+            replace_expressions(&Node::Program(p.clone()), &[(yes, no.clone())]).unwrap()
+        else {
+            panic!("program")
+        };
+        assert!(!p.same_node(&changed));
+        assert_eq!(changed.functions[0].body, Some(no));
     }
 }

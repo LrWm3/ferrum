@@ -137,15 +137,59 @@ impl Info {
 
 /// Placeholder boundary retaining transformation objects without pretending to
 /// execute them. Concrete error/reason/node callbacks depend on verifier errors.
-pub trait ErrorTransformation: Debug + Send + Sync {}
-#[derive(Clone, Debug, Default)]
+pub trait ErrorTransformation: Debug + Send + Sync {
+    fn as_any(&self) -> &dyn Any;
+}
+/// Node back-link attached by a direct Viper rewrite.
+#[derive(Clone, Debug)]
+pub struct PreviousNode(pub super::utility::nodes::Node);
+impl ErrorTransformation for PreviousNode {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+#[derive(Clone, Debug)]
 pub struct ErrorTrafo {
     pub error: Vec<Arc<dyn ErrorTransformation>>,
     pub reason: Vec<Arc<dyn ErrorTransformation>>,
     pub node: Option<Arc<dyn ErrorTransformation>>,
+    no_trafos: bool,
+}
+impl Default for ErrorTrafo {
+    fn default() -> Self {
+        Self {
+            error: Vec::new(),
+            reason: Vec::new(),
+            node: None,
+            no_trafos: true,
+        }
+    }
 }
 impl ErrorTrafo {
+    /// Construct source Trafos, including an explicitly empty Trafos value.
+    pub fn trafos(
+        error: Vec<Arc<dyn ErrorTransformation>>,
+        reason: Vec<Arc<dyn ErrorTransformation>>,
+        node: Option<Arc<dyn ErrorTransformation>>,
+    ) -> Self {
+        Self {
+            error,
+            reason,
+            node,
+            no_trafos: false,
+        }
+    }
+    pub fn is_no_trafos(&self) -> bool {
+        self.no_trafos && self.error.is_empty() && self.reason.is_empty() && self.node.is_none()
+    }
+    /// Source MakeTrafoPair preserves NoTrafos identity before concatenating.
     pub fn combine(&self, other: &Self) -> Self {
+        if self.is_no_trafos() {
+            return other.clone();
+        }
+        if other.is_no_trafos() {
+            return self.clone();
+        }
         let mut error = self.error.clone();
         error.extend(other.error.iter().cloned());
         let mut reason = self.reason.clone();
@@ -154,6 +198,7 @@ impl ErrorTrafo {
             error,
             reason,
             node: other.node.clone().or_else(|| self.node.clone()),
+            no_trafos: false,
         }
     }
 }

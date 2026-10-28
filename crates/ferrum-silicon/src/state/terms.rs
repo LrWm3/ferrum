@@ -3185,16 +3185,20 @@ mod tests {
     fn resource_keys_preserve_structure_and_snap_roundtrip() {
         use ferrum_silver::ast::{ast::Metadata, r#type::Type};
         let f = factory(true);
-        let int_field = ResourceKey::Field(Arc::new(Field {
-            name: "f".into(),
-            typ: Type::Int,
-            meta: Metadata::default(),
-        }));
-        let bool_field = ResourceKey::Field(Arc::new(Field {
-            name: "f".into(),
-            typ: Type::Bool,
-            meta: Metadata::default(),
-        }));
+        let int_field = ResourceKey::Field(Arc::new(Field::new(
+            ferrum_silver::ast::program::FieldData {
+                name: "f".into(),
+                typ: Type::Int,
+                meta: Metadata::default(),
+            },
+        )));
+        let bool_field = ResourceKey::Field(Arc::new(Field::new(
+            ferrum_silver::ast::program::FieldData {
+                name: "f".into(),
+                typ: Type::Bool,
+                meta: Metadata::default(),
+            },
+        )));
         assert_ne!(int_field, bool_field);
         let heap = f.dummy_heap(Sort::Heap(Box::new(Sort::Int)));
         let snap = f.heap_to_snap(heap.clone(), f.zero_mask(), int_field.clone());

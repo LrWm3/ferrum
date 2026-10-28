@@ -126,6 +126,12 @@ pub fn translate_type(typ: &PTypeHandle) -> Result<Type, TranslationError> {
 }
 /// Translate supported expressions after name and type analysis; unsupported families fail.
 pub fn translate_expression(input: &PExpHandle) -> Result<Exp, TranslationError> {
+    translate_expression_with_fields(input, None)
+}
+fn translate_expression_with_fields(
+    input: &PExpHandle,
+    fields: Option<&std::collections::HashMap<String, crate::ast::program::Field>>,
+) -> Result<Exp, TranslationError> {
     let expression = match &input.node().read().expect("poisoned parse node").kind {
         PNodeKind::Expression(e) => e.clone(),
         _ => return Err(TranslationError::Unsupported("not an expression")),
@@ -169,8 +175,139 @@ pub fn translate_expression(input: &PExpHandle) -> Result<Exp, TranslationError>
                 meta.clone(),
             ))
         }
+        PExpressionKind::FieldAccess {
+            receiver, idnref, ..
+        } => {
+            let declarations = PIdnRef::decls(&idnref, |_| true);
+            if declarations.len() != 1 {
+                return Err(TranslationError::Unsupported("unresolved field"));
+            }
+            let field_handle =
+                super::parse_ast::PDeclarationHandle::from_node(declarations[0].clone())
+                    .map_err(|_| TranslationError::Unsupported("field declaration"))?;
+            let annotations = field_handle.field_annotations();
+            let declaration = match &declarations[0].read().expect("poisoned parse node").kind {
+                PNodeKind::Declaration(d)
+                    if matches!(d.kind, super::parse_ast::PDeclarationKind::Field { .. }) =>
+                {
+                    d.clone()
+                }
+                _ => return Err(TranslationError::Unsupported("field declaration")),
+            };
+            let name = match &declaration.idndef.read().expect("poisoned parse node").kind {
+                PNodeKind::IdnDef(id) => id.name.clone(),
+                _ => return Err(TranslationError::InvalidType),
+            };
+            let mut field_meta = metadata(field_handle.node())?;
+            field_meta.info = annotation_info(&annotations);
+            let field = if let Some(fields) = fields {
+                fields
+                    .get(&name)
+                    .cloned()
+                    .ok_or_else(|| TranslationError::UnresolvedIdentifier(name.clone()))?
+            } else {
+                crate::ast::program::Field::new(crate::ast::program::FieldData {
+                    name,
+                    typ: translate_type(&declaration.typ)?,
+                    meta: field_meta,
+                })
+            };
+            ExpKind::FieldAccess(crate::ast::expression::FieldAccess::new(
+                translate_expression_with_fields(&receiver, fields)?,
+                field,
+                meta.clone(),
+            ))
+        }
+        PExpressionKind::Call {
+            idnref, call_args, ..
+        } => {
+            let declarations = PIdnRef::decls(&idnref, |_| true);
+            let name = match &idnref.read().expect("poisoned parse node").kind {
+                PNodeKind::IdnRef(reference) => reference.name.clone(),
+                _ => return Err(TranslationError::InvalidType),
+            };
+            if declarations.len() != 1 {
+                return Err(TranslationError::UnresolvedIdentifier(name));
+            }
+            let member = match &declarations[0].read().expect("poisoned parse node").kind {
+                PNodeKind::Member(member) => member.kind.clone(),
+                _ => return Err(TranslationError::Unsupported("domain function call")),
+            };
+            let args = call_args
+                .inner()
+                .to_seq()
+                .into_iter()
+                .map(|e| translate_expression_with_fields(e, fields))
+                .collect::<Result<Vec<_>, _>>()?;
+            match member {
+                super::parse_ast::PMemberKind::Function { .. } => {
+                    return Ok(Exp::with_extra(
+                        ExpKind::FuncApp(name, args),
+                        meta,
+                        crate::ast::expression::ExpExtra {
+                            typ: Some(translate_type(&expression.typ)?),
+                            ..Default::default()
+                        },
+                    ));
+                }
+                super::parse_ast::PMemberKind::Predicate { .. } => {
+                    let location =
+                        crate::ast::expression::PredicateAccess::new(args, name, meta.clone());
+                    ExpKind::PredicateAccessPredicate(
+                        crate::ast::statement::PredicateAccessPredicate::new(
+                            location,
+                            None,
+                            meta.clone(),
+                        ),
+                    )
+                }
+                _ => return Err(TranslationError::Unsupported("non-function call")),
+            }
+        }
+        PExpressionKind::AccPred { amount, .. } => {
+            let location = translate_expression_with_fields(amount.inner().first(), fields)?;
+            let permission = amount
+                .inner()
+                .second()
+                .map(|(_, e)| translate_expression_with_fields(e, fields))
+                .transpose()?;
+            match location.kind() {
+                ExpKind::FieldAccess(field) => {
+                    ExpKind::FieldAccessPredicate(field.clone(), permission)
+                }
+                ExpKind::PredicateAccessPredicate(pred) => ExpKind::PredicateAccessPredicate(
+                    crate::ast::statement::PredicateAccessPredicate::new(
+                        pred.location.clone(),
+                        permission,
+                        meta.clone(),
+                    ),
+                ),
+                ExpKind::PredicateAccess(pred) => ExpKind::PredicateAccessPredicate(
+                    crate::ast::statement::PredicateAccessPredicate::new(
+                        pred.clone(),
+                        permission,
+                        meta.clone(),
+                    ),
+                ),
+                _ => return Err(TranslationError::InvalidType),
+            }
+        }
+        PExpressionKind::CurrentPerm { resource, .. } => {
+            let resource = translate_expression_with_fields(resource.inner(), fields)?;
+            let resource = match resource.kind() {
+                ExpKind::PredicateAccessPredicate(pred) => Exp::new(
+                    ExpKind::PredicateAccess(pred.location.clone()),
+                    pred.location.meta.clone(),
+                ),
+                ExpKind::FieldAccess(_) | ExpKind::PredicateAccess(_) | ExpKind::MagicWand(..) => {
+                    resource
+                }
+                _ => return Err(TranslationError::InvalidType),
+            };
+            ExpKind::CurrentPerm(resource)
+        }
         PExpressionKind::UnExp { op, exp } => {
-            let operand = translate_expression(&exp)?;
+            let operand = translate_expression_with_fields(&exp, fields)?;
             match op.value() {
                 PSymOp::Not => ExpKind::Not(operand),
                 PSymOp::Neg => match operand.typ().map_err(|_| TranslationError::InvalidType)? {
@@ -182,8 +319,8 @@ pub fn translate_expression(input: &PExpHandle) -> Result<Exp, TranslationError>
             }
         }
         PExpressionKind::BinExp { left, op, right } => {
-            let l = translate_expression(&left)?;
-            let r = translate_expression(&right)?;
+            let l = translate_expression_with_fields(&left, fields)?;
+            let r = translate_expression_with_fields(&right, fields)?;
             match op.value() {
                 PBinaryOp::Symbol(PSymOp::Plus) => {
                     match r.typ().map_err(|_| TranslationError::InvalidType)? {
@@ -258,23 +395,25 @@ pub fn translate_expression(input: &PExpHandle) -> Result<Exp, TranslationError>
                 _ => return Err(TranslationError::Unsupported("binary operator")),
             }
         }
-        PExpressionKind::MagicWandExp { left, right, .. } => {
-            ExpKind::MagicWand(translate_expression(&left)?, translate_expression(&right)?)
-        }
+        PExpressionKind::MagicWandExp { left, right, .. } => ExpKind::MagicWand(
+            translate_expression_with_fields(&left, fields)?,
+            translate_expression_with_fields(&right, fields)?,
+        ),
         PExpressionKind::CondExp { cond, thn, els, .. } => ExpKind::CondExp(
-            translate_expression(&cond)?,
-            translate_expression(&thn)?,
-            translate_expression(&els)?,
+            translate_expression_with_fields(&cond, fields)?,
+            translate_expression_with_fields(&thn, fields)?,
+            translate_expression_with_fields(&els, fields)?,
         ),
         PExpressionKind::InhaleExhale { inhale, exhale, .. } => ExpKind::InhaleExhaleExp(
-            translate_expression(&inhale)?,
-            translate_expression(&exhale)?,
+            translate_expression_with_fields(&inhale, fields)?,
+            translate_expression_with_fields(&exhale, fields)?,
         ),
-        PExpressionKind::RangeSeq { low, high, .. } => {
-            ExpKind::RangeSeq(translate_expression(&low)?, translate_expression(&high)?)
-        }
+        PExpressionKind::RangeSeq { low, high, .. } => ExpKind::RangeSeq(
+            translate_expression_with_fields(&low, fields)?,
+            translate_expression_with_fields(&high, fields)?,
+        ),
         PExpressionKind::OldExp { label, exp, .. } => {
-            let inner = translate_expression(exp.inner())?;
+            let inner = translate_expression_with_fields(exp.inner(), fields)?;
             match label {
                 None => ExpKind::Old(inner),
                 Some(label) => {
@@ -296,8 +435,8 @@ pub fn translate_expression(input: &PExpHandle) -> Result<Exp, TranslationError>
                 PNodeKind::Expression(e) => e.typ.clone(),
                 _ => return Err(TranslationError::InvalidType),
             };
-            let base = translate_expression(&base)?;
-            let index = translate_expression(&index)?;
+            let base = translate_expression_with_fields(&base, fields)?;
+            let index = translate_expression_with_fields(&index, fields)?;
             match translate_type(&parse_type)? {
                 Type::Seq(_) => ExpKind::SeqIndex(base, index),
                 Type::Map(_, _) => ExpKind::MapLookup(base, index),
@@ -311,9 +450,9 @@ pub fn translate_expression(input: &PExpHandle) -> Result<Exp, TranslationError>
                 PNodeKind::Expression(e) => e.typ.clone(),
                 _ => return Err(TranslationError::InvalidType),
             };
-            let base = translate_expression(&base)?;
-            let key = translate_expression(&key)?;
-            let value = translate_expression(&value)?;
+            let base = translate_expression_with_fields(&base, fields)?;
+            let key = translate_expression_with_fields(&key, fields)?;
+            let value = translate_expression_with_fields(&value, fields)?;
             match translate_type(&parse_type)? {
                 Type::Seq(_) => ExpKind::SeqUpdate(base, key, value),
                 Type::Map(_, _) => ExpKind::MapUpdate(base, key, value),
@@ -325,7 +464,7 @@ pub fn translate_expression(input: &PExpHandle) -> Result<Exp, TranslationError>
                 PNodeKind::Expression(e) => e.typ.clone(),
                 _ => return Err(TranslationError::InvalidType),
             };
-            let base = translate_expression(&seq)?;
+            let base = translate_expression_with_fields(&seq, fields)?;
             match translate_type(&parse_type)? {
                 Type::Seq(_) => ExpKind::SeqLength(base),
                 Type::Map(_, _) => ExpKind::MapCardinality(base),
@@ -336,15 +475,18 @@ pub fn translate_expression(input: &PExpHandle) -> Result<Exp, TranslationError>
         PExpressionKind::SeqSlice {
             seq, start, end, ..
         } => {
-            let mut base = translate_expression(&seq)?;
+            let mut base = translate_expression_with_fields(&seq, fields)?;
             if let Some(end) = end {
                 base = Exp::new(
-                    ExpKind::SeqTake(base, translate_expression(&end)?),
+                    ExpKind::SeqTake(base, translate_expression_with_fields(&end, fields)?),
                     meta.clone(),
                 );
             }
             if let Some(start) = start {
-                base = Exp::new(ExpKind::SeqDrop(base, translate_expression(&start)?), meta);
+                base = Exp::new(
+                    ExpKind::SeqDrop(base, translate_expression_with_fields(&start, fields)?),
+                    meta,
+                );
             }
             return Ok(base);
         }
@@ -376,10 +518,15 @@ mod tests {
     }
 }
 
-/// Translate core statements; method calls, fields, plugins and generated initializers
-/// require the member-signature table and remain explicit errors.
+/// Translate supported statements; unsupported call and plugin forms return errors.
 pub fn translate_statement(
     input: &super::parse_ast::PStmtHandle,
+) -> Result<crate::ast::statement::Stmt, TranslationError> {
+    translate_statement_with_fields(input, None)
+}
+fn translate_statement_with_fields(
+    input: &super::parse_ast::PStmtHandle,
+    fields: Option<&std::collections::HashMap<String, crate::ast::program::Field>>,
 ) -> Result<crate::ast::statement::Stmt, TranslationError> {
     use super::parse_ast::PStatementKind;
     use crate::ast::program::{Declaration, LocalVarDecl};
@@ -390,10 +537,18 @@ pub fn translate_statement(
     };
     let meta = metadata(input.node())?;
     let kind = match statement.kind {
-        PStatementKind::Assert { exp, .. } => StmtKind::Assert(translate_expression(&exp)?),
-        PStatementKind::Assume { exp, .. } => StmtKind::Assume(translate_expression(&exp)?),
-        PStatementKind::Inhale { exp, .. } => StmtKind::Inhale(translate_expression(&exp)?),
-        PStatementKind::Exhale { exp, .. } => StmtKind::Exhale(translate_expression(&exp)?),
+        PStatementKind::Assert { exp, .. } => {
+            StmtKind::Assert(translate_expression_with_fields(&exp, fields)?)
+        }
+        PStatementKind::Assume { exp, .. } => {
+            StmtKind::Assume(translate_expression_with_fields(&exp, fields)?)
+        }
+        PStatementKind::Inhale { exp, .. } => {
+            StmtKind::Inhale(translate_expression_with_fields(&exp, fields)?)
+        }
+        PStatementKind::Exhale { exp, .. } => {
+            StmtKind::Exhale(translate_expression_with_fields(&exp, fields)?)
+        }
         PStatementKind::Assign { targets, op, rhs } => {
             if op.is_none() || targets.len() != 1 {
                 return Err(TranslationError::Unsupported(
@@ -420,21 +575,31 @@ pub fn translate_statement(
                     return Err(TranslationError::InvalidType);
                 }
             }
-            let translated = translate_expression(target)?;
-            let ExpKind::LocalVar(local) = translated.kind() else {
-                return Err(TranslationError::Unsupported("field assignment"));
-            };
-            let mut local_meta = meta.clone();
-            local_meta.info = Info::SourcePNode(target.node().clone());
-            StmtKind::LocalVarAssign {
-                lhs: LocalVar::new(local.name.clone(), local.typ.clone(), local_meta),
-                rhs: translate_expression(&rhs)?,
+            let translated = translate_expression_with_fields(target, fields)?;
+            match translated.kind() {
+                ExpKind::LocalVar(local) => {
+                    let mut local_meta = meta.clone();
+                    local_meta.info = Info::SourcePNode(target.node().clone());
+                    StmtKind::LocalVarAssign {
+                        lhs: LocalVar::new(local.name.clone(), local.typ.clone(), local_meta),
+                        rhs: translate_expression_with_fields(&rhs, fields)?,
+                    }
+                }
+                ExpKind::FieldAccess(field) => StmtKind::FieldAssign {
+                    lhs: field.clone(),
+                    rhs: translate_expression_with_fields(&rhs, fields)?,
+                },
+                _ => return Err(TranslationError::Unsupported("assignment target")),
             }
         }
         PStatementKind::Vars { init: Some(_), .. } => {
-            return Err(TranslationError::Unsupported(
-                "local declaration initializer",
-            ));
+            let generated = input
+                .vars_assign()
+                .map_err(TranslationError::Unsupported)?
+                .ok_or(TranslationError::Unsupported(
+                    "missing generated initializer",
+                ))?;
+            return translate_statement_with_fields(&generated, fields);
         }
         PStatementKind::Vars { init: None, .. } => {
             return Ok(crate::ast::utility::statements::empty_stmt());
@@ -469,7 +634,7 @@ pub fn translate_statement(
                     }
                 }
                 if !matches!(kind, PStatementKind::Skip) {
-                    result.push(translate_statement(statement)?);
+                    result.push(translate_statement_with_fields(statement, fields)?);
                 }
             }
             StmtKind::Seqn {
@@ -478,10 +643,10 @@ pub fn translate_statement(
             }
         }
         PStatementKind::If { cond, thn, els, .. } => {
-            let then_branch = translate_statement(&thn)?;
+            let then_branch = translate_statement_with_fields(&thn, fields)?;
             let else_branch = match els {
                 Some(s) => {
-                    let translated = translate_statement(&s)?;
+                    let translated = translate_statement_with_fields(&s, fields)?;
                     if matches!(translated.kind(), StmtKind::Seqn { .. }) {
                         translated
                     } else {
@@ -497,23 +662,23 @@ pub fn translate_statement(
                 None => crate::ast::utility::statements::empty_stmt(),
             };
             StmtKind::If {
-                condition: translate_expression(cond.inner())?,
+                condition: translate_expression_with_fields(cond.inner(), fields)?,
                 then_branch,
                 else_branch,
             }
         }
-        PStatementKind::Else { els, .. } => return translate_statement(&els),
+        PStatementKind::Else { els, .. } => return translate_statement_with_fields(&els, fields),
         PStatementKind::While {
             cond, invs, body, ..
         } => StmtKind::While {
-            condition: translate_expression(cond.inner())?,
+            condition: translate_expression_with_fields(cond.inner(), fields)?,
             invariants: invs
                 .specs
                 .to_seq()
                 .into_iter()
-                .map(|spec| translate_expression(&spec.exp))
+                .map(|spec| translate_expression_with_fields(&spec.exp, fields))
                 .collect::<Result<_, _>>()?,
-            body: translate_statement(&body)?,
+            body: translate_statement_with_fields(&body, fields)?,
         },
         PStatementKind::Label { idndef, invs, .. } => {
             let name = match &idndef.read().expect("poisoned parse node").kind {
@@ -525,7 +690,7 @@ pub fn translate_statement(
                 invariants: invs
                     .to_seq()
                     .into_iter()
-                    .map(|spec| translate_expression(&spec.exp))
+                    .map(|spec| translate_expression_with_fields(&spec.exp, fields))
                     .collect::<Result<_, _>>()?,
             }
         }
@@ -570,5 +735,257 @@ mod assignment_validation_tests {
             translate_statement(&assignment),
             Err(TranslationError::InvalidType)
         ));
+    }
+}
+
+fn annotation_info(annotations: &[super::parse_ast::PAnnotation]) -> Info {
+    if annotations.is_empty() {
+        return Info::NoInfo;
+    }
+    let mut values: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for annotation in annotations {
+        let entry = values
+            .entry(annotation.key().text().to_owned())
+            .or_default();
+        entry.extend(
+            annotation
+                .values()
+                .inner()
+                .to_seq()
+                .into_iter()
+                .map(|value| value.grouped().inner().text().to_owned()),
+        );
+    }
+    Info::Annotation(values)
+}
+fn declaration_name(id: &PNodeHandle) -> Result<String, TranslationError> {
+    match &id.read().expect("poisoned parse node").kind {
+        PNodeKind::IdnDef(def) => Ok(def.name.clone()),
+        _ => Err(TranslationError::Unsupported("declaration name")),
+    }
+}
+fn formal_declaration(
+    handle: &super::parse_ast::PDeclarationHandle,
+) -> Result<crate::ast::program::LocalVarDecl, TranslationError> {
+    let declaration = match &handle.node().read().expect("poisoned parse node").kind {
+        PNodeKind::Declaration(d) => d.clone(),
+        _ => return Err(TranslationError::InvalidType),
+    };
+    let mut meta = metadata(&declaration.idndef)?;
+    meta.info = Info::SourcePNode(handle.node().clone());
+    Ok(crate::ast::program::LocalVarDecl::new(
+        declaration_name(&declaration.idndef)?,
+        translate_type(&declaration.typ)?,
+        meta,
+    ))
+}
+fn formal_declarations(
+    args: &super::parse_ast::PFormalArgs,
+) -> Result<Vec<crate::ast::program::LocalVarDecl>, TranslationError> {
+    args.inner()
+        .to_seq()
+        .into_iter()
+        .map(formal_declaration)
+        .collect()
+}
+fn specification_expressions(
+    specs: &super::parse_ast::PSpecs,
+    fields: &std::collections::HashMap<String, crate::ast::program::Field>,
+) -> Result<Vec<Exp>, TranslationError> {
+    specs
+        .specs()
+        .to_seq()
+        .into_iter()
+        .map(|spec| translate_expression_with_fields(spec.exp(), Some(fields)))
+        .collect()
+}
+/// Translate the supported core program after successful name and type analysis. Unsupported
+/// members or impure-assume rewrites fail explicitly; no verifier result is synthesized here.
+pub fn translate_program_core(
+    input: &super::parse_ast::PProgramHandle,
+) -> Result<crate::ast::program::Program, TranslationError> {
+    use super::parse_ast::{PMemberKind, PStatementKind};
+    use crate::ast::program::{
+        Field, FieldData, Function, FunctionData, Method, MethodData, Predicate, PredicateData,
+        Program,
+    };
+    fn contains_assume(node: &PNodeHandle) -> Result<bool, TranslationError> {
+        let kind = node.read().expect("poisoned parse node").kind.clone();
+        if matches!(
+            kind,
+            PNodeKind::Statement(super::parse_ast::PStatement {
+                kind: PStatementKind::Assume { .. }
+            })
+        ) {
+            return Ok(true);
+        }
+        for child in super::parse_ast::subnodes(node)
+            .map_err(|_| TranslationError::Unsupported("parse node traversal"))?
+        {
+            if contains_assume(&child)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+    let mut fields = Vec::new();
+    let mut field_map = std::collections::HashMap::new();
+    for handle in input.all_members() {
+        let member = match &handle.node().read().expect("poisoned parse node").kind {
+            PNodeKind::Member(member) => member.clone(),
+            _ => return Err(TranslationError::Unsupported("program member")),
+        };
+        if let PMemberKind::Fields {
+            fields: declarations,
+            ..
+        } = &member.kind
+        {
+            for field in declarations.to_seq() {
+                let declaration = match &field.node().read().expect("poisoned parse node").kind {
+                    PNodeKind::Declaration(d) => d.clone(),
+                    _ => return Err(TranslationError::InvalidType),
+                };
+                let mut field_meta = metadata(field.node())?;
+                field_meta.info = annotation_info(member.annotations());
+                let field = Field::new(FieldData {
+                    name: declaration_name(&declaration.idndef)?,
+                    typ: translate_type(&declaration.typ)?,
+                    meta: field_meta,
+                });
+                field_map.insert(field.name.clone(), field.clone());
+                fields.push(field);
+            }
+        }
+    }
+    let mut functions = Vec::new();
+    let mut predicates = Vec::new();
+    let mut methods = Vec::new();
+    for handle in input.all_members() {
+        let member = match &handle.node().read().expect("poisoned parse node").kind {
+            PNodeKind::Member(member) => member.clone(),
+            _ => return Err(TranslationError::Unsupported("program member")),
+        };
+        let mut member_meta = metadata(handle.node())?;
+        member_meta.info = annotation_info(member.annotations());
+        match member.kind {
+            PMemberKind::Fields { .. } => {}
+            PMemberKind::Function {
+                idndef,
+                args,
+                result_type,
+                pres,
+                posts,
+                body,
+                ..
+            } => functions.push(Function::new(FunctionData {
+                name: declaration_name(&idndef)?,
+                formal_args: formal_declarations(&args)?,
+                typ: translate_type(&result_type)?,
+                pres: specification_expressions(&pres, &field_map)?,
+                posts: specification_expressions(&posts, &field_map)?,
+                body: body
+                    .map(|body| {
+                        translate_expression_with_fields(body.exp().inner(), Some(&field_map))
+                    })
+                    .transpose()?,
+                meta: member_meta,
+            })),
+            PMemberKind::Predicate {
+                idndef, args, body, ..
+            } => predicates.push(Predicate::new(PredicateData {
+                name: declaration_name(&idndef)?,
+                formal_args: formal_declarations(&args)?,
+                body: body
+                    .map(|body| {
+                        translate_expression_with_fields(body.exp().inner(), Some(&field_map))
+                    })
+                    .transpose()?,
+                meta: member_meta,
+            })),
+            PMemberKind::Method {
+                idndef,
+                args,
+                returns,
+                pres,
+                posts,
+                body,
+                ..
+            } => {
+                if let Some(body) = &body {
+                    if contains_assume(body.node())? {
+                        return Err(TranslationError::Unsupported(
+                            "impure assume program rewrite",
+                        ));
+                    }
+                }
+                methods.push(Method::new(MethodData {
+                    name: declaration_name(&idndef)?,
+                    formal_args: formal_declarations(&args)?,
+                    formal_returns: returns
+                        .map(|r| formal_declarations(r.formal_returns()))
+                        .transpose()?
+                        .unwrap_or_default(),
+                    pres: specification_expressions(&pres, &field_map)?,
+                    posts: specification_expressions(&posts, &field_map)?,
+                    body: body
+                        .map(|body| translate_statement_with_fields(&body, Some(&field_map)))
+                        .transpose()?,
+                    meta: member_meta,
+                }));
+            }
+            PMemberKind::Import { .. } => {}
+            _ => {
+                return Err(TranslationError::Unsupported(
+                    "domain, macro or extension member",
+                ));
+            }
+        }
+    }
+    let mut meta = metadata(input.node())?;
+    meta.info = Info::NoInfo;
+    Ok(Program::new(
+        Vec::new(),
+        fields,
+        functions,
+        predicates,
+        methods,
+        Vec::new(),
+        meta,
+    ))
+}
+
+#[cfg(test)]
+mod program_tests {
+    use super::*;
+    use crate::parser::fast_parser::parse_program;
+    use crate::parser::resolver::{NameAnalyser, check_program_core};
+    #[test]
+    fn field_assignments_reuse_program_field_identity() {
+        use crate::ast::statement::StmtKind;
+        let parsed =
+            parse_program("method m(x: Ref) { x.f := 1; } field f: Int", "test.vpr").unwrap();
+        assert!(NameAnalyser::default().run(parsed.node()).unwrap());
+        check_program_core(&parsed, &mut |_, _| {}).unwrap();
+        let program = translate_program_core(&parsed).unwrap();
+        let StmtKind::Seqn { statements, .. } = program.methods[0].body.as_ref().unwrap().kind()
+        else {
+            panic!("body")
+        };
+        let StmtKind::FieldAssign { lhs, .. } = statements[0].kind() else {
+            panic!("assignment")
+        };
+        assert!(lhs.field.same_node(&program.fields[0]));
+    }
+    #[test]
+    fn core_program_pipeline_preserves_methods_and_functions() {
+        let source = "function f(x: Int): Int { x + 1 } method m(y: Int) { var z: Int := f(y); assert z > 0; }";
+        let parsed = parse_program(source, "test.vpr").unwrap();
+        assert!(NameAnalyser::default().run(parsed.node()).unwrap());
+        check_program_core(&parsed, &mut |_, _| {}).unwrap();
+        let translated = translate_program_core(&parsed).unwrap();
+        assert_eq!(translated.functions.len(), 1);
+        assert_eq!(translated.methods.len(), 1);
+        assert!(translated.methods[0].body.is_some());
     }
 }

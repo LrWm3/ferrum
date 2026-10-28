@@ -272,7 +272,7 @@ impl ExpressionParser<'_> {
     }
     fn expression(&mut self, minimum: u8) -> Result<PExpHandle, SyntaxError> {
         let mut left = self.atom()?;
-        let mut seen_comparison = false;
+        let mut comparison_middle: Option<(usize, u8)> = None;
         loop {
             self.trivia()?;
             let start = self.cursor;
@@ -318,21 +318,17 @@ impl ExpressionParser<'_> {
             if precedence < minimum {
                 break;
             }
-            if comparison && seen_comparison {
-                return Err(self.error(
-                    "chained comparisons require parse-tree copying, which is not implemented yet",
-                ));
-            }
-            seen_comparison |= comparison;
             self.cursor += length;
             let operator_span = self.span(start, self.cursor);
-            let right = self.expression(if matches!(op, PBinaryOp::Symbol(PSymOp::Wand)) {
+            let right_start = self.cursor;
+            let right_minimum = if matches!(op, PBinaryOp::Symbol(PSymOp::Wand)) {
                 0
             } else if right_assoc {
                 precedence
             } else {
                 precedence + 1
-            })?;
+            };
+            let right = self.expression(right_minimum)?;
             let begin = left
                 .node()
                 .read()
@@ -347,6 +343,51 @@ impl ExpressionParser<'_> {
                 .pos
                 .1
                 .clone();
+            if comparison {
+                if let Some((middle_start, middle_minimum)) = comparison_middle {
+                    // Parse a fresh copy of the middle operand, matching deepCopyAll's
+                    // separate node identity while preserving positions and diagnostics.
+                    let resume = self.cursor;
+                    let warning_count = self.warnings.len();
+                    self.cursor = middle_start;
+                    let middle = self.expression(middle_minimum)?;
+                    self.cursor = resume;
+                    self.warnings.truncate(warning_count);
+                    let middle_pos = middle
+                        .node()
+                        .read()
+                        .expect("poisoned parse node")
+                        .pos
+                        .0
+                        .clone();
+                    let comparison_node = self.expr_node(
+                        PExpressionKind::BinExp {
+                            left: middle,
+                            op: PReserved::new(op, operator_span),
+                            right,
+                        },
+                        middle_pos,
+                        end.clone(),
+                    );
+                    left = self.expr_node(
+                        PExpressionKind::BinExp {
+                            left,
+                            op: PReserved::new(
+                                PBinaryOp::Symbol(PSymOp::AndAnd),
+                                (Position::NoPosition, Position::NoPosition),
+                            ),
+                            right: comparison_node,
+                        },
+                        begin,
+                        end,
+                    );
+                    comparison_middle = Some((right_start, right_minimum));
+                    continue;
+                }
+                comparison_middle = Some((right_start, right_minimum));
+            } else {
+                comparison_middle = None;
+            }
             let kind = if matches!(op, PBinaryOp::Symbol(PSymOp::Wand)) {
                 PExpressionKind::MagicWandExp {
                     left,
@@ -1838,7 +1879,16 @@ mod tests {
                 ..
             })
         ));
-        assert!(parse_expression("a < b < c", "test.vpr").is_err());
+        let chain = parse_expression("a < f (b) <= c < d", "test.vpr").unwrap();
+        assert_eq!(chain.warnings.len(), 1);
+        let PNodeKind::Expression(expression) =
+            chain.expression.node().read().unwrap().kind.clone()
+        else {
+            panic!("expression")
+        };
+        assert!(
+            matches!(expression.kind, PExpressionKind::BinExp { op, .. } if op.display() == "&&")
+        );
     }
     #[test]
     fn nested_types_and_rational_warning() {

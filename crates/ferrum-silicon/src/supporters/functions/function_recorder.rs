@@ -461,12 +461,12 @@ mod tests {
             mask_heap_mode: false,
         });
         let owner = RecorderOwner::<()>::Predicate {
-            predicate: Arc::new(Predicate {
+            predicate: Arc::new(Predicate::new(ferrum_silver::ast::program::PredicateData {
                 name: "p".into(),
                 formal_args: vec![],
                 body: None,
                 meta: Metadata::default(),
-            }),
+            })),
             arguments: vec![],
         };
         let recorder = FunctionRecorder::actual(owner);

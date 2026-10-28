@@ -147,6 +147,12 @@ pub trait ExtensionExp: Debug + Send + Sync {
     fn equals(&self, other: &dyn ExtensionExp) -> bool;
     fn typ(&self) -> Type;
     fn is_pure(&self) -> bool;
+    fn is_valid_trigger(&self) -> bool {
+        false
+    }
+    fn is_forbidden_in_trigger(&self) -> bool {
+        true
+    }
     fn subnodes(
         &self,
     ) -> Result<Vec<super::utility::nodes::Node>, super::utility::nodes::TraversalError> {
@@ -177,8 +183,14 @@ pub struct ExpNode {
     pub kind: ExpKind,
     pub meta: Metadata,
     pub extra: ExpExtra,
-    pub simplified: RwLock<Option<Exp>>,
+    pub simplified: RwLock<Option<SimplifiedExp>>,
     implicit_full_permission: OnceLock<Exp>,
+}
+/// Avoid a strong Arc cycle when the cached simplified expression is itself.
+#[derive(Clone, Debug)]
+pub enum SimplifiedExp {
+    Same,
+    Other(Exp),
 }
 #[derive(Clone, Debug)]
 pub struct Exp(pub Arc<ExpNode>);

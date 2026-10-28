@@ -281,7 +281,7 @@ mod tests {
             converter.to_sort(&backend).unwrap(),
             Sort::SmtSort(Identifier::new("(_ BitVec 8)"))
         );
-        let function = DomainFunc {
+        let function = DomainFunc::new(ferrum_silver::ast::program::DomainFuncData {
             name: "f".into(),
             formal_args: vec![],
             typ: Type::Int,
@@ -289,7 +289,7 @@ mod tests {
             interpretation: None,
             domain_name: "D".into(),
             meta: Metadata::default(),
-        };
+        });
         let program = Program::new(
             vec![],
             vec![],
