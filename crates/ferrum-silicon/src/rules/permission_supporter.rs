@@ -23,4 +23,56 @@
 //! Open decisions:
 //! Continuation and verifier context ownership.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; assertion decisions and failure continuation implemented.
+//! Debug assertion construction and integration with concrete verifier errors remain pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2021 ETH Zurich.
+use crate::state::terms::{Term, TermFactory, TermKind};
+use ferrum_silver::ast::expression::Exp;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PermissionFailure {
+    Negative,
+    NonPositive,
+}
+/// The caller provides decider assertion and constructs its typed Silver failure, preserving
+/// the original permission expression and the newly formed assertion for debug reporting.
+pub fn assert_permission<E, R>(
+    factory: &TermFactory,
+    permission: &Term,
+    original: &Exp,
+    rewritten: Option<&Exp>,
+    constrainable_arps: impl IntoIterator<Item = Term>,
+    positive: bool,
+    mut check: impl FnMut(&Term) -> Result<bool, E>,
+    success: impl FnOnce() -> R,
+    failure: impl FnOnce(PermissionFailure, &Exp, &Term, Option<&Exp>) -> R,
+) -> Result<R, E> {
+    if matches!(permission.kind(), TermKind::Var(_))
+        && constrainable_arps.into_iter().any(|var| var == *permission)
+    {
+        return Ok(success());
+    }
+    let assertion = if positive {
+        factory.is_positive_perm(permission.clone())
+    } else {
+        factory.is_nonnegative_perm(permission.clone())
+    };
+    if check(&assertion)? {
+        Ok(success())
+    } else {
+        Ok(failure(
+            if positive {
+                PermissionFailure::NonPositive
+            } else {
+                PermissionFailure::Negative
+            },
+            original,
+            &assertion,
+            rewritten,
+        ))
+    }
+}

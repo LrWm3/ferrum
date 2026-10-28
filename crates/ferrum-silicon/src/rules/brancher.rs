@@ -28,4 +28,74 @@
 //! Open decisions:
 //! Worker/solver ownership and deferred continuation protocol.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; solver feasibility and parallel-branch selection implemented.
+//! Scoped execution, worker transfer, reporting and result joining remain pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2019 ETH Zurich.
+use crate::state::terms::{Term, TermFactory, UnsupportedSubterms};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BranchDecision {
+    pub execute_then: bool,
+    pub execute_else: bool,
+    pub parallelize_else: bool,
+    pub skip_feasibility: bool,
+}
+#[derive(Debug)]
+pub enum BranchError<E> {
+    Traversal(UnsupportedSubterms),
+    Solver(E),
+}
+/// Compute branch feasibility in source order. Packaging snapshots are not quantified variables.
+/// The supplied check is a proof query: true means the proposition is established.
+pub fn decide<E>(
+    factory: &TermFactory,
+    condition: &Term,
+    quantified_variables: &[Term],
+    short_circuit_and: bool,
+    parallelize: bool,
+    mut check: impl FnMut(&Term) -> Result<bool, E>,
+) -> Result<BranchDecision, BranchError<E>> {
+    let negated = factory.not(condition.clone());
+    let skip = if short_circuit_and {
+        true
+    } else if quantified_variables.is_empty() {
+        false
+    } else {
+        let free = condition.free_variables().map_err(BranchError::Traversal)?;
+        quantified_variables.iter().any(|var| free.contains(var))
+    };
+    let execute_then = skip || !check(&negated).map_err(BranchError::Solver)?;
+    let execute_else = !execute_then || skip || !check(condition).map_err(BranchError::Solver)?;
+    Ok(BranchDecision {
+        execute_then,
+        execute_else,
+        parallelize_else: parallelize && execute_then && execute_else,
+        skip_feasibility: skip,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::terms::TermOptions;
+    #[test]
+    fn infeasible_then_avoids_second_solver_query() {
+        let f = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let mut calls = 0;
+        let decision = decide(&f, &f.boolean(true), &[], false, true, |_| {
+            calls += 1;
+            Ok::<_, ()>(true)
+        })
+        .unwrap();
+        assert_eq!(calls, 1);
+        assert!(!decision.execute_then && decision.execute_else && !decision.parallelize_else);
+    }
+}

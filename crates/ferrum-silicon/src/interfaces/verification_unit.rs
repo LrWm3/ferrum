@@ -21,4 +21,26 @@
 //! Open decisions:
 //! Unit and state ownership with verification orchestration.
 //!
-//! Status: description only; implementation has not started.
+//! Status: implemented generic lifecycle and verification contract.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2019 ETH Zurich.
+use super::verification::VerificationResult;
+/// A stateful unit exposes the source's ordered units and returns all results for each one.
+pub trait VerificationUnit {
+    type Unit;
+    type State;
+    type Diagnostic;
+    type Error;
+    fn start(&mut self) -> Result<(), Self::Error>;
+    fn reset(&mut self) -> Result<(), Self::Error>;
+    fn stop(&mut self) -> Result<(), Self::Error>;
+    fn units(&self) -> &[Self::Unit];
+    fn verify(
+        &mut self,
+        state: Self::State,
+        unit: &Self::Unit,
+    ) -> Result<Vec<VerificationResult<Self::Diagnostic>>, Self::Error>;
+}

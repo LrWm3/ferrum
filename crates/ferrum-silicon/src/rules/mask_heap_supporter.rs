@@ -37,4 +37,112 @@
 //! Open decisions:
 //! Mask/snapshot representation, ordered resource identity and solver/continuation ownership.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; cached shallow resource discovery and ordered mask merging implemented.
+//! Heap manipulation, snapshots, quantified permissions and verifier rules remain pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2025 ETH Zurich.
+use crate::state::chunks::MagicWandIdentifier;
+use crate::state::terms::{ResourceKey, Term, TermFactory};
+use ferrum_silver::ast::{
+    expression::{Exp, ExpKind},
+    program::Program,
+    utility::{
+        expressions::MagicWandError,
+        nodes::{Node, TraversalError, subnodes},
+        visitor::shallow_collect,
+    },
+};
+use std::sync::Arc;
+
+#[derive(Debug)]
+pub enum ResourceDiscoveryError {
+    Traversal(TraversalError),
+    Wand(MagicWandError),
+    MissingPredicate(String),
+}
+#[derive(Default)]
+pub struct ResourceSequenceCache {
+    entries: Vec<(Vec<Exp>, Vec<ResourceKey>)>,
+}
+impl ResourceSequenceCache {
+    pub fn reset(&mut self) {
+        self.entries.clear();
+    }
+    /// As upstream, the cache key is the ordered expression sequence, not the program identity.
+    pub fn resources(
+        &mut self,
+        expressions: &[Exp],
+        program: &Program,
+    ) -> Result<Vec<ResourceKey>, ResourceDiscoveryError> {
+        if let Some((_, resources)) = self.entries.iter().find(|(key, _)| key == expressions) {
+            return Ok(resources.clone());
+        }
+        let mut resources = Vec::new();
+        for expression in expressions {
+            let nodes = shallow_collect(&[Node::Exp(expression.clone())], &subnodes, &mut |node| {
+                if let Node::Exp(e) = node {
+                    match e.kind() {
+                        ExpKind::FieldAccessPredicate(..)
+                        | ExpKind::PredicateAccessPredicate(..)
+                        | ExpKind::MagicWand(..) => return Some(e.clone()),
+                        _ => {}
+                    }
+                }
+                None
+            })
+            .map_err(ResourceDiscoveryError::Traversal)?;
+            for expression in nodes {
+                let resource = match expression.kind() {
+                    ExpKind::FieldAccessPredicate(access, _) => {
+                        ResourceKey::Field(Arc::new(access.field.clone()))
+                    }
+                    ExpKind::PredicateAccessPredicate(access) => {
+                        let name = &access.location.predicate_name;
+                        let predicate = program
+                            .predicates
+                            .iter()
+                            .find(|p| &p.name == name)
+                            .ok_or_else(|| {
+                                ResourceDiscoveryError::MissingPredicate(name.clone())
+                            })?;
+                        ResourceKey::Predicate(Arc::new(predicate.clone()))
+                    }
+                    ExpKind::MagicWand(..) => ResourceKey::Wand(
+                        MagicWandIdentifier::new(expression.clone(), program)
+                            .map_err(ResourceDiscoveryError::Wand)?,
+                    ),
+                    _ => unreachable!(),
+                };
+                if !resources.contains(&resource) {
+                    resources.push(resource);
+                }
+            }
+        }
+        resources.sort_by_key(|r| match r {
+            ResourceKey::Field(f) => f.name.clone(),
+            ResourceKey::Predicate(p) => p.name.clone(),
+            ResourceKey::Wand(w) => w.to_string(),
+        });
+        self.entries.push((expressions.to_vec(), resources.clone()));
+        Ok(resources)
+    }
+}
+/// Combine resource masks while preserving the first map's key order.
+pub fn merge_preserving_first_order(
+    factory: &TermFactory,
+    first: &[(ResourceKey, Term)],
+    second: &[(ResourceKey, Term)],
+) -> Vec<(ResourceKey, Term)> {
+    let mut result = first.to_vec();
+    for (key, mask) in second {
+        if let Some((_, value)) = result.iter_mut().find(|(old, _)| old == key) {
+            *value = factory.mask_sum(value.clone(), mask.clone());
+        } else {
+            result.push((key.clone(), mask.clone()));
+        }
+    }
+    result
+}

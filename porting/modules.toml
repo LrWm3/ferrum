@@ -1209,13 +1209,15 @@ remaining = ["Resource/reader and text emission interfaces exist; contributor an
 repository = "silicon"
 upstream = "src/main/scala/interfaces/Verification.scala"
 destination = "crates/ferrum-silicon/src/interfaces/verification.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Result predecessor chains, short-circuiting and native failure values exist; full diagnostics and counterexample enrichment remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/interfaces/VerificationUnit.scala"
 destination = "crates/ferrum-silicon/src/interfaces/verification_unit.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native verifier result contracts exist; concrete verification-unit orchestration remains."]
 
 [[modules]]
 repository = "silicon"
@@ -1548,7 +1550,8 @@ status = "ported"
 repository = "silicon"
 upstream = "src/main/scala/rules/Brancher.scala"
 destination = "crates/ferrum-silicon/src/rules/brancher.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source feasibility checks and parallel-branch selection exist; scoped branch execution, worker transfer, reporting and result joining remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1578,7 +1581,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/rules/ExecutionFlowController.scala"
 destination = "crates/ferrum-silicon/src/rules/execution_flow_controller.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Retry and solver-scope orchestration exist; concrete consolidation and verifier adapters remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1608,13 +1612,15 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/rules/Joiner.scala"
 destination = "crates/ferrum-silicon/src/rules/joiner.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Guarded state joining exists; concrete branch orchestration and verifier adapters remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/LetSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/let_supporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Ordered binding evaluation exists; caller store restoration and concrete evaluator integration remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1626,7 +1632,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/rules/MaskHeapSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/mask_heap_supporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Mask resource and conversion helpers exist; full heap encoding algorithms and concrete verifier integration remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1639,7 +1646,8 @@ remaining = ["Tagged snapshot data exists; complete exhale heuristics and verifi
 repository = "silicon"
 upstream = "src/main/scala/rules/PermissionSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/permission_supporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Permission sign assertions and constrainable-ARP bypass exist; debug expression construction and concrete verifier diagnostics remain."]
 
 [[modules]]
 repository = "silicon"
