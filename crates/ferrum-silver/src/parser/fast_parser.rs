@@ -61,8 +61,8 @@ use super::parse_ast_keyword::{
     ND, PDelimited, PGrouped, PKw, PKwOp, PReserved, PSym, PSymOp, Span,
 };
 use crate::ast::position::{FilePosition, LineColumn, Position, SourcePosition};
-use crate::verifier::verification_result::ParseReport;
 use crate::verifier::verification_result::ParseWarning;
+use crate::verifier::verification_result::{ParseError, ParseReport};
 
 /// A syntax failure at the point where the native parser stopped.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -267,7 +267,7 @@ fn parse_file_with_features(
 /// Load local and standard imports recursively using native caller-provided loaders.
 /// `load` receives the normalized path and whether it is a standard resource;
 /// `before_parse` applies imported-file plugin preprocessing. Errors are explicit
-/// and stop the first failed import; source recovery aggregation remains pending.
+/// and retain imported-file errors while continuing subsequent imports.
 pub fn parse_program_with_imports(
     source: &str,
     file: impl AsRef<Path>,
@@ -334,7 +334,16 @@ pub fn parse_program_with_imports(
                     }) => (
                         path.grouped().inner().text().to_owned(),
                         *local,
-                        node.pos.0.clone(),
+                        match (&node.pos.0, &node.pos.1) {
+                            (Position::LineColumn(start), Position::LineColumn(end)) => {
+                                Position::LineColumn(LineColumn::Source(Box::new(SourcePosition {
+                                    file: Some(file.to_owned()),
+                                    start: Box::new(start.clone()),
+                                    end: Some(Box::new(end.clone())),
+                                })))
+                            }
+                            _ => node.pos.0.clone(),
+                        },
                     ),
                     _ => continue,
                 }
@@ -369,20 +378,32 @@ pub fn parse_program_with_imports(
                     }
                 }
             }
-            let contents = load(&path, standard).map_err(|e| SyntaxError {
-                message: format!("could not import file ({e})"),
-                position: pos.clone(),
-            })?;
+            let contents = match load(&path, standard) {
+                Ok(contents) => contents,
+                Err(error) => {
+                    imported.push(PProgramHandle::error(ParseReport::Error(ParseError::new(
+                        format!("could not import file ({error})"),
+                        pos.clone(),
+                    ))));
+                    continue;
+                }
+            };
             let contents = if standard {
                 format!("{}\n", contents.lines().collect::<Vec<_>>().join("\n"))
             } else {
                 contents
             };
-            let contents = before_parse(contents).map_err(|e| SyntaxError {
-                message: format!("Plugin failed: {e}"),
-                position: pos,
-            })?;
-            imported.push(visit(
+            let contents = match before_parse(contents) {
+                Ok(contents) => contents,
+                Err(error) => {
+                    imported.push(PProgramHandle::error(ParseReport::Error(ParseError::new(
+                        format!("Plugin failed: {error}"),
+                        pos.clone(),
+                    ))));
+                    continue;
+                }
+            };
+            let parsed = visit(
                 &contents,
                 &path,
                 standard,
@@ -391,7 +412,14 @@ pub fn parse_program_with_imports(
                 std_seen,
                 load,
                 before_parse,
-            )?);
+            )
+            .unwrap_or_else(|error| {
+                PProgramHandle::error(ParseReport::Error(ParseError::new(
+                    error.message,
+                    error.position,
+                )))
+            });
+            imported.push(parsed);
         }
         if let PNodeKind::Program(p) =
             &mut program.node().write().expect("poisoned parse node").kind

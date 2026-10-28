@@ -95,6 +95,13 @@ suite passes through both transports, including controls, dynamic assertions,
 relational predicates and direct/nested comparators. Nested `Low` within `Low`
 and alternate SIF configurations retain explicit unsupported boundaries.
 
+Frontend parsing now retains sibling import failures, macro name/proof-script
+reports and warnings in source order, and uses source-aware node rendering for
+consistency diagnostics. Macro copying also handles versioned identifiers and
+already-expanded sequence products. All 276 Silver unit tests and four independent
+CLI import/macro cases pass. Macro recovery across imported programs and exact
+diagnostic compatibility still require completion.
+
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and
   records reviewed progress. Symbol outlines live in the destination comments.

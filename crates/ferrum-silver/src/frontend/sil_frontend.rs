@@ -270,20 +270,26 @@ impl FrontendPhases for SilFrontendPhases {
                 error.position,
             )))]
         })?;
-        crate::parser::macro_expander::expand_global_expression_macros(&program).map_err(
-            |error| {
-                vec![AbstractError::Parse(ParseReport::Error(ParseError::new(
-                    error.message,
-                    error.pos.0,
-                )))]
-            },
-        )?;
-        self.parsing_warnings.extend(
-            program
-                .errors()
-                .into_iter()
-                .filter(|e| matches!(e, ParseReport::Warning(_))),
-        );
+        let macro_error =
+            crate::parser::macro_expander::expand_global_expression_macros(&program).err();
+        let snapshot = match &program.node().read().expect("poisoned parse node").kind {
+            crate::parser::parse_ast::PNodeKind::Program(snapshot) => snapshot.clone(),
+            _ => unreachable!("typed program handle"),
+        };
+        let mut reports = snapshot.local_errors;
+        if let Some(error) = macro_error {
+            reports.push(ParseReport::Error(ParseError::new(
+                error.message,
+                error.pos.0,
+            )));
+        }
+        for imported in snapshot.imported {
+            reports.extend(imported.errors());
+        }
+        if reports.iter().any(|r| matches!(r, ParseReport::Error(_))) {
+            return Err(reports.into_iter().map(AbstractError::Parse).collect());
+        }
+        self.parsing_warnings.extend(reports);
         init_properties(program.node()).map_err(|error| {
             Self::failure(
                 format!("parse tree initialization: {error:?}"),
@@ -390,6 +396,10 @@ impl FrontendPhases for SilFrontendPhases {
                     e.message, e.position,
                 )))]
             })?;
+            let reports = imported.errors();
+            if reports.iter().any(|r| matches!(r, ParseReport::Error(_))) {
+                return Err(reports.into_iter().map(AbstractError::Parse).collect());
+            }
             init_properties(imported.node()).map_err(|e| {
                 Self::failure(
                     format!("import tree initialization: {e:?}"),
@@ -445,19 +455,39 @@ impl FrontendPhases for SilFrontendPhases {
         result
     }
     fn check_consistency(&mut self, input: Program) -> Result<Program, Vec<AbstractError>> {
-        use crate::ast::pretty::pretty_printer::{PrintError, pretty_expression, show_type};
+        use crate::ast::pretty::pretty_printer::{
+            PrintError, expression_to_string, pretty_node, show_type,
+        };
         use crate::ast::utility::nodes::Node;
         let render = |node: &Node| -> Result<String, PrintError> {
             match node {
-                Node::Exp(exp) => pretty_expression(exp),
+                Node::Exp(exp) => expression_to_string(exp),
                 Node::Type(typ) => show_type(typ),
-                Node::LocalVar(var) => pretty_expression(&crate::ast::expression::Exp::new(
+                Node::LocalVar(var) => expression_to_string(&crate::ast::expression::Exp::new(
                     crate::ast::expression::ExpKind::LocalVar(var.clone()),
                     var.meta.clone(),
                 )),
                 Node::LocalDecl(decl) => Ok(format!("{}: {}", decl.name, show_type(&decl.typ)?)),
                 Node::UnnamedLocalDecl(decl) => show_type(&decl.typ),
-                _ => Err(PrintError::Unsupported("consistency node rendering")),
+                Node::FieldAccess(access) => {
+                    expression_to_string(&crate::ast::expression::Exp::new(
+                        crate::ast::expression::ExpKind::FieldAccess(access.clone()),
+                        access.meta.clone(),
+                    ))
+                }
+                Node::PredicateAccess(access) => {
+                    expression_to_string(&crate::ast::expression::Exp::new(
+                        crate::ast::expression::ExpKind::PredicateAccess(access.clone()),
+                        access.meta.clone(),
+                    ))
+                }
+                Node::PredicateAccessPredicate(access) => {
+                    expression_to_string(&crate::ast::expression::Exp::new(
+                        crate::ast::expression::ExpKind::PredicateAccessPredicate(access.clone()),
+                        access.meta.clone(),
+                    ))
+                }
+                _ => pretty_node(node),
             }
         };
         let render_seq = |_: &[Node]| -> Result<String, PrintError> {
@@ -564,6 +594,56 @@ impl FrontendPhases for SilFrontendPhases {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn consistency_renders_statement_in_formal_reassignment_error() {
+        use crate::ast::{
+            ast::Metadata,
+            expression::{Exp, ExpKind},
+            program::{LocalVarDecl, Method, MethodData},
+            statement::{Stmt, StmtKind},
+            r#type::Type,
+        };
+        let meta = Metadata::default();
+        let x = LocalVarDecl::new("x".into(), Type::Int, meta.clone());
+        let assignment = Stmt::new(
+            StmtKind::LocalVarAssign {
+                lhs: x.local_var(),
+                rhs: Exp::new(ExpKind::IntLit(1.into()), meta.clone()),
+            },
+            meta.clone(),
+        );
+        let body = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![assignment],
+                declarations: vec![],
+            },
+            meta.clone(),
+        );
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![x],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: Some(body),
+            meta: meta.clone(),
+        });
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta);
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let errors = phases.check_consistency(program).unwrap_err();
+        let messages = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect::<Vec<_>>();
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("x := 1 is a reassignment of formal argument x")),
+            "{messages:?}"
+        );
+    }
+
     #[test]
     fn external_plugin_resolver_is_called_for_unknown_names_in_order() {
         let mut config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
@@ -692,6 +772,15 @@ mod tests {
             PathBuf::from("test.vpr"),
             standard_plugin_manager(&config).unwrap(),
         );
+        let parsed = phases
+            .parse("method labels() { label p1; assert true; }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        assert_eq!(product.methods[0].formal_args[0].name, "p1_0");
+        phases.check_consistency(product).unwrap();
         let parsed = phases
             .parse("method old_low(x: Int) requires low(x) ensures old(low(x)) {}")
             .unwrap();
@@ -2282,6 +2371,89 @@ mod tests {
         assert_eq!(lowered.functions.len(), 2);
         assert_eq!(lowered.functions[1].name, "PI_p");
     }
+    #[test]
+    fn every_macro_in_a_wand_proof_is_reported() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let errors = phases
+            .parse("method m() { package true --* true { define a true define b false } }")
+            .unwrap_err();
+        let messages = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            messages
+                .iter()
+                .filter(|m| m.contains("macros cannot be defined inside magic wands proof scripts"))
+                .count(),
+            2,
+            "{messages:?}"
+        );
+    }
+
+    #[test]
+    fn multiple_macro_name_errors_are_preserved_without_nested_prefixes() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let errors = phases
+            .parse("define a 1 define a 2 define b 3 define b 4 method m() {}")
+            .unwrap_err();
+        let messages = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(messages.len(), 2, "{messages:?}");
+        assert!(
+            messages[0].contains("another macro named `a`")
+                && messages[1].contains("another macro named `b`"),
+            "{messages:?}"
+        );
+        assert!(
+            messages
+                .iter()
+                .all(|m| !m.contains("Parse error: Parse error:")),
+            "{messages:?}"
+        );
+    }
+
+    #[test]
+    fn imported_failures_are_aggregated_and_stop_frontend() {
+        use std::{path::Path, sync::Arc};
+        struct Loader;
+        impl crate::ast::utility::file_loader::FileLoader for Loader {
+            fn load_content(&self, path: &Path) -> std::io::Result<String> {
+                if path.ends_with("bad.vpr") {
+                    Ok("method broken(".into())
+                } else {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "missing import",
+                    ))
+                }
+            }
+        }
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("/work/main.vpr"),
+            SilverPluginManager::default(),
+        );
+        phases.local_loader = Arc::new(Loader);
+        let errors = phases
+            .parse("import \"missing.vpr\" import \"bad.vpr\" method m(x: Rational) {} ")
+            .unwrap_err();
+        assert_eq!(errors.len(), 3);
+        let messages = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect::<Vec<_>>();
+        assert!(messages[0].contains("Parse warning"), "{messages:?}");
+        assert!(
+            messages[1].contains("could not import file"),
+            "{messages:?}"
+        );
+        assert!(messages[2].contains("Parse error"), "{messages:?}");
+    }
+
     #[test]
     fn imported_function_resolves_and_translates() {
         use std::path::Path;

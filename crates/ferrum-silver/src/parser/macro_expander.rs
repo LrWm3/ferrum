@@ -166,6 +166,72 @@ mod tests {
     };
     use crate::parser::parse_ast_keyword::{PKw, PReserved};
     #[test]
+    fn versioned_identifiers_follow_renaming_but_are_not_parameter_expressions() {
+        use crate::parser::parse_ast::{PDeclarationClass, PIdnRef};
+        let pos = (Position::NoPosition, Position::NoPosition);
+        let expression = PExpHandle::new(
+            PExpression::from_kind(PExpressionKind::VersionedIdnUse {
+                idnref: PIdnRef::with_class("x", PDeclarationClass::TypedVar),
+                version: "3".into(),
+                separator: "@".into(),
+            }),
+            pos.clone(),
+        );
+        let scope = std::cell::RefCell::new(MacroCopyScope {
+            renames: [("x".into(), "x$0".into())].into(),
+            ..Default::default()
+        });
+        let replacement = PExpHandle::new(
+            PExpression::from_kind(PExpressionKind::IntLit(42.into())),
+            pos,
+        );
+        let output =
+            copy_expression(&expression, &[("x$0".into(), replacement)].into(), &scope).unwrap();
+        let node = output.node().read().unwrap();
+        assert!(
+            matches!(&node.kind, PNodeKind::Expression(PExpression { kind: PExpressionKind::VersionedIdnUse { idnref, version, separator }, .. }) if idnref.name == "x$0" && version == "3" && separator == "@")
+        );
+    }
+
+    #[test]
+    fn copying_macro_sequence_preserves_scope_free_product() {
+        use crate::parser::parse_ast::{PStatement, PStatementKind, PStmtHandle};
+        use crate::parser::parse_ast_keyword::{ND, PDelimited, PGrouped, PSym};
+        let pos = (Position::NoPosition, Position::NoPosition);
+        let skip = PStmtHandle::new(
+            PStatement {
+                kind: PStatementKind::Skip,
+            },
+            pos.clone(),
+        );
+        let block = PGrouped::new(
+            PReserved::new(PSym::LBrace, pos.clone()),
+            PDelimited::new(Some(skip), vec![], Some(ND(None)), pos.clone()),
+            PReserved::new(PSym::RBrace, pos.clone()),
+            pos.clone(),
+        );
+        let statement = PStmtHandle::new(
+            PStatement {
+                kind: PStatementKind::MacroSeqn { statements: block },
+            },
+            pos,
+        );
+        let output = copy_macro_statement(
+            &statement,
+            &HashMap::new(),
+            false,
+            &std::cell::RefCell::new(MacroCopyScope::default()),
+        )
+        .unwrap();
+        assert!(matches!(
+            &output.node().read().unwrap().kind,
+            PNodeKind::Statement(PStatement {
+                kind: PStatementKind::MacroSeqn { .. }
+            })
+        ));
+    }
+
+    #[test]
     fn duplicate_macro_and_fresh_names_follow_source_order() {
         let span = (Position::NoPosition, Position::NoPosition);
         let make = || {
@@ -843,6 +909,24 @@ fn copy_expression(
                 idnref: copy_ref(&idnref)?,
             }
         }
+        E::VersionedIdnUse {
+            mut idnref,
+            version,
+            separator,
+        } => {
+            // Scala's renamer visits PIdnUse, but its expression replacer only
+            // substitutes PIdnUseExp, not PVersionedIdnUseExp.
+            if let Some(name) = scope.borrow().renames.get(&idnref.name) {
+                idnref.name = name.clone();
+            }
+            let mut fresh = PIdnRef::with_class(idnref.name, idnref.declaration_class);
+            fresh.assign_use = idnref.assign_use;
+            E::VersionedIdnUse {
+                idnref: fresh,
+                version,
+                separator,
+            }
+        }
         E::IntLit(value) => E::IntLit(value),
         E::BoolLit(token) => E::BoolLit(PReserved::new(*token.value(), token.position().clone())),
         E::NullLit(token) => E::NullLit(PReserved::new(*token.value(), token.position().clone())),
@@ -1216,12 +1300,6 @@ fn copy_expression(
                 domain_substitution: None,
             }
         }
-        _ => {
-            return Err(MacroError {
-                message: "unsupported macro expression requiring hygienic reconstruction".into(),
-                pos,
-            });
-        }
     };
     Ok(PExpHandle::new(PExpression::from_kind(kind), pos))
 }
@@ -1348,6 +1426,7 @@ fn copy_macro_statement(
             PReserved::new(*$t.value(), $t.position().clone())
         };
     }
+    let is_macro_sequence = matches!(&kind, S::MacroSeqn { .. });
     let kind = match kind {
         S::Extension(extension) => {
             use crate::plugin::standard::refute::refute_past_extension::PRefute;
@@ -1463,7 +1542,7 @@ fn copy_macro_statement(
                 invs,
             }
         }
-        S::Seqn { statements, .. } => {
+        S::Seqn { statements, .. } | S::MacroSeqn { statements } => {
             let old = statements.inner();
             let items = old
                 .to_seq()
@@ -1491,7 +1570,7 @@ fn copy_macro_statement(
                 token!(statements.right()),
                 statements.position().clone(),
             );
-            if root {
+            if root || is_macro_sequence {
                 S::MacroSeqn { statements: block }
             } else {
                 S::Seqn {
@@ -1651,32 +1730,36 @@ pub fn expand_global_expression_macros(
 ) -> Result<(), MacroError> {
     use super::parse_ast::{PDefineBody, PExpressionKind, PNodeHandle, subnodes};
     let reports = validate_global_names(program);
-    if let Some(report) = reports.first() {
-        return Err(MacroError {
-            message: report.readable_message(),
-            pos: (report.pos().clone(), report.pos().clone()),
-        });
+    if let PNodeKind::Program(root) = &mut program.node().write().expect("poisoned parse node").kind
+    {
+        root.local_errors.extend(reports);
     }
-    fn reject_proof_script_definitions(
+    fn collect_proof_script_definitions(
         node: &PNodeHandle,
         inside_wand: bool,
+        reports: &mut Vec<crate::verifier::verification_result::ParseReport>,
     ) -> Result<(), MacroError> {
         let (kind, pos) = {
             let node = node.read().expect("poisoned parse node");
             (node.kind.clone(), node.pos.clone())
         };
-        if inside_wand
-            && matches!(
-                kind,
-                PNodeKind::Statement(super::parse_ast::PStatement {
-                    kind: super::parse_ast::PStatementKind::MacroDefinition(_)
-                })
-            )
-        {
-            return Err(MacroError {
-                message: "macros cannot be defined inside magic wands proof scripts".into(),
-                pos,
-            });
+        if inside_wand {
+            if let PNodeKind::Statement(super::parse_ast::PStatement {
+                kind: super::parse_ast::PStatementKind::MacroDefinition(member),
+            }) = &kind
+            {
+                let position = member
+                    .node()
+                    .read()
+                    .expect("poisoned parse node")
+                    .error_position();
+                reports.push(crate::verifier::verification_result::ParseReport::Error(
+                    crate::verifier::verification_result::ParseError::new(
+                        "macros cannot be defined inside magic wands proof scripts",
+                        position,
+                    ),
+                ));
+            }
         }
         let inside_wand = inside_wand
             || matches!(
@@ -1689,11 +1772,16 @@ pub fn expand_global_expression_macros(
             message: format!("macro validation traversal: {e:?}"),
             pos: pos.clone(),
         })? {
-            reject_proof_script_definitions(&child, inside_wand)?;
+            collect_proof_script_definitions(&child, inside_wand, reports)?;
         }
         Ok(())
     }
-    reject_proof_script_definitions(program.node(), false)?;
+    let mut proof_reports = Vec::new();
+    collect_proof_script_definitions(program.node(), false, &mut proof_reports)?;
+    if let PNodeKind::Program(root) = &mut program.node().write().expect("poisoned parse node").kind
+    {
+        root.local_errors.extend(proof_reports);
+    }
     fn free_names(
         node: &PNodeHandle,
         bound: &HashSet<String>,
@@ -1834,7 +1922,7 @@ pub fn expand_global_expression_macros(
     let mut definitions = HashMap::new();
     let mut warnings = Vec::new();
     for member in program.all_members() {
-        register(member, &mut definitions, &mut warnings, false)?;
+        register(member, &mut definitions, &mut warnings, true)?;
     }
     fn adapt_position(
         node: &PNodeHandle,
@@ -1931,13 +2019,6 @@ pub fn expand_global_expression_macros(
                     kind: super::parse_ast::PStatementKind::MacroDefinition(member),
                 }) = &kind
                 {
-                    if inside_wand {
-                        return Err(MacroError {
-                            message: "macros cannot be defined inside magic wands proof scripts"
-                                .into(),
-                            pos,
-                        });
-                    }
                     register(member.clone(), definitions, warnings, true)?;
                     node.write().expect("poisoned parse node").kind =
                         PNodeKind::Statement(super::parse_ast::PStatement {
@@ -2459,17 +2540,17 @@ pub fn expand_global_expression_macros(
         preserve_names: false,
         renames: HashMap::new(),
     });
-    walk(
+    let result = walk(
         program.node(),
         &definitions,
         &mut Vec::new(),
         &mut warnings,
         &scope,
-    )?;
+    );
     if let PNodeKind::Program(program) =
         &mut program.node().write().expect("poisoned parse node").kind
     {
         program.local_errors.extend(warnings);
     }
-    Ok(())
+    result
 }

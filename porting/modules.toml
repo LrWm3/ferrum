@@ -316,7 +316,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/SilFrontend.scala"
 destination = "crates/ferrum-silver/src/frontend/sil_frontend.rs"
 status = "skeleton"
-remaining = ["Configured native plugin resolution preserves source order and opt-in backend plugins. Source grammar, macro hygiene and diagnostic compatibility still require completion and broader checks."]
+remaining = ["Configured native plugins, imported parse error/warning aggregation and individual-node consistency diagnostics are connected. Grammar, macro recovery and remaining diagnostic compatibility require completion."]
 
 [[modules]]
 repository = "silver"
@@ -357,14 +357,14 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/FastParser.scala"
 destination = "crates/ferrum-silver/src/parser/fast_parser.rs"
 status = "skeleton"
-remaining = ["Source expression macros, annotations and ADT derives reach checked frontend translation; remaining grammar, macro hygiene/local and statement forms, extension and diagnostic compatibility require completion."]
+remaining = ["Source grammar subset, expression macros, annotations, ADT derives and recursive import error aggregation reach checked translation. Remaining grammar, recovery and extension/diagnostic compatibility require completion."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/MacroExpander.scala"
 destination = "crates/ferrum-silver/src/parser/macro_expander.rs"
 status = "skeleton"
-remaining = ["Source sequential renaming and substitution cover supported expression/statement macros, including typed/annotated bodies and nested declarations. Macro extension specs and other unsupported products, token-wrapper positions and conservative global name seeding remain."]
+remaining = ["Source renaming/substitution handles built-in expression and supported statement products, versioned identifiers and macro sequences; name/proof-script reports and warnings accumulate. Per-import expansion recovery, extension specs, token positions and conservative name seeding remain partial."]
 
 [[modules]]
 repository = "silver"
