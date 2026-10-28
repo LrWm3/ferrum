@@ -31,6 +31,129 @@ pub enum NativePreambleError<E> {
     Translation(String),
     Sink(E),
 }
+/// Optional user-provided source files; absent entries use the pinned bundled sources.
+/// Files are read only when their collection has ground instances, as upstream does.
+#[derive(Clone, Debug, Default)]
+pub struct CollectionAxiomatizationSources {
+    pub sequences: Option<std::path::PathBuf>,
+    pub sets: Option<std::path::PathBuf>,
+    pub multisets: Option<std::path::PathBuf>,
+    pub maps: Option<std::path::PathBuf>,
+}
+
+fn parse_collection_source(
+    bundled: &'static str,
+    custom: Option<&std::path::Path>,
+    expand_bundled_macros: bool,
+) -> Result<
+    ferrum_silver::parser::parse_ast::PProgramHandle,
+    NativePreambleError<std::convert::Infallible>,
+> {
+    use ferrum_silver::parser::{fast_parser, macro_expander};
+    let parsed = if let Some(path) = custom {
+        let source = std::fs::read_to_string(path).map_err(|e| {
+            NativePreambleError::Translation(format!(
+                "could not read collection axiomatization {}: {e}",
+                path.display()
+            ))
+        })?;
+        fast_parser::parse_program_with_imports(
+            &source,
+            path,
+            &[],
+            &mut |import, standard| {
+                if standard {
+                    let key = format!(
+                        "import/{}",
+                        import.to_string_lossy().trim_start_matches('/')
+                    );
+                    ferrum_silver::resources::bundled::get(&key)
+                        .or_else(|| crate::resources::bundled::get(&key))
+                        .map(str::to_owned)
+                        .ok_or_else(|| format!("standard import not found: {}", import.display()))
+                } else {
+                    std::fs::read_to_string(import).map_err(|e| e.to_string())
+                }
+            },
+            &mut Ok,
+        )
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?
+    } else {
+        let source = crate::resources::bundled::get(bundled).ok_or(
+            NativePreambleError::Unsupported("missing collection source"),
+        )?;
+        fast_parser::parse_program(source, bundled)
+            .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?
+    };
+    if custom.is_some() || expand_bundled_macros {
+        macro_expander::expand_global_expression_macros(&parsed)
+            .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    }
+    let reports = parsed.errors();
+    if !reports.is_empty() {
+        return Err(NativePreambleError::Translation(format!(
+            "collection source reports: {reports:?}"
+        )));
+    }
+    Ok(parsed)
+}
+
+// Source BuiltinDomainsContributor caches translated programs by URL and
+// millisecond modification time. Only successful loads enter the cache; an
+// imported file changing alone does not invalidate its root source entry.
+fn load_collection_program(
+    bundled: &'static str,
+    custom: Option<&std::path::Path>,
+    expand_bundled_macros: bool,
+    resolution_error: &'static str,
+) -> Result<Program, NativePreambleError<std::convert::Infallible>> {
+    use std::sync::{Mutex, OnceLock};
+    #[derive(Hash, PartialEq, Eq)]
+    enum CacheKey {
+        Bundled(&'static str),
+        File(std::path::PathBuf),
+    }
+    type Cache = std::collections::HashMap<CacheKey, (u128, Program)>;
+    static PROGRAM_CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
+    let mut cache = PROGRAM_CACHE
+        .get_or_init(|| Mutex::new(Cache::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let key = match custom {
+        Some(path) => CacheKey::File(std::path::absolute(path).map_err(|e| {
+            NativePreambleError::Translation(format!("invalid collection source path: {e}"))
+        })?),
+        None => CacheKey::Bundled(bundled),
+    };
+    let modified = custom.map_or(0, |p| {
+        std::fs::metadata(p)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |t| t.as_millis())
+    });
+    if let Some((cached_time, program)) = cache.get(&key) {
+        if *cached_time == modified {
+            return Ok(program.clone());
+        }
+    }
+    let parsed = parse_collection_source(bundled, custom, expand_bundled_macros)?;
+    ferrum_silver::parser::parse_ast::init_properties(parsed.node())
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    if !ferrum_silver::parser::resolver::NameAnalyser::default()
+        .run(parsed.node())
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?
+    {
+        return Err(NativePreambleError::Unsupported(resolution_error));
+    }
+    ferrum_silver::parser::resolver::check_program_core(&parsed, &mut |_, _| {})
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    let program = ferrum_silver::parser::translator::translate_program_core(&parsed)
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    cache.insert(key, (modified, program.clone()));
+    Ok(program)
+}
+
 /// Collected source-order declarations and uniqueness assumptions for later emission.
 #[derive(Default)]
 pub struct NativePreambleData {
@@ -813,7 +936,15 @@ pub fn analyze_sequences(
     factory: &TermFactory,
     old_axiomatization: bool,
 ) -> Result<NativeSequencePreamble, NativePreambleError<std::convert::Infallible>> {
-    analyze_sequences_inner(program, converter, factory, old_axiomatization, false, None)
+    analyze_sequences_inner(
+        program,
+        converter,
+        factory,
+        old_axiomatization,
+        false,
+        None,
+        None,
+    )
 }
 fn analyze_sequences_inner(
     program: &Program,
@@ -822,6 +953,7 @@ fn analyze_sequences_inner(
     old_axiomatization: bool,
     mixed: bool,
     closed_ground: Option<&std::collections::HashSet<Type>>,
+    custom_source: Option<&std::path::Path>,
 ) -> Result<NativeSequencePreamble, NativePreambleError<std::convert::Infallible>> {
     use crate::state::symbol_converter::BuiltinDomainSort;
     use crate::supporters::{
@@ -874,24 +1006,12 @@ fn analyze_sequences_inner(
         return Ok(NativeSequencePreamble { contributor });
     }
     let path = sequences::source_resource(old_axiomatization);
-    let source = crate::resources::bundled::get(path)
-        .ok_or(NativePreambleError::Unsupported("missing sequence source"))?;
-    let parsed = ferrum_silver::parser::fast_parser::parse_program(source, path)
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
-    ferrum_silver::parser::parse_ast::init_properties(parsed.node())
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
-    if !ferrum_silver::parser::resolver::NameAnalyser::default()
-        .run(parsed.node())
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?
-    {
-        return Err(NativePreambleError::Unsupported(
-            "sequence source name resolution",
-        ));
-    }
-    ferrum_silver::parser::resolver::check_program_core(&parsed, &mut |_, _| {})
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
-    let builtin_program = ferrum_silver::parser::translator::translate_program_core(&parsed)
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    let builtin_program = load_collection_program(
+        path,
+        custom_source,
+        false,
+        "sequence source name resolution",
+    )?;
     let source_domain = builtin_program
         .find_domain_optionally(sequences::SOURCE_DOMAIN_NAME)
         .ok_or(NativePreambleError::Unsupported("sequence source domain"))?;
@@ -1142,6 +1262,7 @@ pub fn analyze_sets(
         false,
         false,
         None,
+        None,
     )
 }
 /// Include set sorts induced by map domain/range when a map contributor is active.
@@ -1159,6 +1280,7 @@ pub fn analyze_sets_with_maps(
         true,
         false,
         None,
+        None,
     )
 }
 fn analyze_sets_inner(
@@ -1169,6 +1291,7 @@ fn analyze_sets_inner(
     allow_maps: bool,
     mixed: bool,
     closed_ground: Option<&std::collections::HashSet<Type>>,
+    custom_source: Option<&std::path::Path>,
 ) -> Result<NativeSetPreamble, NativePreambleError<std::convert::Infallible>> {
     use crate::state::symbol_converter::BuiltinDomainSort;
     use crate::supporters::{
@@ -1249,24 +1372,8 @@ fn analyze_sets_inner(
         return Ok(NativeSetPreamble { contributor });
     }
     let path = sets::source_resource(old_axiomatization);
-    let source = crate::resources::bundled::get(path)
-        .ok_or(NativePreambleError::Unsupported("missing set source"))?;
-    let parsed = ferrum_silver::parser::fast_parser::parse_program(source, path)
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
-    ferrum_silver::parser::parse_ast::init_properties(parsed.node())
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
-    if !ferrum_silver::parser::resolver::NameAnalyser::default()
-        .run(parsed.node())
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?
-    {
-        return Err(NativePreambleError::Unsupported(
-            "set source name resolution",
-        ));
-    }
-    ferrum_silver::parser::resolver::check_program_core(&parsed, &mut |_, _| {})
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
-    let builtin_program = ferrum_silver::parser::translator::translate_program_core(&parsed)
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    let builtin_program =
+        load_collection_program(path, custom_source, false, "set source name resolution")?;
     let source_domain = builtin_program
         .find_domain_optionally(sets::SOURCE_DOMAIN_NAME)
         .ok_or(NativePreambleError::Unsupported("set source domain"))?;
@@ -1436,7 +1543,15 @@ pub fn analyze_maps(
     factory: &TermFactory,
     old_axiomatization: bool,
 ) -> Result<NativeMapPreamble, NativePreambleError<std::convert::Infallible>> {
-    analyze_maps_inner(program, converter, factory, old_axiomatization, false, None)
+    analyze_maps_inner(
+        program,
+        converter,
+        factory,
+        old_axiomatization,
+        false,
+        None,
+        None,
+    )
 }
 fn analyze_maps_inner(
     program: &Program,
@@ -1445,6 +1560,7 @@ fn analyze_maps_inner(
     old_axiomatization: bool,
     mixed: bool,
     closed_ground: Option<&std::collections::HashSet<Type>>,
+    custom_source: Option<&std::path::Path>,
 ) -> Result<NativeMapPreamble, NativePreambleError<std::convert::Infallible>> {
     use crate::state::symbol_converter::BuiltinDomainSort;
     use crate::supporters::{
@@ -1494,24 +1610,8 @@ fn analyze_maps_inner(
         return Ok(NativeMapPreamble { contributor });
     }
     let path = maps::source_resource(old_axiomatization);
-    let source = crate::resources::bundled::get(path)
-        .ok_or(NativePreambleError::Unsupported("missing map source"))?;
-    let parsed = ferrum_silver::parser::fast_parser::parse_program(source, path)
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
-    ferrum_silver::parser::parse_ast::init_properties(parsed.node())
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
-    if !ferrum_silver::parser::resolver::NameAnalyser::default()
-        .run(parsed.node())
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?
-    {
-        return Err(NativePreambleError::Unsupported(
-            "map source name resolution",
-        ));
-    }
-    ferrum_silver::parser::resolver::check_program_core(&parsed, &mut |_, _| {})
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
-    let builtin_program = ferrum_silver::parser::translator::translate_program_core(&parsed)
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    let builtin_program =
+        load_collection_program(path, custom_source, false, "map source name resolution")?;
     let source_domain = builtin_program
         .find_domain_optionally(maps::SOURCE_DOMAIN_NAME)
         .ok_or(NativePreambleError::Unsupported("map source domain"))?;
@@ -1752,6 +1852,22 @@ pub fn analyze_collections(
     factory: &TermFactory,
     old_axiomatization: bool,
 ) -> Result<NativeCollectionsPreamble, NativePreambleError<std::convert::Infallible>> {
+    analyze_collections_with_sources(
+        program,
+        converter,
+        factory,
+        old_axiomatization,
+        &CollectionAxiomatizationSources::default(),
+    )
+}
+
+pub fn analyze_collections_with_sources(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+    old_axiomatization: bool,
+    sources: &CollectionAxiomatizationSources,
+) -> Result<NativeCollectionsPreamble, NativePreambleError<std::convert::Infallible>> {
     Ok(NativeCollectionsPreamble {
         sequences: analyze_sequences_inner(
             program,
@@ -1760,6 +1876,7 @@ pub fn analyze_collections(
             old_axiomatization,
             true,
             None,
+            sources.sequences.as_deref(),
         )?,
         sets: analyze_sets_inner(
             program,
@@ -1769,6 +1886,7 @@ pub fn analyze_collections(
             true,
             true,
             None,
+            sources.sets.as_deref(),
         )?,
         multisets: analyze_multisets_inner(
             program,
@@ -1777,8 +1895,17 @@ pub fn analyze_collections(
             old_axiomatization,
             true,
             None,
+            sources.multisets.as_deref(),
         )?,
-        maps: analyze_maps_inner(program, converter, factory, old_axiomatization, true, None)?,
+        maps: analyze_maps_inner(
+            program,
+            converter,
+            factory,
+            old_axiomatization,
+            true,
+            None,
+            sources.maps.as_deref(),
+        )?,
     })
 }
 
@@ -1829,6 +1956,24 @@ pub fn analyze_general(
     old_axiomatization: bool,
     threshold: i32,
 ) -> Result<NativeGeneralPreamble, NativePreambleError<std::convert::Infallible>> {
+    analyze_general_with_sources(
+        program,
+        converter,
+        factory,
+        old_axiomatization,
+        threshold,
+        &CollectionAxiomatizationSources::default(),
+    )
+}
+
+pub fn analyze_general_with_sources(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+    old_axiomatization: bool,
+    threshold: i32,
+    sources: &CollectionAxiomatizationSources,
+) -> Result<NativeGeneralPreamble, NativePreambleError<std::convert::Infallible>> {
     use ferrum_silver::ast::utility::domain_instances::{
         find_necessary_type_instances, get_instance_members,
     };
@@ -1872,6 +2017,7 @@ pub fn analyze_general(
             old_axiomatization,
             true,
             Some(&ground),
+            sources.sequences.as_deref(),
         )?,
         sets: analyze_sets_inner(
             program,
@@ -1881,6 +2027,7 @@ pub fn analyze_general(
             true,
             true,
             Some(&ground),
+            sources.sets.as_deref(),
         )?,
         multisets: analyze_multisets_inner(
             program,
@@ -1889,6 +2036,7 @@ pub fn analyze_general(
             old_axiomatization,
             true,
             Some(&ground),
+            sources.multisets.as_deref(),
         )?,
         maps: analyze_maps_inner(
             program,
@@ -1897,6 +2045,7 @@ pub fn analyze_general(
             old_axiomatization,
             true,
             Some(&ground),
+            sources.maps.as_deref(),
         )?,
     };
     let mut domains = NativePreambleData::default();
@@ -1991,7 +2140,15 @@ pub fn analyze_multisets(
     factory: &TermFactory,
     old_axiomatization: bool,
 ) -> Result<NativeMultisetPreamble, NativePreambleError<std::convert::Infallible>> {
-    analyze_multisets_inner(program, converter, factory, old_axiomatization, false, None)
+    analyze_multisets_inner(
+        program,
+        converter,
+        factory,
+        old_axiomatization,
+        false,
+        None,
+        None,
+    )
 }
 fn analyze_multisets_inner(
     program: &Program,
@@ -2000,6 +2157,7 @@ fn analyze_multisets_inner(
     old_axiomatization: bool,
     mixed: bool,
     closed_ground: Option<&std::collections::HashSet<Type>>,
+    custom_source: Option<&std::path::Path>,
 ) -> Result<NativeMultisetPreamble, NativePreambleError<std::convert::Infallible>> {
     use crate::state::symbol_converter::BuiltinDomainSort;
     use crate::supporters::{
@@ -2052,26 +2210,8 @@ fn analyze_multisets_inner(
         return Ok(NativeMultisetPreamble { contributor });
     }
     let path = multisets::source_resource(old_axiomatization);
-    let source = crate::resources::bundled::get(path)
-        .ok_or(NativePreambleError::Unsupported("missing multiset source"))?;
-    let parsed = ferrum_silver::parser::fast_parser::parse_program(source, path)
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
-    ferrum_silver::parser::macro_expander::expand_global_expression_macros(&parsed)
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
-    ferrum_silver::parser::parse_ast::init_properties(parsed.node())
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
-    if !ferrum_silver::parser::resolver::NameAnalyser::default()
-        .run(parsed.node())
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?
-    {
-        return Err(NativePreambleError::Unsupported(
-            "multiset source name resolution",
-        ));
-    }
-    ferrum_silver::parser::resolver::check_program_core(&parsed, &mut |_, _| {})
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
-    let builtin_program = ferrum_silver::parser::translator::translate_program_core(&parsed)
-        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    let builtin_program =
+        load_collection_program(path, custom_source, true, "multiset source name resolution")?;
     let source_domain = builtin_program
         .find_domain_optionally(multisets::SOURCE_DOMAIN_NAME)
         .ok_or(NativePreambleError::Unsupported("multiset source domain"))?;
@@ -2186,6 +2326,110 @@ mod sequence_tests {
         program::{LocalVarDecl, Method, MethodData},
     };
     use std::sync::Arc;
+    #[test]
+    fn custom_collection_source_resolves_relative_imports_and_reports_failures() {
+        let dir = std::env::temp_dir().join(format!("ferrum-custom-import-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let root = dir.join("root.vpr");
+        std::fs::write(&root, "import \"nested.vpr\"\n").unwrap();
+        assert!(parse_collection_source("/unused", Some(&root), false).is_err());
+        std::fs::write(dir.join("nested.vpr"), "domain $Seq[E] {}\n").unwrap();
+        let parsed = parse_collection_source("/unused", Some(&root), false).unwrap();
+        assert!(parsed.errors().is_empty());
+        ferrum_silver::parser::parse_ast::init_properties(parsed.node()).unwrap();
+        assert!(
+            ferrum_silver::parser::resolver::NameAnalyser::default()
+                .run(parsed.node())
+                .unwrap()
+        );
+        ferrum_silver::parser::resolver::check_program_core(&parsed, &mut |_, _| {}).unwrap();
+        let translated =
+            ferrum_silver::parser::translator::translate_program_core(&parsed).unwrap();
+        assert!(translated.find_domain_optionally("$Seq").is_some());
+        load_collection_program("/unused", Some(&root), false, "resolution").unwrap();
+        std::fs::write(dir.join("nested.vpr"), "invalid source").unwrap();
+        assert!(load_collection_program("/unused", Some(&root), false, "resolution").is_ok());
+        let modified = std::fs::metadata(&root).unwrap().modified().unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&root)
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(modified + std::time::Duration::from_secs(2)),
+            )
+            .unwrap();
+        assert!(load_collection_program("/unused", Some(&root), false, "resolution").is_err());
+        std::fs::write(&root, "import <decreases/declaration.vpr>\n").unwrap();
+        let parsed = parse_collection_source("/unused", Some(&root), false).unwrap();
+        assert!(parsed.errors().is_empty());
+        assert!(!parsed.all_members().is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn custom_sequence_source_is_lazy_and_replaces_bundled_source() {
+        let meta = Metadata::default();
+        let empty = Program::new(vec![], vec![], vec![], vec![], vec![], vec![], meta.clone());
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![LocalVarDecl::new(
+                "s".into(),
+                Type::Seq(Arc::new(Type::Int)),
+                meta.clone(),
+            )],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let with_seq = Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta);
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        let path =
+            std::env::temp_dir().join(format!("ferrum-custom-seq-{}.vpr", std::process::id()));
+        let sources = CollectionAxiomatizationSources {
+            sequences: Some(path.clone()),
+            ..Default::default()
+        };
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            analyze_collections_with_sources(&empty, &converter, &factory, false, &sources).is_ok()
+        );
+        assert!(
+            analyze_collections_with_sources(&with_seq, &converter, &factory, false, &sources)
+                .is_err()
+        );
+        std::fs::write(&path, "domain $Seq[E] {}\n").unwrap();
+        let custom =
+            analyze_collections_with_sources(&with_seq, &converter, &factory, false, &sources)
+                .unwrap();
+        let bundled = analyze_collections(&with_seq, &converter, &factory, false).unwrap();
+        assert!(custom.sequences.contributor.axioms.is_empty());
+        assert!(!bundled.sequences.contributor.axioms.is_empty());
+        let saved_time = std::fs::metadata(&path).unwrap().modified().unwrap();
+        std::fs::write(&path, "invalid source").unwrap();
+        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_times(std::fs::FileTimes::new().set_modified(saved_time))
+            .unwrap();
+        assert!(
+            analyze_collections_with_sources(&with_seq, &converter, &factory, false, &sources)
+                .is_ok()
+        );
+        file.set_times(
+            std::fs::FileTimes::new().set_modified(saved_time + std::time::Duration::from_secs(2)),
+        )
+        .unwrap();
+        assert!(
+            analyze_collections_with_sources(&with_seq, &converter, &factory, false, &sources)
+                .is_err()
+        );
+        std::fs::remove_file(path).unwrap();
+    }
     #[test]
     fn non_integer_sequences_do_not_emit_range_symbols() {
         let meta = Metadata::default();

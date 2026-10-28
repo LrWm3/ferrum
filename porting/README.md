@@ -89,6 +89,14 @@ consistency; debugger-specific replay remains unsupported.
 Ten positive/negative field, predicate and wand cases pass through both transports.
 Three pinned template-name defects are corrected during instantiation, as recorded
 in [differences.md](differences.md).
+Custom Seq/Set/Multiset/Map axiomatization files now replace their bundled sources
+only when the corresponding collection is used. Relative and standard imports,
+source analysis and successful-program caching are connected. The cache follows
+the pinned source's root-path/modification-time policy: changing only an imported
+file does not invalidate its root entry. Used malformed sources fail explicitly;
+unused ones are not loaded. Full/stripped axioms, generic domains and quantified
+resource dependencies are checked on both transports; selected full/stripped
+outcomes also match the pinned Scala reference.
 
 Native failures now capture available solver models in all five source views,
 restore caller stores on method/function precondition failures and render failure

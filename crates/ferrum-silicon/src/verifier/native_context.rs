@@ -68,6 +68,10 @@ pub struct NativeOptions {
     pub after_unfold_timeout: Option<i32>,
     pub before_repetition_timeout: Option<i32>,
     pub enable_simplified_unfolds: bool,
+    pub set_axiomatization_file: Option<std::path::PathBuf>,
+    pub multiset_axiomatization_file: Option<std::path::PathBuf>,
+    pub sequence_axiomatization_file: Option<std::path::PathBuf>,
+    pub map_axiomatization_file: Option<std::path::PathBuf>,
     pub recursive_predicate_unfoldings: i32,
     pub disable_havoc_hack_407: bool,
     pub after_inhale_timeout: Option<i32>,
@@ -94,6 +98,16 @@ pub struct NativeOptions {
     seed_commands: Arc<std::sync::Mutex<Option<(Vec<String>, Vec<String>)>>>,
 }
 impl NativeOptions {
+    fn collection_axiomatization_sources(
+        &self,
+    ) -> crate::verifier::native_preamble::CollectionAxiomatizationSources {
+        crate::verifier::native_preamble::CollectionAxiomatizationSources {
+            sequences: self.sequence_axiomatization_file.clone(),
+            sets: self.set_axiomatization_file.clone(),
+            multisets: self.multiset_axiomatization_file.clone(),
+            maps: self.map_axiomatization_file.clone(),
+        }
+    }
     /// Begin a fresh solver run after all contexts from the previous run have stopped.
     /// The coordinating owner calls this once before resetting shared worker contexts.
     pub fn reset_seed_epoch(&self) {
@@ -120,10 +134,6 @@ impl NativeOptions {
             || config.log_config.is_some()
             || config.log_level.is_some()
             || !config.logger.is_empty()
-            || config.set_axiomatization_file.is_some()
-            || config.multiset_axiomatization_file.is_some()
-            || config.sequence_axiomatization_file.is_some()
-            || config.map_axiomatization_file.is_some()
             || config.simplify_on_consume
             || config.report_state_after.is_some()
         {
@@ -164,6 +174,16 @@ impl NativeOptions {
             after_unfold_timeout: unfold.map(|x| x.timeout_ms),
             before_repetition_timeout: repetition.map(|x| x.timeout_ms),
             enable_simplified_unfolds: config.enable_simplified_unfolds,
+            set_axiomatization_file: config.set_axiomatization_file.as_ref().map(Into::into),
+            multiset_axiomatization_file: config
+                .multiset_axiomatization_file
+                .as_ref()
+                .map(Into::into),
+            sequence_axiomatization_file: config
+                .sequence_axiomatization_file
+                .as_ref()
+                .map(Into::into),
+            map_axiomatization_file: config.map_axiomatization_file.as_ref().map(Into::into),
             recursive_predicate_unfoldings: config.recursive_predicate_unfoldings,
             disable_havoc_hack_407: config.disable_havoc_hack407,
             after_inhale_timeout: inhale.map(|x| x.timeout_ms),
@@ -7415,22 +7435,34 @@ where
                 "collections combined with user domains",
             ));
         }
-        if !general && (has_sequence || has_set || has_map || has_multiset || has_quantified) {
-            crate::verifier::native_preamble::analyze_collections(
+        // Custom sources are loaded only during contributor analysis, avoiding a
+        // second read between preflight and the emitted solver preamble.
+        let custom_sources = self.options.collection_axiomatization_sources();
+        let uses_custom = custom_sources.sequences.is_some()
+            || custom_sources.sets.is_some()
+            || custom_sources.multisets.is_some()
+            || custom_sources.maps.is_some();
+        if !uses_custom
+            && !general
+            && (has_sequence || has_set || has_map || has_multiset || has_quantified)
+        {
+            crate::verifier::native_preamble::analyze_collections_with_sources(
                 program,
                 &self.base.symbol_converter,
                 &self.factory,
                 self.factory.options().use_old_axiomatization,
+                &self.options.collection_axiomatization_sources(),
             )
             .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
         }
-        if general {
-            crate::verifier::native_preamble::analyze_general(
+        if !uses_custom && general {
+            crate::verifier::native_preamble::analyze_general_with_sources(
                 program,
                 &self.base.symbol_converter,
                 &self.factory,
                 self.factory.options().use_old_axiomatization,
                 1,
+                &self.options.collection_axiomatization_sources(),
             )
             .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
         }
@@ -7495,12 +7527,13 @@ where
             .map_err(NativeError::Preamble)?;
         let mut contributed_sorts = Vec::new();
         if general {
-            let preamble = crate::verifier::native_preamble::analyze_general(
+            let preamble = crate::verifier::native_preamble::analyze_general_with_sources(
                 program,
                 &self.base.symbol_converter,
                 &self.factory,
                 self.factory.options().use_old_axiomatization,
                 1,
+                &self.options.collection_axiomatization_sources(),
             )
             .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
             preamble
@@ -7522,11 +7555,12 @@ where
             let collections =
                 if has_sequence || has_set || has_map || has_multiset || has_quantified {
                     Some(
-                        crate::verifier::native_preamble::analyze_collections(
+                        crate::verifier::native_preamble::analyze_collections_with_sources(
                             program,
                             &self.base.symbol_converter,
                             &self.factory,
                             self.factory.options().use_old_axiomatization,
+                            &self.options.collection_axiomatization_sources(),
                         )
                         .map_err(|e| NativeError::Preamble(format!("{e:?}")))?,
                     )

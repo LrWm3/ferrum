@@ -2578,7 +2578,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_preamble.rs"
 status = "skeleton"
-remaining = ["General user-domain/collection assembly and source interpreted backend types provide required snapshot wrappers without redeclaring SMT sorts. Unsupported extension and heap-function domain axioms remain explicit errors; full extension substitution compatibility remains to be checked."]
+remaining = ["Source ground closure, bundled/custom collection sources, relative/standard imports and root-path/mtime successful-program caching connect native contributors. Unsupported AST/type/precondition products and broader source compatibility remain incomplete."]
 
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/decider/native_z3.rs"
