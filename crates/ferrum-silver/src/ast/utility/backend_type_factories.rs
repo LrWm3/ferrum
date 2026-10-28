@@ -75,10 +75,7 @@ impl BVFactory {
         )
     }
     pub fn typ(&self) -> Type {
-        Type::Backend(BackendType {
-            viper_name: self.name(),
-            interpretations: self.interpretations(),
-        })
+        Type::Backend(BackendType::new(self.name(), self.interpretations()))
     }
     pub fn construct_domain(&self, functions: Vec<DomainFunc>) -> Domain {
         domain(self.name(), self.interpretations(), functions)
@@ -157,10 +154,7 @@ impl FloatFactory {
         )
     }
     pub fn typ(&self) -> Type {
-        Type::Backend(BackendType {
-            viper_name: self.name(),
-            interpretations: self.interpretations(),
-        })
+        Type::Backend(BackendType::new(self.name(), self.interpretations()))
     }
     pub fn construct_domain(&self, functions: Vec<DomainFunc>) -> Domain {
         domain(self.name(), self.interpretations(), functions)

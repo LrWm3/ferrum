@@ -102,17 +102,17 @@ pub fn translate_type(typ: &PTypeHandle) -> Result<Type, TranslationError> {
             _ => return Err(TranslationError::InvalidType),
         },
         PTypeKind::Seq { element_type, .. } => {
-            Type::Seq(Box::new(translate_type(element_type.inner())?))
+            Type::Seq(std::sync::Arc::new(translate_type(element_type.inner())?))
         }
         PTypeKind::Set { element_type, .. } => {
-            Type::Set(Box::new(translate_type(element_type.inner())?))
+            Type::Set(std::sync::Arc::new(translate_type(element_type.inner())?))
         }
         PTypeKind::Multiset { element_type, .. } => {
-            Type::Multiset(Box::new(translate_type(element_type.inner())?))
+            Type::Multiset(std::sync::Arc::new(translate_type(element_type.inner())?))
         }
-        PTypeKind::Map { types, .. } => Type::Map(
-            Box::new(translate_type(types.inner().first())?),
-            Box::new(translate_type(types.inner().second())?),
+        PTypeKind::Map { types, .. } => Type::map(
+            translate_type(types.inner().first())?,
+            translate_type(types.inner().second())?,
         ),
         PTypeKind::BoolImpure | PTypeKind::BoolPredicate => Type::Bool,
         PTypeKind::BoolWand => Type::Wand,
@@ -374,7 +374,7 @@ fn translate_expression_with_fields(
                 PBinaryOp::Keyword(PKwOp::In) => {
                     match r.typ().map_err(|_| TranslationError::InvalidType)? {
                         Type::Seq(_) => ExpKind::SeqContains(l, r),
-                        Type::Map(_, _) => ExpKind::MapContains(l, r),
+                        Type::Map(_) => ExpKind::MapContains(l, r),
                         Type::Set(_) | Type::Multiset(_) => ExpKind::AnySetContains(l, r),
                         _ => return Err(TranslationError::InvalidType),
                     }
@@ -439,7 +439,7 @@ fn translate_expression_with_fields(
             let index = translate_expression_with_fields(&index, fields)?;
             match translate_type(&parse_type)? {
                 Type::Seq(_) => ExpKind::SeqIndex(base, index),
-                Type::Map(_, _) => ExpKind::MapLookup(base, index),
+                Type::Map(_) => ExpKind::MapLookup(base, index),
                 _ => return Err(TranslationError::InvalidType),
             }
         }
@@ -455,7 +455,7 @@ fn translate_expression_with_fields(
             let value = translate_expression_with_fields(&value, fields)?;
             match translate_type(&parse_type)? {
                 Type::Seq(_) => ExpKind::SeqUpdate(base, key, value),
-                Type::Map(_, _) => ExpKind::MapUpdate(base, key, value),
+                Type::Map(_) => ExpKind::MapUpdate(base, key, value),
                 _ => return Err(TranslationError::InvalidType),
             }
         }
@@ -467,7 +467,7 @@ fn translate_expression_with_fields(
             let base = translate_expression_with_fields(&seq, fields)?;
             match translate_type(&parse_type)? {
                 Type::Seq(_) => ExpKind::SeqLength(base),
-                Type::Map(_, _) => ExpKind::MapCardinality(base),
+                Type::Map(_) => ExpKind::MapCardinality(base),
                 Type::Set(_) | Type::Multiset(_) => ExpKind::AnySetCardinality(base),
                 _ => return Err(TranslationError::InvalidType),
             }
@@ -504,10 +504,7 @@ mod tests {
         let typ = parse_type("Map[Int, Seq[Bool]]", "test.vpr").unwrap().typ;
         assert_eq!(
             translate_type(&typ).unwrap(),
-            Type::Map(
-                Box::new(Type::Int),
-                Box::new(Type::Seq(Box::new(Type::Bool)))
-            )
+            Type::map(Type::Int, Type::Seq(std::sync::Arc::new(Type::Bool)))
         );
         let parsed = parse_expression("1 + 2 * 3", "test.vpr")
             .unwrap()

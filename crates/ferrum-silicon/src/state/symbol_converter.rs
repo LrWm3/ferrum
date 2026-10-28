@@ -63,7 +63,11 @@ impl DefaultSymbolConverter {
             Type::Seq(t) => format!("Seq[{}]", Self::type_name(t)?),
             Type::Set(t) => format!("Set[{}]", Self::type_name(t)?),
             Type::Multiset(t) => format!("Multiset[{}]", Self::type_name(t)?),
-            Type::Map(k, v) => format!("Map[{},{}]", Self::type_name(k)?, Self::type_name(v)?),
+            Type::Map(pair) => format!(
+                "Map[{},{}]",
+                Self::type_name(&pair.0)?,
+                Self::type_name(&pair.1)?
+            ),
             Type::Domain(d) => {
                 let args = d
                     .type_arguments()
@@ -91,7 +95,10 @@ impl DefaultSymbolConverter {
             Type::Seq(t) => Sort::Seq(Box::new(self.to_sort(t)?)),
             Type::Set(t) => Sort::Set(Box::new(self.to_sort(t)?)),
             Type::Multiset(t) => Sort::Multiset(Box::new(self.to_sort(t)?)),
-            Type::Map(k, v) => Sort::Map(Box::new(self.to_sort(k)?), Box::new(self.to_sort(v)?)),
+            Type::Map(pair) => Sort::Map(
+                Box::new(self.to_sort(&pair.0)?),
+                Box::new(self.to_sort(&pair.1)?),
+            ),
             Type::Domain(_) if !typ.is_concrete() => {
                 return Err(SymbolConversionError::NonConcreteDomain);
             }
@@ -271,12 +278,12 @@ mod tests {
             mask_heap_mode: false,
         });
         let converter = DefaultSymbolConverter::new(factory, false);
-        let backend = Type::Backend(ferrum_silver::ast::r#type::BackendType {
-            viper_name: "T".into(),
-            interpretations: [("SMTLIB".into(), "(_ BitVec 8)".into())]
+        let backend = Type::Backend(ferrum_silver::ast::r#type::BackendType::new(
+            "T".into(),
+            [("SMTLIB".into(), "(_ BitVec 8)".into())]
                 .into_iter()
                 .collect(),
-        });
+        ));
         assert_eq!(
             converter.to_sort(&backend).unwrap(),
             Sort::SmtSort(Identifier::new("(_ BitVec 8)"))

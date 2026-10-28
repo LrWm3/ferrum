@@ -150,7 +150,7 @@ pub fn show_type(t: &Type) -> Result<String, PrintError> {
         Type::Seq(x) => format!("Seq[{}]", show_type(x)?),
         Type::Set(x) => format!("Set[{}]", show_type(x)?),
         Type::Multiset(x) => format!("Multiset[{}]", show_type(x)?),
-        Type::Map(k, v) => format!("Map[{},{}]", show_type(k)?, show_type(v)?),
+        Type::Map(pair) => format!("Map[{},{}]", show_type(&pair.0)?, show_type(&pair.1)?),
         Type::Var(v) => v.name.clone(),
         Type::Domain(d) => {
             let args = d

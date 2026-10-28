@@ -119,6 +119,7 @@ impl Node {
             (PredicateAccess(a), PredicateAccess(b)) => Some(a.same_node(b)),
             (PredicateAccessPredicate(a), PredicateAccessPredicate(b)) => Some(a.same_node(b)),
             (Trigger(a), Trigger(b)) => Some(a.same_node(b)),
+            (Type(a), Type(b)) => Some(a.same_node(b)),
             (Exp(e), FieldAccess(a)) | (FieldAccess(a), Exp(e)) => {
                 Some(matches!(e.kind(), ExpKind::FieldAccess(b) if a.same_node(b)))
             }

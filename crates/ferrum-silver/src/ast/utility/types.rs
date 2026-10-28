@@ -25,8 +25,8 @@ pub fn type_variables(typ: &Type) -> HashSet<TypeVar> {
             .flat_map(type_variables)
             .collect(),
         Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => type_variables(t),
-        Type::Map(k, v) => type_variables(k)
-            .union(&type_variables(v))
+        Type::Map(pair) => type_variables(&pair.0)
+            .union(&type_variables(&pair.1))
             .cloned()
             .collect(),
         Type::Int
@@ -74,10 +74,10 @@ pub fn type_constituents(typ: &Type) -> Result<Vec<Type>, UnsupportedExtensionCo
         Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => std::iter::once((**t).clone())
             .chain(type_constituents(t)?)
             .collect(),
-        Type::Map(k, v) => [(*k.clone()), (*v.clone())]
+        Type::Map(pair) => [pair.0.clone(), pair.1.clone()]
             .into_iter()
-            .chain(type_constituents(k)?)
-            .chain(type_constituents(v)?)
+            .chain(type_constituents(&pair.0)?)
+            .chain(type_constituents(&pair.1)?)
             .collect(),
         Type::Int
         | Type::Bool

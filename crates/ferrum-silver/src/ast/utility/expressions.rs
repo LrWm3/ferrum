@@ -303,7 +303,11 @@ fn wand_type_name(t: &crate::ast::r#type::Type) -> Result<String, MagicWandError
         Type::Seq(t) => format!("Seq[{}]", wand_type_name(t)?),
         Type::Set(t) => format!("Set[{}]", wand_type_name(t)?),
         Type::Multiset(t) => format!("Multiset[{}]", wand_type_name(t)?),
-        Type::Map(k, v) => format!("Map[{},{}]", wand_type_name(k)?, wand_type_name(v)?),
+        Type::Map(pair) => format!(
+            "Map[{},{}]",
+            wand_type_name(&pair.0)?,
+            wand_type_name(&pair.1)?
+        ),
         Type::Var(v) => v.name.clone(),
         Type::Backend(b) => b.viper_name.clone(),
         Type::Domain(d) => {

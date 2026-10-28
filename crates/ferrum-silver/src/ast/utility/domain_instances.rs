@@ -72,8 +72,8 @@ pub fn get_ftv_depths(t: &Type) -> Result<HashMap<TypeVar, i32>, DomainInstanceE
                 result.insert(var, depth.wrapping_add(1));
             }
         }
-        Type::Map(k, v) => {
-            for child in [k.as_ref(), v.as_ref()] {
+        Type::Map(pair) => {
+            for child in [&pair.0, &pair.1] {
                 for (var, depth) in get_ftv_depths(child)? {
                     let depth = depth.wrapping_add(1);
                     result
@@ -94,9 +94,7 @@ pub fn down1_types(t: &Type) -> Result<HashSet<Type>, DomainInstanceError> {
         Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => {
             [t.as_ref().clone()].into_iter().collect()
         }
-        Type::Map(k, v) => [k.as_ref().clone(), v.as_ref().clone()]
-            .into_iter()
-            .collect(),
+        Type::Map(pair) => [pair.0.clone(), pair.1.clone()].into_iter().collect(),
         _ => HashSet::new(),
     })
 }
@@ -129,9 +127,9 @@ pub fn get_tvs(t: &Type) -> Result<HashSet<TypeVar>, DomainInstanceError> {
             result
         }
         Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => get_tvs(t)?,
-        Type::Map(k, v) => {
-            let mut result = get_tvs(k)?;
-            result.extend(get_tvs(v)?);
+        Type::Map(pair) => {
+            let mut result = get_tvs(&pair.0)?;
+            result.extend(get_tvs(&pair.1)?);
             result
         }
         Type::Extension(_) => return Err(DomainInstanceError::ExtensionType),
@@ -201,7 +199,7 @@ mod tests {
     #[test]
     fn ground_closure_keeps_nonground_descendants_as_upstream() {
         let variable = Type::Var(TypeVar::new("T"));
-        let seq = Type::Seq(Box::new(variable.clone()));
+        let seq = Type::Seq(std::sync::Arc::new(variable.clone()));
         let closure = down_closure_ground(&seq).unwrap();
         assert!(!closure.contains(&seq));
         assert!(closure.contains(&variable));

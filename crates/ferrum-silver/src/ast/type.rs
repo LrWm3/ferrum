@@ -17,12 +17,23 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct TypeVar {
+pub struct TypeVar(Arc<TypeVarData>);
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct TypeVarData {
     pub name: String,
+}
+impl std::ops::Deref for TypeVar {
+    type Target = TypeVarData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 impl TypeVar {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into() }
+        Self(Arc::new(TypeVarData { name: name.into() }))
+    }
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
     }
 }
 pub type TypeSubstitution = HashMap<TypeVar, Type>;
@@ -55,10 +66,18 @@ pub enum UnsupportedExtensionOperation {
 /// The second Scala constructor parameter list (`type_parameters`) is not part
 /// of case-class equality. The first-list partial map, including extra keys, is.
 #[derive(Clone, Debug)]
-pub struct DomainType {
+pub struct DomainTypeData {
     pub domain_name: String,
     pub partial_type_vars: TypeSubstitution,
     pub type_parameters: Vec<TypeVar>,
+}
+#[derive(Clone, Debug)]
+pub struct DomainType(Arc<DomainTypeData>);
+impl std::ops::Deref for DomainType {
+    type Target = DomainTypeData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 impl PartialEq for DomainType {
     fn eq(&self, other: &Self) -> bool {
@@ -84,11 +103,14 @@ impl DomainType {
         partial_type_vars: TypeSubstitution,
         type_parameters: Vec<TypeVar>,
     ) -> Self {
-        Self {
+        Self(Arc::new(DomainTypeData {
             domain_name: domain_name.into(),
             partial_type_vars,
             type_parameters,
-        }
+        }))
+    }
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
     }
     /// Complete the mapping for declared parameters, ignoring extra partial-map keys.
     pub fn type_vars_map(&self) -> TypeSubstitution {
@@ -128,9 +150,28 @@ impl DomainType {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BackendType {
+pub struct BackendType(Arc<BackendTypeData>);
+#[derive(Debug, PartialEq, Eq)]
+pub struct BackendTypeData {
     pub viper_name: String,
     pub interpretations: HashMap<String, String>,
+}
+impl std::ops::Deref for BackendType {
+    type Target = BackendTypeData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl BackendType {
+    pub fn new(viper_name: String, interpretations: HashMap<String, String>) -> Self {
+        Self(Arc::new(BackendTypeData {
+            viper_name,
+            interpretations,
+        }))
+    }
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 /// The built-in, generic, backend and plugin type families from Type.scala.
@@ -142,10 +183,10 @@ pub enum Type {
     Ref,
     InternalType,
     Wand,
-    Seq(Box<Type>),
-    Set(Box<Type>),
-    Multiset(Box<Type>),
-    Map(Box<Type>, Box<Type>),
+    Seq(Arc<Type>),
+    Set(Arc<Type>),
+    Multiset(Arc<Type>),
+    Map(Arc<(Type, Type)>),
     Domain(DomainType),
     Var(TypeVar),
     Backend(BackendType),
@@ -163,7 +204,7 @@ impl PartialEq for Type {
             (Self::Seq(a), Self::Seq(b))
             | (Self::Set(a), Self::Set(b))
             | (Self::Multiset(a), Self::Multiset(b)) => a == b,
-            (Self::Map(ak, av), Self::Map(bk, bv)) => ak == bk && av == bv,
+            (Self::Map(a), Self::Map(b)) => a == b,
             (Self::Domain(a), Self::Domain(b)) => a == b,
             (Self::Var(a), Self::Var(b)) => a == b,
             (Self::Backend(a), Self::Backend(b)) => a == b,
@@ -178,9 +219,9 @@ impl Hash for Type {
         std::mem::discriminant(self).hash(state);
         match self {
             Self::Seq(t) | Self::Set(t) | Self::Multiset(t) => t.hash(state),
-            Self::Map(k, v) => {
-                k.hash(state);
-                v.hash(state);
+            Self::Map(pair) => {
+                pair.0.hash(state);
+                pair.1.hash(state);
             }
             Self::Domain(d) => d.hash(state),
             Self::Var(v) => v.hash(state),
@@ -200,18 +241,40 @@ impl Hash for Type {
     }
 }
 impl Type {
+    pub fn map(key: Type, value: Type) -> Self {
+        Self::Map(Arc::new((key, value)))
+    }
+    pub fn same_node(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Seq(a), Self::Seq(b))
+            | (Self::Set(a), Self::Set(b))
+            | (Self::Multiset(a), Self::Multiset(b)) => Arc::ptr_eq(a, b),
+            (Self::Map(a), Self::Map(b)) => Arc::ptr_eq(a, b),
+            (Self::Var(a), Self::Var(b)) => a.same_node(b),
+            (Self::Domain(a), Self::Domain(b)) => a.same_node(b),
+            (Self::Backend(a), Self::Backend(b)) => a.same_node(b),
+            (Self::Extension(a), Self::Extension(b)) => Arc::ptr_eq(a, b),
+            (Self::Int, Self::Int)
+            | (Self::Bool, Self::Bool)
+            | (Self::Perm, Self::Perm)
+            | (Self::Ref, Self::Ref)
+            | (Self::InternalType, Self::InternalType)
+            | (Self::Wand, Self::Wand) => true,
+            _ => false,
+        }
+    }
     pub fn substitute(&self, substitutions: &TypeSubstitution) -> Self {
         match self {
             Self::Var(v) => substitutions
                 .get(v)
                 .cloned()
                 .unwrap_or_else(|| self.clone()),
-            Self::Seq(t) => Self::Seq(Box::new(t.substitute(substitutions))),
-            Self::Set(t) => Self::Set(Box::new(t.substitute(substitutions))),
-            Self::Multiset(t) => Self::Multiset(Box::new(t.substitute(substitutions))),
-            Self::Map(k, v) => Self::Map(
-                Box::new(k.substitute(substitutions)),
-                Box::new(v.substitute(substitutions)),
+            Self::Seq(t) => Self::Seq(Arc::new(t.substitute(substitutions))),
+            Self::Set(t) => Self::Set(Arc::new(t.substitute(substitutions))),
+            Self::Multiset(t) => Self::Multiset(Arc::new(t.substitute(substitutions))),
+            Self::Map(pair) => Self::map(
+                pair.0.substitute(substitutions),
+                pair.1.substitute(substitutions),
             ),
             Self::Domain(d) => Self::Domain(d.substitute(substitutions)),
             Self::Extension(t) => Self::Extension(t.substitute(substitutions)),
@@ -235,7 +298,7 @@ impl Type {
         match self {
             Self::Var(_) => false,
             Self::Seq(t) | Self::Set(t) | Self::Multiset(t) => t.is_concrete(),
-            Self::Map(k, v) => k.is_concrete() && v.is_concrete(),
+            Self::Map(pair) => pair.0.is_concrete() && pair.1.is_concrete(),
             Self::Domain(d) => d.type_vars_map().values().all(Self::is_concrete),
             Self::Extension(t) => t.is_concrete(),
             _ => true,
@@ -252,9 +315,10 @@ impl Type {
                 .flat_map(Self::type_variables)
                 .collect(),
             Self::Seq(t) | Self::Set(t) | Self::Multiset(t) => t.type_variables(),
-            Self::Map(k, v) => k
+            Self::Map(pair) => pair
+                .0
                 .type_variables()
-                .union(&v.type_variables())
+                .union(&pair.1.type_variables())
                 .cloned()
                 .collect(),
             _ => HashSet::new(),
@@ -265,7 +329,7 @@ impl Type {
             Self::Seq(_) => Some("Seq"),
             Self::Set(_) => Some("Set"),
             Self::Multiset(_) => Some("MultiSet"),
-            Self::Map(_, _) => Some("Map"),
+            Self::Map(_) => Some("Map"),
             Self::Domain(d) => Some(&d.domain_name),
             _ => None,
         }
@@ -273,7 +337,7 @@ impl Type {
     pub fn type_parameters(&self) -> Option<Vec<TypeVar>> {
         match self {
             Self::Seq(_) | Self::Set(_) | Self::Multiset(_) => Some(vec![TypeVar::new("X")]),
-            Self::Map(_, _) => Some(vec![TypeVar::new("K"), TypeVar::new("E")]),
+            Self::Map(_) => Some(vec![TypeVar::new("K"), TypeVar::new("E")]),
             Self::Domain(d) => Some(d.type_parameters.clone()),
             _ => None,
         }
@@ -281,9 +345,27 @@ impl Type {
     pub fn type_arguments(&self) -> Option<Vec<Type>> {
         match self {
             Self::Seq(t) | Self::Set(t) | Self::Multiset(t) => Some(vec![(**t).clone()]),
-            Self::Map(k, v) => Some(vec![(**k).clone(), (**v).clone()]),
+            Self::Map(pair) => Some(vec![pair.0.clone(), pair.1.clone()]),
             Self::Domain(d) => Some(d.type_arguments()),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+    #[test]
+    fn compounds_have_source_identity_separate_from_structural_equality() {
+        let a = Type::map(Type::Int, Type::Bool);
+        let b = Type::map(Type::Int, Type::Bool);
+        assert_eq!(a, b);
+        assert!(!a.same_node(&b));
+        assert!(a.same_node(&a.clone()));
+        let x = TypeVar::new("T");
+        let y = TypeVar::new("T");
+        assert_eq!(x, y);
+        assert!(!x.same_node(&y));
+        assert!(Type::Int.same_node(&Type::Int));
     }
 }

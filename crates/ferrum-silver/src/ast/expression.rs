@@ -444,13 +444,13 @@ impl Exp {
             | Asserting(_, t)
             | Let(_, _, t) => t.typ()?,
             Old(e) | LabelledOld(e, _) | DebugLabelledOld(e, _) => e.typ()?,
-            EmptySeq(t) => Type::Seq(Box::new(t.clone())),
-            ExplicitSeq(es) => Type::Seq(Box::new(
+            EmptySeq(t) => Type::Seq(Arc::new(t.clone())),
+            ExplicitSeq(es) => Type::Seq(Arc::new(
                 es.first()
                     .ok_or(ExpressionTypeError::EmptyCollection)?
                     .typ()?,
             )),
-            RangeSeq(..) => Type::Seq(Box::new(Type::Int)),
+            RangeSeq(..) => Type::Seq(Arc::new(Type::Int)),
             SeqAppend(e, _)
             | SeqTake(e, _)
             | SeqDrop(e, _)
@@ -460,17 +460,17 @@ impl Exp {
             | AnySetMinus(e, _)
             | MapUpdate(e, _, _) => e.typ()?,
             SeqIndex(e, _) => match e.typ()? {
-                Type::Seq(t) => *t,
+                Type::Seq(t) => (*t).clone(),
                 _ => return Err(ExpressionTypeError::ExpectedSequence),
             },
-            EmptySet(t) => Type::Set(Box::new(t.clone())),
-            ExplicitSet(es) => Type::Set(Box::new(
+            EmptySet(t) => Type::Set(Arc::new(t.clone())),
+            ExplicitSet(es) => Type::Set(Arc::new(
                 es.first()
                     .ok_or(ExpressionTypeError::EmptyCollection)?
                     .typ()?,
             )),
-            EmptyMultiset(t) => Type::Multiset(Box::new(t.clone())),
-            ExplicitMultiset(es) => Type::Multiset(Box::new(
+            EmptyMultiset(t) => Type::Multiset(Arc::new(t.clone())),
+            ExplicitMultiset(es) => Type::Multiset(Arc::new(
                 es.first()
                     .ok_or(ExpressionTypeError::EmptyCollection)?
                     .typ()?,
@@ -482,7 +482,7 @@ impl Exp {
                     Type::Int
                 }
             }
-            EmptyMap(k, v) => Type::Map(Box::new(k.clone()), Box::new(v.clone())),
+            EmptyMap(k, v) => Type::map(k.clone(), v.clone()),
             ExplicitMap(es) => {
                 let pair = es
                     .iter()
@@ -491,19 +491,19 @@ impl Exp {
                         _ => None,
                     })
                     .ok_or(ExpressionTypeError::EmptyCollection)?;
-                Type::Map(Box::new(pair.0.typ()?), Box::new(pair.1.typ()?))
+                Type::map(pair.0.typ()?, pair.1.typ()?)
             }
-            Maplet(k, v) => Type::Map(Box::new(k.typ()?), Box::new(v.typ()?)),
+            Maplet(k, v) => Type::map(k.typ()?, v.typ()?),
             MapLookup(e, _) => match e.typ()? {
-                Type::Map(_, v) => *v,
+                Type::Map(pair) => pair.1.clone(),
                 _ => return Err(ExpressionTypeError::ExpectedMap),
             },
             MapDomain(e) => match e.typ()? {
-                Type::Map(k, _) => Type::Set(k),
+                Type::Map(pair) => Type::Set(Arc::new(pair.0.clone())),
                 _ => return Err(ExpressionTypeError::ExpectedMap),
             },
             MapRange(e) => match e.typ()? {
-                Type::Map(_, v) => Type::Set(v),
+                Type::Map(pair) => Type::Set(Arc::new(pair.1.clone())),
                 _ => return Err(ExpressionTypeError::ExpectedMap),
             },
             Extension(e) => e.0.typ(),
