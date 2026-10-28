@@ -38,6 +38,7 @@
 use crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet;
 use crate::interfaces::decider::prover::{ProverLike, ProverStateSaturationTimeout, TextEmitter};
 use crate::state::terms::{Declaration, Term};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub enum BroadcastError<E> {
@@ -291,6 +292,18 @@ pub trait ThreadBoundWorker: 'static {
     fn broadcast(&mut self, command: Self::Broadcast)
     -> Result<Self::BroadcastResult, Self::Error>;
     fn verify(&mut self, task: Self::Task) -> Result<Self::Output, Self::Error>;
+    /// Run a task on this worker's owner thread. Implementations that submit
+    /// nested work may use the handle to wait cooperatively on the same worker.
+    fn verify_cooperative(
+        &mut self,
+        task: Self::Task,
+        _queue: &WorkerQueueHandle<Self>,
+    ) -> Result<Self::Output, Self::Error>
+    where
+        Self: Sized,
+    {
+        self.verify(task)
+    }
     fn reset(&mut self) -> Result<(), Self::Error>;
     fn stop(&mut self) -> Result<(), Self::Error>;
 }
@@ -298,6 +311,7 @@ pub trait ThreadBoundWorker: 'static {
 #[derive(Debug)]
 pub enum ThreadPoolError<E> {
     NoWorkers,
+    WrongWorkerThread,
     InvalidStackSize,
     Busy,
     Cancelled,
@@ -342,6 +356,7 @@ enum ThreadCommand<W: ThreadBoundWorker> {
 }
 struct ThreadWork<W: ThreadBoundWorker> {
     target: Option<usize>,
+    nested_identity: Option<Arc<NestedTaskIdentity>>,
     command: ThreadCommand<W>,
 }
 struct ThreadQueue<W: ThreadBoundWorker> {
@@ -351,6 +366,165 @@ struct ThreadQueue<W: ThreadBoundWorker> {
     cleanup_errors: Vec<ThreadPoolError<W::Error>>,
 }
 type SharedThreadQueue<W> = std::sync::Arc<(std::sync::Mutex<ThreadQueue<W>>, std::sync::Condvar)>;
+
+/// Queue access restricted to an already running worker. The verifier remains
+/// on its original thread; only owned task data crosses worker boundaries.
+pub struct WorkerQueueHandle<W: ThreadBoundWorker> {
+    queue: SharedThreadQueue<W>,
+    owner: std::thread::ThreadId,
+}
+
+/// The caller uses both flags to apply the source brancher's restoration rule,
+/// including when the awaited task failed or was cancelled.
+pub struct CooperativeWait<O, E> {
+    pub result: Result<O, ThreadPoolError<E>>,
+    pub executed_other_task: bool,
+    pub awaited_executed_on_current_worker: bool,
+}
+
+pub struct NestedVerificationTask<O, E> {
+    task: VerificationTask<O, E>,
+    identity: Arc<NestedTaskIdentity>,
+}
+
+#[derive(Default)]
+struct NestedTaskIdentity {
+    executing_thread: std::sync::OnceLock<std::thread::ThreadId>,
+}
+
+impl<W: ThreadBoundWorker> Clone for WorkerQueueHandle<W> {
+    fn clone(&self) -> Self {
+        Self {
+            queue: self.queue.clone(),
+            owner: self.owner,
+        }
+    }
+}
+
+impl<W: ThreadBoundWorker> WorkerQueueHandle<W> {
+    pub fn submit(
+        &self,
+        task: W::Task,
+    ) -> Result<NestedVerificationTask<W::Output, W::Error>, ThreadPoolError<W::Error>> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let identity = Arc::new(NestedTaskIdentity::default());
+        let (lock, ready) = &*self.queue;
+        let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        if guard.stopped {
+            return Err(ThreadPoolError::Stopped);
+        }
+        guard.pending += 1;
+        guard.items.push_back(ThreadWork {
+            target: None,
+            nested_identity: Some(identity.clone()),
+            command: ThreadCommand::Verify(task, tx),
+        });
+        ready.notify_all();
+        Ok(NestedVerificationTask {
+            task: VerificationTask(rx),
+            identity,
+        })
+    }
+
+    /// Wait for a nested task while executing other untargeted verification
+    /// tasks on this same owner thread. The caller must restore its verifier
+    /// state after an intervening task, as required by Brancher.scala.
+    pub fn wait_cooperatively(
+        &self,
+        worker: &mut W,
+        task: NestedVerificationTask<W::Output, W::Error>,
+    ) -> CooperativeWait<W::Output, W::Error> {
+        self.wait_cooperatively_with(task, |nested| worker.verify_cooperative(nested, self))
+    }
+
+    /// Run queued owned tasks through an executor borrowing only the worker state
+    /// it needs. This permits a verifier context to cooperate without borrowing
+    /// its enclosing worker a second time.
+    pub fn wait_cooperatively_with(
+        &self,
+        task: NestedVerificationTask<W::Output, W::Error>,
+        mut execute: impl FnMut(W::Task) -> Result<W::Output, W::Error>,
+    ) -> CooperativeWait<W::Output, W::Error> {
+        use std::sync::mpsc::TryRecvError;
+        if std::thread::current().id() != self.owner {
+            return CooperativeWait {
+                result: Err(ThreadPoolError::WrongWorkerThread),
+                executed_other_task: false,
+                awaited_executed_on_current_worker: false,
+            };
+        }
+        let mut executed_other_task = false;
+        loop {
+            match task.task.0.try_recv() {
+                Ok(result) => {
+                    return CooperativeWait {
+                        result,
+                        executed_other_task,
+                        awaited_executed_on_current_worker: task.identity.executing_thread.get()
+                            == Some(&self.owner),
+                    };
+                }
+                Err(TryRecvError::Disconnected) => {
+                    return CooperativeWait {
+                        result: Err(ThreadPoolError::WorkerDisconnected),
+                        executed_other_task,
+                        awaited_executed_on_current_worker: task.identity.executing_thread.get()
+                            == Some(&self.owner),
+                    };
+                }
+                Err(TryRecvError::Empty) => {}
+            }
+            let (lock, ready) = &*self.queue;
+            let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+            let position = guard.items.iter().position(|work| {
+                work.target.is_none() && matches!(work.command, ThreadCommand::Verify(..))
+            });
+            let Some(position) = position else {
+                // Completion arrives on an independent channel; a bounded wait
+                // closes the notification race between the queue and that channel.
+                let _ = ready
+                    .wait_timeout(guard, std::time::Duration::from_millis(5))
+                    .unwrap_or_else(|e| e.into_inner());
+                continue;
+            };
+            let work = guard
+                .items
+                .remove(position)
+                .expect("queued verification task");
+            drop(guard);
+            if !work
+                .nested_identity
+                .as_ref()
+                .is_some_and(|id| Arc::ptr_eq(id, &task.identity))
+            {
+                executed_other_task = true;
+            }
+            if let Some(identity) = &work.nested_identity {
+                let _ = identity.executing_thread.set(self.owner);
+            }
+            let ThreadCommand::Verify(nested, sender) = work.command else {
+                unreachable!()
+            };
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| execute(nested)));
+            let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+            guard.pending -= 1;
+            ready.notify_all();
+            drop(guard);
+            match result {
+                Ok(value) => {
+                    let _ = sender.send(value.map_err(ThreadPoolError::Worker));
+                }
+                Err(panic) => {
+                    let _ = sender.send(Err(ThreadPoolError::WorkerPanicked));
+                    // The outer owner-thread dispatcher handles panic shutdown,
+                    // queued cancellation and worker cleanup exactly once.
+                    std::panic::resume_unwind(panic);
+                }
+            }
+            ready.notify_all();
+        }
+    }
+}
 
 /// Latched cross-thread cancellation for one verification run. Interrupt callbacks
 /// may only access independently synchronized solver cancellation handles, never
@@ -666,6 +840,9 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
                             }
                             break;
                         };
+                        if let Some(identity) = &work.nested_identity {
+                            let _ = identity.executing_thread.set(std::thread::current().id());
+                        }
                         match work.command {
                             ThreadCommand::Start(tx) => {
                                 let result =
@@ -680,7 +857,13 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
                             ThreadCommand::Verify(task, tx) => {
                                 let result =
                                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                        worker.verify(task)
+                                        worker.verify_cooperative(
+                                            task,
+                                            &WorkerQueueHandle {
+                                                queue: queue.clone(),
+                                                owner: std::thread::current().id(),
+                                            },
+                                        )
                                     }));
                                 let result = match result {
                                     Ok(value) => value.map_err(ThreadPoolError::Worker),
@@ -809,6 +992,7 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
         guard.pending += 1;
         guard.items.push_back(ThreadWork {
             target: None,
+            nested_identity: None,
             command: ThreadCommand::Verify(task, tx),
         });
         ready.notify_all();
@@ -829,6 +1013,7 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
                 ThreadCommand::Verify(_, sender) => cancelled.push(sender),
                 command => kept.push_back(ThreadWork {
                     target: work.target,
+                    nested_identity: work.nested_identity,
                     command,
                 }),
             }
@@ -858,6 +1043,7 @@ impl<W: ThreadBoundWorker> ThreadVerificationPool<W> {
         }
         guard.items.push_back(ThreadWork {
             target: Some(target),
+            nested_identity: None,
             command,
         });
         ready.notify_all();
@@ -1568,10 +1754,55 @@ fn report_member_results(
     reporter.report(message)
 }
 
+pub type NativeBranchState = crate::state::state::State<
+    crate::supporters::predicate_verification_unit::PredicateData,
+    super::native_context::NativeFunctionData,
+    crate::config::JoinMode,
+>;
+pub type NativeBranchEntry = crate::rules::joiner::JoinDataEntry<
+    crate::supporters::predicate_verification_unit::PredicateData,
+    super::native_context::NativeFunctionData,
+    crate::config::JoinMode,
+    (Term, Option<ferrum_silver::ast::expression::Exp>),
+>;
+#[derive(Clone)]
+pub struct NativeEvaluationBranch {
+    pub source_worker_id: String,
+    pub snapshot: crate::rules::brancher::BranchTransferSnapshot,
+    pub state: NativeBranchState,
+    pub initial_state: NativeBranchState,
+    pub mark: crate::decider::path_conditions::Mark,
+    pub condition: Term,
+    pub original: ferrum_silver::ast::expression::Exp,
+    pub rewritten: Option<ferrum_silver::ast::expression::Exp>,
+    pub action: crate::rules::evaluator::EvaluationBranchAction<
+        ferrum_silver::verifier::verification_error::PartialVerificationError,
+    >,
+}
+pub struct NativeEvaluationBranchOutput {
+    pub result: crate::interfaces::verification::VerificationResult<
+        ferrum_silver::verifier::verification_error::VerificationError,
+    >,
+    pub entries: Vec<NativeBranchEntry>,
+    pub declarations: crate::rules::brancher::BranchJoinDeclarations,
+    pub warnings: Vec<String>,
+}
+pub enum NativeWorkerOutput {
+    Member(
+        Vec<
+            crate::interfaces::verification::VerificationResult<
+                ferrum_silver::verifier::verification_error::VerificationError,
+            >,
+        >,
+    ),
+    EvaluationBranch(NativeEvaluationBranchOutput),
+}
+
 /// Source method or standalone CFG task after main analysis.
 pub enum NativeWorkerTarget {
     Method(ferrum_silver::ast::program::Method),
     Cfg(ferrum_silver::cfg::silver::silver_cfg::SilverCfg),
+    EvaluationBranch(Box<NativeEvaluationBranch>),
 }
 pub struct NativeWorkerTask {
     pub analysis: std::sync::Arc<super::native_context::NativeWorkerAnalysis>,
@@ -1646,11 +1877,7 @@ where
     type Broadcast = WorkerPreambleCommand;
     type BroadcastResult = Option<String>;
     type Task = NativeWorkerTask;
-    type Output = Vec<
-        crate::interfaces::verification::VerificationResult<
-            ferrum_silver::verifier::verification_error::VerificationError,
-        >,
-    >;
+    type Output = NativeWorkerOutput;
     fn start(&mut self) -> Result<(), Self::Error> {
         self.context
             .start(self.user_args.as_deref(), &self.config_options)
@@ -1665,67 +1892,7 @@ where
             })
     }
     fn verify(&mut self, task: NativeWorkerTask) -> Result<Self::Output, Self::Error> {
-        let start = std::time::Instant::now();
-        let outcome = match &task.target {
-            NativeWorkerTarget::Method(method) => {
-                self.context.verify_worker_method(&task.analysis, method)
-            }
-            NativeWorkerTarget::Cfg(cfg) => self.context.verify_worker_cfg(&task.analysis, cfg),
-        };
-        let warnings = std::mem::take(&mut self.context.warnings);
-        if !warnings.is_empty() {
-            if let Some(sink) = &task.warning_sink {
-                sink.lock()
-                    .expect("poisoned native warning sink")
-                    .extend(warnings);
-            } else if let Some(reporter) = &task.reporter {
-                use ferrum_silver::{
-                    ast::position::Position,
-                    reporter::message::Message,
-                    verifier::verification_result::{FrontendError, FrontendErrorKind},
-                };
-                reporter
-                    .report(Message::WarningsDuringVerification {
-                        warnings: warnings
-                            .into_iter()
-                            .map(|warning| {
-                                FrontendError::new(
-                                    FrontendErrorKind::VerifierWarning(warning),
-                                    Position::NoPosition,
-                                )
-                            })
-                            .collect(),
-                    })
-                    .map_err(|error| {
-                        super::native_context::NativeError::Diagnostic(format!(
-                            "worker warning reporter: {error:?}"
-                        ))
-                    })?;
-            } else {
-                return Err(super::native_context::NativeError::Unsupported(
-                    "worker warnings require reporter or warning sink",
-                ));
-            }
-        }
-        let results = outcome?;
-        let member = match task.target {
-            NativeWorkerTarget::Method(method) => Some(std::sync::Arc::new(
-                ferrum_silver::ast::program::Member::Method(method),
-            )),
-            NativeWorkerTarget::Cfg(_) => None,
-        };
-        if let Some(reporter) = task.reporter {
-            report_member_results(reporter.as_ref(), member.clone(), start.elapsed(), &results)
-                .map_err(|error| {
-                    super::native_context::NativeError::Diagnostic(format!(
-                        "worker result reporter: {error:?}"
-                    ))
-                })?;
-        }
-        if let Some(member) = member {
-            set_verification_scope(&results, member);
-        }
-        Ok(results)
+        execute_native_worker_task(&mut self.context, task)
     }
     fn reset(&mut self) -> Result<(), Self::Error> {
         self.context.reset()
@@ -1733,6 +1900,89 @@ where
     fn stop(&mut self) -> Result<(), Self::Error> {
         self.context.stop()
     }
+}
+
+/// Dispatch every queued native task using only the worker-owned context.
+/// Cooperative execution uses the same reporting and scope behavior as the
+/// ordinary worker dispatcher.
+fn execute_native_worker_task<S>(
+    context: &mut super::native_context::NativeVerifierContext<
+        S,
+        crate::supporters::predicate_verification_unit::PredicateData,
+        super::native_context::NativeFunctionData,
+    >,
+    task: NativeWorkerTask,
+) -> Result<NativeWorkerOutput, super::native_context::NativeError<S::Error>>
+where
+    S: crate::interfaces::decider::prover::Prover,
+    S::Error: std::fmt::Debug,
+{
+    if let NativeWorkerTarget::EvaluationBranch(branch) = task.target {
+        return context
+            .verify_worker_evaluation_branch(&task.analysis, *branch)
+            .map(NativeWorkerOutput::EvaluationBranch);
+    }
+    let start = std::time::Instant::now();
+    let outcome = match &task.target {
+        NativeWorkerTarget::Method(method) => context.verify_worker_method(&task.analysis, method),
+        NativeWorkerTarget::Cfg(cfg) => context.verify_worker_cfg(&task.analysis, cfg),
+        NativeWorkerTarget::EvaluationBranch(_) => unreachable!(),
+    };
+    let warnings = std::mem::take(&mut context.warnings);
+    if !warnings.is_empty() {
+        if let Some(sink) = &task.warning_sink {
+            sink.lock()
+                .expect("poisoned native warning sink")
+                .extend(warnings);
+        } else if let Some(reporter) = &task.reporter {
+            use ferrum_silver::{
+                ast::position::Position,
+                reporter::message::Message,
+                verifier::verification_result::{FrontendError, FrontendErrorKind},
+            };
+            reporter
+                .report(Message::WarningsDuringVerification {
+                    warnings: warnings
+                        .into_iter()
+                        .map(|warning| {
+                            FrontendError::new(
+                                FrontendErrorKind::VerifierWarning(warning),
+                                Position::NoPosition,
+                            )
+                        })
+                        .collect(),
+                })
+                .map_err(|error| {
+                    super::native_context::NativeError::Diagnostic(format!(
+                        "worker warning reporter: {error:?}"
+                    ))
+                })?;
+        } else {
+            return Err(super::native_context::NativeError::Unsupported(
+                "worker warnings require reporter or warning sink",
+            ));
+        }
+    }
+    let results = outcome?;
+    let member = match task.target {
+        NativeWorkerTarget::Method(method) => Some(std::sync::Arc::new(
+            ferrum_silver::ast::program::Member::Method(method),
+        )),
+        NativeWorkerTarget::Cfg(_) => None,
+        NativeWorkerTarget::EvaluationBranch(_) => unreachable!(),
+    };
+    if let Some(reporter) = task.reporter {
+        report_member_results(reporter.as_ref(), member.clone(), start.elapsed(), &results)
+            .map_err(|error| {
+                super::native_context::NativeError::Diagnostic(format!(
+                    "worker result reporter: {error:?}"
+                ))
+            })?;
+    }
+    if let Some(member) = member {
+        set_verification_scope(&results, member);
+    }
+    Ok(NativeWorkerOutput::Member(results))
 }
 
 #[derive(Debug)]
@@ -1946,7 +2196,14 @@ where
         }
     }
     for outcome in finish_task_batch(tasks, task_error).map_err(NativeParallelError::Worker)? {
-        results.extend(outcome);
+        match outcome {
+            NativeWorkerOutput::Member(member_results) => results.extend(member_results),
+            NativeWorkerOutput::EvaluationBranch(_) => {
+                return Err(NativeParallelError::Unsupported(
+                    "unexpected branch result in member batch",
+                ));
+            }
+        }
     }
     if let Some(reporter) = &reporter {
         reporter
@@ -2450,6 +2707,292 @@ mod thread_pool_tests {
         assert_eq!(starts, [2, 1, 0]);
         assert_eq!(broadcasts, [2, 1, 0, 2, 1, 0]);
         assert_eq!(events.iter().filter(|(_, e)| *e == "stop").count(), 3);
+    }
+
+    #[test]
+    fn branch_transfer_payload_types_are_send() {
+        fn require_send<T: Send>() {}
+        type S = crate::state::state::State<
+            crate::supporters::predicate_verification_unit::PredicateData,
+            super::super::native_context::NativeFunctionData,
+            crate::config::JoinMode,
+        >;
+        require_send::<S>();
+        require_send::<NativeEvaluationBranch>();
+        require_send::<NativeEvaluationBranchOutput>();
+        require_send::<crate::rules::brancher::BranchTransferSnapshot>();
+        require_send::<
+            crate::rules::joiner::JoinDataEntry<
+                crate::supporters::predicate_verification_unit::PredicateData,
+                super::super::native_context::NativeFunctionData,
+                crate::config::JoinMode,
+                (Term, Option<ferrum_silver::ast::expression::Exp>),
+            >,
+        >();
+    }
+
+    #[test]
+    fn nested_wait_executes_on_single_owner_thread_without_deadlock() {
+        struct Nested {
+            owner: std::thread::ThreadId,
+            _not_send: std::rc::Rc<()>,
+            stopped: Arc<std::sync::atomic::AtomicUsize>,
+        }
+        impl ThreadBoundWorker for Nested {
+            type Error = &'static str;
+            type Broadcast = ();
+            type BroadcastResult = ();
+            type Task = usize;
+            type Output = usize;
+            fn start(&mut self) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn broadcast(&mut self, _: ()) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn verify(&mut self, _: usize) -> Result<usize, Self::Error> {
+                Err("missing cooperative context")
+            }
+            fn verify_cooperative(
+                &mut self,
+                depth: usize,
+                queue: &WorkerQueueHandle<Self>,
+            ) -> Result<usize, Self::Error> {
+                assert_eq!(self.owner, std::thread::current().id());
+                if depth == 0 {
+                    return Ok(0);
+                }
+                let task = queue.submit(depth - 1).map_err(|_| "submit")?;
+                let waited = queue
+                    .wait_cooperatively_with(task, |nested| self.verify_cooperative(nested, queue));
+                assert!(waited.awaited_executed_on_current_worker);
+                assert!(!waited.executed_other_task);
+                waited.result.map(|value| value + 1).map_err(|_| "wait")
+            }
+            fn reset(&mut self) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn stop(&mut self) -> Result<(), Self::Error> {
+                self.stopped
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            }
+        }
+        let stopped = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let stopped_worker = stopped.clone();
+        let mut pool = ThreadVerificationPool::start(1, move |_| {
+            Ok(Nested {
+                owner: std::thread::current().id(),
+                _not_send: std::rc::Rc::new(()),
+                stopped: stopped_worker.clone(),
+            })
+        })
+        .unwrap();
+        assert_eq!(pool.submit(8).unwrap().wait().unwrap(), 8);
+        pool.shutdown().unwrap();
+        assert_eq!(stopped.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn cancelled_nested_task_wakes_cooperative_waiter() {
+        struct NestedCancel {
+            queued: std::sync::mpsc::Sender<()>,
+            resume: std::sync::mpsc::Receiver<()>,
+        }
+        impl ThreadBoundWorker for NestedCancel {
+            type Error = &'static str;
+            type Broadcast = ();
+            type BroadcastResult = ();
+            type Task = bool;
+            type Output = bool;
+            fn start(&mut self) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn broadcast(&mut self, _: ()) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn verify(&mut self, task: bool) -> Result<bool, Self::Error> {
+                Ok(task)
+            }
+            fn verify_cooperative(
+                &mut self,
+                task: bool,
+                queue: &WorkerQueueHandle<Self>,
+            ) -> Result<bool, Self::Error> {
+                if !task {
+                    return Ok(false);
+                }
+                let nested = queue.submit(false).map_err(|_| "submit")?;
+                self.queued.send(()).map_err(|_| "notify")?;
+                self.resume.recv().map_err(|_| "resume")?;
+                let waited = queue.wait_cooperatively(self, nested);
+                assert!(matches!(waited.result, Err(ThreadPoolError::Cancelled)));
+                assert!(!waited.executed_other_task);
+                assert!(!waited.awaited_executed_on_current_worker);
+                Ok(true)
+            }
+            fn reset(&mut self) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn stop(&mut self) -> Result<(), Self::Error> {
+                Ok(())
+            }
+        }
+        let (queued_tx, queued_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        let receiver = Arc::new(Mutex::new(Some(resume_rx)));
+        let mut pool = ThreadVerificationPool::start(1, move |_| {
+            Ok(NestedCancel {
+                queued: queued_tx.clone(),
+                resume: receiver.lock().unwrap().take().expect("one worker"),
+            })
+        })
+        .unwrap();
+        let parent = pool.submit(true).unwrap();
+        queued_rx.recv().unwrap();
+        assert_eq!(pool.cancel_pending().unwrap(), 1);
+        resume_tx.send(()).unwrap();
+        assert!(parent.wait().unwrap());
+        pool.shutdown().unwrap();
+    }
+
+    #[test]
+    fn nested_panic_uses_owner_shutdown_path() {
+        struct NestedPanic(Arc<std::sync::atomic::AtomicUsize>);
+        impl ThreadBoundWorker for NestedPanic {
+            type Error = ();
+            type Broadcast = ();
+            type BroadcastResult = ();
+            type Task = bool;
+            type Output = ();
+            fn start(&mut self) -> Result<(), ()> {
+                Ok(())
+            }
+            fn broadcast(&mut self, _: ()) -> Result<(), ()> {
+                Ok(())
+            }
+            fn verify(&mut self, _: bool) -> Result<(), ()> {
+                Ok(())
+            }
+            fn verify_cooperative(
+                &mut self,
+                task: bool,
+                queue: &WorkerQueueHandle<Self>,
+            ) -> Result<(), ()> {
+                if !task {
+                    panic!("nested task failure");
+                }
+                let nested = queue.submit(false).unwrap();
+                let _ = queue.wait_cooperatively(self, nested);
+                Ok(())
+            }
+            fn reset(&mut self) -> Result<(), ()> {
+                Ok(())
+            }
+            fn stop(&mut self) -> Result<(), ()> {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            }
+        }
+        let stopped = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let worker_stopped = stopped.clone();
+        let mut pool =
+            ThreadVerificationPool::start(1, move |_| Ok(NestedPanic(worker_stopped.clone())))
+                .unwrap();
+        assert!(matches!(
+            pool.submit(true).unwrap().wait(),
+            Err(ThreadPoolError::WorkerPanicked)
+        ));
+        assert!(matches!(pool.shutdown(), Err(ThreadPoolError::Stopped)));
+        assert_eq!(stopped.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn cooperative_wait_reports_interruption_and_remote_completion() {
+        #[derive(Clone, Copy)]
+        enum Job {
+            Outer,
+            Awaited,
+            Intervening,
+        }
+        struct NestedRemote(Arc<(Mutex<(bool, bool, bool)>, std::sync::Condvar)>);
+        impl ThreadBoundWorker for NestedRemote {
+            type Error = &'static str;
+            type Broadcast = ();
+            type BroadcastResult = ();
+            type Task = Job;
+            type Output = ();
+            fn start(&mut self) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn broadcast(&mut self, _: ()) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn verify(&mut self, _: Job) -> Result<(), Self::Error> {
+                Err("missing queue")
+            }
+            fn verify_cooperative(
+                &mut self,
+                job: Job,
+                queue: &WorkerQueueHandle<Self>,
+            ) -> Result<(), Self::Error> {
+                let shared = self.0.clone();
+                let (lock, ready) = &*shared;
+                match job {
+                    Job::Outer => {
+                        let task = queue.submit(Job::Awaited).map_err(|_| "submit")?;
+                        let mut state = lock.lock().unwrap();
+                        while !state.0 {
+                            state = ready.wait(state).unwrap();
+                        }
+                        state.1 = true;
+                        ready.notify_all();
+                        drop(state);
+                        let waited = queue.wait_cooperatively(self, task);
+                        assert!(waited.executed_other_task);
+                        assert!(!waited.awaited_executed_on_current_worker);
+                        waited.result.map_err(|_| "wait")
+                    }
+                    Job::Awaited => {
+                        let mut state = lock.lock().unwrap();
+                        state.0 = true;
+                        ready.notify_all();
+                        while !state.2 {
+                            state = ready.wait(state).unwrap();
+                        }
+                        Ok(())
+                    }
+                    Job::Intervening => {
+                        let mut state = lock.lock().unwrap();
+                        state.2 = true;
+                        ready.notify_all();
+                        Ok(())
+                    }
+                }
+            }
+            fn reset(&mut self) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn stop(&mut self) -> Result<(), Self::Error> {
+                Ok(())
+            }
+        }
+        let shared = Arc::new((Mutex::new((false, false, false)), std::sync::Condvar::new()));
+        let worker_shared = shared.clone();
+        let mut pool =
+            ThreadVerificationPool::start(2, move |_| Ok(NestedRemote(worker_shared.clone())))
+                .unwrap();
+        let parent = pool.submit(Job::Outer).unwrap();
+        let (lock, ready) = &*shared;
+        let mut state = lock.lock().unwrap();
+        while !state.1 {
+            state = ready.wait(state).unwrap();
+        }
+        drop(state);
+        let intervening = pool.submit(Job::Intervening).unwrap();
+        parent.wait().unwrap();
+        intervening.wait().unwrap();
+        pool.shutdown().unwrap();
     }
     #[test]
     fn cancel_pending_leaves_running_worker_and_reports_cancelled_jobs() {

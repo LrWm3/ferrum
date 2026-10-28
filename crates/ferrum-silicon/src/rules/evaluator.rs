@@ -118,6 +118,26 @@ pub struct ForPermCondition {
 /// Verifier services for heap switching, symbolic execution logging and specialized cases.
 /// Implementations handle the still-unported families explicitly and must not return success
 /// for an expression they cannot evaluate.
+/// Owned branch work for evaluation joins. The post-join continuation stays with
+/// the caller; these values contain everything needed to explore one branch.
+#[derive(Clone)]
+pub enum EvaluationBranchAction<E> {
+    Evaluate {
+        expression: Exp,
+        error: E,
+    },
+    Value {
+        term: Term,
+        debug: Option<Exp>,
+    },
+    True,
+    ShortCircuit {
+        expressions: Vec<Exp>,
+        disjunction: bool,
+        error: E,
+    },
+}
+
 pub trait EvaluationContext<P, D, J, V>: Sized {
     type Error;
     type PartialError: Clone;
@@ -229,28 +249,8 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
         original: &Exp,
         rewritten: Option<&Exp>,
         from_short_circuit_and: bool,
-        yes: &mut dyn FnMut(
-            &mut Self,
-            State<P, D, J>,
-            &mut dyn FnMut(
-                &mut Self,
-                State<P, D, J>,
-                Term,
-                Option<Exp>,
-            )
-                -> Result<VerificationResult<V>, EvaluationError<Self::Error>>,
-        ) -> Result<VerificationResult<V>, EvaluationError<Self::Error>>,
-        no: &mut dyn FnMut(
-            &mut Self,
-            State<P, D, J>,
-            &mut dyn FnMut(
-                &mut Self,
-                State<P, D, J>,
-                Term,
-                Option<Exp>,
-            )
-                -> Result<VerificationResult<V>, EvaluationError<Self::Error>>,
-        ) -> Result<VerificationResult<V>, EvaluationError<Self::Error>>,
+        yes: EvaluationBranchAction<Self::PartialError>,
+        no: EvaluationBranchAction<Self::PartialError>,
         merge: &mut dyn FnMut(
             &mut Self,
             Vec<(State<P, D, J>, Term, Option<Exp>)>,
@@ -897,8 +897,14 @@ where
                     condition,
                     cond_exp.as_ref(),
                     false,
-                    &mut |context, state, done| evaluate(context, state, yes, error, done),
-                    &mut |context, state, done| evaluate(context, state, no, error, done),
+                    EvaluationBranchAction::Evaluate {
+                        expression: yes.clone(),
+                        error: error.clone(),
+                    },
+                    EvaluationBranchAction::Evaluate {
+                        expression: no.clone(),
+                        error: error.clone(),
+                    },
                     &mut |context, entries| {
                         let mut entries = entries.into_iter();
                         let (state, a, a_exp) =
@@ -942,13 +948,11 @@ where
                     left,
                     lhs_exp.as_ref(),
                     from_short_circuit,
-                    &mut |context, state, done| evaluate(context, state, right, error, done),
-                    &mut |context, state, done| {
-                        let exp = context
-                            .debugging()
-                            .then(|| Exp::new(ExpKind::TrueLit, Default::default()));
-                        done(context, state, factory.boolean(true), exp)
+                    EvaluationBranchAction::Evaluate {
+                        expression: right.clone(),
+                        error: error.clone(),
                     },
+                    EvaluationBranchAction::True,
                     &mut |context, entries| {
                         let mut entries = entries.into_iter();
                         let (mut state, first, first_exp) =
@@ -2359,9 +2363,14 @@ where
                 &original,
                 rewritten.as_ref(),
                 true,
-                &mut |context, state, done| done(context, state, term.clone(), debug.clone()),
-                &mut |context, state, done| {
-                    evaluate_short_circuit(context, state, tail, disjunction, error, done)
+                EvaluationBranchAction::Value {
+                    term: term.clone(),
+                    debug: debug.clone(),
+                },
+                EvaluationBranchAction::ShortCircuit {
+                    expressions: tail.to_vec(),
+                    disjunction,
+                    error: error.clone(),
                 },
                 &mut |context, entries| {
                     let mut entries = entries.into_iter();
@@ -2404,6 +2413,41 @@ where
             )
         },
     )
+}
+
+/// Execute an owned join action using the worker's local context.
+pub fn execute_branch_action<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    action: EvaluationBranchAction<C::PartialError>,
+    done: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    match action {
+        EvaluationBranchAction::Evaluate { expression, error } => {
+            evaluate(context, state, &expression, &error, done)
+        }
+        EvaluationBranchAction::Value { term, debug } => done(context, state, term, debug),
+        EvaluationBranchAction::True => {
+            let debug = context
+                .debugging()
+                .then(|| Exp::new(ExpKind::TrueLit, Default::default()));
+            let term = context.factory().boolean(true);
+            done(context, state, term, debug)
+        }
+        EvaluationBranchAction::ShortCircuit {
+            expressions,
+            disjunction,
+            error,
+        } => evaluate_short_circuit(context, state, &expressions, disjunction, &error, done),
+    }
 }
 
 /// Result of the general `evalQuantified` operation; a missing second result represents
@@ -2918,6 +2962,15 @@ mod tests {
         position::{LineColumn, LineColumnPosition, Position, SourcePosition},
     };
     #[test]
+    fn native_evaluation_branch_actions_are_send() {
+        fn require_send<T: Send>() {}
+        require_send::<
+            EvaluationBranchAction<
+                ferrum_silver::verifier::verification_error::PartialVerificationError,
+            >,
+        >();
+    }
+    #[test]
     fn quantifier_weight_precedence_and_full_source_qid() {
         let mut pos = SourcePosition::new("/tmp/example.vpr", 4, 2);
         pos.end = Some(Box::new(LineColumn::LineColumn(LineColumnPosition::new(
@@ -2972,13 +3025,11 @@ where
         original,
         rewritten,
         false,
-        &mut |context, state, done| evaluate(context, state, rhs, error, done),
-        &mut |context, state, done| {
-            let debug = context
-                .debugging()
-                .then(|| Exp::new(ExpKind::TrueLit, Default::default()));
-            done(context, state, factory.boolean(true), debug)
+        EvaluationBranchAction::Evaluate {
+            expression: rhs.clone(),
+            error: error.clone(),
         },
+        EvaluationBranchAction::True,
         &mut |context, entries| {
             let mut entries = entries.into_iter();
             let (mut state, first, first_exp) =

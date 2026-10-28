@@ -248,6 +248,10 @@ pub enum NativeError<E> {
     Chunk(String),
     Consolidation(String),
     ContinuationAbort,
+    BranchWarnings {
+        primary: Box<NativeError<E>>,
+        warnings: Vec<String>,
+    },
     Cancelled,
     State(crate::state::state::StateMergeError),
     BranchTraversal(String),
@@ -1251,38 +1255,8 @@ where
         original: &Exp,
         rewritten: Option<&Exp>,
         from_short_circuit_and: bool,
-        yes: &mut dyn FnMut(
-            &mut Self,
-            State<PD, FD, JoinMode>,
-            &mut dyn FnMut(
-                &mut Self,
-                State<PD, FD, JoinMode>,
-                Term,
-                Option<Exp>,
-            ) -> Result<
-                VerificationResult<VerificationError>,
-                EvaluationError<Self::Error>,
-            >,
-        ) -> Result<
-            VerificationResult<VerificationError>,
-            EvaluationError<Self::Error>,
-        >,
-        no: &mut dyn FnMut(
-            &mut Self,
-            State<PD, FD, JoinMode>,
-            &mut dyn FnMut(
-                &mut Self,
-                State<PD, FD, JoinMode>,
-                Term,
-                Option<Exp>,
-            ) -> Result<
-                VerificationResult<VerificationError>,
-                EvaluationError<Self::Error>,
-            >,
-        ) -> Result<
-            VerificationResult<VerificationError>,
-            EvaluationError<Self::Error>,
-        >,
+        yes: crate::rules::evaluator::EvaluationBranchAction<Self::PartialError>,
+        no: crate::rules::evaluator::EvaluationBranchAction<Self::PartialError>,
         merge: &mut dyn FnMut(
             &mut Self,
             Vec<(State<PD, FD, JoinMode>, Term, Option<Exp>)>,
@@ -1344,91 +1318,82 @@ where
                     EvaluationError::Context(NativeError::BranchTraversal(format!("{e:?}")))
                 }
             })?;
-            let mut entries = Vec::new();
-            let mut run = |this: &mut Self,
-                           active: bool,
-                           positive: bool,
-                           action: &mut dyn FnMut(
-                &mut Self,
-                State<PD, FD, JoinMode>,
-                &mut dyn FnMut(
-                    &mut Self,
-                    State<PD, FD, JoinMode>,
-                    Term,
-                    Option<Exp>,
-                ) -> Result<
-                    VerificationResult<VerificationError>,
+            let run =
+                |this: &mut Self,
+                 active: bool,
+                 positive: bool,
+                 action: crate::rules::evaluator::EvaluationBranchAction<Self::PartialError>|
+                 -> Result<
+                    (
+                        VerificationResult<VerificationError>,
+                        Vec<JoinDataEntry<PD, FD, JoinMode, (Term, Option<Exp>)>>,
+                    ),
                     EvaluationError<Self::Error>,
-                >,
-            ) -> Result<
-                VerificationResult<VerificationError>,
-                EvaluationError<Self::Error>,
-            >|
-             -> Result<
-                VerificationResult<VerificationError>,
-                EvaluationError<Self::Error>,
-            > {
-                if !active {
-                    return Ok(VerificationResult::unreachable());
-                }
-                this.base
-                    .decider
-                    .push_scope()
-                    .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
-                let branch_term = if positive {
-                    condition.clone()
-                } else {
-                    factory.not(condition.clone())
-                };
-                let branch_exp = if positive {
-                    original.clone()
-                } else {
-                    Exp::new(ExpKind::Not(original.clone()), Metadata::default())
-                };
-                let rewritten_exp = if positive {
-                    rewritten.cloned()
-                } else {
-                    rewritten.map(|e| Exp::new(ExpKind::Not(e.clone()), Metadata::default()))
-                };
-                let result = (|| {
+                > {
+                    if !active {
+                        return Ok((VerificationResult::unreachable(), Vec::new()));
+                    }
+                    let mut entries = Vec::new();
                     this.base
                         .decider
-                        .set_branch_condition(branch_term, (branch_exp, rewritten_exp), None)
+                        .push_scope()
                         .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
-                    let branch_state = this
-                        .consolidate_optional(joined_state.clone())
-                        .map_err(EvaluationError::Context)?;
-                    action(
-                        this,
-                        branch_state,
-                        &mut |context, result_state, value, debug| {
-                            let path = context
-                                .base
-                                .decider
-                                .pcs
-                                .after(mark)
-                                .map_err(EvaluationError::Path)?;
-                            entries.push(JoinDataEntry {
-                                state: joiner::restore_state(result_state, &state),
-                                data: (value, debug),
-                                path_conditions: path,
-                            });
-                            Ok(VerificationResult::success())
-                        },
-                    )
-                })();
-                let cleanup = this.base.decider.pop_scope().map_err(NativeError::Decider);
-                match (result, cleanup) {
-                    (Ok(result), Ok(())) => Ok(result),
-                    (Err(e), Err(cleanup)) => Err(coalesce_evaluation_cleanup(e, cleanup)),
-                    (Err(e), Ok(())) => Err(e),
-                    (Ok(_), Err(cleanup)) => Err(EvaluationError::Context(cleanup)),
-                }
-            };
+                    let branch_term = if positive {
+                        condition.clone()
+                    } else {
+                        factory.not(condition.clone())
+                    };
+                    let branch_exp = if positive {
+                        original.clone()
+                    } else {
+                        Exp::new(ExpKind::Not(original.clone()), Metadata::default())
+                    };
+                    let rewritten_exp = if positive {
+                        rewritten.cloned()
+                    } else {
+                        rewritten.map(|e| Exp::new(ExpKind::Not(e.clone()), Metadata::default()))
+                    };
+                    let result = (|| {
+                        this.base
+                            .decider
+                            .set_branch_condition(branch_term, (branch_exp, rewritten_exp), None)
+                            .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+                        let branch_state = this
+                            .consolidate_optional(joined_state.clone())
+                            .map_err(EvaluationError::Context)?;
+                        crate::rules::evaluator::execute_branch_action(
+                            this,
+                            branch_state,
+                            action,
+                            &mut |context, result_state, value, debug| {
+                                let path = context
+                                    .base
+                                    .decider
+                                    .pcs
+                                    .after(mark)
+                                    .map_err(EvaluationError::Path)?;
+                                entries.push(JoinDataEntry {
+                                    state: joiner::restore_state(result_state, &state),
+                                    data: (value, debug),
+                                    path_conditions: path,
+                                });
+                                Ok(VerificationResult::success())
+                            },
+                        )
+                    })();
+                    let cleanup = this.base.decider.pop_scope().map_err(NativeError::Decider);
+                    match (result, cleanup) {
+                        (Ok(result), Ok(())) => Ok((result, entries)),
+                        (Err(e), Err(cleanup)) => Err(coalesce_evaluation_cleanup(e, cleanup)),
+                        (Err(e), Ok(())) => Err(e),
+                        (Ok(_), Err(cleanup)) => Err(EvaluationError::Context(cleanup)),
+                    }
+                };
             // The synchronous else future is lazy and is forced by combine after the then branch.
-            let then_result = run(self, decision.execute_then, true, yes)?;
+            let (then_result, mut entries) = run(self, decision.execute_then, true, yes)?;
             let branch_result = if then_result.continue_verification() {
-                let else_result = run(self, decision.execute_else, false, no)?;
+                let (else_result, else_entries) = run(self, decision.execute_else, false, no)?;
+                entries.extend(else_entries);
                 then_result.combine(|| else_result, false)
             } else {
                 then_result
@@ -8329,6 +8294,135 @@ where
             failed_functions: self.failed_functions.clone(),
         }
     }
+    /// Explore an owned evaluation branch on a worker with its own prover.
+    pub fn verify_worker_evaluation_branch(
+        &mut self,
+        analysis: &NativeWorkerAnalysis,
+        branch: super::verification_pool_manager::NativeEvaluationBranch,
+    ) -> Result<super::verification_pool_manager::NativeEvaluationBranchOutput, NativeError<S::Error>>
+    {
+        use crate::rules::{
+            evaluator,
+            joiner::{self, JoinDataEntry},
+        };
+        self.checkpoint()?;
+        self.active_program = Some(analysis.program.clone());
+        self.predicate_contents = analysis.predicates.clone();
+        self.function_handles = analysis.function_handles.clone();
+        self.function_owners = analysis.function_owners.clone();
+        self.function_heights = analysis.function_heights.clone();
+        self.function_fresh_variables = analysis.function_fresh_variables.clone();
+        self.failed_functions = analysis.failed_functions.clone();
+        self.predicate_snapshots.snap_map = analysis.snapshot_sorts.clone();
+        self.predicate_snapshots.formal_var_map = analysis.snapshot_formals.clone();
+        let remote = self.base.unique_id != branch.source_worker_id;
+        let restore = if remote {
+            Some(
+                branch
+                    .snapshot
+                    .install(&mut self.base.decider, &self.base.errors_reported)
+                    .map_err(|e| NativeError::Evaluation(format!("branch setup: {e:?}")))?,
+            )
+        } else {
+            None
+        };
+        let under_join = branch.state.under_join;
+        let warning_start = self.warnings.len();
+        let result = (|| {
+            self.base
+                .decider
+                .push_scope()
+                .map_err(NativeError::Decider)?;
+            let mut entries = Vec::new();
+            let evaluated = (|| {
+                self.base
+                    .decider
+                    .set_branch_condition(
+                        branch.condition,
+                        (branch.original, branch.rewritten),
+                        None,
+                    )
+                    .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+                if let (true, Some(timeout)) = (remote, self.options.after_inhale_timeout) {
+                    self.base
+                        .decider
+                        .prover
+                        .saturate(timeout, "after inhale")
+                        .map_err(|e| {
+                            EvaluationError::Context(NativeError::Decider(DeciderError::Prover(e)))
+                        })?;
+                }
+                let state = self
+                    .consolidate_optional(branch.state)
+                    .map_err(EvaluationError::Context)?;
+                evaluator::execute_branch_action(
+                    self,
+                    state,
+                    branch.action,
+                    &mut |context, state, value, debug| {
+                        let path = context
+                            .base
+                            .decider
+                            .pcs
+                            .after(branch.mark)
+                            .map_err(EvaluationError::Path)?;
+                        entries.push(JoinDataEntry {
+                            state: joiner::restore_state(state, &branch.initial_state),
+                            data: (value, debug),
+                            path_conditions: path,
+                        });
+                        Ok(VerificationResult::success())
+                    },
+                )
+            })();
+            let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
+            match (evaluated, cleanup) {
+                (Ok(result), Ok(())) => Ok((result, entries)),
+                (Err(e), Ok(())) => {
+                    Err(NativeError::Evaluation(format!("branch evaluation: {e:?}")))
+                }
+                (Err(e), Err(cleanup)) => Err(NativeError::Evaluation(format!(
+                    "branch evaluation: {:?}",
+                    coalesce_evaluation_cleanup(e, cleanup)
+                ))),
+                (Ok(_), Err(cleanup)) => Err(cleanup),
+            }
+        })();
+        let cleanup = match restore {
+            Some(restore) => restore
+                .finish(&mut self.base.decider, under_join)
+                .map_err(NativeError::Decider),
+            None => Ok(crate::rules::brancher::BranchJoinDeclarations::default()),
+        };
+        let outcome = match (result, cleanup) {
+            (Ok((result, entries)), Ok(declarations)) => Ok(
+                super::verification_pool_manager::NativeEvaluationBranchOutput {
+                    result,
+                    entries,
+                    declarations,
+                    warnings: Vec::new(),
+                },
+            ),
+            (Err(primary), Ok(_)) => Err(primary),
+            (Ok(_), Err(cleanup)) => Err(cleanup),
+            (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
+                "branch failed: {primary:?}; option restoration failed: {cleanup:?}"
+            ))),
+        };
+        let warnings = self.warnings.split_off(warning_start);
+        match outcome {
+            Ok(mut output) => {
+                output.warnings = warnings;
+                Ok(output)
+            }
+            Err(primary) if !warnings.is_empty() => Err(NativeError::BranchWarnings {
+                primary: Box::new(primary),
+                warnings,
+            }),
+            Err(primary) => Err(primary),
+        }
+    }
+
     /// Verify one method with an already-started worker prover and replayed preamble.
     pub fn verify_worker_method(
         &mut self,
@@ -15937,5 +16031,271 @@ where
         definition: Term,
     ) -> Result<(), Self::Error> {
         <Self as crate::rules::mask_heap_supporter::MaskQuantifiedProductionService>::record_inverse_and_mask(self, inverse, mask, definition)
+    }
+}
+
+#[cfg(test)]
+mod owned_branch_worker_tests {
+    use super::*;
+    use crate::{
+        config::Config,
+        decider::z3_prover_std_io,
+        rules::{brancher::BranchTransferSnapshot, evaluator::EvaluationBranchAction},
+        verifier::verification_pool_manager::{
+            NativeEvaluationBranch, NativeWorkerOutput, NativeWorkerTarget, NativeWorkerTask,
+            ThreadBoundWorker, ThreadVerificationPool, native_method_worker,
+        },
+    };
+
+    #[test]
+    fn real_pool_runs_owned_evaluation_branch() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let config = Config::default();
+        let options = NativeOptions::from_config(&config).unwrap();
+        let factory = TermFactory::new(crate::state::terms::TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let make = |id: String, factory: TermFactory| {
+            let prover = z3_prover_std_io::new(
+                id.clone(),
+                z3_prover_std_io::settings(std::path::PathBuf::from(&z3)),
+                factory.clone(),
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            native_method_worker(id, prover, identifiers, factory, options.clone(), &config)
+        };
+        let mut source = make("source".into(), factory.clone());
+        source.start().unwrap();
+        source
+            .context
+            .base
+            .decider
+            .set_options(
+                [("smt.random_seed".into(), "42".into())]
+                    .into_iter()
+                    .collect(),
+            )
+            .unwrap();
+        source.context.base.decider.push_scope().unwrap();
+        let variable = factory.var(
+            crate::state::identifiers::Identifier::new("ownedBranchInput"),
+            Sort::Bool,
+            false,
+        );
+        let declaration = factory.function_decl_target(
+            crate::state::terms::ApplicationTarget::Variable(variable.clone()),
+        );
+        source
+            .context
+            .base
+            .decider
+            .declare_fresh_functions([declaration])
+            .unwrap();
+        source
+            .context
+            .base
+            .decider
+            .assume([(variable.clone(), None)], false, false)
+            .unwrap();
+        let mark = source.context.base.decider.pcs.mark();
+        let snapshot = BranchTransferSnapshot::capture(&source.context.base.decider, 0);
+        let program = ferrum_silver::ast::program::Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Default::default(),
+        );
+        let analysis = Arc::new(NativeWorkerAnalysis {
+            program: program.clone(),
+            function_owners: vec![],
+            function_handles: Default::default(),
+            predicates: Default::default(),
+            snapshot_sorts: Default::default(),
+            snapshot_formals: Default::default(),
+            function_heights: Default::default(),
+            function_fresh_variables: vec![],
+            failed_functions: Default::default(),
+        });
+        let mut state = State::new(
+            program,
+            Default::default(),
+            Default::default(),
+            config.more_joins,
+            &factory,
+            false,
+            false,
+        );
+        state.under_join = true;
+        let local_exp = Exp::new(
+            ExpKind::LocalVar(ferrum_silver::ast::expression::LocalVar::new(
+                "branchInput".into(),
+                ferrum_silver::ast::r#type::Type::Bool,
+                Default::default(),
+            )),
+            Default::default(),
+        );
+        state.g = Arc::new(state.g.with_binding(
+            crate::state::store::AbstractLocalVar::new(local_exp.clone()),
+            (variable, None),
+        ));
+        let conditional = Exp::new(
+            ExpKind::CondExp(
+                local_exp,
+                Exp::new(ExpKind::TrueLit, Default::default()),
+                Exp::new(ExpKind::FalseLit, Default::default()),
+            ),
+            Default::default(),
+        );
+        let branch = NativeEvaluationBranch {
+            source_worker_id: "source".into(),
+            snapshot,
+            state: state.clone(),
+            initial_state: state,
+            mark,
+            condition: factory.boolean(true),
+            original: Exp::new(ExpKind::TrueLit, Default::default()),
+            rewritten: None,
+            action: EvaluationBranchAction::Evaluate { expression: conditional, error: ferrum_silver::verifier::verification_error::PartialVerificationError::for_kind(ferrum_silver::verifier::verification_error::VerificationErrorKind::Internal(None)) },
+        };
+        let local = source
+            .context
+            .verify_worker_evaluation_branch(&analysis, branch.clone())
+            .unwrap();
+        assert!(!local.result.is_fatal());
+        assert_eq!(local.entries.len(), 1);
+        assert!(local.declarations.functions.is_empty());
+        let cancelled_branch = branch.clone();
+        let cancelled_analysis = analysis.clone();
+        let cancellation =
+            crate::verifier::verification_pool_manager::CancellationController::default();
+        let worker_cancellation = cancellation.clone();
+        let pool_z3 = std::path::PathBuf::from(z3);
+        let pool_factory = factory.clone();
+        let pool_options = options.clone();
+        let pool_config = config.clone();
+        struct OptionCheckedWorker(
+            crate::verifier::verification_pool_manager::NativeMethodWorker<
+                crate::decider::prover_std_io::ProverStdIo,
+            >,
+        );
+        impl ThreadBoundWorker for OptionCheckedWorker {
+            type Error = <crate::verifier::verification_pool_manager::NativeMethodWorker<
+                crate::decider::prover_std_io::ProverStdIo,
+            > as ThreadBoundWorker>::Error;
+            type Broadcast = <crate::verifier::verification_pool_manager::NativeMethodWorker<
+                crate::decider::prover_std_io::ProverStdIo,
+            > as ThreadBoundWorker>::Broadcast;
+            type BroadcastResult = <crate::verifier::verification_pool_manager::NativeMethodWorker<
+                crate::decider::prover_std_io::ProverStdIo,
+            > as ThreadBoundWorker>::BroadcastResult;
+            type Task = NativeWorkerTask;
+            type Output = NativeWorkerOutput;
+            fn start(&mut self) -> Result<(), Self::Error> {
+                self.0.start()?;
+                self.0
+                    .context
+                    .base
+                    .decider
+                    .set_options(
+                        [("smt.random_seed".into(), "43".into())]
+                            .into_iter()
+                            .collect(),
+                    )
+                    .map_err(NativeError::Decider)
+            }
+            fn broadcast(
+                &mut self,
+                value: Self::Broadcast,
+            ) -> Result<Self::BroadcastResult, Self::Error> {
+                self.0.broadcast(value)
+            }
+            fn verify(&mut self, task: Self::Task) -> Result<Self::Output, Self::Error> {
+                let result = self.0.verify(task);
+                assert_eq!(
+                    self.0
+                        .context
+                        .base
+                        .decider
+                        .options()
+                        .get("smt.random_seed")
+                        .map(String::as_str),
+                    Some("43")
+                );
+                result
+            }
+            fn reset(&mut self) -> Result<(), Self::Error> {
+                self.0.reset()
+            }
+            fn stop(&mut self) -> Result<(), Self::Error> {
+                self.0.stop()
+            }
+        }
+        let mut pool = ThreadVerificationPool::start(1, move |id| {
+            let name = format!("worker-{id}");
+            let prover = z3_prover_std_io::new(
+                name.clone(),
+                z3_prover_std_io::settings(pool_z3.clone()),
+                pool_factory.clone(),
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            let mut worker = native_method_worker(
+                name,
+                prover,
+                identifiers,
+                pool_factory.clone(),
+                pool_options.clone(),
+                &pool_config,
+            );
+            worker.set_cancellation(worker_cancellation.clone());
+            Ok(OptionCheckedWorker(worker))
+        })
+        .unwrap();
+        let output = pool
+            .submit(NativeWorkerTask {
+                analysis,
+                target: NativeWorkerTarget::EvaluationBranch(Box::new(branch)),
+                reporter: None,
+                warning_sink: None,
+            })
+            .unwrap()
+            .wait()
+            .unwrap();
+        let NativeWorkerOutput::EvaluationBranch(output) = output else {
+            panic!("unexpected worker output")
+        };
+        assert!(!output.result.is_fatal());
+        assert_eq!(output.entries.len(), 1);
+        assert_eq!(output.entries[0].data.0, factory.boolean(true));
+        assert!(output.declarations.functions.is_empty());
+        cancellation.cancel();
+        let cancelled = pool
+            .submit(NativeWorkerTask {
+                analysis: cancelled_analysis,
+                target: NativeWorkerTarget::EvaluationBranch(Box::new(cancelled_branch)),
+                reporter: None,
+                warning_sink: None,
+            })
+            .unwrap()
+            .wait();
+        assert!(matches!(
+            cancelled,
+            Err(
+                crate::verifier::verification_pool_manager::ThreadPoolError::Worker(
+                    NativeError::Cancelled
+                )
+            )
+        ));
+        pool.shutdown().unwrap();
+        source.context.base.decider.pop_scope().unwrap();
+        source.stop().unwrap();
     }
 }

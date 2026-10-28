@@ -303,7 +303,12 @@ mod tests {
                     .collect(),
             )
             .unwrap();
+        let identity = source.path_condition_identity();
         source.push_scope().unwrap();
+        assert!(std::sync::Arc::ptr_eq(
+            &identity,
+            &source.path_condition_identity()
+        ));
         let condition = factory.var(Identifier::new("branchCondition"), Sort::Bool, false);
         let declaration =
             factory.function_decl_target(ApplicationTarget::Variable(condition.clone()));
@@ -321,7 +326,12 @@ mod tests {
             .unwrap();
         let snapshot = BranchTransferSnapshot::capture(&source, 3);
         let errors = AtomicUsize::new(0);
+        let worker_identity = worker.path_condition_identity();
         let restore = snapshot.install(&mut worker, &errors).unwrap();
+        assert!(!std::sync::Arc::ptr_eq(
+            &worker_identity,
+            &worker.path_condition_identity()
+        ));
         assert_eq!(errors.load(Ordering::SeqCst), 3);
         assert_eq!(
             worker.options().get("smt.random_seed").map(String::as_str),

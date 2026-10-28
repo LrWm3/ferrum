@@ -365,3 +365,17 @@ Retained Silver field/predicate nodes use their source pretty printer; wand IDs
 and insertion order remain intact. JVM oracle examples and focused formatter
 checks cover these products. Renderers still reject cases requiring erased Scala
 collection provenance or unsupported AST products.
+
+Worker pools now support cooperative waiting on owned nested tasks, retaining
+owner-thread solver access and cancellation/panic bookkeeping. Evaluation joins
+use owned expression/value/short-circuit actions and per-branch entry buffers;
+concrete worker jobs transfer path conditions, options, fresh declarations and
+assumptions and return join entries/declarations. Branch errors retain their
+warnings instead of leaking them to later jobs. Shared dispatch still handles
+ordinary method/CFG tasks through their existing lifecycle and reporting paths.
+
+This is infrastructure, not an admitted parallel branch mode. Runtime queue
+injection, result/report ordering, error-warning delivery and active cancellation
+coverage remain. A path-stack identity token changes on start/reset/replacement
+and remains stable across scope operations, matching the source reference check;
+future code must use the replacement API rather than assign the public field.

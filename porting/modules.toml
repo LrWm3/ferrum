@@ -1648,7 +1648,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Evaluator.scala"
 destination = "crates/ferrum-silicon/src/rules/evaluator.rs"
 status = "skeleton"
-remaining = ["Typed evaluation covers literals, locals, collections, quantifiers, heap/function operations and source continuation order. Non-inlined expression families reduce large Rust stack frames. Debug/advanced services and broader source compatibility remain; recursive CPS has a finite stack bound."]
+remaining = ["Native expression evaluation and owned join-branch actions are connected synchronously; actual branch scheduling, debugger hooks and broad source compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2037,7 +2037,7 @@ repository = "silicon"
 upstream = "src/main/scala/verifier/VerificationPoolManager.scala"
 destination = "crates/ferrum-silicon/src/verifier/verification_pool_manager.rs"
 status = "skeleton"
-remaining = ["Thread-owned solvers, ordered preambles, source-order results, scoped reporting, cancellation and cleanup are connected. Active solver interruptions are latched and retried by the facade; pure Rust work remains cooperative. Nested branch parallelism and broader lifecycle compatibility remain incomplete."]
+remaining = ["Owner-thread method/CFG execution, cooperative nested-task waits and owned evaluation jobs exist, with cancellation/cleanup bookkeeping. Runtime branch scheduler/report integration and broad parallel compatibility remain gated."]
 
 [[modules]]
 repository = "silicon"

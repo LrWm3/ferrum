@@ -60,6 +60,7 @@ pub enum DeciderError<E> {
 pub struct DefaultDecider<P: Prover> {
     pub prover: P,
     pub pcs: LayeredPathConditionStack,
+    pcs_identity: std::sync::Arc<()>,
     pub debug_mode: bool,
     pub assert_timeout: Option<i32>,
     pub check_timeout: Option<i32>,
@@ -87,6 +88,7 @@ impl<P: Prover> DefaultDecider<P> {
         Self {
             prover,
             pcs: LayeredPathConditionStack::new(debug_mode),
+            pcs_identity: std::sync::Arc::new(()),
             debug_mode,
             assert_timeout,
             check_timeout,
@@ -101,6 +103,7 @@ impl<P: Prover> DefaultDecider<P> {
     }
     pub fn start(&mut self, user_args: Option<&str>) -> Result<(), DeciderError<P::Error>> {
         self.pcs = LayeredPathConditionStack::new(self.debug_mode);
+        self.pcs_identity = std::sync::Arc::new(());
         self.fresh_functions = Default::default();
         self.fresh_macros.clear();
         self.prover.start(user_args).map_err(DeciderError::Prover)
@@ -108,6 +111,7 @@ impl<P: Prover> DefaultDecider<P> {
     pub fn reset(&mut self) -> Result<(), DeciderError<P::Error>> {
         self.prover.reset().map_err(DeciderError::Prover)?;
         self.pcs = LayeredPathConditionStack::new(self.debug_mode);
+        self.pcs_identity = std::sync::Arc::new(());
         self.fresh_functions = Default::default();
         self.fresh_macros.clear();
         self.options.clear();
@@ -159,6 +163,7 @@ impl<P: Prover> DefaultDecider<P> {
         other: LayeredPathConditionStack,
     ) -> Result<(), DeciderError<P::Error>> {
         self.pcs = other;
+        self.pcs_identity = std::sync::Arc::new(());
         while self.prover.push_pop_scope_depth() > 1 {
             self.prover.pop(1).map_err(DeciderError::Prover)?;
         }
@@ -173,6 +178,10 @@ impl<P: Prover> DefaultDecider<P> {
                 .map_err(DeciderError::Prover)?;
         }
         Ok(())
+    }
+    /// Identity changes when the path stack is replaced, not when its scopes mutate.
+    pub fn path_condition_identity(&self) -> std::sync::Arc<()> {
+        self.pcs_identity.clone()
     }
     pub fn mark(&mut self) -> Mark {
         self.pcs.mark()
