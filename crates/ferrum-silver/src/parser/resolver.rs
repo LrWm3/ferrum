@@ -877,6 +877,21 @@ pub fn check_expression(
             ensure_location_access(&location, true)?;
             result
         }
+        PExpressionKind::Unfolding { acc, exp, .. } => {
+            let result = check_operator(input, None, vec![acc.clone(), exp], expected, false)?;
+            ensure_nonabstract_predicate_access(&acc, false)?;
+            result
+        }
+        PExpressionKind::Applying { wand, exp, .. } => {
+            let is_wand = matches!(&wand.node().read().expect("poisoned parse node").kind, PNodeKind::Expression(e) if matches!(e.kind, PExpressionKind::MagicWandExp { .. }));
+            if !is_wand {
+                return Err(TypeCheckError::Unsupported("expected magic wand"));
+            }
+            check_operator(input, None, vec![wand, exp], expected, false)?
+        }
+        PExpressionKind::Asserting { assertion, exp, .. } => {
+            check_operator(input, None, vec![assertion, exp], expected, false)?
+        }
         PExpressionKind::CondExp { cond, thn, els, .. } => {
             check_operator(input, None, vec![cond, thn, els], expected, false)?
         }
@@ -1031,6 +1046,55 @@ fn ensure_location_access(expression: &PExpHandle, allow_wand: bool) -> Result<(
         _ => Err(TypeCheckError::Unsupported("resource access")),
     }
 }
+/// Source fold/unfold accepts predicate calls or `acc` around a predicate call,
+/// and rejects abstract predicates before ordinary expression typechecking.
+fn ensure_nonabstract_predicate_access(
+    expression: &PExpHandle,
+    fold: bool,
+) -> Result<(), TypeCheckError> {
+    let kind = match &expression.node().read().expect("poisoned parse node").kind {
+        PNodeKind::Expression(e) => e.kind.clone(),
+        _ => return Err(TypeCheckError::Unsupported("predicate access expression")),
+    };
+    let location = match kind {
+        PExpressionKind::AccPred { amount, .. } => amount.inner().first().clone(),
+        PExpressionKind::Call { .. } => expression.clone(),
+        _ => return Err(TypeCheckError::Unsupported("expected predicate access")),
+    };
+    let kind = match &location.node().read().expect("poisoned parse node").kind {
+        PNodeKind::Expression(e) => e.kind.clone(),
+        _ => return Err(TypeCheckError::Unsupported("predicate access expression")),
+    };
+    let PExpressionKind::Call { idnref, .. } = kind else {
+        return Err(TypeCheckError::Unsupported("expected predicate access"));
+    };
+    let predicates = super::parse_ast::PIdnRef::decls(
+        &idnref,
+        |node| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Member(member) if matches!(member.kind, PMemberKind::Predicate { .. })),
+    );
+    if predicates.len() != 1 {
+        return Err(TypeCheckError::Unsupported(
+            "undefined or ambiguous predicate access",
+        ));
+    }
+    super::parse_ast::PIdnRef::filter_decls(
+        &idnref,
+        std::sync::Arc::new(
+            |node| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Member(member) if matches!(member.kind, PMemberKind::Predicate { .. })),
+        ),
+        |_| true,
+    );
+    let has_body = matches!(&predicates[0].read().expect("poisoned parse node").kind, PNodeKind::Member(member) if matches!(&member.kind, PMemberKind::Predicate { body: Some(_), .. }));
+    if !has_body {
+        return Err(TypeCheckError::Unsupported(if fold {
+            "abstract predicates cannot be folded"
+        } else {
+            "abstract predicates cannot be unfolded"
+        }));
+    }
+    Ok(())
+}
+
 fn check_operator(
     input: &PExpHandle,
     signatures: Option<Vec<PTypeSubstitution>>,
@@ -1705,6 +1769,11 @@ pub fn check_statement_core(
                 extension
                     .typecheck_statement(&mut |body| check_statement_core(body, &mut *warn))?;
             }
+        }
+        ref kind @ (S::Fold { ref exp, .. } | S::Unfold { ref exp, .. }) => {
+            ensure_nonabstract_predicate_access(exp, matches!(kind, S::Fold { .. }))?;
+            let predicate = type_from_signature(&SignatureType::Predicate);
+            check_program_expression(exp, Some(&predicate), &mut *warn)?;
         }
         S::Assert { exp, .. }
         | S::Assume { exp, .. }

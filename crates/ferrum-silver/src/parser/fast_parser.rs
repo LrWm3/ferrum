@@ -959,6 +959,8 @@ impl ExpressionParser<'_> {
             return Ok(crate::plugin::standard::smoke::unreachable_past_extension::PUnreachable { keyword: crate::plugin::standard::smoke::unreachable_past_extension::unreachable_keyword(pos.clone()), pos }.statement());
         }
         let keyword = match name {
+            "fold" => Some(PKw::Fold),
+            "unfold" => Some(PKw::Unfold),
             "assert" => Some(PKw::Assert),
             "assume" => Some(PKw::Assume),
             "inhale" => Some(PKw::Inhale),
@@ -974,9 +976,17 @@ impl ExpressionParser<'_> {
             self.cursor = end;
             let token = PReserved::new(keyword, self.span(start, end));
             match keyword {
-                PKw::Assert | PKw::Assume | PKw::Inhale | PKw::Exhale => {
+                PKw::Fold | PKw::Unfold | PKw::Assert | PKw::Assume | PKw::Inhale | PKw::Exhale => {
                     let exp = self.expression(0)?;
                     match keyword {
+                        PKw::Fold => PStatementKind::Fold {
+                            keyword: token,
+                            exp,
+                        },
+                        PKw::Unfold => PStatementKind::Unfold {
+                            keyword: token,
+                            exp,
+                        },
                         PKw::Assert => PStatementKind::Assert {
                             keyword: token,
                             exp,
@@ -1939,6 +1949,62 @@ impl ExpressionParser<'_> {
                 "epsilon" => Some(PKw::Epsilon),
                 _ => None,
             };
+            if matches!(name, "unfolding" | "applying" | "asserting") {
+                let operand = if name == "unfolding" {
+                    self.atom()?
+                } else {
+                    let left = self
+                        .take("(")?
+                        .ok_or_else(|| self.error("expected '(' after expression operator"))?;
+                    let operand = self.expression(0)?;
+                    let right = self
+                        .take(")")?
+                        .ok_or_else(|| self.error("expected ')' after expression operator"))?;
+                    if name == "applying" {
+                        let bracket_span = (left.0.clone(), right.1.clone());
+                        let brackets = PExpressionBrackets::new(
+                            PReserved::new(PSym::LParen, left),
+                            &operand,
+                            PReserved::new(PSym::RParen, right),
+                            bracket_span,
+                        );
+                        operand.set_brackets(brackets);
+                    }
+                    operand
+                };
+                self.trivia()?;
+                let in_start = self.cursor;
+                let in_end = self.identifier_end(in_start);
+                if &self.source[in_start..in_end] != "in" {
+                    return Err(self.error("expected 'in' after expression operator"));
+                }
+                self.cursor = in_end;
+                let in_token = PReserved::new(PKwOp::In, self.span(in_start, in_end));
+                let body = self.expression(0)?;
+                let kind = match name {
+                    "unfolding" => PExpressionKind::Unfolding {
+                        unfolding: PReserved::new(PKwOp::Unfolding, span),
+                        acc: operand,
+                        in_token,
+                        exp: body,
+                    },
+                    "applying" => PExpressionKind::Applying {
+                        applying: PReserved::new(PKwOp::Applying, span),
+                        wand: operand,
+                        in_token,
+                        exp: body,
+                    },
+                    _ => PExpressionKind::Asserting {
+                        asserting: PReserved::new(PKwOp::Asserting, span),
+                        assertion: operand,
+                        in_token,
+                        exp: body,
+                    },
+                };
+                let expression =
+                    self.expr_node(kind, self.position(start), self.position(self.cursor));
+                return self.suffix(expression);
+            }
             if matches!(name, "forall" | "exists") {
                 let first = self.binding(PDeclarationKind::LogicalVar)?;
                 let list_start = first

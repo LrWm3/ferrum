@@ -469,6 +469,24 @@ fn translate_expression_with_fields(
                 _ => return Err(TranslationError::Unsupported("binary operator")),
             }
         }
+        PExpressionKind::Unfolding { acc, exp, .. } => {
+            let access = translate_expression_with_fields(&acc, fields)?;
+            if !matches!(access.kind(), ExpKind::PredicateAccessPredicate(_)) {
+                return Err(TranslationError::Unsupported("unfolding predicate access"));
+            }
+            ExpKind::Unfolding(access, translate_expression_with_fields(&exp, fields)?)
+        }
+        PExpressionKind::Applying { wand, exp, .. } => {
+            let wand = translate_expression_with_fields(&wand, fields)?;
+            if !matches!(wand.kind(), ExpKind::MagicWand(..)) {
+                return Err(TranslationError::Unsupported("applying magic wand"));
+            }
+            ExpKind::Applying(wand, translate_expression_with_fields(&exp, fields)?)
+        }
+        PExpressionKind::Asserting { assertion, exp, .. } => ExpKind::Asserting(
+            translate_expression_with_fields(&assertion, fields)?,
+            translate_expression_with_fields(&exp, fields)?,
+        ),
         PExpressionKind::MagicWandExp { left, right, .. } => ExpKind::MagicWand(
             translate_expression_with_fields(&left, fields)?,
             translate_expression_with_fields(&right, fields)?,
@@ -756,6 +774,21 @@ fn translate_statement_with_fields(
                 &mut |body| translate_statement_with_fields(body, fields),
                 meta,
             );
+        }
+        ref kind @ (PStatementKind::Fold { ref exp, .. }
+        | PStatementKind::Unfold { ref exp, .. }) => {
+            let fold = matches!(kind, PStatementKind::Fold { .. });
+            let access = translate_expression_with_fields(&exp, fields)?;
+            let ExpKind::PredicateAccessPredicate(access) = access.kind() else {
+                return Err(TranslationError::Unsupported(
+                    "fold/unfold predicate access",
+                ));
+            };
+            if fold {
+                StmtKind::Fold(access.clone())
+            } else {
+                StmtKind::Unfold(access.clone())
+            }
         }
         PStatementKind::Assert { exp, .. } => {
             StmtKind::Assert(translate_expression_with_fields(&exp, fields)?)

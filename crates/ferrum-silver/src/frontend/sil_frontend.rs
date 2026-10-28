@@ -374,6 +374,90 @@ mod tests {
         ));
     }
     #[test]
+    fn asserting_and_applying_expressions_translate() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases
+            .parse("function f(): Int { asserting (true) in 1 }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        assert!(matches!(
+            program.functions[0].body.as_ref().unwrap().kind(),
+            crate::ast::expression::ExpKind::Asserting(..)
+        ));
+
+        // The whole-program checker still deliberately rejects wand contexts;
+        // exercise the typed expression path directly until that restriction is ported.
+        let parsed = crate::parser::fast_parser::parse_expression(
+            "applying (true --* true) in true",
+            "test.vpr",
+        )
+        .unwrap()
+        .expression;
+        let boolean = crate::parser::parse_ast::type_from_signature(
+            &crate::parser::parse_ast_keyword::SignatureType::Bool,
+        );
+        crate::parser::resolver::check_top_expression(&parsed, Some(&boolean), |_, _| {}).unwrap();
+        let translated = crate::parser::translator::translate_expression(&parsed).unwrap();
+        assert!(matches!(
+            translated.kind(),
+            crate::ast::expression::ExpKind::Applying(..)
+        ));
+    }
+
+    #[test]
+    fn unfolding_predicate_expression_reaches_consistency() {
+        let source = "field f: Int predicate p(x: Ref) { acc(x.f) } function value(x: Ref): Int requires acc(p(x)) { unfolding acc(p(x)) in x.f }";
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse(source).unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        assert!(matches!(
+            program.functions[0].body.as_ref().unwrap().kind(),
+            crate::ast::expression::ExpKind::Unfolding(_, _)
+        ));
+        phases.check_consistency(program).unwrap();
+    }
+
+    #[test]
+    fn fold_and_unfold_reject_abstract_predicates() {
+        for statement in ["fold acc(p(x));", "unfold acc(p(x));"] {
+            let source = format!("predicate p(x: Ref) method m(x: Ref) {{ {statement} }}");
+            let mut phases =
+                SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+            let parsed = phases.parse(&source).unwrap();
+            assert!(phases.analyze(parsed).is_err());
+        }
+    }
+
+    #[test]
+    fn ordinary_method_heap_and_predicate_pipeline() {
+        let cases = [
+            "method invalid() { assert false; }",
+            "field f: Int method heap(x: Ref) requires acc(x.f) { x.f := 1; assert x.f == 1; }",
+            "field f: Int predicate p(x: Ref) { acc(x.f) } method pred(x: Ref) requires acc(p(x)) { unfold acc(p(x)); fold acc(p(x)); }",
+        ];
+        for source in cases {
+            let mut phases =
+                SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+            let parsed = phases
+                .parse(source)
+                .unwrap_or_else(|e| panic!("parse {source}: {e:?}"));
+            let analyzed = phases
+                .analyze(parsed)
+                .unwrap_or_else(|e| panic!("analyze {source}: {e:?}"));
+            let program = phases
+                .translate(analyzed)
+                .unwrap_or_else(|e| panic!("translate {source}: {e:?}"));
+            phases
+                .check_consistency(program)
+                .unwrap_or_else(|e| panic!("consistency {source}: {e:?}"));
+        }
+    }
+
+    #[test]
     fn translates_source_quantifiers() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
