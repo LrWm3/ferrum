@@ -57,6 +57,87 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+/// Source AST and Silicon renderers for ordinary state-reporting records.
+/// Unsupported extension printers and node kinds are reported explicitly.
+pub struct NativeStateRecordRenderer<'a> {
+    pub factory: &'a TermFactory,
+}
+
+#[derive(Debug)]
+struct NativeReportNode {
+    node: Node,
+    position: ferrum_silver::ast::position::Position,
+}
+impl ReportNode for NativeReportNode {
+    fn position(&self) -> ferrum_silver::ast::position::Position {
+        self.position.clone()
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        use ferrum_silver::ast::program::Member;
+        match &self.node {
+            Node::Exp(v) => v,
+            Node::Stmt(v) => v,
+            Node::Member(Member::Domain(v)) => v,
+            Node::Member(Member::Field(v)) => v,
+            Node::Member(Member::Function(v)) => v,
+            Node::Member(Member::Predicate(v)) => v,
+            Node::Member(Member::Method(v)) => v,
+            Node::Member(Member::Extension(v)) => v.0.as_any(),
+            _ => &self.node,
+        }
+    }
+}
+fn report_position(node: &Node) -> Result<ferrum_silver::ast::position::Position, RecordError> {
+    use ferrum_silver::ast::program::Member;
+    let metadata = match node {
+        Node::Exp(v) => v.metadata(),
+        Node::Stmt(v) => v.metadata(),
+        Node::Member(Member::Domain(v)) => &v.meta,
+        Node::Member(Member::Field(v)) => &v.meta,
+        Node::Member(Member::Function(v)) => &v.meta,
+        Node::Member(Member::Predicate(v)) => &v.meta,
+        Node::Member(Member::Method(v)) => &v.meta,
+        Node::Member(Member::Extension(v)) => {
+            v.0.metadata()
+                .map_err(|_| RecordError::Unsupported("extension member position"))?
+        }
+        _ => return Err(RecordError::Unsupported("report node position")),
+    };
+    Ok(metadata.position.clone())
+}
+impl RecordRenderer for NativeStateRecordRenderer<'_> {
+    fn node(&self, node: &Node) -> Result<String, RecordError> {
+        use ferrum_silver::ast::pretty::pretty_printer::{expression_to_string, pretty_node};
+        match node {
+            Node::Exp(exp) => expression_to_string(exp),
+            Node::Stmt(_) | Node::Member(_) => pretty_node(node),
+            _ => return Err(RecordError::Unsupported("report node rendering")),
+        }
+        .map_err(|_| RecordError::Unsupported("report node rendering"))
+    }
+    fn term(&self, term: &Term) -> Result<String, RecordError> {
+        crate::reporting::formatters::render_term(term)
+            .map_err(|_| RecordError::Unsupported("term rendering"))
+    }
+    fn chunk(&self, chunk: &crate::state::chunks::Chunk) -> Result<String, RecordError> {
+        crate::reporting::formatters::render_chunk_with_factory(chunk, self.factory)
+            .map_err(|_| RecordError::Unsupported("chunk rendering"))
+    }
+    fn source_line_column(&self, node: &Node) -> Result<String, RecordError> {
+        let position = report_position(node)?;
+        Ok(position.line_column().map_or_else(
+            || position.to_string(),
+            |p| format!("{}:{}", p.line(), p.column()),
+        ))
+    }
+}
+impl StateRecordRenderer for NativeStateRecordRenderer<'_> {
+    fn report_node(&self, node: Node) -> Result<Arc<dyn ReportNode>, RecordError> {
+        let position = report_position(&node)?;
+        Ok(Arc::new(NativeReportNode { node, position }))
+    }
+}
+
 /// Native callers provide the complete source node-to-reporter adapter.
 pub trait StateRecordRenderer: RecordRenderer {
     fn report_node(&self, node: Node) -> Result<Arc<dyn ReportNode>, RecordError>;
@@ -392,6 +473,36 @@ mod tests {
         r#type::Type,
     };
     struct Text;
+    #[test]
+    fn native_renderer_preserves_position_node_and_source_text() {
+        use crate::state::terms::TermOptions;
+        use ferrum_silver::ast::{
+            ast::Metadata,
+            position::{LineColumnPosition, Position},
+        };
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let renderer = NativeStateRecordRenderer { factory: &factory };
+        let mut meta = Metadata::default();
+        meta.position = Position::LineColumn(LineColumnPosition::new(12, 7).into());
+        let exp = Exp::new(ExpKind::TrueLit, meta);
+        let node = Node::Exp(exp.clone());
+        assert_eq!(renderer.node(&node).unwrap(), "true");
+        assert_eq!(renderer.source_line_column(&node).unwrap(), "12:7");
+        assert_eq!(renderer.term(&factory.boolean(true)).unwrap(), "True");
+        let reported = renderer.report_node(node).unwrap();
+        assert_eq!(reported.position(), exp.metadata().position);
+        assert!(
+            reported
+                .as_any()
+                .downcast_ref::<Exp>()
+                .unwrap()
+                .same_node(&exp)
+        );
+    }
     impl RecordRenderer for Text {
         fn node(&self, _: &Node) -> Result<String, RecordError> {
             Err(RecordError::Unsupported("node"))

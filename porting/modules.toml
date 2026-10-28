@@ -1276,7 +1276,7 @@ repository = "silicon"
 upstream = "src/main/scala/logger/StateReporting.scala"
 destination = "crates/ferrum-silicon/src/logger/state_reporting.rs"
 status = "skeleton"
-remaining = ["Branch/scope progress tracking, stall snapshots and ordered polling exist; native fixed-delay scheduler and member logger hooks remain."]
+remaining = ["Branch/scope tracking, ordinary native record rendering, stall snapshots and ordered polling exist. Fixed-delay scheduling and member execution hooks remain."]
 
 [[modules]]
 repository = "silicon"

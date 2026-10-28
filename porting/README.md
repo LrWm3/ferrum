@@ -388,3 +388,9 @@ and never starts a solver. Plugin disabling, duplicate warnings and configuratio
 errors retain source ordering. Provider checks cover reset, macro retention,
 parse errors and construction reporting. Reporter manager rebinding/configuration,
 custom plugin resolution and full command-line orchestration remain incomplete.
+
+State-report records now have a native adapter for ordinary expressions,
+statements, members, terms and chunks. It retains source positions and concrete
+node downcasts for reporter consumers; unsupported node printers still return
+errors. This completes the ordinary rendering boundary, while timed polling and
+member execution hooks remain to be connected.
