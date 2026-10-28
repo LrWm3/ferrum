@@ -6982,6 +6982,59 @@ where
     fn disable_havoc_hack_407(&self) -> bool {
         self.options.disable_havoc_hack_407
     }
+    fn open_method_call_scope(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        statement: &Stmt,
+    ) -> Result<Option<i32>, Self::Error> {
+        let Some(log) = &self.member_log else {
+            return Ok(None);
+        };
+        if log.when_enabled(|| ()).is_none() {
+            return Ok(None);
+        }
+        let factory = self
+            .record_factory
+            .as_ref()
+            .ok_or(NativeError::Unsupported(
+                "active symbolic logger requires record factory",
+            ))?;
+        let record = factory.method_call(statement, state, &self.base.decider.pcs);
+        let renderer = crate::logger::state_reporting::NativeStateRecordRenderer {
+            factory: &self.factory,
+        };
+        log.open_scope(record, &renderer)
+            .map(Some)
+            .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
+    }
+    fn open_call_comment_scope(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        comment: &str,
+    ) -> Result<Option<i32>, Self::Error> {
+        let Some(log) = &self.member_log else {
+            return Ok(None);
+        };
+        if log.when_enabled(|| ()).is_none() {
+            return Ok(None);
+        }
+        let factory = self
+            .record_factory
+            .as_ref()
+            .ok_or(NativeError::Unsupported(
+                "active symbolic logger requires record factory",
+            ))?;
+        let record = factory.comment(comment, Some(state), &self.base.decider.pcs);
+        let renderer = crate::logger::state_reporting::NativeStateRecordRenderer {
+            factory: &self.factory,
+        };
+        log.open_scope(record, &renderer)
+            .map(Some)
+            .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
+    }
+    fn close_call_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_logged_scope(id)
+    }
     fn evaluate_call_arguments(
         &mut self,
         state: State<PD, FD, JoinMode>,

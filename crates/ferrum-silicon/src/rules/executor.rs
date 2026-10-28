@@ -248,6 +248,23 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
         original_heap: Arc<ListBackedHeap>,
     ) -> Result<VerificationResult<V>, ExecutionError<Self::Error>>;
     fn disable_havoc_hack_407(&self) -> bool;
+    fn open_method_call_scope(
+        &mut self,
+        _state: &State<P, D, J>,
+        _statement: &Stmt,
+    ) -> Result<Option<i32>, Self::Error> {
+        Ok(None)
+    }
+    fn open_call_comment_scope(
+        &mut self,
+        _state: &State<P, D, J>,
+        _comment: &str,
+    ) -> Result<Option<i32>, Self::Error> {
+        Ok(None)
+    }
+    fn close_call_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
+        Ok(())
+    }
     fn evaluate_call_arguments(
         &mut self,
         state: State<P, D, J>,
@@ -440,11 +457,19 @@ where
                 .find(|m| &m.name == method_name)
                 .cloned()
                 .ok_or_else(|| ExecutionError::MissingMethod(method_name.clone()))?;
+            let call_scope = context
+                .open_method_call_scope(&state, statement)
+                .map_err(ExecutionError::Context)?;
+            let parameters_scope = context
+                .open_call_comment_scope(&state, "Parameters")
+                .map_err(ExecutionError::Context)?;
             let original_exhale_ext = state.exhale_ext;
             let state = context
                 .start_key_heap(state, statement)
                 .map_err(ExecutionError::Context)?;
             context.evaluate_call_arguments(state,statement,args,&mut |context,state,terms,debug_args| {
+                context.close_call_scope(parameters_scope).map_err(ExecutionError::Context)?;
+                let pre_scope = context.open_call_comment_scope(&state, "Precondition").map_err(ExecutionError::Context)?;
                 let caller = state.clone();
                 let values = terms.iter().enumerate().map(|(i,term)| {
                     let debug = if context.debugging() { Some(debug_args.as_ref().and_then(|es| es.get(i)).cloned().ok_or(ExecutionError::MissingDebugExpression)?) } else { None };
@@ -459,6 +484,8 @@ where
                     }
                 }
                 context.consume_call_preconditions(pre_state,&caller.g,statement,&method,needs_old,&mut |context,mut state,snapshot| {
+                    context.close_call_scope(pre_scope).map_err(ExecutionError::Context)?;
+                    let post_scope = context.open_call_comment_scope(&state, "Postcondition").map_err(ExecutionError::Context)?;
                     let mut returns = Vec::new();
                     for decl in &method.formal_returns {
                         let var = decl.local_var(); let value = context.fresh_local(&var).map_err(ExecutionError::Context)?;
@@ -472,6 +499,7 @@ where
                     state.old_heaps.insert("old".into(),old_heap);
                     state.g = Arc::new(state.g.with_store(&output_store));
                     context.produce_call_postconditions(state,statement,&method,&mut |context,mut state| {
+                        context.close_call_scope(post_scope).map_err(ExecutionError::Context)?;
                         context.saturate_after_inhale().map_err(ExecutionError::Context)?;
                         use crate::state::store::Store;
                         let mut outputs = Vec::new();
@@ -482,6 +510,7 @@ where
                         }
                         state.g = Arc::new(caller.g.with_store(&crate::state::store::MapBackedStore::from_bindings(outputs)));
                         state.old_heaps = caller.old_heaps.clone(); state.record_visited = caller.record_visited;
+                        context.close_call_scope(call_scope).map_err(ExecutionError::Context)?;
                         let state = context.finish_key_heap(state).map_err(ExecutionError::Context)?;
                         finish(context,state)
                     })

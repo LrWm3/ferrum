@@ -639,3 +639,8 @@ AST provider plugin failures now carry an actual native Rust backtrace captured
 at missing-plugin error construction. StdIo and CSV exception reporting can
 consume this payload; opaque resolver failures are labeled at their resolver
 boundary. Direct reset keeps its existing typed error contract.
+
+Method calls now emit their call record and Parameters, Precondition and
+Postcondition subscopes. Each closes at its source success continuation, before
+restoring caller state and completing the outer statement. Disabled logging
+retains the previous execution path; advanced profiles remain gated.

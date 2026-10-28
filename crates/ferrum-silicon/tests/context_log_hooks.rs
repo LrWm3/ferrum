@@ -230,6 +230,38 @@ fn context_scope_hooks_capture_full_state_and_reject_missing_factory() {
         .context
         .close_post_wellformedness_scope(wellformed)
         .unwrap();
+    use ferrum_silicon::rules::executor::ExecutionContext;
+    let statement = Stmt::new(
+        StmtKind::Seqn {
+            statements: vec![],
+            declarations: vec![],
+        },
+        Default::default(),
+    );
+    let call = worker
+        .context
+        .open_method_call_scope(&state, &statement)
+        .unwrap();
+    let parameter = worker
+        .context
+        .open_call_comment_scope(&state, "Parameters")
+        .unwrap();
+    let records = log.records().unwrap();
+    let record = records
+        .iter()
+        .find(|r| r.id() == call.unwrap())
+        .unwrap()
+        .as_any()
+        .downcast_ref::<ferrum_silicon::logger::records::data::method_call_record::MethodCallRecord<
+            NativeBranchState,
+        >>()
+        .unwrap();
+    assert!(record.value.as_ref().unwrap().same_node(&statement));
+    assert!(record.state.as_ref().unwrap().under_join);
+    let comment = records.iter().find(|r| r.id() == parameter.unwrap()).unwrap().as_any().downcast_ref::<ferrum_silicon::logger::records::data::comment_record::CommentRecord<NativeBranchState>>().unwrap();
+    assert_eq!(comment.comment.as_deref(), Some("Parameters"));
+    worker.context.close_call_scope(parameter).unwrap();
+    worker.context.close_call_scope(call).unwrap();
     let disabled = NativeSymbExLogger::of_config(
         &config,
         Arc::new(ferrum_silver::reporter::reporter::NoopReporter),
