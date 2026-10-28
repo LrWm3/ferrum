@@ -30,6 +30,10 @@ pub trait ExtensionInfo: Debug + Send + Sync {
     fn is_cached(&self) -> bool {
         false
     }
+    /// Source FailureExpectedInfo marker for diagnostics such as refute.
+    fn is_failure_expected(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -72,6 +76,13 @@ impl Info {
             Self::Cached => true,
             Self::Extension(e) => e.is_cached(),
             Self::Cons(a, b) => a.is_cached() || b.is_cached(),
+            _ => false,
+        }
+    }
+    pub fn is_failure_expected(&self) -> bool {
+        match self {
+            Self::Extension(info) => info.is_failure_expected(),
+            Self::Cons(head, tail) => head.is_failure_expected() || tail.is_failure_expected(),
             _ => false,
         }
     }

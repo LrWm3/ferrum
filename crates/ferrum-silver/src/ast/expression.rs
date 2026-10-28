@@ -979,6 +979,44 @@ impl Exp {
 }
 
 impl Exp {
+    /// Marker membership for Scala PossibleTrigger, independent of trigger validity.
+    pub fn is_possible_trigger(&self) -> bool {
+        use ExpKind::*;
+        matches!(
+            self.kind(),
+            FuncApp(..)
+                | DomainFuncApp(..)
+                | EmptySeq(..)
+                | ExplicitSeq(..)
+                | RangeSeq(..)
+                | SeqAppend(..)
+                | SeqIndex(..)
+                | SeqTake(..)
+                | SeqDrop(..)
+                | SeqContains(..)
+                | SeqUpdate(..)
+                | SeqLength(..)
+                | EmptySet(..)
+                | ExplicitSet(..)
+                | EmptyMultiset(..)
+                | ExplicitMultiset(..)
+                | AnySetUnion(..)
+                | AnySetIntersection(..)
+                | AnySetSubset(..)
+                | AnySetMinus(..)
+                | AnySetContains(..)
+                | AnySetCardinality(..)
+                | EmptyMap(..)
+                | ExplicitMap(..)
+                | Maplet(..)
+                | MapUpdate(..)
+                | MapLookup(..)
+                | MapContains(..)
+                | MapCardinality(..)
+                | MapDomain(..)
+                | MapRange(..)
+        )
+    }
     pub fn magic_wand_structure(
         &self,
         program: &super::program::Program,

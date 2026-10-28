@@ -149,6 +149,11 @@ pub trait VerificationDiagnostic: std::fmt::Debug + Send + Sync {
     /// Source AbstractVerificationError.toString includes its ID and cached marker.
     fn render(&self) -> Result<String, DiagnosticError>;
     fn cached(&self) -> bool;
+    /// Source ErrorMessage.isExpected checks the offending node's info marker.
+    fn is_expected(&self) -> Result<bool, DiagnosticError> {
+        let node = self.offending_node()?;
+        super::verification_error::node_is_expected(&node)
+    }
     fn transformed_error(&self) -> Result<Arc<dyn VerificationDiagnostic>, DiagnosticError>;
     fn offending_node(&self) -> Result<crate::ast::utility::nodes::Node, DiagnosticError> {
         Err(DiagnosticError::Unsupported("diagnostic offending node"))

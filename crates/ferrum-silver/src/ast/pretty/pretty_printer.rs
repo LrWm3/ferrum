@@ -2,7 +2,7 @@
 //! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/ast/pretty/PrettyPrinter.scala
 //! Status: partial; built-in expression, statement, member, program, type and
 //! metadata rendering are implemented. Plugin-specific printers remain fallible;
-//! the native document layout engine is not yet proven identical to source.
+//! layout follows the source group scan and UTF-16 width rules.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -49,13 +49,13 @@ impl Doc {
         Self::concat([Self::text("("), self, Self::text(")")])
     }
 }
-/// Rendering uses JVM-compatible UTF-16 widths; exact source queue/trampoline layout is pending.
+/// Render source document groups, counting UTF-16 text units and one scan unit per line.
 pub fn pretty(width: usize, doc: &Doc) -> String {
     fn flat_width(doc: &Doc) -> Option<usize> {
         match doc {
             Doc::Nil => Some(0),
             Doc::Text(s) => Some(s.encode_utf16().count()),
-            Doc::Line(s) => Some(s.encode_utf16().count()),
+            Doc::Line(_) => Some(1),
             Doc::Concat(ds) => ds
                 .iter()
                 .try_fold(0usize, |sum, d| Some(sum.saturating_add(flat_width(d)?))),
@@ -67,39 +67,39 @@ pub fn pretty(width: usize, doc: &Doc) -> String {
         width: usize,
         indent: usize,
         flat: bool,
-        column: &mut usize,
+        remaining: &mut i64,
         out: &mut String,
     ) {
         match doc {
             Doc::Nil => {}
             Doc::Text(s) => {
                 out.push_str(s);
-                *column += s.encode_utf16().count();
+                *remaining -= s.encode_utf16().count() as i64;
             }
             Doc::Line(s) if flat => {
                 out.push_str(s);
-                *column += s.encode_utf16().count();
+                *remaining -= s.encode_utf16().count() as i64;
             }
             Doc::Line(_) => {
                 out.push('\n');
                 out.extend(std::iter::repeat_n(' ', indent));
-                *column = indent;
+                *remaining = width as i64 - indent as i64;
             }
             Doc::Concat(ds) => {
                 for d in ds {
-                    write(d, width, indent, flat, column, out);
+                    write(d, width, indent, flat, remaining, out);
                 }
             }
-            Doc::Nest(n, d) => write(d, width, indent.saturating_add(*n), flat, column, out),
+            Doc::Nest(n, d) => write(d, width, indent.saturating_add(*n), flat, remaining, out),
             Doc::Group(d) => {
-                let fit = flat || flat_width(d).is_some_and(|n| n <= width.saturating_sub(*column));
-                write(d, width, indent, fit, column, out);
+                let fit = flat_width(d).is_some_and(|n| n as i64 <= *remaining);
+                write(d, width, indent, fit, remaining, out);
             }
         }
     }
     let mut out = String::new();
-    let mut column = 0;
-    write(doc, width, 0, false, &mut column, &mut out);
+    let mut remaining = width as i64;
+    write(doc, width, 0, false, &mut remaining, &mut out);
     out
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1272,6 +1272,26 @@ pub fn expression_to_string(expression: &Exp) -> Result<String, PrintError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn source_nested_groups_scan_line_as_one_unit() {
+        use super::{Doc, pretty};
+        let nested = Doc::concat([Doc::text("b"), Doc::line(), Doc::text("c")]).group();
+        let wide_replacement =
+            Doc::concat([Doc::text("a"), Doc::Line("LONG".into()), nested.clone()]).group();
+        assert_eq!(pretty(5, &wide_replacement), "aLONGb\nc");
+        let regular = Doc::concat([Doc::text("a"), Doc::line(), nested]).group();
+        assert_eq!(pretty(3, &regular), "a\nb c");
+        assert_eq!(
+            pretty(
+                2,
+                &Doc::concat([
+                    Doc::text("long"),
+                    Doc::concat([Doc::line(), Doc::text("x")]).group()
+                ])
+            ),
+            "long\nx"
+        );
+    }
     use super::*;
     use crate::ast::ast::Metadata;
     #[test]

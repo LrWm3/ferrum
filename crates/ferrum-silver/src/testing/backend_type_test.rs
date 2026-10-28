@@ -20,7 +20,7 @@ use crate::ast::{
     utility::backend_type_factories::{BVFactory, FloatFactory, RoundingMode},
 };
 use crate::verifier::{
-    verification_error::{VerificationError, VerificationErrorKind},
+    verification_error::{RenderedVerificationError, VerificationErrorKind},
     verification_result::{AbstractError, VerificationResult},
     verifier::{Verifier, VerifierError},
 };
@@ -470,12 +470,20 @@ pub fn verify_case(
     expected: &Expected,
 ) -> Result<(), HarnessError> {
     let result = verifier.verify(program).map_err(HarnessError::Verifier)?;
-    let matches = match (&result, expected) {
+    if result_matches(&result, expected) {
+        Ok(())
+    } else {
+        Err(HarnessError::UnexpectedResult)
+    }
+}
+
+fn result_matches(result: &VerificationResult, expected: &Expected) -> bool {
+    match (result, expected) {
         (VerificationResult::Success, Expected::Success) => true,
         (VerificationResult::Failure(errors), expected) if errors.len() == 1 => match &errors[0] {
             AbstractError::Verification(error) => {
-                match error.as_any().downcast_ref::<VerificationError>() {
-                    Some(error) => match (&error.kind, expected) {
+                match error.as_any().downcast_ref::<RenderedVerificationError>() {
+                    Some(error) => match (&error.error().kind, expected) {
                         (
                             VerificationErrorKind::AssertFailed(actual),
                             Expected::AssertFailed(expected),
@@ -498,17 +506,38 @@ pub fn verify_case(
             _ => false,
         },
         _ => false,
-    };
-    if matches {
-        Ok(())
-    } else {
-        Err(HarnessError::UnexpectedResult)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn negative_case_matches_rendered_diagnostic() {
+        use crate::ast::utility::nodes::Node;
+        use crate::verifier::verification_error::{
+            ErrorNodeRenderer, ErrorReason, VerificationError,
+        };
+        use crate::verifier::verification_result::DiagnosticError;
+        use std::sync::Arc;
+        #[derive(Debug)]
+        struct Renderer;
+        impl ErrorNodeRenderer for Renderer {
+            fn render_node(&self, _: &Node) -> Result<String, DiagnosticError> {
+                Ok(String::new())
+            }
+        }
+        let (_, assertion) = generate_bv_op_test(false);
+        let error = VerificationError::new(
+            VerificationErrorKind::AssertFailed(assertion.clone()),
+            ErrorReason::Dummy,
+        );
+        let rendered = RenderedVerificationError::new(error, Arc::new(Renderer)).unwrap();
+        let result =
+            VerificationResult::Failure(vec![AbstractError::Verification(Arc::new(rendered))]);
+        assert!(result_matches(&result, &Expected::AssertFailed(assertion)));
+        assert!(!result_matches(&result, &Expected::Success));
+    }
     #[test]
     fn source_suite_builds_all_registered_cases() {
         let cases = cases();

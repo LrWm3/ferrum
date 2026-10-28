@@ -814,7 +814,26 @@ pub struct VerificationError {
     pub cached: bool,
     pub failure_contexts: Vec<Arc<dyn FailureContext>>,
 }
+/// Source ErrorMessage.isExpected checks info only on Infoed offending nodes.
+pub fn node_is_expected(
+    node: &crate::ast::utility::nodes::Node,
+) -> Result<bool, super::verification_result::DiagnosticError> {
+    if matches!(node, crate::ast::utility::nodes::Node::Type(_)) {
+        return Ok(false);
+    }
+    let meta = crate::ast::utility::viper_strategy::metadata(node).map_err(|_| {
+        super::verification_result::DiagnosticError::Unsupported("expected-error node metadata")
+    })?;
+    Ok(meta.info.is_failure_expected())
+}
 impl VerificationError {
+    pub fn is_expected(&self) -> Result<bool, super::verification_result::DiagnosticError> {
+        match self.kind.offending_node() {
+            Some(node) => node_is_expected(&node),
+            None => Ok(false),
+        }
+    }
+
     pub fn new(kind: VerificationErrorKind, reason: ErrorReason) -> Self {
         Self {
             kind,
@@ -1065,6 +1084,19 @@ pub trait ErrorNodeRenderer: fmt::Debug + Send + Sync {
         node: &crate::ast::utility::nodes::Node,
     ) -> Result<String, super::verification_result::DiagnosticError>;
 }
+/// Render verification diagnostics using Silver's source AST printer.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NativeErrorNodeRenderer;
+impl ErrorNodeRenderer for NativeErrorNodeRenderer {
+    fn render_node(
+        &self,
+        node: &crate::ast::utility::nodes::Node,
+    ) -> Result<String, super::verification_result::DiagnosticError> {
+        crate::ast::pretty::pretty_printer::pretty_node(node).map_err(|_| {
+            super::verification_result::DiagnosticError::Unsupported("error node pretty printing")
+        })
+    }
+}
 #[derive(Clone, Debug)]
 pub struct RenderedVerificationError {
     error: VerificationError,
@@ -1100,6 +1132,9 @@ impl super::verification_result::VerificationDiagnostic for RenderedVerification
     }
     fn cached(&self) -> bool {
         self.error.cached
+    }
+    fn is_expected(&self) -> Result<bool, super::verification_result::DiagnosticError> {
+        self.error.is_expected()
     }
     fn offending_node(
         &self,

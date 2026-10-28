@@ -16,7 +16,7 @@ use crate::ast::expression::{Exp, ExpKind, FieldAccess, PredicateAccess, Trigger
 pub struct UnsupportedExtensionProjection;
 
 /// Bottom-up projection of inhale/exhale expressions, retaining the selected
-/// expression's metadata. Extensions require their own reconstruction hook.
+/// expression's metadata. Extensions use their fallible reconstruction hook.
 pub fn when_inhaling(e: &Exp) -> Result<Exp, UnsupportedExtensionProjection> {
     project(e, true)
 }
@@ -27,7 +27,18 @@ pub fn when_exhaling(e: &Exp) -> Result<Exp, UnsupportedExtensionProjection> {
 fn project(e: &Exp, inhale: bool) -> Result<Exp, UnsupportedExtensionProjection> {
     let rebuilt = e.map_expression_children(
         &mut |child| project(child, inhale),
-        &mut |_| Err(UnsupportedExtensionProjection),
+        &mut |extension| {
+            extension
+                .0
+                .map_expressions(&|child| {
+                    project(child, inhale).map_err(|_| {
+                        crate::verifier::verification_result::DiagnosticError::Unsupported(
+                            "extension inhale/exhale projection",
+                        )
+                    })
+                })
+                .map_err(|_| UnsupportedExtensionProjection)
+        },
         &mut |field| {
             let receiver = project(&field.receiver, inhale)?;
             Ok(if receiver == field.receiver {
@@ -614,8 +625,22 @@ pub fn magic_wand_structure(
             _ => e.clone(),
         };
         let mut exp_map = |child: &Exp| transform(child, holes, &context, unique, unique_names);
-        let mut extension =
-            |_: &ExtensionExpHandle| Err(MagicWandError::UnsupportedExtensionReconstruction);
+        let mut extension = |extension: &ExtensionExpHandle| {
+            let child_error = std::cell::RefCell::new(None);
+            let mapped = extension.0.map_expressions(&|child| {
+                transform(child, holes, &context, unique, unique_names).map_err(|error| {
+                    *child_error.borrow_mut() = Some(error);
+                    crate::verifier::verification_result::DiagnosticError::Unsupported(
+                        "magic wand extension child reconstruction",
+                    )
+                })
+            });
+            mapped.map_err(|_| {
+                child_error
+                    .into_inner()
+                    .unwrap_or(MagicWandError::UnsupportedExtensionReconstruction)
+            })
+        };
         let mut field = |child: &FieldAccess| {
             let exp = Exp::new(ExpKind::FieldAccess(child.clone()), child.meta.clone());
             match transform(&exp, holes, &context, unique, unique_names)?.kind() {

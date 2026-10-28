@@ -1,8 +1,7 @@
 //! State formatting for debugger and symbolic-execution logs.
 //! Upstream: https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/reporting/Formatters.scala
 //! Status: source layout, term filters and JSON-like text are implemented. Term,
-//! chunk and AST rendering are supplied by a fallible renderer until their full
-//! source-compatible Display implementations are available.
+//! Silicon term and chunk rendering remain fallible; native Silver AST rendering is available.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -26,6 +25,38 @@ pub trait StateRenderer {
     fn expression(&self, expression: &Exp) -> Result<String, Self::Error>;
     fn typ(&self, typ: &Type) -> Result<String, Self::Error>;
     fn chunk(&self, chunk: &Chunk) -> Result<String, Self::Error>;
+}
+/// A formatter bridge using Silver's actual AST printer and caller-provided
+/// Silicon term and chunk renderers (whose source Display is still incomplete).
+pub struct NativeAstStateRenderer<T, C> {
+    pub render_term: T,
+    pub render_chunk: C,
+}
+#[derive(Debug)]
+pub enum NativeStateRenderError<E> {
+    Ast(ferrum_silver::ast::pretty::pretty_printer::PrintError),
+    Silicon(E),
+}
+impl<T, C, E> StateRenderer for NativeAstStateRenderer<T, C>
+where
+    T: Fn(&Term) -> Result<String, E>,
+    C: Fn(&Chunk) -> Result<String, E>,
+{
+    type Error = NativeStateRenderError<E>;
+    fn term(&self, term: &Term) -> Result<String, Self::Error> {
+        (self.render_term)(term).map_err(NativeStateRenderError::Silicon)
+    }
+    fn expression(&self, expression: &Exp) -> Result<String, Self::Error> {
+        ferrum_silver::ast::pretty::pretty_printer::expression_to_string(expression)
+            .map_err(NativeStateRenderError::Ast)
+    }
+    fn typ(&self, typ: &Type) -> Result<String, Self::Error> {
+        ferrum_silver::ast::pretty::pretty_printer::show_type(typ)
+            .map_err(NativeStateRenderError::Ast)
+    }
+    fn chunk(&self, chunk: &Chunk) -> Result<String, Self::Error> {
+        (self.render_chunk)(chunk).map_err(NativeStateRenderError::Silicon)
+    }
 }
 /// Source hides built-in equalities involving a Combine, and `not(x == null)`
 /// when null is the right operand. Other equalities and reversed null are retained.
