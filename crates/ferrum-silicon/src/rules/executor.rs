@@ -834,6 +834,13 @@ fn next_path_id() -> i32 {
 }
 type SilverBlock = ferrum_silver::cfg::silver::silver_cfg::SilverBlock;
 type SilverEdge = ferrum_silver::cfg::silver::silver_cfg::SilverEdge;
+#[derive(Clone, Copy)]
+pub enum LoopDebugHeapStart {
+    InhaleInvariant,
+    ExhaleInvariant,
+    StateMerge,
+}
+
 /// CFG-specific verifier services. Loop checking and branch/join use the same
 /// source continuations as the statement executor and must propagate failures.
 pub trait CfgContext<P, D, J, V>: ExecutionContext<P, D, J, V> {
@@ -979,11 +986,32 @@ pub trait CfgContext<P, D, J, V>: ExecutionContext<P, D, J, V> {
         )
             -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
     ) -> Result<VerificationResult<V>, ExecutionError<Self::Error>>;
+    fn loop_start_debug_heap(
+        &mut self,
+        state: State<P, D, J>,
+        _start: LoopDebugHeapStart,
+    ) -> Result<State<P, D, J>, Self::Error> {
+        Ok(state)
+    }
+    fn loop_finish_debug_heap(
+        &mut self,
+        state: State<P, D, J>,
+    ) -> Result<State<P, D, J>, Self::Error> {
+        Ok(state)
+    }
+    fn loop_capture_debug_heap(
+        &mut self,
+        _state: &State<P, D, J>,
+    ) -> Result<Option<(String, crate::state::state::HeapRecord)>, Self::Error> {
+        Ok(None)
+    }
     fn loop_merge_debug_heaps(
         &mut self,
         state: State<P, D, J>,
-        leftover: &State<P, D, J>,
-    ) -> Result<State<P, D, J>, Self::Error>;
+        _record: Option<&(String, crate::state::state::HeapRecord)>,
+    ) -> Result<State<P, D, J>, Self::Error> {
+        Ok(state)
+    }
     fn loop_saturate(&mut self) -> Result<(), Self::Error>;
     fn loop_smoke(&mut self) -> Result<bool, Self::Error>;
     fn loop_comment(&mut self, text: &str) -> Result<(), Self::Error>;
@@ -1421,6 +1449,9 @@ where
         None
     };
     if edge.kind() == Kind::Out {
+        state = context
+            .loop_start_debug_heap(state, LoopDebugHeapStart::StateMerge)
+            .map_err(ExecutionError::Context)?;
         let saved = state
             .invariant_contexts
             .first()
@@ -1430,6 +1461,9 @@ where
             .merge_invariant_context(state, saved)
             .map_err(ExecutionError::Context)?;
         state.invariant_contexts.remove(0);
+        state = context
+            .loop_finish_debug_heap(state)
+            .map_err(ExecutionError::Context)?;
     }
     if join_point.is_some_and(|point| point == edge.target()) {
         return continuation(context, state);
@@ -1549,6 +1583,7 @@ fn execute_loop_phases<C, P, D, J: Clone, V>(
     context: &mut C,
     leftover: State<P, D, J>,
     frame: &LoopPhaseExecutionFrame<P, D, J>,
+    debug_record: Option<&(String, crate::state::state::HeapRecord)>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -1565,7 +1600,7 @@ where
         let mut phase_state = phase.state.clone();
         phase_state.invariant_contexts.insert(0, leftover.h.clone());
         phase_state = context
-            .loop_merge_debug_heaps(phase_state, &leftover)
+            .loop_merge_debug_heaps(phase_state, debug_record)
             .map_err(ExecutionError::Context)?;
         let result = context.locally_loop(phase_state, &mut |context, state| {
             context
@@ -1655,7 +1690,13 @@ where
             .loop_comment("Loop head block: Check well-definedness of invariant")
             .map_err(ExecutionError::Context)?;
         let mark = context.loop_mark();
+        let state = context
+            .loop_start_debug_heap(state, LoopDebugHeapStart::InhaleInvariant)
+            .map_err(ExecutionError::Context)?;
         context.loop_produce_invariants(state, invariants, &mut |context, state| {
+            let state = context
+                .loop_finish_debug_heap(state)
+                .map_err(ExecutionError::Context)?;
             let paths = context
                 .loop_path_after(mark)
                 .map_err(ExecutionError::Context)?;
@@ -1681,13 +1722,28 @@ where
         context
             .loop_comment("Loop head block: Establish invariant")
             .map_err(ExecutionError::Context)?;
+        let state = context
+            .loop_start_debug_heap(state, LoopDebugHeapStart::ExhaleInvariant)
+            .map_err(ExecutionError::Context)?;
         context.loop_consume_invariants(state, invariants, false, &mut |context, leftover| {
+            let leftover = context
+                .loop_finish_debug_heap(leftover)
+                .map_err(ExecutionError::Context)?;
+            let debug_record = context
+                .loop_capture_debug_heap(&leftover)
+                .map_err(ExecutionError::Context)?;
             context
                 .loop_comment(
                     "Loop head block: Execute statements of loop head block (in invariant state)",
                 )
                 .map_err(ExecutionError::Context)?;
-            execute_loop_phases(context, leftover, &frame, continuation)
+            execute_loop_phases(
+                context,
+                leftover,
+                &frame,
+                debug_record.as_ref(),
+                continuation,
+            )
         })
     })?;
     Ok(first.combine(|| second, false))

@@ -672,3 +672,10 @@ formatter is installed. Replacing a member rebinds the decider; replacing the
 root or resetting the context clears stale attachments. Closing a member retains
 the source attachment until the next member. Exact JVM floating-point formatting
 and automatic public profile setup remain separate requirements.
+
+Method and loop debug heap lifecycles now connect precondition, postcondition,
+invariant and Out-edge merge records. Method completion retains the source
+unconditional final-heap lookup even while debug recording is disabled. Loop
+consumption captures one finished leftover record for all replayed phases, and
+key heaps finish only at source success continuations. Debug-enabled execution
+remains gated and has not received an end-to-end compatibility pass.
