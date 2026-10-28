@@ -39,7 +39,10 @@ pub use ferrum_silver as silver;
 
 use silicon::{
     config::Config,
-    decider::{decider::DefaultDecider, prover_std_io::ProverStdIo},
+    decider::{
+        decider::DefaultDecider,
+        prover_std_io::{ProverEvent, ProverStdIo},
+    },
     interfaces::verification::{ResultKind, VerificationResult as SiliconResult},
     silicon::{Silicon, SiliconBackend, SiliconOutcome},
     state::terms::{TermFactory, TermOptions},
@@ -65,7 +68,10 @@ use silver::{
         verification_result::{AbstractError, VerificationResult},
     },
 };
-use std::{path::Path, sync::Arc};
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 #[derive(Debug)]
 pub enum FerrumError {
@@ -139,6 +145,7 @@ struct NativeBackend {
     config: Config,
     context: Option<NativeContext>,
     recorded_source: Option<String>,
+    warnings: Arc<Mutex<Vec<String>>>,
 }
 impl NativeBackend {
     fn new(config: Config) -> Self {
@@ -146,6 +153,7 @@ impl NativeBackend {
             config,
             context: None,
             recorded_source: None,
+            warnings: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -181,7 +189,21 @@ impl SiliconBackend for NativeBackend {
                 )));
             }
         };
-        let prover = ProverStdIo::new("main".into(), settings, profile, factory.clone(), |_| {});
+        let warnings = self.warnings.clone();
+        let prover = ProverStdIo::new(
+            "main".into(),
+            settings,
+            profile,
+            factory.clone(),
+            move |event| {
+                if let ProverEvent::Warning(warning) = event {
+                    warnings
+                        .lock()
+                        .expect("poisoned warning buffer")
+                        .push(warning);
+                }
+            },
+        );
         let identifiers = prover.identifier_factory();
         let decider = DefaultDecider::new(
             prover,
@@ -218,6 +240,10 @@ impl SiliconBackend for NativeBackend {
     }
     fn stop(&mut self) -> Result<(), FerrumError> {
         if let Some(mut context) = self.context.take() {
+            self.warnings
+                .lock()
+                .expect("poisoned warning buffer")
+                .append(&mut context.warnings);
             context.stop().map_err(execution)?;
         }
         Ok(())
@@ -245,8 +271,12 @@ impl SiliconBackend for NativeBackend {
             .context
             .as_mut()
             .ok_or_else(|| FerrumError::Execution("Native solver has not been started".into()))?;
-        let results: Vec<SiliconResult<VerificationError>> =
-            context.verify_program(program, cfgs).map_err(execution)?;
+        let results = context.verify_program(program, cfgs);
+        self.warnings
+            .lock()
+            .expect("poisoned warning buffer")
+            .append(&mut context.warnings);
+        let results: Vec<SiliconResult<VerificationError>> = results.map_err(execution)?;
         // Main verification already flattens each member's predecessor results.
         // Silicon.runVerifier selects only failures and sorts on transformed position.
         let mut errors = Vec::new();
@@ -300,6 +330,17 @@ impl Session {
     }
     pub fn stop(&mut self) -> Result<(), FerrumError> {
         self.silicon.stop().map_err(execution)
+    }
+    /// Drain solver and verifier warnings, including warnings from a failed run.
+    pub fn take_warnings(&mut self) -> Vec<String> {
+        std::mem::take(
+            &mut *self
+                .silicon
+                .backend()
+                .warnings
+                .lock()
+                .expect("poisoned warning buffer"),
+        )
     }
 }
 impl Drop for Session {
@@ -362,6 +403,7 @@ pub fn run_file(config: Config) -> Result<RunReport, FerrumError> {
     let mut session = Session::new(config)?;
     let result = session.verify(&program, &[]);
     let cleanup = session.stop();
+    warnings.extend(session.take_warnings());
     let result = match (result, cleanup) {
         (Ok(result), Ok(())) => result,
         (Err(error), Ok(())) | (Ok(_), Err(error)) => return Err(error),
