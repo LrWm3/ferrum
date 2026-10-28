@@ -35,8 +35,9 @@
 //! Open decisions:
 //! CFG path reporting, branch state, snapshots and continuation/verifier ownership.
 //!
-//! Status: partial; CPS statement sequencing, locals, labels, inhale/exhale dispatch implemented.
-//! Loop phases and CFG traversal use verifier services; wand rules remain.
+//! Status: partial; statement and CFG execution use native verifier services. Owned CFG
+//! terminals support internally gated branch jobs; loop propagation and diagnostic coverage
+//! remain under review. Opaque callbacks retain synchronous execution.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -69,6 +70,7 @@ pub enum ExecutionError<E> {
     MissingCfg,
     InvalidCfgEdgePair,
     ReentrantContinuation,
+    OwnedCfgSchedulerUnavailable,
     Cfg(ferrum_silver::cfg::silver::silver_cfg::SilverCfgError),
     Traversal(ferrum_silver::ast::utility::nodes::TraversalError),
     ExpressionType(ferrum_silver::ast::expression::ExpressionTypeError),
@@ -834,6 +836,22 @@ fn next_path_id() -> i32 {
 }
 type SilverBlock = ferrum_silver::cfg::silver::silver_cfg::SilverBlock;
 type SilverEdge = ferrum_silver::cfg::silver::silver_cfg::SilverEdge;
+/// Executable continuation reached when a transferred CFG path exits.
+#[derive(Clone)]
+pub enum CfgContinuationTerminal {
+    Method(crate::supporters::method_supporter::MethodCfgContinuation),
+    Standalone,
+}
+
+/// Owned branch action. The optional path ID is allocated only when the action runs.
+#[derive(Clone)]
+pub struct CfgContinuationAction {
+    pub edge: ferrum_silver::cfg::silver::silver_cfg::SilverEdge,
+    pub outer_join: Option<ferrum_silver::cfg::silver::silver_cfg::SilverBlock>,
+    pub path_id: Option<i32>,
+    pub terminal: CfgContinuationTerminal,
+}
+
 #[derive(Clone, Copy)]
 pub enum LoopDebugHeapStart {
     InhaleInvariant,
@@ -896,6 +914,27 @@ pub trait CfgContext<P, D, J, V>: ExecutionContext<P, D, J, V> {
     ) -> Result<VerificationResult<V>, ExecutionError<Self::Error>>;
     fn all_cfg_joins(&self, state: &State<P, D, J>) -> bool;
     fn parallelize_cfg_branches(&self) -> bool;
+    /// True only while an owner-local scheduler can accept complete owned CFG tails.
+    fn supports_owned_cfg_branch(&self) -> bool {
+        false
+    }
+    /// A continuation may bypass a conditional close only when it is a proven no-op.
+    fn owned_cfg_conditional_close_is_noop(&self, _id: Option<i32>) -> bool {
+        false
+    }
+
+    fn try_branch_owned_cfg(
+        &mut self,
+        _state: &State<P, D, J>,
+        _condition: &TermValue,
+        _original: &Exp,
+        _rewritten: Option<&Exp>,
+        _yes: CfgContinuationAction,
+        _no: CfgContinuationAction,
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
+    }
+
     fn join_cfg_branches(
         &mut self,
         state: State<P, D, J>,
@@ -1038,6 +1077,32 @@ where
         continuation,
     )
 }
+/// Run a CFG with an explicitly owned terminal; the closure is verifier-local.
+pub(crate) fn execute_cfg_owned<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    cfg: &ferrum_silver::cfg::silver::silver_cfg::SilverCfg,
+    terminal: &CfgContinuationTerminal,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    execute_block_inner(
+        context,
+        state,
+        cfg.graph().entry(),
+        ferrum_silver::cfg::edge::Kind::Normal,
+        None,
+        next_path_id(),
+        Some(terminal),
+        continuation,
+    )
+}
+
 /// Owned successor context for a statement block. Edges are still obtained
 /// after the statements finish, using the resulting symbolic state.
 #[derive(Clone)]
@@ -1051,6 +1116,7 @@ fn execute_cfg_successor_frame<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
     frame: &CfgSuccessorFrame,
+    owned: Option<&CfgContinuationTerminal>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -1068,6 +1134,7 @@ where
         &edges,
         frame.join_point.as_ref(),
         frame.path_id,
+        owned,
         continuation,
     )
 }
@@ -1079,6 +1146,34 @@ pub fn execute_block<C, P, D, J: Clone, V>(
     incoming: ferrum_silver::cfg::edge::Kind,
     join_point: Option<&SilverBlock>,
     path_id: i32,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    execute_block_inner(
+        context,
+        state,
+        block,
+        incoming,
+        join_point,
+        path_id,
+        None,
+        continuation,
+    )
+}
+
+fn execute_block_inner<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    block: &SilverBlock,
+    incoming: ferrum_silver::cfg::edge::Kind,
+    join_point: Option<&SilverBlock>,
+    path_id: i32,
+    owned: Option<&CfgContinuationTerminal>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -1099,7 +1194,7 @@ where
                 path_id,
             };
             execute_all(context, state, statements, &mut |context, state| {
-                execute_cfg_successor_frame(context, state, &frame, continuation)
+                execute_cfg_successor_frame(context, state, &frame, owned, continuation)
             })?
         }
         BlockKind::LoopHead {
@@ -1139,6 +1234,7 @@ fn execute_cfg_post_join<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
     frame: &CfgPostJoinFrame,
+    owned: Option<&CfgContinuationTerminal>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -1161,13 +1257,14 @@ where
         .first()
         .map(|edge| edge.kind())
         .ok_or(ExecutionError::InvalidCfgEdgePair)?;
-    execute_block(
+    execute_block_inner(
         context,
         state,
         &frame.join,
         incoming,
         frame.outer_join.as_ref(),
         frame.path_id,
+        owned,
         continuation,
     )
 }
@@ -1183,6 +1280,7 @@ fn execute_cfg_edge_sequence<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
     frame: &CfgEdgeSequenceFrame,
+    owned: Option<&CfgContinuationTerminal>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -1216,6 +1314,7 @@ where
                 edge,
                 frame.join_point.as_ref(),
                 branch_path_id,
+                owned,
                 continuation,
             )?;
             result = result.combine(|| next, false);
@@ -1233,6 +1332,7 @@ fn follow_edges<C, P, D, J: Clone, V>(
     edges: &[SilverEdge],
     join_point: Option<&SilverBlock>,
     path_id: i32,
+    owned: Option<&CfgContinuationTerminal>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -1245,7 +1345,15 @@ where
         return continuation(context, state);
     }
     if edges.len() == 1 {
-        return follow_edge(context, state, &edges[0], join_point, path_id, continuation);
+        return follow_edge(
+            context,
+            state,
+            &edges[0],
+            join_point,
+            path_id,
+            owned,
+            continuation,
+        );
     }
     use ferrum_silver::cfg::{block::BlockKind, edge::Edge};
     if let [
@@ -1304,14 +1412,22 @@ where
                                 path_id: None,
                             },
                             &mut |context, state| {
-                                execute_cfg_post_join(context, state, &post_join, continuation)
+                                execute_cfg_post_join(
+                                    context,
+                                    state,
+                                    &post_join,
+                                    owned,
+                                    continuation,
+                                )
                             },
                         )
                     },
                 );
             }
         }
-        if context.parallelize_cfg_branches()
+        let owned_profile =
+            owned.is_some() && join_point.is_none() && context.supports_owned_cfg_branch();
+        if (owned_profile || context.parallelize_cfg_branches())
             && matches!(second.kind(),ExpKind::Not(exp) if exp == first)
         {
             // Source opens this record without a matching close in the complementary-edge path.
@@ -1323,6 +1439,29 @@ where
                 first,
                 matches!(source1.kind(), BlockKind::LoopHead { .. }),
                 &mut |context, state, term, rewritten| {
+                    if owned_profile
+                        && state.parallelize_branches
+                        && !state.under_join
+                        && !state.is_in_package
+                        && !state.exhale_ext
+                    {
+                        let terminal = owned.expect("owned profile has terminal").clone();
+                        let yes = CfgContinuationAction {
+                            edge: edges[0].clone(),
+                            outer_join: None,
+                            path_id: Some(path_id),
+                            terminal: terminal.clone(),
+                        };
+                        let no = CfgContinuationAction {
+                            edge: edges[1].clone(),
+                            outer_join: None,
+                            path_id: None,
+                            terminal,
+                        };
+                        return context
+                            .try_branch_owned_cfg(&state, &term, first, rewritten.as_ref(), yes, no)
+                            .ok_or(ExecutionError::OwnedCfgSchedulerUnavailable)?;
+                    }
                     let continuation = std::cell::RefCell::new(&mut *continuation);
                     context.branch_edge(
                         state,
@@ -1336,6 +1475,7 @@ where
                                 &edges[0],
                                 join_point,
                                 path_id,
+                                owned,
                                 &mut |context, state| {
                                     (continuation
                                         .try_borrow_mut()
@@ -1352,6 +1492,7 @@ where
                                 &edges[1],
                                 join_point,
                                 next_path_id(),
+                                owned,
                                 &mut |context, state| {
                                     (continuation
                                         .try_borrow_mut()
@@ -1371,8 +1512,33 @@ where
         join_point: join_point.cloned(),
         path_id,
     };
-    execute_cfg_edge_sequence(context, state, &frame, continuation)
+    execute_cfg_edge_sequence(context, state, &frame, owned, continuation)
 }
+/// Run an owned branch action on its verifier thread; all callbacks remain local.
+pub(crate) fn execute_cfg_continuation<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    action: &CfgContinuationAction,
+    terminal: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        &CfgContinuationTerminal,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    follow_edge(
+        context,
+        state,
+        &action.edge,
+        action.outer_join.as_ref(),
+        action.path_id.unwrap_or_else(next_path_id),
+        Some(&action.terminal),
+        &mut |context, state| terminal(context, state, &action.terminal),
+    )
+}
+
 pub(crate) fn execute_cfg_join_branch<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
@@ -1391,6 +1557,7 @@ where
         &branch.edge,
         Some(&branch.join),
         branch.path_id.unwrap_or_else(next_path_id),
+        None,
         continuation,
     )
 }
@@ -1408,6 +1575,7 @@ fn execute_cfg_edge_target<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
     frame: &CfgEdgeTargetFrame,
+    owned: Option<&CfgContinuationTerminal>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -1416,13 +1584,14 @@ fn execute_cfg_edge_target<C, P, D, J: Clone, V>(
 where
     C: CfgContext<P, D, J, V>,
 {
-    execute_block(
+    execute_block_inner(
         context,
         state,
         &frame.target,
         frame.incoming,
         frame.join_point.as_ref(),
         frame.path_id,
+        owned,
         continuation,
     )
 }
@@ -1433,6 +1602,7 @@ fn follow_edge<C, P, D, J: Clone, V>(
     edge: &SilverEdge,
     join_point: Option<&SilverBlock>,
     path_id: i32,
+    owned: Option<&CfgContinuationTerminal>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -1479,7 +1649,9 @@ where
         path_id,
     };
     match edge {
-        Edge::Unconditional { .. } => execute_cfg_edge_target(context, state, &frame, continuation),
+        Edge::Unconditional { .. } => {
+            execute_cfg_edge_target(context, state, &frame, owned, continuation)
+        }
         Edge::Conditional {
             condition, source, ..
         } => context.evaluate_edge(
@@ -1500,12 +1672,24 @@ where
                     rewritten.as_ref(),
                     &mut |context, mut state| {
                         state.parallelize_branches = parallel;
-                        execute_cfg_edge_target(context, state, &frame, &mut |context, state| {
-                            context
-                                .close_conditional_edge_scope(conditional_scope)
-                                .map_err(ExecutionError::Context)?;
-                            continuation(context, state)
-                        })
+                        let target_owned =
+                            if context.owned_cfg_conditional_close_is_noop(conditional_scope) {
+                                owned
+                            } else {
+                                None
+                            };
+                        execute_cfg_edge_target(
+                            context,
+                            state,
+                            &frame,
+                            target_owned,
+                            &mut |context, state| {
+                                context
+                                    .close_conditional_edge_scope(conditional_scope)
+                                    .map_err(ExecutionError::Context)?;
+                                continuation(context, state)
+                            },
+                        )
                     },
                     &mut |context, _| {
                         context
@@ -1566,6 +1750,7 @@ where
         &frame.edges,
         frame.join_point.as_ref(),
         frame.path_id,
+        None,
         continuation,
     )?;
     Ok(checked.combine(|| followed, false))

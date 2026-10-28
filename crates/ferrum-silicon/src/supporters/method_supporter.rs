@@ -47,6 +47,12 @@ pub struct MethodCfgContinuation {
     method: Method,
 }
 
+impl MethodCfgContinuation {
+    pub fn new(method: Method) -> Self {
+        Self { method }
+    }
+}
+
 pub trait MethodVerificationServices<P, D, J, V>: Sized {
     type Error;
     fn warn_method_annotation(&mut self, warning: String) -> Result<(), Self::Error>;
@@ -266,13 +272,7 @@ pub fn verify_method<P, D, J: Clone, V, C: MethodVerificationServices<P, D, J, V
                 return Ok(wellformed);
             }
             let execution = context.method_locally(state, &mut |context, state| {
-                context.execute_method_cfg(
-                    state,
-                    &cfg,
-                    MethodCfgContinuation {
-                        method: method.clone(),
-                    },
-                )
+                context.execute_method_cfg(state, &cfg, MethodCfgContinuation::new(method.clone()))
             })?;
             Ok(wellformed.and_then(|| execution))
         })

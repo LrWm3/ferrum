@@ -773,3 +773,12 @@ preserves signed zero and uses Java's NaN/Infinity spellings. This removes the
 need for a JVM-dependent formatting implementation in native reporting setup.
 Finite digit/exponent spelling can differ from Java 17; exact-format injection
 remains available and integer-delta handling is unchanged.
+
+Owned nonjoined CFG actions now execute through explicit method-postcondition or
+standalone-success terminals, while callbacks created on the executing worker
+remain local. The internal scheduler carries owned state and solver snapshots,
+drains submitted else jobs after execution/reporting errors, and preserves typed
+terminal errors. Actual Z3 regressions cover nested branches, permission loss,
+postcondition failures, two fatal branches and forced foreign-worker restoration.
+The public option stays gated while loop/nested-wait isolation and remaining
+continuation boundaries are completed; see [continuations.md](continuations.md).

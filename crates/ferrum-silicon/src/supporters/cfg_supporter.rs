@@ -63,6 +63,14 @@ pub trait CfgVerificationServices<P, D, J, V>: Sized {
             CfgVerificationError<Self::Error>,
         >,
     ) -> Result<VerificationResult<V>, CfgVerificationError<Self::Error>>;
+    /// Execute a standalone CFG whose terminal is source Success.
+    fn execute_cfg_standalone(
+        &mut self,
+        state: State<P, D, J>,
+        cfg: &SilverCfg,
+    ) -> Result<VerificationResult<V>, CfgVerificationError<Self::Error>> {
+        self.execute_cfg(state, cfg, &mut |_, _| Ok(VerificationResult::success()))
+    }
 }
 #[derive(Debug)]
 pub enum CfgVerificationError<E> {
@@ -91,7 +99,125 @@ pub fn verify_cfg<P, D, J: Clone, V, C: CfgVerificationServices<P, D, J, V>>(
         .output_cfg(&cfg)
         .map_err(CfgVerificationError::Service)?;
     let result = context.cfg_locally(state, &mut |context, state| {
-        context.execute_cfg(state, &cfg, &mut |_, _| Ok(VerificationResult::success()))
+        context.execute_cfg_standalone(state, &cfg)
     })?;
     Ok(vec![result])
+}
+
+#[cfg(test)]
+mod standalone_terminal_tests {
+    use super::*;
+    use crate::state::terms::{TermFactory, TermOptions};
+    use ferrum_silver::ast::{
+        program::Program,
+        statement::{Stmt, StmtKind},
+    };
+
+    #[derive(Default)]
+    struct Service {
+        fail: bool,
+        locally_entered: usize,
+        locally_finished: usize,
+        executions: usize,
+    }
+    impl CfgVerificationServices<(), (), (), ()> for Service {
+        type Error = &'static str;
+        fn empty_cfg_heap(
+            &mut self,
+            _: &State<(), (), ()>,
+        ) -> Result<Arc<ListBackedHeap>, Self::Error> {
+            Ok(Arc::new(ListBackedHeap::new()))
+        }
+        fn output_cfg(&mut self, _: &SilverCfg) -> Result<(), Self::Error> {
+            Ok(())
+        }
+        fn cfg_locally(
+            &mut self,
+            state: State<(), (), ()>,
+            action: &mut dyn FnMut(
+                &mut Self,
+                State<(), (), ()>,
+            ) -> Result<
+                VerificationResult<()>,
+                CfgVerificationError<Self::Error>,
+            >,
+        ) -> Result<VerificationResult<()>, CfgVerificationError<Self::Error>> {
+            self.locally_entered += 1;
+            let result = action(self, state);
+            self.locally_finished += 1;
+            result
+        }
+        fn execute_cfg(
+            &mut self,
+            state: State<(), (), ()>,
+            _: &SilverCfg,
+            continuation: &mut dyn FnMut(
+                &mut Self,
+                State<(), (), ()>,
+            ) -> Result<
+                VerificationResult<()>,
+                CfgVerificationError<Self::Error>,
+            >,
+        ) -> Result<VerificationResult<()>, CfgVerificationError<Self::Error>> {
+            self.executions += 1;
+            if self.fail {
+                Err(CfgVerificationError::Service("execute"))
+            } else {
+                continuation(self, state)
+            }
+        }
+    }
+    #[test]
+    fn generic_standalone_terminal_keeps_local_scope_completion() {
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let program = Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Default::default(),
+        );
+        let state = State::new(
+            program,
+            Default::default(),
+            Default::default(),
+            (),
+            &factory,
+            false,
+            false,
+        );
+        let body = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![],
+                declarations: vec![],
+            },
+            Default::default(),
+        );
+        let cfg = Arc::new(
+            ferrum_silver::cfg::silver::cfg_generator::statement_to_cfg(&body, true, true).unwrap(),
+        );
+        let mut service = Service::default();
+        let result = verify_cfg(&mut service, state.clone(), cfg.clone()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(!result[0].is_fatal());
+        service.fail = true;
+        assert!(matches!(
+            verify_cfg(&mut service, state, cfg),
+            Err(CfgVerificationError::Service("execute"))
+        ));
+        assert_eq!(
+            (
+                service.locally_entered,
+                service.locally_finished,
+                service.executions
+            ),
+            (2, 2, 2)
+        );
+    }
 }

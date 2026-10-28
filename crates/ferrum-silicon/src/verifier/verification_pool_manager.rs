@@ -27,9 +27,9 @@
 //! Open decisions:
 //! Thread-local solver ownership, nested scheduling and cancellation cleanup.
 //!
-//! Status: partial; ordered pooled broadcast, worker ownership/lifecycle and dedicated
-//! thread-bound top-level task scheduling are implemented. Concrete native verification,
-//! nested branch scheduling and interruption-aware teardown remain pending.
+//! Status: partial; owner-thread solvers, pooled native verification, cooperative branch
+//! jobs and cancellation cleanup are connected. Joined and owned terminal jobs remain
+//! internally gated pending broader continuation and source compatibility checks.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -1792,6 +1792,7 @@ pub struct NativeEvaluationBranchOutput {
 pub enum NativeJoinAction {
     Cfg(crate::rules::executor::CfgJoinBranch),
     Predicate(crate::rules::predicate_supporter::PredicateContentsAction),
+    Continuation(crate::rules::executor::CfgContinuationAction),
 }
 pub struct NativeJoinJob<
     PD = crate::supporters::predicate_verification_unit::PredicateData,
@@ -1800,7 +1801,7 @@ pub struct NativeJoinJob<
     pub source_worker_id: String,
     pub snapshot: crate::rules::brancher::BranchTransferSnapshot,
     pub state: crate::state::state::State<PD, FD, crate::config::JoinMode>,
-    pub mark: crate::decider::path_conditions::Mark,
+    pub mark: Option<crate::decider::path_conditions::Mark>,
     pub condition: Term,
     pub original: ferrum_silver::ast::expression::Exp,
     pub rewritten: Option<ferrum_silver::ast::expression::Exp>,
@@ -1823,6 +1824,15 @@ pub struct NativeJoinOutput<
 }
 #[cfg(test)]
 static CFG_JOIN_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static CONTINUATION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static CONTINUATION_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static CONTINUATION_TEST_FOREIGN_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 static PREDICATE_JOIN_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
@@ -1942,6 +1952,9 @@ where
             }
             NativeJoinAction::Predicate(_) => {
                 PREDICATE_JOIN_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            NativeJoinAction::Continuation(_) => {
+                CONTINUATION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
         }
         let task = self.queue.submit(NativeWorkerTask {
@@ -3601,12 +3614,13 @@ mod thread_pool_tests {
         assert!(matches!(pool.shutdown(), Err(ThreadPoolError::Worker(1))));
         assert_eq!(*stopped.lock().unwrap(), [2, 1, 0]);
     }
-    fn run_parallel_source_with_warnings<P, F>(
+    fn run_parallel_source_with_warnings_impl<P, F>(
         source: &str,
         workers: usize,
         make: F,
         standalone_cfg: bool,
         cfg_scheduler: bool,
+        nonjoined: bool,
     ) -> (Vec<bool>, Vec<String>)
     where
         P: crate::interfaces::decider::prover::Prover + 'static,
@@ -3635,8 +3649,15 @@ mod thread_pool_tests {
             sil_frontend::{SilFrontendPhases, standard_plugin_manager},
         };
         let mut config = Config::default();
+        if nonjoined {
+            config.number_of_errors_to_report = 2;
+        }
         if cfg_scheduler {
-            config.more_joins = crate::config::JoinMode::All;
+            config.more_joins = if nonjoined {
+                crate::config::JoinMode::Off
+            } else {
+                crate::config::JoinMode::All
+            };
             config.enable_simplified_unfolds = true;
         }
         let native_options = NativeOptions::from_config(&config).unwrap();
@@ -3759,6 +3780,13 @@ mod thread_pool_tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(failures.len(), 1);
+        if source.contains("if (b) { assert false; } else { assert false; }") {
+            assert_eq!(
+                failures[0].len(),
+                2,
+                "both branch failures must be retained"
+            );
+        }
         if standalone_cfg {
             assert!(failures[0][0].scope().unwrap().is_none());
         } else {
@@ -3791,6 +3819,34 @@ mod thread_pool_tests {
             .unwrap();
         let warnings = std::mem::take(&mut *worker_warnings.lock().unwrap());
         (fatal, warnings)
+    }
+    fn run_parallel_source_with_warnings<P, F>(
+        source: &str,
+        workers: usize,
+        make: F,
+        standalone_cfg: bool,
+        cfg_scheduler: bool,
+    ) -> (Vec<bool>, Vec<String>)
+    where
+        P: crate::interfaces::decider::prover::Prover + 'static,
+        P::Error: Send + std::fmt::Debug + 'static,
+        F: Fn(
+                String,
+                crate::state::terms::TermFactory,
+            ) -> (P, crate::state::identifiers::DefaultIdentifierFactory)
+            + Clone
+            + Send
+            + Sync
+            + 'static,
+    {
+        run_parallel_source_with_warnings_impl(
+            source,
+            workers,
+            make,
+            standalone_cfg,
+            cfg_scheduler,
+            false,
+        )
     }
     #[cfg(feature = "native-z3")]
     fn run_parallel_source<P, F>(source: &str, workers: usize, make: F) -> Vec<bool>
@@ -3929,6 +3985,87 @@ mod thread_pool_tests {
         );
         assert_eq!(warnings.lock().unwrap().len(), 3);
     }
+    #[test]
+    fn real_stdio_nonjoined_cfg_continuations_reach_method_terminal() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+method good(x: Ref, b: Bool, c: Bool) returns (r: Int)
+  requires acc(x.f)
+  ensures acc(x.f, 1/2) && r == x.f && r >= 1
+{
+  if (b) { x.f := 1; } else { if (c) { x.f := 2; } else { x.f := 3; } }
+  r := x.f;
+  exhale acc(x.f, 1/2);
+}
+method bad(x: Ref, b: Bool) returns (r: Int)
+  requires acc(x.f)
+  ensures acc(x.f, 1/2) && r > 0
+{
+  if (b) { x.f := 1; } else { x.f := 0; }
+  r := x.f;
+  exhale acc(x.f, 1/2);
+}
+method unrelated(x: Ref) requires acc(x.f) ensures acc(x.f) { x.f := 5; }
+"#;
+        let both_fail = source.replace(
+            "if (b) { x.f := 1; } else { x.f := 0; }",
+            "if (b) { assert false; } else { assert false; }",
+        );
+        let permission_fail = source.replace(
+            "if (b) { x.f := 1; } else { x.f := 0; }",
+            "if (b) { x.f := 1; } else { x.f := 0; exhale acc(x.f); }",
+        );
+        for (source, expected_failures) in [
+            (source, 1),
+            (both_fail.as_str(), 2),
+            (permission_fail.as_str(), 1),
+        ] {
+            for workers in [1, 2] {
+                let before =
+                    CONTINUATION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let executed =
+                    CONTINUATION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(
+                    fatal.iter().filter(|fatal| **fatal).count(),
+                    expected_failures
+                );
+                assert!(!fatal[0]);
+                assert!(
+                    CONTINUATION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > before,
+                    "nonjoined CFG continuation never submitted"
+                );
+                assert!(
+                    CONTINUATION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > executed,
+                    "nonjoined CFG continuation never executed"
+                );
+            }
+        }
+    }
+
     #[test]
     fn real_stdio_cfg_joins_use_owned_worker_jobs() {
         let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
