@@ -185,6 +185,8 @@ pub struct SilFrontendPhases {
     pub select: Option<String>,
     /// Reformatter parsing retains macro definitions and calls.
     pub expand_macros: bool,
+    phase_reporter: Option<std::sync::Arc<dyn crate::reporter::reporter::Reporter>>,
+    phase_report_error: Option<crate::reporter::reporter::ReportError>,
     pub parsing_warnings: Vec<ParseReport>,
     pub typechecking_warnings: Vec<FrontendError>,
 }
@@ -201,9 +203,37 @@ impl SilFrontendPhases {
             respect_function_pre_perm_amounts: false,
             select: None,
             expand_macros: true,
+            phase_reporter: None,
+            phase_report_error: None,
             parsing_warnings: vec![],
             typechecking_warnings: vec![],
         }
+    }
+    /// Enable source phase warning events for provider-driven runs.
+    pub fn set_phase_reporter(
+        &mut self,
+        reporter: std::sync::Arc<dyn crate::reporter::reporter::Reporter>,
+    ) {
+        self.phase_reporter = Some(reporter);
+    }
+    fn report_phase(&mut self, message: crate::reporter::message::Message) -> bool {
+        if let Some(reporter) = &self.phase_reporter {
+            if let Err(error) = reporter.report(message) {
+                self.phase_report_error = Some(error);
+                return false;
+            }
+        }
+        true
+    }
+    fn report_typechecking_warnings(&mut self) -> bool {
+        if self.typechecking_warnings.is_empty() {
+            return true;
+        }
+        self.report_phase(
+            crate::reporter::message::Message::WarningsDuringTypechecking {
+                warnings: self.typechecking_warnings.clone(),
+            },
+        )
     }
     pub fn configure_consistency(
         &mut self,
@@ -295,6 +325,11 @@ impl FrontendPhases for SilFrontendPhases {
         if reports.iter().any(|r| matches!(r, ParseReport::Error(_))) {
             return Err(reports.into_iter().map(AbstractError::Parse).collect());
         }
+        if !self.report_phase(crate::reporter::message::Message::WarningsDuringParsing {
+            warnings: reports.clone(),
+        }) {
+            return Err(vec![]);
+        }
         self.parsing_warnings.extend(reports);
         init_properties(program.node()).map_err(|error| {
             Self::failure(
@@ -305,6 +340,7 @@ impl FrontendPhases for SilFrontendPhases {
         Ok(program)
     }
     fn analyze(&mut self, input: Self::Parsed) -> Result<Self::Analyzed, Vec<AbstractError>> {
+        self.typechecking_warnings.clear();
         let input = self
             .plugins
             .before_resolve(input)
@@ -338,9 +374,12 @@ impl FrontendPhases for SilFrontendPhases {
             }
         }
         if !ok {
+            if !self.report_typechecking_warnings() {
+                return Err(vec![]);
+            }
             return Err(errors);
         }
-        resolver::check_program_core(&input, &mut |node, text| {
+        let checking = resolver::check_program_core(&input, &mut |node, text| {
             let position = node.read().expect("poisoned parse node").pos.0.clone();
             self.typechecking_warnings.push(FrontendError::new(
                 FrontendErrorKind::TypecheckerWarning(text.into()),
@@ -352,7 +391,11 @@ impl FrontendPhases for SilFrontendPhases {
                 format!("type checking: {e:?}"),
                 Self::program_position(&input),
             )
-        })?;
+        });
+        if !self.report_typechecking_warnings() {
+            return Err(vec![]);
+        }
+        checking?;
         Ok(input)
     }
     fn translate(&mut self, input: Self::Analyzed) -> Result<Program, Vec<AbstractError>> {
@@ -591,7 +634,17 @@ impl FrontendPhases for SilFrontendPhases {
     fn set_input_file(&mut self, path: &std::path::Path) {
         self.file = path.to_owned();
     }
+    fn set_phase_reporter(
+        &mut self,
+        reporter: std::sync::Arc<dyn crate::reporter::reporter::Reporter>,
+    ) {
+        SilFrontendPhases::set_phase_reporter(self, reporter);
+    }
+    fn take_report_error(&mut self) -> Option<crate::reporter::reporter::ReportError> {
+        self.phase_report_error.take()
+    }
     fn reset_messages(&mut self) {
+        self.phase_report_error = None;
         self.parsing_warnings.clear();
         self.typechecking_warnings.clear();
     }

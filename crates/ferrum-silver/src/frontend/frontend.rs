@@ -83,6 +83,7 @@ pub enum FrontendError {
     PhaseNotAvailable(Phase),
     WrongFileCount,
     Verifier(VerifierError),
+    Reporter(crate::reporter::reporter::ReportError),
 }
 
 /// Actual language-specific phase bodies. Failures retain all diagnostics in order.
@@ -94,6 +95,16 @@ pub trait FrontendPhases {
     fn translate(&mut self, input: Self::Analyzed) -> Result<Program, Vec<AbstractError>>;
     fn check_consistency(&mut self, input: Program) -> Result<Program, Vec<AbstractError>>;
     fn reset_messages(&mut self);
+    /// Attach a phase reporter when a frontend provider owns the lifecycle.
+    fn set_phase_reporter(
+        &mut self,
+        _reporter: std::sync::Arc<dyn crate::reporter::reporter::Reporter>,
+    ) {
+    }
+    /// Take a reporting failure raised by a phase before its state is committed.
+    fn take_report_error(&mut self) -> Option<crate::reporter::reporter::ReportError> {
+        None
+    }
     fn set_input_file(&mut self, _path: &Path) {}
     fn prepare_verification(&mut self, input: Program) -> Result<Program, Vec<AbstractError>> {
         Ok(input)
@@ -178,7 +189,11 @@ impl<F: FrontendPhases> DefaultFrontend<F> {
                 }
                 if self.state == DefaultState::InputSet {
                     let input = self.input.as_deref().ok_or(FrontendError::MissingInput)?;
-                    match self.phases.parse(input) {
+                    let result = self.phases.parse(input);
+                    if let Some(error) = self.phases.take_report_error() {
+                        return Err(FrontendError::Reporter(error));
+                    }
+                    match result {
                         Ok(value) => self.parsing_result = Some(value),
                         Err(errors) => self.errors.extend(errors),
                     }
@@ -192,7 +207,11 @@ impl<F: FrontendPhases> DefaultFrontend<F> {
                     .parsing_result
                     .clone()
                     .ok_or(FrontendError::MissingPhaseResult("parsing"))?;
-                match self.phases.analyze(input) {
+                let result = self.phases.analyze(input);
+                if let Some(error) = self.phases.take_report_error() {
+                    return Err(FrontendError::Reporter(error));
+                }
+                match result {
                     Ok(value) => self.semantic_result = Some(value),
                     Err(errors) => self.errors.extend(errors),
                 }

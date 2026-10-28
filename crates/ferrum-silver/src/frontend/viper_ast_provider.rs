@@ -187,6 +187,9 @@ impl ViperAstProvider<super::sil_frontend::SilFrontendPhases> {
     pub fn initialize_configured(&mut self, args: &[String]) -> Result<(), ProviderSetupError> {
         let (verifier, config) = configured_verifier(self.reporter.clone(), args)?;
         self.frontend.phases.configure_consistency(&config);
+        self.frontend
+            .phases
+            .set_phase_reporter(self.reporter.clone());
         self.frontend.init(Box::new(verifier));
         self.config = Some(config);
         Ok(())
@@ -208,10 +211,11 @@ impl ViperAstProvider<super::sil_frontend::SilFrontendPhases> {
 }
 impl<F: FrontendPhases> ViperAstProvider<F> {
     pub fn new(
-        frontend: DefaultFrontend<F>,
+        mut frontend: DefaultFrontend<F>,
         reporter: Arc<dyn Reporter>,
         disable_plugins: bool,
     ) -> Self {
+        frontend.phases.set_phase_reporter(reporter.clone());
         Self {
             frontend,
             reporter,

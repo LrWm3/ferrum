@@ -54,6 +54,7 @@ impl ReformatterAstProvider<super::sil_frontend::SilFrontendPhases> {
         reporter: std::sync::Arc<dyn crate::reporter::reporter::Reporter>,
     ) -> Self {
         phases.expand_macros = false;
+        phases.set_phase_reporter(reporter.clone());
         Self {
             frontend: DefaultFrontend::new(phases),
             reporter,
@@ -262,6 +263,9 @@ mod tests {
             .run_range(PHASES, Phase::Parsing, Phase::Parsing)
             .unwrap();
         provider.finish(12).unwrap();
+        assert!(
+            matches!(reporter.get_new_message().unwrap(), Message::WarningsDuringParsing { warnings } if warnings.is_empty())
+        );
         assert!(matches!(
             reporter.get_new_message().unwrap(),
             Message::AstConstructionSuccess { time: 12 }

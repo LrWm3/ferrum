@@ -441,3 +441,10 @@ allocated lazily. These are source-eligible boundaries for future scheduling;
 expression joins explicitly disable parallelism in the pinned source. The public
 parallel-branch flag stays gated. A rejected evaluation-scheduling experiment is
 not part of the admitted port.
+
+Provider-owned phases now emit source parsing and typechecking warning events in
+order, including an empty parsing-warning event on success and no such event on
+parse failure. Reporter errors propagate before committing the phase state. The
+standalone facade keeps its existing warning collection path. Focused checks cover
+warning delivery on successful/failed analysis and reporter failure during either
+phase. Shared reporter configuration/plugin rebinding remains separate.

@@ -170,6 +170,9 @@ impl ViperPAstProvider<super::sil_frontend::SilFrontendPhases> {
             return Err(ProviderSetupError::ExitRequested);
         }
         self.frontend.phases.configure_consistency(&config);
+        self.frontend
+            .phases
+            .set_phase_reporter(self.reporter.clone());
         self.frontend.init(Box::new(verifier));
         self.config = Some(config);
         Ok(())
@@ -191,10 +194,11 @@ impl ViperPAstProvider<super::sil_frontend::SilFrontendPhases> {
 }
 impl<F: FrontendPhases> ViperPAstProvider<F> {
     pub fn new(
-        frontend: DefaultFrontend<F>,
+        mut frontend: DefaultFrontend<F>,
         reporter: Arc<dyn Reporter>,
         disable_plugins: bool,
     ) -> Self {
+        frontend.phases.set_phase_reporter(reporter.clone());
         Self {
             frontend,
             reporter,
@@ -220,6 +224,156 @@ mod tests {
     use crate::frontend::sil_frontend::SilFrontendPhases;
     use crate::plugin::silver_plugin_manager::SilverPluginManager;
     use crate::reporter::reporter::NoopReporter;
+
+    #[test]
+    fn phase_reports_parsing_warnings_and_not_parse_errors() {
+        use crate::reporter::{message::Message, reporter::PollingReporter};
+        let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+        let phases = SilFrontendPhases::new("test.vpr".into(), SilverPluginManager::new(vec![]));
+        let mut provider =
+            ViperPAstProvider::new(DefaultFrontend::new(phases), reporter.clone(), false);
+        provider
+            .frontend
+            .init(Box::new(PAstProvidingVerifier::new(reporter.clone())));
+        provider
+            .reset(std::path::Path::new("test.vpr"), |_| {
+                Ok("field f: Rational".into())
+            })
+            .unwrap();
+        provider.frontend.run_phase(Phase::Parsing).unwrap();
+        assert!(
+            matches!(reporter.get_new_message().unwrap(), Message::WarningsDuringParsing { warnings } if warnings.len() == 1)
+        );
+        provider
+            .reset(std::path::Path::new("test.vpr"), |_| {
+                Ok("field f: Rational\nmethod m( {".into())
+            })
+            .unwrap();
+        provider.frontend.run_phase(Phase::Parsing).unwrap();
+        assert!(matches!(
+            provider.result().unwrap(),
+            VerificationResult::Failure(_)
+        ));
+        assert!(!reporter.has_new_message());
+    }
+    #[test]
+    fn reporter_failure_does_not_advance_parsing_phase() {
+        use crate::reporter::{message::Message, reporter::ReportError};
+        struct FailingReporter;
+        impl Reporter for FailingReporter {
+            fn name(&self) -> &str {
+                "failure"
+            }
+            fn report(&self, _: Message) -> Result<(), ReportError> {
+                Err(ReportError::Unsupported("test"))
+            }
+        }
+        let reporter = Arc::new(FailingReporter);
+        let phases = SilFrontendPhases::new("test.vpr".into(), SilverPluginManager::new(vec![]));
+        let mut provider =
+            ViperPAstProvider::new(DefaultFrontend::new(phases), reporter.clone(), false);
+        provider
+            .frontend
+            .init(Box::new(PAstProvidingVerifier::new(reporter)));
+        provider
+            .reset(std::path::Path::new("test.vpr"), |_| {
+                Ok("method m() {}".into())
+            })
+            .unwrap();
+        assert!(matches!(
+            provider.frontend.run_phase(Phase::Parsing),
+            Err(FrontendError::Reporter(_))
+        ));
+        assert_eq!(provider.frontend.state, DefaultState::InputSet);
+        assert!(provider.frontend.parsing_result.is_none());
+    }
+    #[test]
+    fn reporter_failure_does_not_advance_semantic_phase() {
+        use crate::reporter::{message::Message, reporter::ReportError};
+        struct FailingTypeReporter;
+        impl Reporter for FailingTypeReporter {
+            fn name(&self) -> &str {
+                "failure"
+            }
+            fn report(&self, message: Message) -> Result<(), ReportError> {
+                if matches!(message, Message::WarningsDuringTypechecking { .. }) {
+                    Err(ReportError::Unsupported("test"))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        let reporter = Arc::new(FailingTypeReporter);
+        let phases = SilFrontendPhases::new("test.vpr".into(), SilverPluginManager::new(vec![]));
+        let mut provider =
+            ViperPAstProvider::new(DefaultFrontend::new(phases), reporter.clone(), false);
+        provider
+            .frontend
+            .init(Box::new(PAstProvidingVerifier::new(reporter)));
+        provider
+            .reset(std::path::Path::new("test.vpr"), |_| {
+                Ok("method m() { assert |Seq()| == 0; }".into())
+            })
+            .unwrap();
+        provider.frontend.run_phase(Phase::Parsing).unwrap();
+        assert!(matches!(
+            provider.frontend.run_phase(Phase::SemanticAnalysis),
+            Err(FrontendError::Reporter(_))
+        ));
+        assert_eq!(provider.frontend.state, DefaultState::Parsing);
+        assert!(provider.frontend.semantic_result.is_none());
+    }
+
+    #[test]
+    fn reports_typechecking_warnings_before_phase_completion() {
+        use crate::reporter::{message::Message, reporter::PollingReporter};
+        let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+        let phases = SilFrontendPhases::new("test.vpr".into(), SilverPluginManager::new(vec![]));
+        let mut provider =
+            ViperPAstProvider::new(DefaultFrontend::new(phases), reporter.clone(), false);
+        provider
+            .frontend
+            .init(Box::new(PAstProvidingVerifier::new(reporter.clone())));
+        provider
+            .reset(std::path::Path::new("test.vpr"), |_| {
+                Ok("method m() { assert |Seq()| == 0; }".into())
+            })
+            .unwrap();
+        provider.frontend.run_phase(Phase::Parsing).unwrap();
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::WarningsDuringParsing { .. }
+        ));
+        provider
+            .frontend
+            .run_phase(Phase::SemanticAnalysis)
+            .unwrap();
+        assert!(
+            matches!(reporter.get_new_message().unwrap(), Message::WarningsDuringTypechecking { warnings } if !warnings.is_empty())
+        );
+        assert_eq!(provider.frontend.state, DefaultState::SemanticAnalysis);
+        provider
+            .reset(std::path::Path::new("test.vpr"), |_| {
+                Ok("method m() { assert |Seq()| == 0; assert 1; }".into())
+            })
+            .unwrap();
+        provider.frontend.run_phase(Phase::Parsing).unwrap();
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::WarningsDuringParsing { .. }
+        ));
+        provider
+            .frontend
+            .run_phase(Phase::SemanticAnalysis)
+            .unwrap();
+        assert!(
+            matches!(reporter.get_new_message().unwrap(), Message::WarningsDuringTypechecking { warnings } if !warnings.is_empty())
+        );
+        assert!(matches!(
+            provider.result().unwrap(),
+            VerificationResult::Failure(_)
+        ));
+    }
 
     #[test]
     fn finish_applies_plugin_then_deduplicates_and_reports() {
@@ -263,6 +417,9 @@ mod tests {
             .unwrap();
         provider.finish(42).unwrap();
         assert!(
+            matches!(reporter.get_new_message().unwrap(), Message::WarningsDuringParsing { warnings } if warnings.is_empty())
+        );
+        assert!(
             matches!(reporter.get_new_message().unwrap(), Message::OverallFailure { verifier, time: 42, errors } if verifier == "Viper PAST Constructor" && errors.len() == 1)
         );
         assert!(
@@ -294,6 +451,9 @@ mod tests {
             .run_range(PHASES, Phase::Parsing, Phase::SemanticAnalysis)
             .unwrap();
         provider.finish(3).unwrap();
+        assert!(
+            matches!(reporter.get_new_message().unwrap(), Message::WarningsDuringParsing { warnings } if warnings.is_empty())
+        );
         assert!(
             matches!(reporter.get_new_message().unwrap(), Message::OverallSuccess { verifier, time: 3 } if verifier == "Viper PAST Constructor")
         );

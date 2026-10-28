@@ -316,7 +316,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/SilFrontend.scala"
 destination = "crates/ferrum-silver/src/frontend/sil_frontend.rs"
 status = "skeleton"
-remaining = ["Configured native plugins, imported parse error/warning aggregation and individual-node consistency diagnostics are connected. Grammar, macro recovery and remaining diagnostic compatibility require completion."]
+remaining = ["Configured plugins, import diagnostics, consistency checks and provider phase-warning events are connected. Remaining grammar, macro recovery, reporter reset hooks and diagnostic compatibility require completion."]
 
 [[modules]]
 repository = "silver"
