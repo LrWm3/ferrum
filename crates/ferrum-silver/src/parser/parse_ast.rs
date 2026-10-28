@@ -371,6 +371,10 @@ pub trait PExtender: std::fmt::Debug + Send + Sync {
     fn reformat_as_product(&self) -> bool {
         false
     }
+    /// Source extension node padding.
+    fn reformat_self_formatting(&self) -> Option<super::parse_ast_keyword::Formatting> {
+        None
+    }
     /// Preserve padding for immediate expression-extension children whose token type was erased.
     fn reformat_child_formatting(
         &self,

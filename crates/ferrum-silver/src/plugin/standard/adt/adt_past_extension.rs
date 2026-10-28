@@ -25,8 +25,8 @@
 //! Agree on ADT declaration lookup and mutable inference state with parser and AST.
 //!
 //! Status: partial; typed ADT member/constructor/derivation/type records, resolution, two-stage
-//! translation and operator inference substitution are implemented. Grammar, name analysis,
-//! source product punctuation and concrete operator-call typechecking/translation remain pending.
+//! translation, operator inference substitution, grammar and source product punctuation are
+//! implemented. Further ADT compatibility and operator coverage remain pending.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -84,6 +84,31 @@ pub enum PAdtError {
     Translation(String),
 }
 
+/// Source ADT sequence, deriving and without products retain their syntax children.
+#[derive(Clone, Debug)]
+pub struct PAdtSyntax {
+    pub children: Vec<PNodeHandle>,
+    pub left_space: bool,
+}
+impl PExtender for PAdtSyntax {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn subnodes(&self) -> Vec<PNodeHandle> {
+        self.children.clone()
+    }
+    fn reformat_as_product(&self) -> bool {
+        true
+    }
+    fn reformat_self_formatting(&self) -> Option<crate::parser::parse_ast_keyword::Formatting> {
+        self.left_space
+            .then_some(crate::parser::parse_ast_keyword::Formatting {
+                left: Some(crate::parser::parse_ast_keyword::Pad::Space),
+                ..Default::default()
+            })
+    }
+}
+
 /// Constructor nodes retain the real parsed argument group and annotations.
 #[derive(Clone, Debug)]
 pub struct PAdtConstructor {
@@ -95,6 +120,9 @@ pub struct PAdtConstructor {
 impl PExtender for PAdtConstructor {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+    fn reformat_as_product(&self) -> bool {
+        true
     }
     fn subnodes(&self) -> Vec<PNodeHandle> {
         let mut nodes: Vec<_> = self
@@ -143,18 +171,17 @@ pub struct PAdtDerivingInfo {
     /// Resolved by the caller against fields belonging to the containing ADT.
     pub without: Vec<PNodeHandle>,
     pub pos: Span,
+    pub syntax: Vec<PNodeHandle>,
 }
 impl PExtender for PAdtDerivingInfo {
     fn as_any(&self) -> &dyn Any {
         self
     }
+    fn reformat_as_product(&self) -> bool {
+        true
+    }
     fn subnodes(&self) -> Vec<PNodeHandle> {
-        let mut nodes = vec![self.idndef.clone()];
-        if let Some(parameter) = &self.parameter {
-            nodes.push(parameter.node().clone());
-        }
-        nodes.extend(self.without.iter().cloned());
-        nodes
+        self.syntax.clone()
     }
 }
 impl PAdtDerivingInfo {
@@ -186,17 +213,17 @@ pub struct PAdt {
     pub constructors: Vec<PNodeHandle>,
     pub deriving: Vec<PNodeHandle>,
     pub pos: Span,
+    pub syntax: Vec<PNodeHandle>,
 }
 impl PExtender for PAdt {
     fn as_any(&self) -> &dyn Any {
         self
     }
+    fn reformat_as_product(&self) -> bool {
+        true
+    }
     fn subnodes(&self) -> Vec<PNodeHandle> {
-        let mut nodes = vec![self.keyword.node().clone(), self.idndef.clone()];
-        nodes.extend(self.type_vars.iter().cloned());
-        nodes.extend(self.constructors.iter().cloned());
-        nodes.extend(self.deriving.iter().cloned());
-        nodes
+        self.syntax.clone()
     }
 }
 impl PAdt {

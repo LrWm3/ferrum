@@ -560,6 +560,7 @@ fn visit_names(
             add_named_declaration(current, node, &ctor.idndef, DeclarationVisibility::Global, DeclarationUniqueness::Global, true, messages)?;
         }
         PNodeKind::Extension(extension) if extension.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdtDerivingInfo>() => {}
+        PNodeKind::Extension(extension) if extension.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdtSyntax>() => {}
         PNodeKind::DefineParam { .. }
         | PNodeKind::Extension(_) => {
             return Err(NameAnalysisError::Unsupported(

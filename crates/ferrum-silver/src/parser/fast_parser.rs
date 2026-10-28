@@ -1622,42 +1622,61 @@ impl ExpressionParser<'_> {
                 }
             }
             "adt" if self.features.contains(&ParserFeature::Adt) => {
+                use super::parse_ast_keyword::{ND, PGraphElement};
                 use crate::plugin::standard::adt::adt_past_extension::{
-                    PAdt, PAdtConstructor, PAdtDerivingInfo, adt_keyword,
+                    PAdt, PAdtConstructor, PAdtDerivingInfo, PAdtSyntax, adt_keyword,
                 };
                 use std::sync::Arc;
                 let idndef = self.identifier_definition()?;
                 let mut type_vars = Vec::new();
-                let type_vars_present = self.take("[")?.is_some();
-                if type_vars_present {
+                let type_vars_group = if let Some(left) = self.take("[")? {
+                    let mut pairs = Vec::new();
                     self.trivia()?;
                     if !self.source[self.cursor..].starts_with(']') {
                         loop {
                             let id = self.identifier_definition()?;
                             let pos = id.read().expect("poisoned parse node").pos.clone();
-                            type_vars.push(super::parse_ast::type_var_decl(id, pos));
-                            if self.take(",")?.is_none() {
+                            let var = super::parse_ast::type_var_decl(id, pos);
+                            type_vars.push(var.clone());
+                            let comma = self.take(",")?.map(|p| PReserved::new(PSym::Comma, p));
+                            let more = comma.is_some();
+                            pairs.push((var, comma));
+                            if !more {
                                 break;
                             }
                         }
                     }
-                    self.take("]")?
+                    let right = self
+                        .take("]")?
                         .ok_or_else(|| self.error("expected ']' after ADT type parameters"))?;
-                }
-                self.take("{")?
+                    let pos = (left.0.clone(), right.1.clone());
+                    let list = comma_pairs(pairs, pos.clone());
+                    Some(PGrouped::new(
+                        PReserved::new(PSym::LBracket, left),
+                        list,
+                        PReserved::new(PSym::RBracket, right),
+                        pos,
+                    ))
+                } else {
+                    None
+                };
+                let type_vars_present = type_vars_group.is_some();
+                let left = self
+                    .take("{")?
                     .ok_or_else(|| self.error("expected '{' in ADT declaration"))?;
                 let mut constructors = Vec::new();
-                loop {
+                let mut constructor_pairs = Vec::new();
+                let right = loop {
                     self.trivia()?;
-                    if self.take("}")?.is_some() {
-                        break;
+                    if let Some(right) = self.take("}")? {
+                        break right;
                     }
                     let begin = self.cursor;
                     let annotations = self.annotations()?;
                     let idndef = self.identifier_definition()?;
                     let args = self.formal_args(PDeclarationKind::AdtField)?;
                     let pos = self.span(begin, self.cursor);
-                    constructors.push(PNode::new(
+                    let node = PNode::new(
                         PNodeKind::Extension(Arc::new(PAdtConstructor {
                             annotations,
                             idndef,
@@ -1665,78 +1684,164 @@ impl ExpressionParser<'_> {
                             pos: pos.clone(),
                         })),
                         pos,
-                    ));
-                    self.take(";")?;
-                }
+                    );
+                    constructors.push(node.clone());
+                    let semi = self.take(";")?.map(|p| PReserved::new(PSym::Semi, p));
+                    constructor_pairs.push((node, ND(semi)));
+                };
+                let pos = (left.0.clone(), right.1.clone());
+                let list = PDelimited::from_pairs(constructor_pairs, pos.clone());
+                let group = PGrouped::new(
+                    PReserved::new(PSym::LBrace, left),
+                    list,
+                    PReserved::new(PSym::RBrace, right),
+                    pos.clone(),
+                );
+                let constructors_syntax = PNode::new(
+                    PNodeKind::Extension(Arc::new(PAdtSyntax {
+                        children: group.graph_nodes(),
+                        left_space: true,
+                    })),
+                    pos,
+                );
                 self.trivia()?;
                 let mut deriving = Vec::new();
-                if self.source[self.cursor..].starts_with("derives")
+                let deriving_syntax = if self.source[self.cursor..].starts_with("derives")
                     && self.identifier_end(self.cursor) == self.cursor + 7
                 {
+                    let kw_start = self.cursor;
                     self.cursor += 7;
-                    self.take("{")?
+                    let keyword = adt_keyword("derives", self.span(kw_start, self.cursor));
+                    let left = self
+                        .take("{")?
                         .ok_or_else(|| self.error("expected '{' after derives"))?;
-                    loop {
+                    let mut pairs = Vec::new();
+                    let right = loop {
                         self.trivia()?;
-                        if self.take("}")?.is_some() {
-                            break;
+                        if let Some(right) = self.take("}")? {
+                            break right;
                         }
                         let begin = self.cursor;
                         let idndef = self.identifier_definition()?;
-                        let parameter = if self.take("[")?.is_some() {
+                        let parameter_group = if let Some(left) = self.take("[")? {
                             let typ = self.typ()?;
-                            self.take("]")?
+                            let right = self
+                                .take("]")?
                                 .ok_or_else(|| self.error("expected ']' after derives type"))?;
-                            Some(typ)
+                            let pos = (left.0.clone(), right.1.clone());
+                            Some(PGrouped::new(
+                                PReserved::new(PSym::LBracket, left),
+                                typ,
+                                PReserved::new(PSym::RBracket, right),
+                                pos,
+                            ))
                         } else {
                             None
                         };
+                        let parameter = parameter_group.as_ref().map(|g| g.inner().clone());
                         self.trivia()?;
                         let mut without = Vec::new();
-                        if self.source[self.cursor..].starts_with("without")
+                        let without_syntax = if self.source[self.cursor..].starts_with("without")
                             && self.identifier_end(self.cursor) == self.cursor + 7
                         {
+                            let begin = self.cursor;
                             self.cursor += 7;
+                            let keyword = adt_keyword("without", self.span(begin, self.cursor));
+                            let mut fields = Vec::new();
                             loop {
                                 let id = self.identifier_definition()?;
                                 let node = id.read().expect("poisoned parse node");
                                 let PNodeKind::IdnDef(def) = &node.kind else {
                                     unreachable!()
                                 };
-                                without.push(PNode::new(
+                                let reference = PNode::new(
                                     PNodeKind::IdnRef(PIdnRef::with_class(
                                         def.name.clone(),
                                         super::parse_ast::PDeclarationClass::AdtField,
                                     )),
                                     node.pos.clone(),
-                                ));
+                                );
+                                without.push(reference.clone());
                                 drop(node);
-                                if self.take(",")?.is_none() {
+                                let comma = self.take(",")?.map(|p| PReserved::new(PSym::Comma, p));
+                                let more = comma.is_some();
+                                fields.push((reference, comma));
+                                if !more {
                                     break;
                                 }
                             }
-                        }
+                            let pos = self.span(begin, self.cursor);
+                            let list = comma_pairs(fields, pos.clone());
+                            let mut children = keyword.graph_nodes();
+                            children.extend(list.graph_nodes());
+                            Some(PNode::new(
+                                PNodeKind::Extension(Arc::new(PAdtSyntax {
+                                    children,
+                                    left_space: true,
+                                })),
+                                pos,
+                            ))
+                        } else {
+                            None
+                        };
                         let pos = self.span(begin, self.cursor);
-                        deriving.push(PNode::new(
+                        let mut syntax = vec![idndef.clone()];
+                        syntax.extend(parameter_group.graph_nodes());
+                        syntax.extend(without_syntax);
+                        let node = PNode::new(
                             PNodeKind::Extension(Arc::new(PAdtDerivingInfo {
                                 idndef,
                                 parameter,
                                 without,
                                 pos: pos.clone(),
+                                syntax,
                             })),
                             pos,
-                        ));
-                        self.take(";")?;
-                    }
-                }
+                        );
+                        deriving.push(node.clone());
+                        let semi = self.take(";")?.map(|p| PReserved::new(PSym::Semi, p));
+                        pairs.push((node, ND(semi)));
+                    };
+                    let pos = (left.0.clone(), right.1.clone());
+                    let list = PDelimited::from_pairs(pairs, pos.clone());
+                    let group = PGrouped::new(
+                        PReserved::new(PSym::LBrace, left),
+                        list,
+                        PReserved::new(PSym::RBrace, right),
+                        pos.clone(),
+                    );
+                    let seq = PNode::new(
+                        PNodeKind::Extension(Arc::new(PAdtSyntax {
+                            children: group.graph_nodes(),
+                            left_space: true,
+                        })),
+                        pos,
+                    );
+                    let pos = self.span(kw_start, self.cursor);
+                    Some(PNode::new(
+                        PNodeKind::Extension(Arc::new(PAdtSyntax {
+                            children: vec![keyword.node().clone(), seq],
+                            left_space: false,
+                        })),
+                        pos,
+                    ))
+                } else {
+                    None
+                };
+                let keyword = adt_keyword("adt", keyword_span);
+                let mut syntax = vec![keyword.node().clone(), idndef.clone()];
+                syntax.extend(type_vars_group.graph_nodes());
+                syntax.push(constructors_syntax);
+                syntax.extend(deriving_syntax);
                 PMemberKind::Extension(Arc::new(PAdt {
-                    keyword: adt_keyword("adt", keyword_span),
+                    keyword,
                     idndef,
                     type_vars,
                     type_vars_present,
                     constructors,
                     deriving,
                     pos: self.span(start, self.cursor),
+                    syntax,
                 }))
             }
             "import" => {

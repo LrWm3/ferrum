@@ -466,6 +466,39 @@ mod tests {
         );
     }
     #[test]
+    fn reformats_adt_source_products() {
+        use crate::parser::fast_parser::{ParserFeature, parse_program_with_features};
+        let source = "adt Tree[T]{ Leaf(value:T); Branch(left:Tree[T],right:Tree[T]) } derives { foo[Int] without value,left; bar }\n";
+        let program =
+            parse_program_with_features(source, "test.vpr", &[ParserFeature::Adt]).unwrap();
+        assert_eq!(
+            show_program(program.node(), &LeafReformatAdapter).unwrap(),
+            "adt Tree[T] {\n    Leaf(value: T);\n    Branch(left: Tree[T], right: Tree[T])\n}derives {\n    foo[Int] without value, left;\n    bar\n}\n"
+        );
+    }
+    #[test]
+    fn reformats_adt_comments_and_empty_constructor_list() {
+        use crate::parser::fast_parser::{ParserFeature, parse_program_with_features};
+        let source = "// head\nadt A { // one\n C(); // two\n D()\n} derives { /* d */ f without x }\nadt Empty {}\n";
+        let program =
+            parse_program_with_features(source, "test.vpr", &[ParserFeature::Adt]).unwrap();
+        assert_eq!(
+            show_program(program.node(), &LeafReformatAdapter).unwrap(),
+            "// head\nadt A {\n    // one\n    C();\n    // two\n    D()\n}derives {\n    /* d */ f without x\n}\nadt Empty {}\n"
+        );
+    }
+    #[test]
+    fn reformats_adt_annotations() {
+        use crate::parser::fast_parser::{ParserFeature, parse_program_with_features};
+        let source = "@outer() adt X { @inner() C(x:Int); D() }\n";
+        let program =
+            parse_program_with_features(source, "test.vpr", &[ParserFeature::Adt]).unwrap();
+        assert_eq!(
+            show_program(program.node(), &LeafReformatAdapter).unwrap(),
+            "@outer()\nadt X {\n    @inner()\n    C(x: Int);\n    D()\n}\n"
+        );
+    }
+    #[test]
     fn unknown_extension_stays_explicitly_unsupported() {
         #[derive(Debug)]
         struct Unknown;
@@ -627,12 +660,16 @@ impl ReformatAdapter for LeafReformatAdapter {
             Token(PToken),
             Group(Option<PNodeHandle>),
             LeftSpace,
+            Extension(Option<Formatting>),
             Other,
         }
         let kind = {
             let guard = node.read().map_err(|_| LeafReformatError::PoisonedNode)?;
             match &guard.kind {
                 PNodeKind::Reserved(token) => Kind::Token(token.clone()),
+                PNodeKind::Extension(extension) => {
+                    Kind::Extension(extension.reformat_self_formatting())
+                }
                 PNodeKind::Grouped { children } => Kind::Group(children.first().cloned()),
                 PNodeKind::BracedExp { .. }
                 | PNodeKind::PermTrigger { .. }
@@ -666,6 +703,7 @@ impl ReformatAdapter for LeafReformatAdapter {
                     ..Default::default()
                 }
             }
+            Kind::Extension(formatting) => formatting.unwrap_or_default(),
             Kind::LeftSpace => Formatting {
                 left: Some(Pad::Space),
                 ..Default::default()
@@ -762,6 +800,10 @@ impl ReformatAdapter for LeafReformatAdapter {
                 PNodeKind::Statement(super::parse_ast::PStatement {
                     kind: super::parse_ast::PStatementKind::Extension(extension),
                 }) if extension.reformat_as_product() => Work::Product(false),
+                PNodeKind::Member(super::parse_ast::PMember {
+                    kind: super::parse_ast::PMemberKind::Extension(extension),
+                    ..
+                }) if extension.reformat_as_product() => Work::Product(true),
                 PNodeKind::Extension(extension) if extension.reformat_as_product() => {
                     Work::Product(false)
                 }

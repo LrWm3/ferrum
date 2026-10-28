@@ -348,7 +348,13 @@ The parse reformatter now handles ordinary members, statements, types, expressio
 specifications, triggers and comments, plus opted-in refute, smoke, ARP, predicate
 instance, SIF, termination and TryBlock products. Twenty-two bounded formatting
 comparisons match the pinned JVM (18 ordinary cases and four plugin groups).
-Unknown extensions, internal function-type formatting and ADT syntax provenance
-remain incomplete. Source quirks are retained: SIF low/lowEvent/rel parse products
+Unknown extensions and internal function-type formatting remain incomplete. Source quirks are retained: SIF low/lowEvent/rel parse products
 lose their keyword/punctuation in the source formatter and can produce malformed
 text; this change does not silently repair that source behavior.
+
+ADT parsing now retains source bracket/brace, separator, derives and without
+wrappers, sharing semantic node handles with name analysis and translation. ADT
+products consequently use the same source formatter, including its `}derives`
+spacing quirk. Seventeen focused ADT parser/type/encoding checks and three JVM
+formatter comparisons cover generic parameters, constructors, derivations, comments,
+empty lists and annotations; broader compatibility remains open.

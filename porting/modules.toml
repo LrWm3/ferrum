@@ -385,7 +385,7 @@ repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ReformatPrettyPrinter.scala"
 destination = "crates/ferrum-silver/src/parser/reformat_pretty_printer.rs"
 status = "skeleton"
-remaining = ["Ordinary parse products and opted-in standard/SIF/termination/TryBlock extensions format through source rules; unknown extensions, internal function types, ADT syntax provenance and broad layout coverage remain. Source SIF malformed-output quirk is retained."]
+remaining = ["Ordinary parse products and opted-in standard/SIF/termination/TryBlock/ADT extensions format through source rules; unknown extensions, internal function types and broad layout coverage remain. Source SIF and ADT formatting quirks are retained."]
 
 [[modules]]
 repository = "silver"
