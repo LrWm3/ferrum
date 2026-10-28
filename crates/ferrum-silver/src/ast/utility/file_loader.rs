@@ -1,27 +1,21 @@
-//! Port plan: Load textual source content through an injectable loader.
-//!
-//! Upstream:
-//! https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/ast/utility/FileLoader.scala
-//!
-//! Purpose:
-//! Load textual source content through an injectable loader.
-//!
-//! Planned Rust structure:
-//! FileLoader.loadContent and DiskLoader implementation/object.
-//!
-//! Behavior to preserve:
-//! DiskLoader opens the given path, reads its complete text with managed closing, and returns
-//! failure in Try rather than a successful empty string.
-//!
-//! Integration:
-//! parser and other source loaders use filesystem paths and the loader abstraction.
-//!
-//! Rust adaptations:
-//! Follow porting/conventions.md for identity, ordering, explicit ownership, errors and
-//! replacement of Scala reflection; interfaces remain provisional.
-//!
-//! Open decisions:
-//! Decide Rust text encoding and error type with parser file handling while retaining IO
-//! failure and cleanup.
-//!
-//! Status: description only; implementation has not started.
+//! Injectable source-file loading.
+//! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/ast/utility/FileLoader.scala
+//! Status: partial; disk loading uses UTF-8 rather than JVM platform-default encoding.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2021 ETH Zurich.
+
+use std::{io, path::Path};
+
+pub trait FileLoader: Send + Sync {
+    fn load_content(&self, path: &Path) -> io::Result<String>;
+}
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DiskLoader;
+impl FileLoader for DiskLoader {
+    fn load_content(&self, path: &Path) -> io::Result<String> {
+        std::fs::read_to_string(path)
+    }
+}

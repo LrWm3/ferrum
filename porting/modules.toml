@@ -52,7 +52,7 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/BackendTypeFactories.scala"
 destination = "crates/ferrum-silver/src/ast/utility/backend_type_factories.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
@@ -65,7 +65,8 @@ remaining = ["Only reserved names and identifier validation are implemented; all
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/DomainInstances.scala"
 destination = "crates/ferrum-silver/src/ast/utility/domain_instances.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Ground-type discovery and depth/closure operations exist; instance closure, SCC coordinates and full substitution remain."]
 
 [[modules]]
 repository = "silver"
@@ -78,13 +79,15 @@ remaining = ["Projection, variable queries and wand canonicalization exist; rema
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/FileLoader.scala"
 destination = "crates/ferrum-silver/src/ast/utility/file_loader.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native disk loading uses UTF-8; platform-default encoding parity and caller integration remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Functions.scala"
 destination = "crates/ferrum-silver/src/ast/utility/functions.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Function graphs, recursion queries and unfolding discovery exist; extension traversal and integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -180,7 +183,8 @@ remaining = ["Generic traversal and reduction exist; complete AST and parser chi
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/chopper/Chopper.scala"
 destination = "crates/ferrum-silver/src/ast/utility/chopper/chopper.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Graph SCC/condensation and penalties exist; dependency construction, bounded cuts and full program reconstruction remain."]
 
 [[modules]]
 repository = "silver"
@@ -232,7 +236,8 @@ status = "ported"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/cfg/CfgTest.scala"
 destination = "crates/ferrum-silver/src/cfg/cfg_test.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Native core parse/type/translation/CFG driver exists; full syntax and source DOT printing integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -680,7 +685,8 @@ status = "ported"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/Caching.scala"
 destination = "crates/ferrum-silver/src/utility/caching.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Dependency collection exists; source printer, normalized entity hashing and digest integration remain."]
 
 [[modules]]
 repository = "silver"
