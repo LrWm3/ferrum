@@ -75,8 +75,10 @@ predicate helpers, optimized loops and AST return/termination control. Source
 `old` assertions and inactive `inhale false` guards retain their transformed
 obligations. A frozen 66-case CLI suite and ten constructed-program cases passed
 through both solver transports, along with positive/negative ForPerm probes.
-Break/continue/exception paths and broader relational compatibility still require
-integration; passing these probes is not a soundness or compatibility proof.
+AST break/continue, exception, try/catch/else/finally and inlined-call control
+now connect the source activation flags and restoration order. A further 35-case
+constructed-program matrix passes on both transports, including failing assertions
+after control transfers. Broader relational compatibility remains unproved.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and

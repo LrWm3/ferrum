@@ -45,8 +45,8 @@
 //! inhale/exhale, conditionals, calls, fields, allocation and heap-independent functions are
 //! implemented, including heap-dependent functions and relational predicate low functions,
 //! direct assertions, selected implications and fold/unfold checks. Unsupported relational
-//! contexts and unconnected control transfers fail explicitly. Optimized loops,
-//! return control/reconstruction and AST termination-channel checks are connected.
+//! contexts fail explicitly. Optimized loops and AST return/break/continue/exception
+//! control, try/catch/finally and inlined-call control families are connected.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -392,6 +392,9 @@ mod tests {
             &HashMap::new(),
             &HashSet::new(),
             None,
+            None,
+            None,
+            None,
             &mut NameTransformer::default(),
         )
         .unwrap();
@@ -436,6 +439,9 @@ mod tests {
             &mut HashMap::new(),
             &HashMap::new(),
             &HashSet::new(),
+            None,
+            None,
+            None,
             None,
             &mut NameTransformer::default(),
         )
@@ -824,6 +830,87 @@ mod tests {
     }
 
     #[test]
+    fn catch_clears_exception_before_handler_and_error_afterwards() {
+        use super::super::{
+            sif_ast_extensions::{SifExceptionHandler, SifStatement, SifStatementKind},
+            sif_plugin::SifTransformer,
+        };
+        use crate::ast::{
+            ast::Metadata,
+            program::{LocalVarDecl, Method, MethodData},
+            statement::{Stmt, StmtKind},
+            r#type::Type,
+        };
+        let meta = Metadata::default();
+        let error = LocalVarDecl::new("error".into(), Type::Ref, meta.clone());
+        let seq = |statements| {
+            Stmt::new(
+                StmtKind::Seqn {
+                    statements,
+                    declarations: vec![],
+                },
+                meta.clone(),
+            )
+        };
+        let raise = SifStatement {
+            kind: SifStatementKind::Raise { assignment: None },
+            meta: meta.clone(),
+        }
+        .statement()
+        .unwrap();
+        let no_exception = SifStatement {
+            kind: SifStatementKind::AssertNoException,
+            meta: meta.clone(),
+        }
+        .statement()
+        .unwrap();
+        let handler = SifExceptionHandler {
+            error_var: error.local_var(),
+            exception: Exp::new(ExpKind::TrueLit, meta.clone()),
+            body: seq(vec![]),
+            meta: meta.clone(),
+        };
+        let catch = SifStatement {
+            kind: SifStatementKind::TryCatch {
+                body: seq(vec![raise]),
+                handlers: vec![handler],
+                else_block: None,
+                finally_block: None,
+            },
+            meta: meta.clone(),
+        }
+        .statement()
+        .unwrap();
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![error],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: Some(seq(vec![catch, no_exception])),
+            meta: meta.clone(),
+        });
+        let output = NativeSifTransformer
+            .transform(
+                Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta),
+                false,
+            )
+            .unwrap();
+        let rendered = crate::ast::pretty::pretty_printer::pretty(
+            75,
+            &crate::ast::pretty::pretty_printer::show_program(&output).unwrap(),
+        );
+        assert!(
+            rendered.contains("except1 := true") && rendered.contains("except1 := false"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("error := null") && rendered.contains("error_0 := null"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
     fn return_control_guards_subsequent_assertions() {
         use super::super::{
             sif_ast_extensions::{SifStatement, SifStatementKind},
@@ -977,6 +1064,317 @@ mod tests {
                 && rendered.contains("oldret2"),
             "{rendered}"
         );
+    }
+
+    #[test]
+    fn continue_loop_resets_flags_and_guards_following_statements() {
+        use super::super::{
+            sif_ast_extensions::{SifStatement, SifStatementKind},
+            sif_plugin::SifTransformer,
+        };
+        use crate::ast::{
+            ast::Metadata,
+            program::{Method, MethodData},
+            statement::{Stmt, StmtKind},
+        };
+        let meta = Metadata::default();
+        let cont = SifStatement {
+            kind: SifStatementKind::Continue,
+            meta: meta.clone(),
+        }
+        .statement()
+        .unwrap();
+        let assertion = Stmt::new(
+            StmtKind::Assert(Exp::new(ExpKind::FalseLit, meta.clone())),
+            meta.clone(),
+        );
+        let loop_body = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![cont, assertion],
+                declarations: vec![],
+            },
+            meta.clone(),
+        );
+        let loop_stmt = Stmt::new(
+            StmtKind::While {
+                condition: Exp::new(ExpKind::TrueLit, meta.clone()),
+                invariants: vec![],
+                body: loop_body,
+            },
+            meta.clone(),
+        );
+        let body = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![loop_stmt],
+                declarations: vec![],
+            },
+            meta.clone(),
+        );
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: Some(body),
+            meta: meta.clone(),
+        });
+        let output = NativeSifTransformer
+            .transform(
+                Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta),
+                false,
+            )
+            .unwrap();
+        let rendered = crate::ast::pretty::pretty_printer::pretty(
+            75,
+            &crate::ast::pretty::pretty_printer::show_program(&output).unwrap(),
+        );
+        assert!(
+            rendered.contains("cont1 := false")
+                && rendered.contains("cont1 := true")
+                && rendered.contains("!cont1"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("cont2 := false")
+                && rendered.contains("cont2 := true")
+                && rendered.contains("!cont2"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn break_loop_reconstructs_and_resets_control_flags() {
+        use super::super::{
+            sif_ast_extensions::{SifStatement, SifStatementKind},
+            sif_plugin::SifTransformer,
+        };
+        use crate::ast::{
+            ast::Metadata,
+            program::{Method, MethodData},
+            statement::{Stmt, StmtKind},
+        };
+        let meta = Metadata::default();
+        let brk = SifStatement {
+            kind: SifStatementKind::Break,
+            meta: meta.clone(),
+        }
+        .statement()
+        .unwrap();
+        let assertion = Stmt::new(
+            StmtKind::Assert(Exp::new(ExpKind::FalseLit, meta.clone())),
+            meta.clone(),
+        );
+        let loop_body = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![brk, assertion],
+                declarations: vec![],
+            },
+            meta.clone(),
+        );
+        let loop_stmt = Stmt::new(
+            StmtKind::While {
+                condition: Exp::new(ExpKind::TrueLit, meta.clone()),
+                invariants: vec![],
+                body: loop_body,
+            },
+            meta.clone(),
+        );
+        let body = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![loop_stmt],
+                declarations: vec![],
+            },
+            meta.clone(),
+        );
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: Some(body),
+            meta: meta.clone(),
+        });
+        let output = NativeSifTransformer
+            .transform(
+                Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta),
+                false,
+            )
+            .unwrap();
+        let rendered = crate::ast::pretty::pretty_printer::pretty(
+            75,
+            &crate::ast::pretty::pretty_printer::show_program(&output).unwrap(),
+        );
+        assert!(
+            rendered.contains("break1 := false")
+                && rendered.contains("break1 := true")
+                && rendered.contains("oldbreak1"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("break2 := false")
+                && rendered.contains("break2 := true")
+                && rendered.contains("oldbreak2"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("Loop Reconstruction"), "{rendered}");
+    }
+
+    #[test]
+    fn mixed_control_kinds_preserve_all_activation_flags() {
+        use super::super::{
+            sif_ast_extensions::{SifStatement, SifStatementKind},
+            sif_plugin::SifTransformer,
+        };
+        use crate::ast::{
+            ast::Metadata,
+            program::{Method, MethodData},
+            statement::{Stmt, StmtKind},
+        };
+        let meta = Metadata::default();
+        let ret = SifStatement {
+            kind: SifStatementKind::Return {
+                exp: None,
+                result_var: None,
+            },
+            meta: meta.clone(),
+        }
+        .statement()
+        .unwrap();
+        let cont = SifStatement {
+            kind: SifStatementKind::Continue,
+            meta: meta.clone(),
+        }
+        .statement()
+        .unwrap();
+        let brk = SifStatement {
+            kind: SifStatementKind::Break,
+            meta: meta.clone(),
+        }
+        .statement()
+        .unwrap();
+        let body = Stmt::new(
+            StmtKind::Seqn {
+                statements: vec![ret, brk, cont],
+                declarations: vec![],
+            },
+            meta.clone(),
+        );
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: Some(body),
+            meta: meta.clone(),
+        });
+        let output = NativeSifTransformer
+            .transform(
+                Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta),
+                false,
+            )
+            .unwrap();
+        let rendered = crate::ast::pretty::pretty_printer::pretty(
+            75,
+            &crate::ast::pretty::pretty_printer::show_program(&output).unwrap(),
+        );
+        for flag in ["ret1", "ret2", "break1", "break2", "cont1", "cont2"] {
+            assert!(rendered.contains(flag), "{rendered}");
+        }
+    }
+
+    #[test]
+    fn mixed_control_loop_reconstruction_saves_every_flag() {
+        use super::super::{
+            sif_ast_extensions::{SifStatement, SifStatementKind},
+            sif_plugin::SifTransformer,
+        };
+        use crate::ast::{
+            ast::Metadata,
+            program::{LocalVarDecl, Method, MethodData},
+            statement::{Stmt, StmtKind},
+            r#type::Type,
+        };
+        let meta = Metadata::default();
+        let flag = LocalVarDecl::new("flag".into(), Type::Bool, meta.clone());
+        let cont = SifStatement {
+            kind: SifStatementKind::Continue,
+            meta: meta.clone(),
+        }
+        .statement()
+        .unwrap();
+        let brk = SifStatement {
+            kind: SifStatementKind::Break,
+            meta: meta.clone(),
+        }
+        .statement()
+        .unwrap();
+        let ret = SifStatement {
+            kind: SifStatementKind::Return {
+                exp: None,
+                result_var: None,
+            },
+            meta: meta.clone(),
+        }
+        .statement()
+        .unwrap();
+        let seq = |statements| {
+            Stmt::new(
+                StmtKind::Seqn {
+                    statements,
+                    declarations: vec![],
+                },
+                meta.clone(),
+            )
+        };
+        let branch = Stmt::new(
+            StmtKind::If {
+                condition: Exp::new(ExpKind::LocalVar(flag.local_var()), meta.clone()),
+                then_branch: seq(vec![cont]),
+                else_branch: seq(vec![brk]),
+            },
+            meta.clone(),
+        );
+        let loop_stmt = Stmt::new(
+            StmtKind::While {
+                condition: Exp::new(ExpKind::TrueLit, meta.clone()),
+                invariants: vec![],
+                body: seq(vec![branch]),
+            },
+            meta.clone(),
+        );
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![flag],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: Some(seq(vec![loop_stmt, ret])),
+            meta: meta.clone(),
+        });
+        let output = NativeSifTransformer
+            .transform(
+                Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta),
+                false,
+            )
+            .unwrap();
+        let rendered = crate::ast::pretty::pretty_printer::pretty(
+            75,
+            &crate::ast::pretty::pretty_printer::show_program(&output).unwrap(),
+        );
+        for flag in [
+            "oldret1",
+            "oldret2",
+            "oldbreak1",
+            "oldbreak2",
+            "oldcont1",
+            "oldcont2",
+        ] {
+            assert!(rendered.contains(flag), "{rendered}");
+        }
+        assert!(rendered.contains("Loop Reconstruction"), "{rendered}");
     }
 }
 
@@ -1908,6 +2306,56 @@ fn sif_pure_expression(
     Ok(Exp::with_extra(kind, meta, exp.0.extra.clone()))
 }
 
+type SifControlPair = (
+    crate::ast::program::LocalVarDecl,
+    crate::ast::program::LocalVarDecl,
+);
+
+#[derive(Clone, Copy, Default)]
+struct SifControls<'a> {
+    ret: Option<&'a SifControlPair>,
+    brk: Option<&'a SifControlPair>,
+    cont: Option<&'a SifControlPair>,
+    except: Option<&'a SifControlPair>,
+}
+
+fn sif_active(
+    p: Option<&Exp>,
+    controls: SifControls<'_>,
+    prime: bool,
+    include_continue: bool,
+) -> Exp {
+    use crate::ast::ast::Metadata;
+    let mut pieces = Vec::new();
+    if let Some(p) = p {
+        pieces.push(p.clone());
+    }
+    for pair in [
+        controls.ret,
+        controls.brk,
+        if include_continue {
+            controls.cont
+        } else {
+            None
+        },
+        controls.except,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let decl = if prime { &pair.1 } else { &pair.0 };
+        let flag = Exp::new(ExpKind::LocalVar(decl.local_var()), Metadata::default());
+        pieces.push(Exp::new(ExpKind::Not(flag), Metadata::default()));
+    }
+    let mut pieces = pieces.into_iter();
+    let Some(first) = pieces.next() else {
+        return Exp::new(ExpKind::TrueLit, Metadata::default());
+    };
+    pieces.fold(first, |left, right| {
+        Exp::new(ExpKind::And(left, right), Metadata::default())
+    })
+}
+
 fn sif_assertion(
     exp: &Exp,
     first: &Exp,
@@ -1916,7 +2364,15 @@ fn sif_assertion(
     fields: &HashMap<String, crate::ast::program::Field>,
     low_predicates: &HashSet<String>,
 ) -> Result<Exp, String> {
-    sif_assertion_with_flags(exp, first, second, names, fields, low_predicates, None)
+    sif_assertion_with_flags(
+        exp,
+        first,
+        second,
+        names,
+        fields,
+        low_predicates,
+        SifControls::default(),
+    )
 }
 
 fn sif_assertion_with_flags(
@@ -1926,10 +2382,7 @@ fn sif_assertion_with_flags(
     names: &HashMap<String, String>,
     fields: &HashMap<String, crate::ast::program::Field>,
     low_predicates: &HashSet<String>,
-    event_flags: Option<&(
-        crate::ast::program::LocalVarDecl,
-        crate::ast::program::LocalVarDecl,
-    )>,
+    event_flags: SifControls<'_>,
 ) -> Result<Exp, String> {
     use super::sif_ast_extensions::{SifExpression, SifExpressionKind};
     use crate::ast::ast::Metadata;
@@ -2086,28 +2539,26 @@ fn sif_assertion_with_flags(
                     let both = make(ExpKind::And(first.clone(), second.clone()));
                     Ok(Exp::new(ExpKind::Implies(both, equality), forwarded()))
                 }
-                SifExpressionKind::LowEvent => {
-                    let active = |p: &Exp, flag: &crate::ast::program::LocalVarDecl| {
+                SifExpressionKind::LowEvent => Ok(Exp::new(
+                    ExpKind::EqCmp(
+                        sif_active(Some(first), event_flags, false, true),
+                        sif_active(Some(second), event_flags, true, true),
+                    ),
+                    forwarded(),
+                )),
+                SifExpressionKind::LowExit => Ok(Exp::new(
+                    ExpKind::Implies(
+                        make(ExpKind::And(first.clone(), second.clone())),
                         Exp::new(
-                            ExpKind::And(
-                                p.clone(),
-                                Exp::new(
-                                    ExpKind::Not(Exp::new(
-                                        ExpKind::LocalVar(flag.local_var()),
-                                        Metadata::default(),
-                                    )),
-                                    Metadata::default(),
-                                ),
+                            ExpKind::EqCmp(
+                                sif_active(None, event_flags, false, false),
+                                sif_active(None, event_flags, true, false),
                             ),
-                            Metadata::default(),
-                        )
-                    };
-                    let (left, right) = match event_flags {
-                        Some((ret1, ret2)) => (active(first, ret1), active(second, ret2)),
-                        None => (first.clone(), second.clone()),
-                    };
-                    Ok(Exp::new(ExpKind::EqCmp(left, right), forwarded()))
-                }
+                            forwarded(),
+                        ),
+                    ),
+                    forwarded(),
+                )),
                 SifExpressionKind::Terminates { .. } => {
                     Ok(Exp::new(ExpKind::TrueLit, Metadata::default()))
                 }
@@ -2195,10 +2646,7 @@ fn termination_channel_checks(
     names: &HashMap<String, String>,
     fields: &HashMap<String, crate::ast::program::Field>,
     low_predicates: &HashSet<String>,
-    event_flags: Option<&(
-        crate::ast::program::LocalVarDecl,
-        crate::ast::program::LocalVarDecl,
-    )>,
+    event_flags: SifControls<'_>,
 ) -> Result<Vec<Exp>, String> {
     use super::sif_ast_extensions::{SifExpression, SifExpressionKind};
     use super::sif_error::SifTerminationReasonKind;
@@ -2297,7 +2745,7 @@ fn simplify_sif_conditions(expressions: Vec<Exp>) -> Result<Vec<Exp>, String> {
 
 fn sif_flatten_block(
     stmt: &crate::ast::statement::Stmt,
-    declarations: &mut Vec<crate::ast::program::LocalVarDecl>,
+    declarations: &mut Vec<crate::ast::program::Declaration>,
     statements: &mut Vec<crate::ast::statement::Stmt>,
 ) -> Result<(), String> {
     use crate::ast::{program::Declaration, statement::StmtKind};
@@ -2308,7 +2756,9 @@ fn sif_flatten_block(
         } => {
             for declaration in scoped {
                 match declaration {
-                    Declaration::Local(local) => declarations.push(local.clone()),
+                    Declaration::Local(_) | Declaration::Label(_) => {
+                        declarations.push(declaration.clone())
+                    }
                     _ => return Err("SIF scoped declaration outside supported fragment".into()),
                 }
             }
@@ -2336,6 +2786,51 @@ fn contains_sif_return(node: &Node) -> Result<bool, String> {
     Ok(false)
 }
 
+fn contains_sif_continue(node: &Node) -> Result<bool, String> {
+    use super::sif_ast_extensions::{SifStatement, SifStatementKind};
+    use crate::ast::statement::StmtKind;
+    if matches!(node, Node::Stmt(stmt) if matches!(stmt.kind(), StmtKind::Extension(extension) if matches!(extension.0.as_any().downcast_ref::<SifStatement>(), Some(SifStatement { kind: SifStatementKind::Continue, .. }))))
+    {
+        return Ok(true);
+    }
+    for child in subnodes(node).map_err(|e| format!("SIF control-flow traversal: {e:?}"))? {
+        if contains_sif_continue(&child)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn contains_sif_break(node: &Node) -> Result<bool, String> {
+    use super::sif_ast_extensions::{SifStatement, SifStatementKind};
+    use crate::ast::statement::StmtKind;
+    if matches!(node, Node::Stmt(stmt) if matches!(stmt.kind(), StmtKind::Extension(extension) if matches!(extension.0.as_any().downcast_ref::<SifStatement>(), Some(SifStatement { kind: SifStatementKind::Break, .. }))))
+    {
+        return Ok(true);
+    }
+    for child in subnodes(node).map_err(|e| format!("SIF control-flow traversal: {e:?}"))? {
+        if contains_sif_break(&child)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn contains_sif_exception(node: &Node) -> Result<bool, String> {
+    use super::sif_ast_extensions::{SifStatement, SifStatementKind};
+    use crate::ast::statement::StmtKind;
+    if matches!(node, Node::Stmt(stmt) if matches!(stmt.kind(), StmtKind::Extension(extension) if matches!(extension.0.as_any().downcast_ref::<SifStatement>(), Some(SifStatement { kind: SifStatementKind::Raise { .. } | SifStatementKind::TryCatch { .. }, .. }))))
+    {
+        return Ok(true);
+    }
+    for child in subnodes(node).map_err(|e| format!("SIF control-flow traversal: {e:?}"))? {
+        if contains_sif_exception(&child)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn sif_assertion_block(
     stmt: &crate::ast::statement::Stmt,
     first: &Exp,
@@ -2344,6 +2839,18 @@ fn sif_assertion_block(
     fields: &HashMap<String, crate::ast::program::Field>,
     low_predicates: &HashSet<String>,
     return_flags: Option<&(
+        crate::ast::program::LocalVarDecl,
+        crate::ast::program::LocalVarDecl,
+    )>,
+    continue_flags: Option<&(
+        crate::ast::program::LocalVarDecl,
+        crate::ast::program::LocalVarDecl,
+    )>,
+    break_flags: Option<&(
+        crate::ast::program::LocalVarDecl,
+        crate::ast::program::LocalVarDecl,
+    )>,
+    exception_flags: Option<&(
         crate::ast::program::LocalVarDecl,
         crate::ast::program::LocalVarDecl,
     )>,
@@ -2361,30 +2868,30 @@ fn sif_assertion_block(
     }
     let raw_first = first;
     let raw_second = second;
-    let active = |p: &Exp, flag: &LocalVarDecl| {
-        Exp::new(
-            ExpKind::And(
-                p.clone(),
-                Exp::new(
-                    ExpKind::Not(Exp::new(
-                        ExpKind::LocalVar(flag.local_var()),
-                        Metadata::default(),
-                    )),
-                    Metadata::default(),
-                ),
-            ),
-            Metadata::default(),
-        )
+    let controls = SifControls {
+        ret: return_flags,
+        brk: break_flags,
+        cont: continue_flags,
+        except: exception_flags,
     };
-    let first_active = return_flags.map(|(a, _)| active(first, a));
-    let second_active = return_flags.map(|(_, b)| active(second, b));
-    let first = first_active.as_ref().unwrap_or(first);
-    let second = second_active.as_ref().unwrap_or(second);
+    let first_active = sif_active(Some(first), controls, false, true);
+    let second_active = sif_active(Some(second), controls, true, true);
+    let first = &first_active;
+    let second = &second_active;
     let mut locals = Vec::new();
     let mut original = Vec::new();
     sif_flatten_block(stmt, &mut locals, &mut original)?;
     let mut declarations = Vec::new();
-    for local in locals {
+    let mut labels = Vec::new();
+    for declaration in locals {
+        let local = match declaration {
+            Declaration::Local(local) => local,
+            Declaration::Label(label) => {
+                labels.push(Declaration::Label(label));
+                continue;
+            }
+            _ => return Err("SIF scoped declaration outside supported fragment".into()),
+        };
         if names.contains_key(&local.name) || !sif_supported_type(&local.typ) {
             return Err("SIF shadowed local or local type outside supported fragment".into());
         }
@@ -2397,6 +2904,7 @@ fn sif_assertion_block(
             Metadata::default(),
         )));
     }
+    declarations.extend(labels);
     let skip = Stmt::new(
         StmtKind::Seqn {
             statements: vec![],
@@ -2481,8 +2989,15 @@ fn sif_assertion_block(
                         .map_err(|e| format!("SIF expression traversal: {e:?}"))?
                 {
                     flush(&mut normal, &mut primed, &mut result);
-                    let translated =
-                        sif_assertion(exp, first, second, names, fields, low_predicates)?;
+                    let translated = sif_assertion_with_flags(
+                        exp,
+                        first,
+                        second,
+                        names,
+                        fields,
+                        low_predicates,
+                        controls,
+                    )?;
                     let kind = if matches!(current.kind(), StmtKind::Inhale(_)) {
                         StmtKind::Inhale(translated)
                     } else {
@@ -2832,6 +3347,9 @@ fn sif_assertion_block(
                     fields,
                     low_predicates,
                     return_flags,
+                    continue_flags,
+                    break_flags,
+                    exception_flags,
                     generator,
                 )?);
                 branches.push(sif_assertion_block(
@@ -2842,6 +3360,9 @@ fn sif_assertion_block(
                     fields,
                     low_predicates,
                     return_flags,
+                    continue_flags,
+                    break_flags,
+                    exception_flags,
                     generator,
                 )?);
                 result.push(Stmt::new(
@@ -2858,11 +3379,14 @@ fn sif_assertion_block(
                 body,
             } => {
                 flush(&mut normal, &mut primed, &mut result);
-                let reconstruct = contains_sif_return(&Node::Stmt(body.clone()))?;
+                let reconstruct = contains_sif_return(&Node::Stmt(body.clone()))?
+                    || contains_sif_break(&Node::Stmt(body.clone()))?
+                    || contains_sif_exception(&Node::Stmt(body.clone()))?;
                 fn targets(
                     node: &Node,
                     result: &mut Vec<LocalVar>,
                     return_flags: Option<&(LocalVarDecl, LocalVarDecl)>,
+                    exception_flags: Option<&(LocalVarDecl, LocalVarDecl)>,
                 ) -> Result<(), String> {
                     if let Node::Stmt(stmt) = node {
                         let vars: Vec<LocalVar> = match stmt.kind() {
@@ -2888,6 +3412,25 @@ fn sif_assertion_block(
                                         .local_var(),
                                 ]
                             }
+                            StmtKind::Extension(extension)
+                                if matches!(
+                                    extension
+                                        .0
+                                        .as_any()
+                                        .downcast_ref::<super::sif_ast_extensions::SifStatement>(),
+                                    Some(super::sif_ast_extensions::SifStatement {
+                                        kind: super::sif_ast_extensions::SifStatementKind::Raise { .. },
+                                        ..
+                                    })
+                                ) =>
+                            {
+                                vec![
+                                    exception_flags
+                                        .ok_or_else(|| "missing SIF exception flags".to_owned())?
+                                        .0
+                                        .local_var(),
+                                ]
+                            }
                             _ => vec![],
                         };
                         for variable in vars {
@@ -2899,7 +3442,7 @@ fn sif_assertion_block(
                     for child in
                         subnodes(node).map_err(|e| format!("SIF loop target traversal: {e:?}"))?
                     {
-                        targets(&child, result, return_flags)?;
+                        targets(&child, result, return_flags, exception_flags)?;
                     }
                     Ok(())
                 }
@@ -2956,7 +3499,18 @@ fn sif_assertion_block(
                     assign(&bypass2, not(second.clone())),
                 ];
                 let mut modified = Vec::new();
-                targets(&Node::Stmt(current.clone()), &mut modified, return_flags)?;
+                targets(
+                    &Node::Stmt(current.clone()),
+                    &mut modified,
+                    return_flags,
+                    exception_flags,
+                )?;
+                if let Some((cont1, cont2)) = continue_flags {
+                    modified.extend([cont1.local_var(), cont2.local_var()]);
+                }
+                if let Some((break1, break2)) = break_flags {
+                    modified.extend([break1.local_var(), break2.local_var()]);
+                }
                 let mut first_snapshots = Vec::new();
                 let mut second_snapshots = Vec::new();
                 let mut first_equalities = Vec::new();
@@ -3005,40 +3559,40 @@ fn sif_assertion_block(
                     statements.push(conditional(bypass1_exp.clone(), first_snapshots));
                     statements.push(conditional(bypass2_exp.clone(), second_snapshots));
                 }
-                let old_return_flags = if reconstruct {
-                    let Some((ret1, ret2)) = return_flags else {
-                        return Err("missing SIF return flags".into());
-                    };
-                    let (old1, old1_exp) =
-                        fresh(generator, &format!("old{}", ret1.name), Type::Bool);
-                    let (old2, old2_exp) =
-                        fresh(generator, &format!("old{}", ret2.name), Type::Bool);
-                    declarations.extend([
-                        Declaration::Local(old1.clone()),
-                        Declaration::Local(old2.clone()),
-                    ]);
-                    statements.push(assign(
-                        &old1,
-                        Exp::new(ExpKind::LocalVar(ret1.local_var()), Metadata::default()),
-                    ));
-                    statements.push(assign(
-                        &old2,
-                        Exp::new(ExpKind::LocalVar(ret2.local_var()), Metadata::default()),
-                    ));
-                    Some((old1_exp, old2_exp))
-                } else {
-                    None
-                };
+                let mut old_control_flags = Vec::new();
+                if reconstruct {
+                    for pair in [return_flags, break_flags, continue_flags, exception_flags]
+                        .into_iter()
+                        .flatten()
+                    {
+                        for flag in [&pair.0, &pair.1] {
+                            let (old, old_exp) =
+                                fresh(generator, &format!("old{}", flag.name), Type::Bool);
+                            declarations.push(Declaration::Local(old.clone()));
+                            statements.push(assign(
+                                &old,
+                                Exp::new(ExpKind::LocalVar(flag.local_var()), Metadata::default()),
+                            ));
+                            old_control_flags.push((flag.clone(), old_exp));
+                        }
+                    }
+                }
                 let normal_condition = sif_pure_expression(condition, false, names, fields)?;
                 let prime_condition = sif_pure_expression(condition, true, names, fields)?;
                 let loop_condition = Exp::new(
                     ExpKind::Or(
                         and(
-                            and(first.clone(), not(bypass1_exp.clone())),
+                            and(
+                                sif_active(Some(raw_first), controls, false, false),
+                                not(bypass1_exp.clone()),
+                            ),
                             normal_condition.clone(),
                         ),
                         and(
-                            and(second.clone(), not(bypass2_exp.clone())),
+                            and(
+                                sif_active(Some(raw_second), controls, true, false),
+                                not(bypass2_exp.clone()),
+                            ),
                             prime_condition.clone(),
                         ),
                     ),
@@ -3050,10 +3604,21 @@ fn sif_assertion_block(
                     Declaration::Local(inner1.clone()),
                     Declaration::Local(inner2.clone()),
                 ]);
-                let mut body_preamble = vec![
+                let mut body_preamble = Vec::new();
+                if let Some((cont1, cont2)) = continue_flags {
+                    body_preamble.push(assign(
+                        cont1,
+                        Exp::new(ExpKind::FalseLit, Metadata::default()),
+                    ));
+                    body_preamble.push(assign(
+                        cont2,
+                        Exp::new(ExpKind::FalseLit, Metadata::default()),
+                    ));
+                }
+                body_preamble.extend([
                     assign(&inner1, and(first.clone(), normal_condition.clone())),
                     assign(&inner2, and(second.clone(), prime_condition.clone())),
-                ];
+                ]);
                 let idle = if has_idle {
                     let (idle1, idle1_exp) = fresh(generator, "idle1", Type::Bool);
                     let (idle2, idle2_exp) = fresh(generator, "idle2", Type::Bool);
@@ -3103,7 +3668,7 @@ fn sif_assertion_block(
                         names,
                         fields,
                         low_predicates,
-                        return_flags,
+                        controls,
                     )? {
                         statements.push(Stmt::new(
                             StmtKind::Assert(check.clone()),
@@ -3168,7 +3733,7 @@ fn sif_assertion_block(
                         names,
                         fields,
                         low_predicates,
-                        return_flags,
+                        controls,
                     )?;
                     let simplified = rewrite_loop_preorder(&translated, &|e| {
                         if e.is_pure() {
@@ -3204,6 +3769,9 @@ fn sif_assertion_block(
                     fields,
                     low_predicates,
                     return_flags,
+                    continue_flags,
+                    break_flags,
+                    exception_flags,
                     generator,
                 )?;
                 body_preamble.push(product_body);
@@ -3222,43 +3790,61 @@ fn sif_assertion_block(
                     },
                     Metadata::default(),
                 ));
-                if let Some((old1, old2)) = old_return_flags {
-                    let Some((ret1, ret2)) = return_flags else {
-                        return Err("missing SIF return flags".into());
+                if reconstruct {
+                    let causes = |prime: bool| -> Result<Exp, String> {
+                        let mut terms = Vec::new();
+                        for pair in [return_flags, break_flags, exception_flags]
+                            .into_iter()
+                            .flatten()
+                        {
+                            let flag = if prime { &pair.1 } else { &pair.0 };
+                            terms.push(Exp::new(
+                                ExpKind::LocalVar(flag.local_var()),
+                                Metadata::default(),
+                            ));
+                        }
+                        let mut terms = terms.into_iter().rev();
+                        let Some(last) = terms.next() else {
+                            return Err("missing SIF reconstruction flags".into());
+                        };
+                        Ok(terms.fold(last, |right, left| {
+                            Exp::new(ExpKind::Or(left, right), Metadata::default())
+                        }))
                     };
-                    let var = |decl: &LocalVarDecl| {
-                        Exp::new(ExpKind::LocalVar(decl.local_var()), Metadata::default())
-                    };
-                    let ret1_exp = var(ret1);
-                    let ret2_exp = var(ret2);
                     let reconstruction_condition = Exp::new(
                         ExpKind::Or(
-                            and(not(bypass1_exp.clone()), ret1_exp.clone()),
-                            and(not(bypass2_exp.clone()), ret2_exp.clone()),
+                            and(not(bypass1_exp.clone()), causes(false)?),
+                            and(not(bypass2_exp.clone()), causes(true)?),
                         ),
                         Metadata::default(),
                     );
                     let inhale = |e: Exp| Stmt::new(StmtKind::Inhale(e), Metadata::default());
-                    let mut reconstructed = vec![
-                        assign(ret1, old1),
-                        assign(ret2, old2),
-                        inhale(implies(
-                            and(raw_first.clone(), not(ret1_exp.clone())),
-                            normal_condition.clone(),
-                        )),
-                        // Source uses activeExecNoContNormal for the second reconstruction inhale.
-                        inhale(implies(
-                            and(raw_second.clone(), not(ret1_exp.clone())),
-                            prime_condition.clone(),
-                        )),
-                    ];
+                    let mut reconstructed: Vec<Stmt> = old_control_flags
+                        .into_iter()
+                        .map(|(flag, old)| assign(&flag, old))
+                        .collect();
+                    reconstructed.push(inhale(implies(
+                        sif_active(Some(raw_first), controls, false, false),
+                        normal_condition.clone(),
+                    )));
+                    // Source uses activeExecNoContNormal for the second reconstruction inhale.
+                    reconstructed.push(inhale(implies(
+                        sif_active(Some(raw_second), controls, false, false),
+                        prime_condition.clone(),
+                    )));
                     reconstructed.extend(body_preamble);
                     reconstructed.push(inhale(Exp::new(
-                        ExpKind::Or(not(inner1_exp.clone()), not(not(ret1_exp))),
+                        ExpKind::Or(
+                            not(inner1_exp.clone()),
+                            not(sif_active(None, controls, false, false)),
+                        ),
                         Metadata::default(),
                     )));
                     reconstructed.push(inhale(Exp::new(
-                        ExpKind::Or(not(inner2_exp.clone()), not(not(ret2_exp))),
+                        ExpKind::Or(
+                            not(inner2_exp.clone()),
+                            not(sif_active(None, controls, true, false)),
+                        ),
                         Metadata::default(),
                     )));
                     let mut meta = Metadata::default();
@@ -3279,6 +3865,22 @@ fn sif_assertion_block(
                         meta,
                     ));
                 }
+                let mut reset1 = Vec::new();
+                let mut reset2 = Vec::new();
+                for pair in [break_flags, continue_flags].into_iter().flatten() {
+                    reset1.push(assign(
+                        &pair.0,
+                        Exp::new(ExpKind::FalseLit, Metadata::default()),
+                    ));
+                    reset2.push(assign(
+                        &pair.1,
+                        Exp::new(ExpKind::FalseLit, Metadata::default()),
+                    ));
+                }
+                if !reset1.is_empty() {
+                    statements.push(conditional(not(bypass1_exp.clone()), reset1));
+                    statements.push(conditional(not(bypass2_exp.clone()), reset2));
+                }
                 result.push(Stmt::new(
                     StmtKind::Seqn {
                         statements,
@@ -3289,17 +3891,34 @@ fn sif_assertion_block(
             }
             StmtKind::Assert(exp) => {
                 flush(&mut normal, &mut primed, &mut result);
+                let continue_unaware = current
+                    .metadata()
+                    .info
+                    .find_extension::<super::sif_ast_extensions::SifInfo>()
+                    .is_some_and(|info| info.continue_unaware);
+                let unaware_first = sif_active(Some(raw_first), controls, false, false);
+                let unaware_second = sif_active(Some(raw_second), controls, true, false);
+                let (assert_first, assert_second) = if continue_unaware {
+                    (&unaware_first, &unaware_second)
+                } else {
+                    (first, second)
+                };
                 result.push(Stmt::new(
-                    StmtKind::Assert(sif_assertion(
+                    StmtKind::Assert(sif_assertion_with_flags(
                         exp,
-                        first,
-                        second,
+                        assert_first,
+                        assert_second,
                         names,
                         fields,
                         low_predicates,
+                        controls,
                     )?),
                     sif_forward_meta(Node::Stmt(current.clone()), current.metadata()),
                 ));
+            }
+            StmtKind::Label(_) | StmtKind::LocalVarDeclStmt(_) => {
+                flush(&mut normal, &mut primed, &mut result);
+                result.push(current.clone());
             }
             StmtKind::Fold(access) | StmtKind::Unfold(access) => {
                 flush(&mut normal, &mut primed, &mut result);
@@ -3431,6 +4050,584 @@ fn sif_assertion_block(
                 use super::sif_ast_extensions::{SifStatement, SifStatementKind};
                 use crate::plugin::standard::refute::refute_ast_extension::Refute;
                 if let Some(SifStatement {
+                    kind: SifStatementKind::InlinedCall(body),
+                    ..
+                }) = extension.0.as_any().downcast_ref::<SifStatement>()
+                {
+                    flush(&mut normal, &mut primed, &mut result);
+                    let root = Node::Stmt(body.clone());
+                    let requested = [
+                        contains_sif_return(&root)?,
+                        contains_sif_break(&root)?,
+                        contains_sif_continue(&root)?,
+                        contains_sif_exception(&root)?,
+                    ];
+                    let labels = [
+                        ("ret1", "ret2"),
+                        ("break1", "break2"),
+                        ("cont1", "cont2"),
+                        ("except1", "except2"),
+                    ];
+                    let mut declarations = Vec::new();
+                    let mut initializers = Vec::new();
+                    let mut flags = Vec::new();
+                    for (needed, (n1, n2)) in requested.into_iter().zip(labels) {
+                        if needed {
+                            let d1 = LocalVarDecl::new(
+                                generator.get_unused_name(n1),
+                                Type::Bool,
+                                Metadata::default(),
+                            );
+                            let d2 = LocalVarDecl::new(
+                                generator.get_unused_name(n2),
+                                Type::Bool,
+                                Metadata::default(),
+                            );
+                            names.insert(d1.name.clone(), d2.name.clone());
+                            for d in [&d1, &d2] {
+                                declarations.push(Declaration::Local(d.clone()));
+                                initializers.push(Stmt::new(
+                                    StmtKind::LocalVarAssign {
+                                        lhs: d.local_var(),
+                                        rhs: Exp::new(ExpKind::FalseLit, Metadata::default()),
+                                    },
+                                    Metadata::default(),
+                                ));
+                            }
+                            flags.push(Some((d1, d2)));
+                        } else {
+                            flags.push(None);
+                        }
+                    }
+                    initializers.push(sif_assertion_block(
+                        body,
+                        raw_first,
+                        raw_second,
+                        names,
+                        fields,
+                        low_predicates,
+                        flags[0].as_ref(),
+                        flags[2].as_ref(),
+                        flags[1].as_ref(),
+                        flags[3].as_ref(),
+                        generator,
+                    )?);
+                    result.push(Stmt::new(
+                        StmtKind::Seqn {
+                            statements: initializers,
+                            declarations,
+                        },
+                        Metadata::default(),
+                    ));
+                } else if let Some(SifStatement {
+                    kind:
+                        SifStatementKind::TryCatch {
+                            body,
+                            handlers,
+                            else_block,
+                            finally_block,
+                        },
+                    ..
+                }) = extension.0.as_any().downcast_ref::<SifStatement>()
+                {
+                    flush(&mut normal, &mut primed, &mut result);
+                    let Some((except1, except2)) = exception_flags else {
+                        return Err("missing SIF exception flags".into());
+                    };
+                    let fresh = |generator: &mut NameTransformer, name: &str| {
+                        let d = LocalVarDecl::new(
+                            generator.get_unused_name(name),
+                            Type::Bool,
+                            Metadata::default(),
+                        );
+                        let e = Exp::new(ExpKind::LocalVar(d.local_var()), Metadata::default());
+                        (d, e)
+                    };
+                    let assign = |d: &LocalVarDecl, e: Exp| {
+                        Stmt::new(
+                            StmtKind::LocalVarAssign {
+                                lhs: d.local_var(),
+                                rhs: e,
+                            },
+                            Metadata::default(),
+                        )
+                    };
+                    let not = |e| Exp::new(ExpKind::Not(e), Metadata::default());
+                    let and = |a, b| Exp::new(ExpKind::And(a, b), Metadata::default());
+                    let block = |statements| {
+                        Stmt::new(
+                            StmtKind::Seqn {
+                                statements,
+                                declarations: vec![],
+                            },
+                            Metadata::default(),
+                        )
+                    };
+                    let conditional = |condition, statement| {
+                        Stmt::new(
+                            StmtKind::If {
+                                condition,
+                                then_branch: block(vec![statement]),
+                                else_branch: skip.clone(),
+                            },
+                            Metadata::default(),
+                        )
+                    };
+                    let (bypass1, b1) = fresh(generator, "bypass1");
+                    let (bypass2, b2) = fresh(generator, "bypass2");
+                    let mut decls = vec![
+                        Declaration::Local(bypass1.clone()),
+                        Declaration::Local(bypass2.clone()),
+                    ];
+                    let mut stmts = vec![
+                        assign(&bypass1, not(first.clone())),
+                        assign(&bypass2, not(second.clone())),
+                    ];
+                    // Finally executes with the control flags restored to their entry values.
+                    let pairs = [return_flags, break_flags, continue_flags, exception_flags];
+                    let old_names = [
+                        ("oldret1", "oldret2"),
+                        ("oldbreak1", "oldbreak2"),
+                        ("oldcont1", "oldcont2"),
+                        ("oldexcept1", "oldexcept2"),
+                    ];
+                    let mut old = Vec::new();
+                    if finally_block.is_some() {
+                        for (pair, (name1, name2)) in pairs.iter().zip(old_names) {
+                            if let Some((flag1, flag2)) = pair {
+                                let (decl1, _) = fresh(generator, name1);
+                                let (decl2, _) = fresh(generator, name2);
+                                decls.extend([
+                                    Declaration::Local(decl1.clone()),
+                                    Declaration::Local(decl2.clone()),
+                                ]);
+                                stmts.push(assign(
+                                    &decl1,
+                                    Exp::new(
+                                        ExpKind::LocalVar(flag1.local_var()),
+                                        Metadata::default(),
+                                    ),
+                                ));
+                                stmts.push(assign(
+                                    &decl2,
+                                    Exp::new(
+                                        ExpKind::LocalVar(flag2.local_var()),
+                                        Metadata::default(),
+                                    ),
+                                ));
+                                old.push(Some((decl1, decl2)));
+                            } else {
+                                old.push(None);
+                            }
+                        }
+                    }
+                    stmts.push(sif_assertion_block(
+                        body,
+                        raw_first,
+                        raw_second,
+                        names,
+                        fields,
+                        low_predicates,
+                        return_flags,
+                        continue_flags,
+                        break_flags,
+                        exception_flags,
+                        generator,
+                    )?);
+                    let (this1, t1) = fresh(generator, "thisexcept1");
+                    let (this2, t2) = fresh(generator, "thisexcept2");
+                    decls.extend([
+                        Declaration::Local(this1.clone()),
+                        Declaration::Local(this2.clone()),
+                    ]);
+                    let exc1 =
+                        Exp::new(ExpKind::LocalVar(except1.local_var()), Metadata::default());
+                    let exc2 =
+                        Exp::new(ExpKind::LocalVar(except2.local_var()), Metadata::default());
+                    stmts.push(assign(&this1, and(exc1, not(b1))));
+                    stmts.push(assign(&this2, and(exc2, not(b2))));
+                    for handler in handlers {
+                        let (p1, pe1) = fresh(generator, "p1");
+                        let (p2, pe2) = fresh(generator, "p2");
+                        decls.extend([
+                            Declaration::Local(p1.clone()),
+                            Declaration::Local(p2.clone()),
+                        ]);
+                        stmts.push(assign(
+                            &p1,
+                            and(
+                                raw_first.clone(),
+                                and(
+                                    t1.clone(),
+                                    sif_pure_expression(&handler.exception, false, names, fields)?,
+                                ),
+                            ),
+                        ));
+                        stmts.push(assign(
+                            &p2,
+                            and(
+                                raw_second.clone(),
+                                and(
+                                    t2.clone(),
+                                    sif_pure_expression(&handler.exception, true, names, fields)?,
+                                ),
+                            ),
+                        ));
+                        stmts.push(conditional(
+                            pe1.clone(),
+                            assign(except1, Exp::new(ExpKind::FalseLit, Metadata::default())),
+                        ));
+                        stmts.push(conditional(
+                            pe2.clone(),
+                            assign(except2, Exp::new(ExpKind::FalseLit, Metadata::default())),
+                        ));
+                        stmts.push(sif_assertion_block(
+                            &handler.body,
+                            &pe1,
+                            &pe2,
+                            names,
+                            fields,
+                            low_predicates,
+                            return_flags,
+                            continue_flags,
+                            break_flags,
+                            exception_flags,
+                            generator,
+                        )?);
+                        let clear = Stmt::new(
+                            StmtKind::LocalVarAssign {
+                                lhs: handler.error_var.clone(),
+                                rhs: Exp::new(ExpKind::NullLit, Metadata::default()),
+                            },
+                            Metadata::default(),
+                        );
+                        stmts.push(sif_assertion_block(
+                            &block(vec![clear]),
+                            raw_first,
+                            raw_second,
+                            names,
+                            fields,
+                            low_predicates,
+                            return_flags,
+                            continue_flags,
+                            break_flags,
+                            exception_flags,
+                            generator,
+                        )?);
+                    }
+                    if let Some(otherwise) = else_block {
+                        let (p1, pe1) = fresh(generator, "p1");
+                        let (p2, pe2) = fresh(generator, "p2");
+                        decls.extend([
+                            Declaration::Local(p1.clone()),
+                            Declaration::Local(p2.clone()),
+                        ]);
+                        stmts.push(assign(&p1, and(raw_first.clone(), not(t1))));
+                        stmts.push(assign(&p2, and(raw_second.clone(), not(t2))));
+                        stmts.push(sif_assertion_block(
+                            otherwise,
+                            &pe1,
+                            &pe2,
+                            names,
+                            fields,
+                            low_predicates,
+                            return_flags,
+                            continue_flags,
+                            break_flags,
+                            exception_flags,
+                            generator,
+                        )?);
+                    }
+                    if let Some(finally) = finally_block {
+                        let tmp_names = [
+                            ("tmp_ret1", "tmp_ret2"),
+                            ("tmp_break1", "tmp_break2"),
+                            ("tmp_cont1", "tmp_cont2"),
+                            ("tmp_except1", "tmp_except2"),
+                        ];
+                        let mut temps = Vec::new();
+                        for (name1, name2) in tmp_names {
+                            let (tmp1, _) = fresh(generator, name1);
+                            let (tmp2, _) = fresh(generator, name2);
+                            decls.extend([
+                                Declaration::Local(tmp1.clone()),
+                                Declaration::Local(tmp2.clone()),
+                            ]);
+                            temps.push((tmp1, tmp2));
+                        }
+                        let var = |d: &LocalVarDecl| {
+                            Exp::new(ExpKind::LocalVar(d.local_var()), Metadata::default())
+                        };
+                        let or = |a, b| Exp::new(ExpKind::Or(a, b), Metadata::default());
+                        let mut restore1 = Vec::new();
+                        let mut restore2 = Vec::new();
+                        for (i, pair) in pairs.iter().enumerate() {
+                            if let (Some((flag1, flag2)), Some((old1, old2))) = (pair, &old[i]) {
+                                restore1.extend([
+                                    assign(&temps[i].0, var(flag1)),
+                                    assign(flag1, var(old1)),
+                                ]);
+                                restore2.extend([
+                                    assign(&temps[i].1, var(flag2)),
+                                    assign(flag2, var(old2)),
+                                ]);
+                            }
+                        }
+                        stmts.push(Stmt::new(
+                            StmtKind::If {
+                                condition: raw_first.clone(),
+                                then_branch: block(restore1),
+                                else_branch: skip.clone(),
+                            },
+                            Metadata::default(),
+                        ));
+                        stmts.push(Stmt::new(
+                            StmtKind::If {
+                                condition: raw_second.clone(),
+                                then_branch: block(restore2),
+                                else_branch: skip.clone(),
+                            },
+                            Metadata::default(),
+                        ));
+                        stmts.push(sif_assertion_block(
+                            finally,
+                            raw_first,
+                            raw_second,
+                            names,
+                            fields,
+                            low_predicates,
+                            return_flags,
+                            continue_flags,
+                            break_flags,
+                            exception_flags,
+                            generator,
+                        )?);
+                        let mut merge1 = Vec::new();
+                        let mut merge2 = Vec::new();
+                        for i in [3usize, 0, 1, 2] {
+                            if let Some((flag1, flag2)) = pairs[i] {
+                                let saved1 = if i == 3 {
+                                    let conditions = [
+                                        return_flags.map(|p| not(var(&p.0))),
+                                        break_flags.map(|p| not(var(&p.0))),
+                                    ];
+                                    and(
+                                        var(&temps[i].0),
+                                        conditions
+                                            .into_iter()
+                                            .flatten()
+                                            .reduce(|a, b| and(a, b))
+                                            .unwrap_or_else(|| {
+                                                Exp::new(ExpKind::TrueLit, Metadata::default())
+                                            }),
+                                    )
+                                } else {
+                                    var(&temps[i].0)
+                                };
+                                let saved2 = if i == 3 {
+                                    let conditions = [
+                                        return_flags.map(|p| not(var(&p.1))),
+                                        break_flags.map(|p| not(var(&p.1))),
+                                    ];
+                                    and(
+                                        var(&temps[i].1),
+                                        conditions
+                                            .into_iter()
+                                            .flatten()
+                                            .reduce(|a, b| and(a, b))
+                                            .unwrap_or_else(|| {
+                                                Exp::new(ExpKind::TrueLit, Metadata::default())
+                                            }),
+                                    )
+                                } else {
+                                    var(&temps[i].1)
+                                };
+                                merge1.push(assign(flag1, or(var(flag1), saved1)));
+                                merge2.push(assign(flag2, or(var(flag2), saved2)));
+                            }
+                        }
+                        stmts.push(Stmt::new(
+                            StmtKind::If {
+                                condition: raw_first.clone(),
+                                then_branch: block(merge1),
+                                else_branch: skip.clone(),
+                            },
+                            Metadata::default(),
+                        ));
+                        stmts.push(Stmt::new(
+                            StmtKind::If {
+                                condition: raw_second.clone(),
+                                then_branch: block(merge2),
+                                else_branch: skip.clone(),
+                            },
+                            Metadata::default(),
+                        ));
+                    }
+                    let mut meta = Metadata::default();
+                    meta.info = crate::ast::ast::Info::Simple(vec!["Try/catch block\n  ".into()]);
+                    result.push(Stmt::new(
+                        StmtKind::Seqn {
+                            statements: stmts,
+                            declarations: decls,
+                        },
+                        meta,
+                    ));
+                } else if let Some(SifStatement {
+                    kind: SifStatementKind::Raise { assignment },
+                    ..
+                }) = extension.0.as_any().downcast_ref::<SifStatement>()
+                {
+                    flush(&mut normal, &mut primed, &mut result);
+                    let Some((except1, except2)) = exception_flags else {
+                        return Err("missing SIF exception flags".into());
+                    };
+                    let mut first_body = Vec::new();
+                    let mut second_body = Vec::new();
+                    if let Some(assignment) = assignment {
+                        let StmtKind::LocalVarAssign { lhs, rhs } = assignment.kind() else {
+                            return Err("SIF raise assignment must target a local".into());
+                        };
+                        let prime_name = names
+                            .get(&lhs.name)
+                            .ok_or_else(|| format!("unmapped SIF raise target {}", lhs.name))?;
+                        let prime_lhs = LocalVar::new(
+                            prime_name.clone(),
+                            lhs.typ.clone(),
+                            sif_forward_meta(Node::LocalVar(lhs.clone()), &lhs.meta),
+                        );
+                        first_body.push(Stmt::new(
+                            StmtKind::LocalVarAssign {
+                                lhs: lhs.clone(),
+                                rhs: sif_pure_expression(rhs, false, names, fields)?,
+                            },
+                            Metadata::default(),
+                        ));
+                        second_body.push(Stmt::new(
+                            StmtKind::LocalVarAssign {
+                                lhs: prime_lhs,
+                                rhs: sif_pure_expression(rhs, true, names, fields)?,
+                            },
+                            Metadata::default(),
+                        ));
+                    }
+                    let set = |decl: &LocalVarDecl| {
+                        Stmt::new(
+                            StmtKind::LocalVarAssign {
+                                lhs: decl.local_var(),
+                                rhs: Exp::new(ExpKind::TrueLit, Metadata::default()),
+                            },
+                            Metadata::default(),
+                        )
+                    };
+                    first_body.push(set(except1));
+                    second_body.push(set(except2));
+                    let branch = |condition: &Exp, statements: Vec<Stmt>| {
+                        Stmt::new(
+                            StmtKind::If {
+                                condition: condition.clone(),
+                                then_branch: Stmt::new(
+                                    StmtKind::Seqn {
+                                        statements,
+                                        declarations: vec![],
+                                    },
+                                    Metadata::default(),
+                                ),
+                                else_branch: skip.clone(),
+                            },
+                            Metadata::default(),
+                        )
+                    };
+                    result.push(Stmt::new(
+                        StmtKind::Seqn {
+                            statements: vec![
+                                branch(first, first_body),
+                                branch(second, second_body),
+                            ],
+                            declarations: vec![],
+                        },
+                        Metadata::default(),
+                    ));
+                } else if matches!(
+                    extension.0.as_any().downcast_ref::<SifStatement>(),
+                    Some(SifStatement {
+                        kind: SifStatementKind::AssertNoException,
+                        ..
+                    })
+                ) {
+                    flush(&mut normal, &mut primed, &mut result);
+                    let meta = current.metadata().clone();
+                    let condition = if let Some((except1, except2)) = exception_flags {
+                        let no_exception = |p: &Exp, flag: &LocalVarDecl| {
+                            Exp::new(
+                                ExpKind::Implies(
+                                    p.clone(),
+                                    Exp::new(
+                                        ExpKind::Not(Exp::new(
+                                            ExpKind::LocalVar(flag.local_var()),
+                                            Metadata::default(),
+                                        )),
+                                        Metadata::default(),
+                                    ),
+                                ),
+                                meta.clone(),
+                            )
+                        };
+                        Exp::new(
+                            ExpKind::And(
+                                no_exception(raw_first, except1),
+                                no_exception(raw_second, except2),
+                            ),
+                            meta.clone(),
+                        )
+                    } else {
+                        Exp::new(ExpKind::TrueLit, Metadata::default())
+                    };
+                    result.push(Stmt::new(StmtKind::Exhale(condition), meta));
+                } else if matches!(
+                    extension.0.as_any().downcast_ref::<SifStatement>(),
+                    Some(SifStatement {
+                        kind: SifStatementKind::Continue,
+                        ..
+                    })
+                ) {
+                    let Some((cont1, cont2)) = continue_flags else {
+                        return Err("missing SIF continue flags".into());
+                    };
+                    let set = |decl: &LocalVarDecl| {
+                        Stmt::new(
+                            StmtKind::LocalVarAssign {
+                                lhs: decl.local_var(),
+                                rhs: Exp::new(ExpKind::TrueLit, Metadata::default()),
+                            },
+                            current.metadata().clone(),
+                        )
+                    };
+                    normal.push(set(cont1));
+                    primed.push(set(cont2));
+                    flush(&mut normal, &mut primed, &mut result);
+                } else if matches!(
+                    extension.0.as_any().downcast_ref::<SifStatement>(),
+                    Some(SifStatement {
+                        kind: SifStatementKind::Break,
+                        ..
+                    })
+                ) {
+                    let Some((break1, break2)) = break_flags else {
+                        return Err("missing SIF break flags".into());
+                    };
+                    let set = |decl: &LocalVarDecl| {
+                        Stmt::new(
+                            StmtKind::LocalVarAssign {
+                                lhs: decl.local_var(),
+                                rhs: Exp::new(ExpKind::TrueLit, Metadata::default()),
+                            },
+                            current.metadata().clone(),
+                        )
+                    };
+                    normal.push(set(break1));
+                    primed.push(set(break2));
+                    flush(&mut normal, &mut primed, &mut result);
+                } else if let Some(SifStatement {
                     kind: SifStatementKind::Return { exp, result_var },
                     ..
                 }) = extension.0.as_any().downcast_ref::<SifStatement>()
@@ -3497,13 +4694,14 @@ fn sif_assertion_block(
                     flush(&mut normal, &mut primed, &mut result);
                     result.push(
                         Refute::new(
-                            sif_assertion(
+                            sif_assertion_with_flags(
                                 &refute.exp,
                                 first,
                                 second,
                                 names,
                                 fields,
                                 low_predicates,
+                                controls,
                             )?,
                             sif_forward_meta(Node::Stmt(current.clone()), current.metadata()),
                         )
@@ -3671,6 +4869,14 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
         fn seed_declarations(node: &Node, names: &mut Vec<String>) -> Result<(), PluginHookError> {
             if let Node::LocalDecl(decl) = node {
                 names.push(decl.name.clone());
+            }
+            if let Node::LabelDecl(label) = node {
+                names.push(label.name.clone());
+            }
+            if let Node::Stmt(stmt) = node {
+                if let StmtKind::Label(label) = stmt.kind() {
+                    names.push(label.name.clone());
+                }
             }
             for child in
                 subnodes(node).map_err(|e| PluginHookError(format!("SIF name traversal: {e:?}")))?
@@ -3920,7 +5126,7 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
                         &names,
                         &fields,
                         &low_predicates,
-                        None,
+                        SifControls::default(),
                     )
                     .map_err(PluginHookError)?,
                 );
@@ -3960,7 +5166,11 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
                 .body
                 .as_ref()
                 .map(|body| {
-                    let flags = if contains_sif_return(&Node::Stmt(body.clone()))? {
+                    let has_return = contains_sif_return(&Node::Stmt(body.clone()))?;
+                    let has_continue = contains_sif_continue(&Node::Stmt(body.clone()))?;
+                    let has_break = contains_sif_break(&Node::Stmt(body.clone()))?;
+                    let has_exception = contains_sif_exception(&Node::Stmt(body.clone()))?;
+                    let flags = if has_return {
                         let ret1 = LocalVarDecl::new(
                             generator.get_unused_name("ret1"),
                             Type::Bool,
@@ -3976,6 +5186,54 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
                     } else {
                         None
                     };
+                    let break_flags = if has_break {
+                        let break1 = LocalVarDecl::new(
+                            generator.get_unused_name("break1"),
+                            Type::Bool,
+                            Metadata::default(),
+                        );
+                        let break2 = LocalVarDecl::new(
+                            generator.get_unused_name("break2"),
+                            Type::Bool,
+                            Metadata::default(),
+                        );
+                        names.insert(break1.name.clone(), break2.name.clone());
+                        Some((break1, break2))
+                    } else {
+                        None
+                    };
+                    let continue_flags = if has_continue {
+                        let cont1 = LocalVarDecl::new(
+                            generator.get_unused_name("cont1"),
+                            Type::Bool,
+                            Metadata::default(),
+                        );
+                        let cont2 = LocalVarDecl::new(
+                            generator.get_unused_name("cont2"),
+                            Type::Bool,
+                            Metadata::default(),
+                        );
+                        names.insert(cont1.name.clone(), cont2.name.clone());
+                        Some((cont1, cont2))
+                    } else {
+                        None
+                    };
+                    let exception_flags = if has_exception {
+                        let except1 = LocalVarDecl::new(
+                            generator.get_unused_name("except1"),
+                            Type::Bool,
+                            Metadata::default(),
+                        );
+                        let except2 = LocalVarDecl::new(
+                            generator.get_unused_name("except2"),
+                            Type::Bool,
+                            Metadata::default(),
+                        );
+                        names.insert(except1.name.clone(), except2.name.clone());
+                        Some((except1, except2))
+                    } else {
+                        None
+                    };
                     let transformed = sif_assertion_block(
                         body,
                         &first_exp,
@@ -3984,6 +5242,9 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
                         &fields,
                         &low_predicates,
                         flags.as_ref(),
+                        continue_flags.as_ref(),
+                        break_flags.as_ref(),
+                        exception_flags.as_ref(),
                         &mut generator,
                     )?;
                     let mut statements = vec![Stmt::new(
@@ -4001,6 +5262,42 @@ impl super::sif_plugin::SifTransformer for NativeSifTransformer {
                                 Metadata::default(),
                             ));
                             declarations.push(crate::ast::program::Declaration::Local(ret));
+                        }
+                    }
+                    if let Some((break1, break2)) = break_flags {
+                        for flag in [break1, break2] {
+                            statements.push(Stmt::new(
+                                StmtKind::LocalVarAssign {
+                                    lhs: flag.local_var(),
+                                    rhs: Exp::new(ExpKind::FalseLit, Metadata::default()),
+                                },
+                                Metadata::default(),
+                            ));
+                            declarations.push(crate::ast::program::Declaration::Local(flag));
+                        }
+                    }
+                    if let Some((cont1, cont2)) = continue_flags {
+                        for cont in [cont1, cont2] {
+                            statements.push(Stmt::new(
+                                StmtKind::LocalVarAssign {
+                                    lhs: cont.local_var(),
+                                    rhs: Exp::new(ExpKind::FalseLit, Metadata::default()),
+                                },
+                                Metadata::default(),
+                            ));
+                            declarations.push(crate::ast::program::Declaration::Local(cont));
+                        }
+                    }
+                    if let Some((except1, except2)) = exception_flags {
+                        for flag in [except1, except2] {
+                            statements.push(Stmt::new(
+                                StmtKind::LocalVarAssign {
+                                    lhs: flag.local_var(),
+                                    rhs: Exp::new(ExpKind::FalseLit, Metadata::default()),
+                                },
+                                Metadata::default(),
+                            ));
+                            declarations.push(crate::ast::program::Declaration::Local(flag));
                         }
                     }
                     statements.push(transformed);
