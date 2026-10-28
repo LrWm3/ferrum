@@ -48,157 +48,157 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/BackendTypeFactories.scala"
 destination = "crates/ferrum-silver/src/ast/utility/backend_type_factories.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Consistency.scala"
 destination = "crates/ferrum-silver/src/ast/utility/consistency.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/DomainInstances.scala"
 destination = "crates/ferrum-silver/src/ast/utility/domain_instances.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Expressions.scala"
 destination = "crates/ferrum-silver/src/ast/utility/expressions.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/FileLoader.scala"
 destination = "crates/ferrum-silver/src/ast/utility/file_loader.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Functions.scala"
 destination = "crates/ferrum-silver/src/ast/utility/functions.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/GenericArithmeticSolver.scala"
 destination = "crates/ferrum-silver/src/ast/utility/generic_arithmetic_solver.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/GenericAxiomRewriter.scala"
 destination = "crates/ferrum-silver/src/ast/utility/generic_axiom_rewriter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/GenericTriggerGenerator.scala"
 destination = "crates/ferrum-silver/src/ast/utility/generic_trigger_generator.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/ImpureAssumeRewriter.scala"
 destination = "crates/ferrum-silver/src/ast/utility/impure_assume_rewriter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/InverseFunctions.scala"
 destination = "crates/ferrum-silver/src/ast/utility/inverse_functions.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Nodes.scala"
 destination = "crates/ferrum-silver/src/ast/utility/nodes.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Permissions.scala"
 destination = "crates/ferrum-silver/src/ast/utility/permissions.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/QuantifiedPermissions.scala"
 destination = "crates/ferrum-silver/src/ast/utility/quantified_permissions.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Simplifier.scala"
 destination = "crates/ferrum-silver/src/ast/utility/simplifier.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Statements.scala"
 destination = "crates/ferrum-silver/src/ast/utility/statements.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Triggers.scala"
 destination = "crates/ferrum-silver/src/ast/utility/triggers.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Types.scala"
 destination = "crates/ferrum-silver/src/ast/utility/types.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/ViperStrategy.scala"
 destination = "crates/ferrum-silver/src/ast/utility/viper_strategy.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Visitor.scala"
 destination = "crates/ferrum-silver/src/ast/utility/visitor.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/chopper/Chopper.scala"
 destination = "crates/ferrum-silver/src/ast/utility/chopper/chopper.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/rewriter/RegexStrategy.scala"
 destination = "crates/ferrum-silver/src/ast/utility/rewriter/regex_strategy.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/rewriter/Rewritable.scala"
 destination = "crates/ferrum-silver/src/ast/utility/rewriter/rewritable.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/rewriter/Strategy.scala"
 destination = "crates/ferrum-silver/src/ast/utility/rewriter/strategy.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/rewriter/TRegex.scala"
 destination = "crates/ferrum-silver/src/ast/utility/rewriter/t_regex.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/rewriter/TRegexAutomaton.scala"
 destination = "crates/ferrum-silver/src/ast/utility/rewriter/t_regex_automaton.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
