@@ -367,6 +367,18 @@ pub enum PNodeKind {
 pub trait PExtender: std::fmt::Debug + Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
     fn subnodes(&self) -> Vec<PNodeHandle>;
+    /// Rebuild an extension expression with hygienic typed child and name copying.
+    fn copy_macro_expression(
+        &self,
+        _copy_expression: &dyn Fn(
+            &PExpHandle,
+        ) -> Result<PExpHandle, super::macro_expander::MacroError>,
+        _copy_reference: &dyn Fn(
+            &PNodeHandle,
+        ) -> Result<PNodeHandle, super::macro_expander::MacroError>,
+    ) -> Result<Option<PExpHandle>, super::macro_expander::MacroError> {
+        Ok(None)
+    }
     /// Rebuild an extension statement during macro duplication using the same hygienic copier.
     /// `None` indicates this extension has not supplied a macro reconstruction contract.
     fn copy_macro_statement(

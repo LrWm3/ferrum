@@ -149,9 +149,9 @@ pub fn standard_plugin_manager(
             SMOKE_PLUGIN => Box::new(SmokeDetectionPlugin),
             ARP_PLUGIN => Box::new(ArpPlugin),
             "viper.silver.plugin.sif.SIFPlugin" => {
-                return Err(PluginResolutionError::Construction(
-                    "SIF transformation is not yet implemented".into(),
-                ));
+                Box::new(crate::plugin::sif::sif_plugin::SifPlugin {
+                    transformer: crate::plugin::sif::sif_extended_transformer::NativeSifTransformer,
+                })
             }
             _ => return Err(PluginResolutionError::NotFound(name)),
         };
@@ -344,6 +344,10 @@ impl FrontendPhases for SilFrontendPhases {
                     Self::program_position(&input),
                 )
             })?;
+        // Resolved identifier candidates may still point into the original imported domain
+        // graph after its WellFoundedOrder member is replaced. Keep that graph alive until
+        // translation has consumed those weak parent links.
+        let original_for_resolution = input.clone();
         if !imports.is_empty() {
             let text = imports
                 .iter()
@@ -418,12 +422,14 @@ impl FrontendPhases for SilFrontendPhases {
                 )
             })?;
         }
-        translator::translate_program_core(&input).map_err(|e| {
+        let result = translator::translate_program_core(&input).map_err(|e| {
             Self::failure(
                 format!("translation: {e:?}"),
                 Self::program_position(&input),
             )
-        })
+        });
+        drop(original_for_resolution);
+        result
     }
     fn check_consistency(&mut self, input: Program) -> Result<Program, Vec<AbstractError>> {
         use crate::ast::pretty::pretty_printer::{PrintError, pretty_expression, show_type};
@@ -615,6 +621,96 @@ mod tests {
         phases.prepare_verification(program).unwrap();
     }
     #[test]
+    fn sif_plugin_builds_pure_assertion_product_and_rejects_unsupported() {
+        let mut config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        config.plugin = Some("viper.silver.plugin.sif.SIFPlugin".into());
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases.parse("method m(x: Int) { assert low(x); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        assert_eq!(
+            product.methods[0]
+                .formal_args
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>(),
+            ["p1", "p2", "x", "x_0"]
+        );
+        let rendered = crate::ast::pretty::pretty_printer::pretty(
+            75,
+            &crate::ast::pretty::pretty_printer::show_program(&product).unwrap(),
+        );
+        assert!(rendered.contains("x == x_0"), "{rendered}");
+        phases.check_consistency(product).unwrap();
+        let parsed = phases
+            .parse("method m(x: Int) requires low(x) { var y: Int := x; assert low(y); }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases.parse("function inc(x: Int): Int { x + 1 } method m(x: Int) requires low(x) { assert low(inc(x)); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases.parse("method m(x: Int) requires low(x) { var y: Int := 0; if (x > 0) { y := 1; } else { y := 2; } assert low(y); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases
+            .parse("method m(x: Int) returns (r: Int) requires low(x) ensures low(r) { r := x; }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        assert_eq!(
+            product.methods[0]
+                .formal_returns
+                .iter()
+                .map(|r| r.name.as_str())
+                .collect::<Vec<_>>(),
+            ["r", "r_0"]
+        );
+        phases.check_consistency(product).unwrap();
+        let parsed = phases.parse("method identity(x: Int) returns (r: Int) requires low(x) ensures low(r) { r := x; } method m(x: Int) requires low(x) { var y: Int := identity(x); assert low(y); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let product = phases.prepare_verification(program).unwrap();
+        phases.check_consistency(product).unwrap();
+        let parsed = phases.parse("method m() { while (false) {} }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        assert!(phases.prepare_verification(program).is_err());
+    }
+    #[test]
+    fn macro_arp_expression_uses_plugin_copy_hook() {
+        let mut config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        config.plugin = Some(super::ARP_PLUGIN.into());
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases
+            .parse("define amount rd method m() { assert amount > none; }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        phases.check_consistency(program).unwrap();
+    }
+    #[test]
     fn macro_predicate_instance_reaches_plugin_lowering() {
         let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
         let mut phases = SilFrontendPhases::new(
@@ -676,6 +772,19 @@ mod tests {
         phases.check_consistency(program).unwrap();
     }
     #[test]
+    fn explicitly_imported_order_survives_automatic_order_merge() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = phases.parse("import <decreases/multiset.vpr> function f(x: Int): Int decreases x { x } method m() { assert bounded(Multiset(1)); }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+    }
+    #[test]
     fn interpreted_domains_and_functions_reach_typed_ast() {
         use crate::ast::r#type::Type;
         let mut phases =
@@ -728,6 +837,20 @@ mod tests {
                 )
                 .is_err()
         );
+    }
+    #[test]
+    fn domain_function_formals_are_not_global_macro_names() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("domain D { function f(x: Int): Int } define b { var x: Int := 1; assert x == 1; } method m() { b; }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let rendered = crate::ast::pretty::pretty_printer::pretty(
+            75,
+            &crate::ast::pretty::pretty_printer::show_program(&program).unwrap(),
+        );
+        assert!(!rendered.contains("x$0"), "{rendered}");
+        phases.check_consistency(program).unwrap();
     }
     #[test]
     fn macro_renamer_matches_source_across_nested_body_scopes() {

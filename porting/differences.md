@@ -174,6 +174,14 @@ the interactive loop, complete printing and failure-context assembly are pending
 The dormant flyweight annotation has an explicit native pool rather than a new
 procedural macro. Concurrent creation returns the canonical stored handle.
 
+## SIF extension type inference
+
+The source `lowEvent` parser extension exposes an empty substitution list, which
+causes Scala to skip enclosing operator unification. Ferrum retains that extension
+state and supplies a concrete Boolean identity candidate at the operator boundary.
+This permits Boolean combinations such as `lowEvent && low(x)` while rejecting
+arithmetic uses such as `lowEvent + 1` during native type checking.
+
 
 ## Native execution assembly
 

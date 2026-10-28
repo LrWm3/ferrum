@@ -29,7 +29,7 @@
 //! Status: partial; global and method-local macros use local-first lookup, validate declarations,
 //! duplicate supported expression and statement products, rename declarations and splice blocks.
 //! Unknown plugin products, some statements and token-wrapper position adaptation remain pending;
-//! global name seeding is conservative for domain and extension declarations.
+//! global name seeding is conservative for unknown extension declarations.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -645,18 +645,7 @@ fn copy_expression(
     let kind = match expression.kind {
         E::Extension(extension) => {
             use crate::plugin::sif::sifp_ast_extensions::{PSifExpression, PSifKind};
-            use crate::plugin::standard::arp::arppast_extension::PRdPerm;
             use crate::plugin::standard::predicateinstance::predicate_instance_past_extension::PPredicateInstance;
-            if let Some(rd) = extension.as_any().downcast_ref::<PRdPerm>() {
-                return Ok(PRdPerm {
-                    keyword: PReserved::new(
-                        rd.keyword.value().clone(),
-                        rd.keyword.position().clone(),
-                    ),
-                    pos: rd.pos.clone(),
-                }
-                .expression());
-            }
             if let Some(instance) = extension.as_any().downcast_ref::<PPredicateInstance>() {
                 return Ok(PPredicateInstance {
                     marker: PReserved::new(
@@ -700,6 +689,12 @@ fn copy_expression(
                     pos: sif.pos.clone(),
                 }
                 .expression());
+            }
+            if let Some(expression) = extension.copy_macro_expression(
+                &|child| copy_expression(child, replacements, scope),
+                &copy_ref,
+            )? {
+                return Ok(expression);
             }
             return Err(MacroError {
                 message: "extension expression in macro requires reconstruction".into(),
@@ -2370,8 +2365,47 @@ pub fn expand_global_expression_macros(
             .clone();
         if let PNodeKind::Member(member_kind) = kind {
             match member_kind.kind {
-                PMemberKind::Domain { .. } | PMemberKind::Extension(_) => {
-                    collect_scope_names(member.node(), &mut globals)?;
+                PMemberKind::Domain {
+                    idndef, members, ..
+                } => {
+                    collect_scope_names(&idndef, &mut globals)?;
+                    for function in members.inner().to_seq() {
+                        let kind = function
+                            .node()
+                            .read()
+                            .expect("poisoned parse node")
+                            .kind
+                            .clone();
+                        if let PNodeKind::DomainMember(
+                            super::parse_ast::PDomainMember::Function { idndef, .. },
+                        ) = kind
+                        {
+                            collect_scope_names(&idndef, &mut globals)?;
+                        }
+                    }
+                }
+                PMemberKind::Extension(extension) => {
+                    if let Some(adt) = extension
+                        .as_any()
+                        .downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdt>(
+                    ) {
+                        collect_scope_names(&adt.idndef, &mut globals)?;
+                        for constructor in &adt.constructors {
+                            let kind = constructor
+                                .read()
+                                .expect("poisoned parse node")
+                                .kind
+                                .clone();
+                            if let PNodeKind::Extension(extension) = kind {
+                                if let Some(constructor) = extension.as_any().downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>() {
+                                    collect_scope_names(&constructor.idndef, &mut globals)?;
+                                    for field in constructor.formal_args() { collect_scope_names(field.node(), &mut globals)?; }
+                                } else { collect_scope_names(constructor, &mut globals)?; }
+                            }
+                        }
+                    } else {
+                        collect_scope_names(member.node(), &mut globals)?;
+                    }
                 }
                 PMemberKind::Function { idndef, .. }
                 | PMemberKind::Predicate { idndef, .. }

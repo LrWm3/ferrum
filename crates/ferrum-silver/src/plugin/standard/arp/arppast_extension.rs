@@ -59,6 +59,28 @@ impl PExtender for PRdPerm {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn copy_macro_expression(
+        &self,
+        _copy_expression: &dyn Fn(
+            &PExpHandle,
+        )
+            -> Result<PExpHandle, crate::parser::macro_expander::MacroError>,
+        _copy_reference: &dyn Fn(
+            &PNodeHandle,
+        )
+            -> Result<PNodeHandle, crate::parser::macro_expander::MacroError>,
+    ) -> Result<Option<PExpHandle>, crate::parser::macro_expander::MacroError> {
+        Ok(Some(
+            PRdPerm {
+                keyword: PReserved::new(
+                    self.keyword.value().clone(),
+                    self.keyword.position().clone(),
+                ),
+                pos: self.pos.clone(),
+            }
+            .expression(),
+        ))
+    }
     fn subnodes(&self) -> Vec<PNodeHandle> {
         vec![self.keyword.node().clone()]
     }

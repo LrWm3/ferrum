@@ -119,37 +119,50 @@ pub fn lower_predicate_instances(
             &Exp,
         )
             -> Result<Exp, ExpressionRewriteError<Error>>| {
-            let instance = handle
-                .0
-                .as_any()
-                .downcast_ref::<PredicateInstance>()
-                .ok_or(ExpressionRewriteError::Callback(
-                    Error::UnsupportedExtension,
-                ))?;
-            let args = instance
-                .args
-                .iter()
-                .map(recur)
-                .collect::<Result<Vec<_>, _>>()?;
-            if args == instance.args {
-                Ok(handle.clone())
-            } else {
-                Ok(ExtensionExpHandle(Arc::new(PredicateInstance {
+            if let Some(instance) = handle.0.as_any().downcast_ref::<PredicateInstance>() {
+                let args = instance
+                    .args
+                    .iter()
+                    .map(recur)
+                    .collect::<Result<Vec<_>, _>>()?;
+                if args == instance.args {
+                    return Ok(handle.clone());
+                }
+                return Ok(ExtensionExpHandle(Arc::new(PredicateInstance {
                     predicate: instance.predicate.clone(),
                     args,
                     meta: instance.meta.clone(),
-                })))
+                })));
             }
+            // Other extension expressions provide their own typed child reconstruction.
+            // Keep the actual recursive failure rather than replacing it with a success.
+            let failure = RefCell::new(None);
+            let recur = RefCell::new(recur);
+            let result = handle
+                .0
+                .map_expressions(&|child| match (recur.borrow_mut())(child) {
+                    Ok(value) => Ok(value),
+                    Err(error) => {
+                        *failure.borrow_mut() = Some(error);
+                        Err(
+                            crate::verifier::verification_result::DiagnosticError::Unsupported(
+                                "predicate instance child rewrite",
+                            ),
+                        )
+                    }
+                });
+            if let Some(error) = failure.into_inner() {
+                return Err(error);
+            }
+            result.map_err(|_| ExpressionRewriteError::Callback(Error::UnsupportedExtension))
         };
         let mut rule = |expression: &Exp| -> Result<Exp, Error> {
             let ExpKind::Extension(extension) = expression.kind() else {
                 return Ok(expression.clone());
             };
-            let instance = extension
-                .0
-                .as_any()
-                .downcast_ref::<PredicateInstance>()
-                .ok_or(Error::UnsupportedExtension)?;
+            let Some(instance) = extension.0.as_any().downcast_ref::<PredicateInstance>() else {
+                return Ok(expression.clone());
+            };
             let domain = program
                 .domains
                 .iter()

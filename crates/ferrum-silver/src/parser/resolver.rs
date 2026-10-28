@@ -1445,14 +1445,53 @@ fn check_operator(
         })
         .collect::<Vec<_>>();
     let result_type = p_type_var(renaming.rename("#R"));
+    fn empty_sif_event_substitution(expression: &PExpHandle) -> bool {
+        use crate::plugin::sif::sifp_ast_extensions::{PSifExpression, PSifKind};
+        let kind = expression
+            .node()
+            .read()
+            .expect("poisoned parse node")
+            .kind
+            .clone();
+        match kind {
+            PNodeKind::Expression(super::parse_ast::PExpression {
+                kind: PExpressionKind::Extension(extension),
+                ..
+            }) => {
+                match extension
+                    .as_any()
+                    .downcast_ref::<PSifExpression>()
+                    .map(|sif| &sif.kind)
+                {
+                    Some(PSifKind::LowEvent) => true,
+                    Some(PSifKind::Low(child) | PSifKind::Rel { exp: child, .. }) => {
+                        empty_sif_event_substitution(child)
+                    }
+                    None => false,
+                }
+            }
+            PNodeKind::Expression(super::parse_ast::PExpression {
+                kind: PExpressionKind::AnnotatedExp { expression, .. },
+                ..
+            }) => empty_sif_event_substitution(&expression),
+            _ => false,
+        }
+    }
     let mut constraints = Vec::new();
     for (index, (expression, actual)) in arguments.iter().zip(argument_types).enumerate() {
+        let mut substitutions = expression
+            .type_subs_distinct()
+            .ok_or(TypeCheckError::Unsupported("binder substitution state"))?;
+        // Scala's lowEvent reports an empty substitution list and consequently skips
+        // enclosing operator unification. At this boundary only, use the concrete
+        // Bool identity candidate so native inference can still validate the operator.
+        if substitutions.is_empty() && empty_sif_event_substitution(expression) {
+            substitutions.push(PTypeSubstitution::default());
+        }
         constraints.push(UnificationArgument {
             actual,
             expected: p_type_var(renaming.rename(&format!("#T{index}"))),
-            substitutions: expression
-                .type_subs_distinct()
-                .ok_or(TypeCheckError::Unsupported("binder substitution state"))?,
+            substitutions,
             expression: expression.node().clone(),
         });
     }
@@ -2385,5 +2424,36 @@ mod program_tests {
         let invalid = parse_program("method m(x: Int) { x := 1; }", "test.vpr").unwrap();
         assert!(NameAnalyser::default().run(invalid.node()).unwrap());
         assert!(check_program_core(&invalid, &mut |_, _| {}).is_err());
+    }
+}
+
+#[cfg(test)]
+mod sif_event_operator_tests {
+    use crate::frontend::frontend::FrontendPhases;
+    use crate::frontend::sil_front_end_config::SilFrontendConfig;
+    use crate::frontend::sil_frontend::{SilFrontendPhases, standard_plugin_manager};
+    use std::path::PathBuf;
+
+    #[test]
+    fn empty_low_event_substitution_is_safe_in_operators() {
+        let mut config = SilFrontendConfig::new("test");
+        config.plugin = Some("viper.silver.plugin.sif.SIFPlugin".into());
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        for condition in [
+            "lowEvent && low(x)",
+            "low(x) && lowEvent",
+            "(lowEvent && low(x)) && lowEvent",
+        ] {
+            let source = format!("method m(x: Int) requires {condition} {{ assert lowEvent; }}");
+            let parsed = phases.parse(&source).unwrap();
+            phases.analyze(parsed).unwrap();
+        }
+        let parsed = phases
+            .parse("method m() { assert lowEvent + 1 == 2; }")
+            .unwrap();
+        assert!(phases.analyze(parsed).is_err());
     }
 }
