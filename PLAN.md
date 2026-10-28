@@ -35,8 +35,10 @@ Silicon execution rules and a native Z3 process. Ordinary methods, contracts,
 branches, loops, predicate permissions, unfolding and method calls have native
 smoke coverage. Heap-independent quantifiers, restricted generic domain axioms
 and nested Seq/Set/Multiset/Map instances with primitive leaves now reach the solver.
-The native context also connects impure branch joins. Heap-dependent functions,
-quantified resources, wands, general domain instances and advanced execution or
+The native context also connects impure branch joins and the two-phase function
+protocol, including heap snapshots and function contracts. Recursive functions
+under predicate unfoldings, quantified resources, wands, general domain instances
+and advanced execution or
 reporting profiles remain incomplete; unsupported paths return execution errors.
 Full compatibility and comparative performance remain unmeasured.
 

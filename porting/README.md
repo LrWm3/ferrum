@@ -14,8 +14,10 @@ The default runtime currently uses one worker. Loops, fold/unfold, scoped
 unfolding, heap-independent quantifiers, selected generic domain axioms and
 nested Seq/Set/Multiset/Map instances with primitive leaves now reach Z3.
 Impure branch joins preserve conditional ownership and consumed snapshots in
-focused positive and negative checks. Heap-dependent functions, general
-domain instances, quantified resources, wands, complete exhale and advanced
+focused positive and negative checks. Pure and heap-dependent functions now run
+the source contract/body phases and use recorded snapshots for their axioms.
+Recursive calls under predicate unfoldings, general domain instances, quantified
+resources, wands, complete exhale and advanced
 reporting remain incomplete. No comparative speed improvement has been established.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.

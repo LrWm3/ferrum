@@ -192,10 +192,15 @@ pub enum NativeError<E> {
     },
     Unsupported(&'static str),
 }
-/// Shared recursive function-data handle used by native states and recorders.
+/// Non-owning handle: function units own the data, while recorders can refer back
+/// to it without creating a cycle when the data retains phase recordings.
 #[derive(Clone)]
 pub struct NativeFunctionData(
-    pub Arc<crate::supporters::functions::function_data::FunctionData<NativeFunctionData>>,
+    pub  std::sync::Weak<
+        std::sync::Mutex<
+            crate::supporters::functions::function_data::FunctionData<NativeFunctionData>,
+        >,
+    >,
 );
 pub type NativeState = State<
     crate::supporters::predicate_verification_unit::PredicateData,
@@ -216,6 +221,11 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     config_options: Vec<String>,
     predicate_snapshots: crate::supporters::qps::predicate_snap_generator::PredicateSnapGenerator,
     active_program: Option<ferrum_silver::ast::program::Program>,
+    function_handles: crate::state::package::OrderedMap<String, Arc<FD>>,
+    function_heights: std::collections::HashMap<String, i32>,
+    function_fresh_variables: Vec<Term>,
+    function_units: Vec<ferrum_silver::ast::program::Function>,
+    failed_functions: std::collections::HashSet<String>,
     _state_types: PhantomData<(PD, FD)>,
 }
 impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
@@ -229,6 +239,11 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             config_options: Vec::new(),
             predicate_snapshots: Default::default(),
             active_program: None,
+            function_handles: Default::default(),
+            function_heights: Default::default(),
+            function_fresh_variables: Vec::new(),
+            function_units: Vec::new(),
+            failed_functions: Default::default(),
             _state_types: PhantomData,
         }
     }
@@ -1226,9 +1241,106 @@ where
             EvaluationError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
-        Err(EvaluationError::Context(NativeError::Unsupported(
-            "join_function_application",
-        )))
+        use crate::rules::joiner::{self, JoinDataEntry};
+        let factory = self.factory.clone();
+        self.base
+            .decider
+            .push_scope()
+            .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+        let mark = self.base.decider.pcs.mark();
+        let mut local = state.clone();
+        local.under_join = true;
+        let mut entries = Vec::new();
+        let result = block(self, local, &mut |ctx, result_state, value, debug| {
+            let path_conditions = ctx
+                .base
+                .decider
+                .pcs
+                .after(mark)
+                .map_err(EvaluationError::Path)?;
+            entries.push(JoinDataEntry {
+                state: joiner::restore_state(result_state, &state),
+                data: (value, debug),
+                path_conditions,
+            });
+            Ok(VerificationResult::success())
+        });
+        let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
+        let result = match (result, cleanup) {
+            (Ok(value), Ok(())) => value,
+            (Err(e), Ok(())) => return Err(e),
+            (Err(e), Err(cleanup)) => {
+                return Err(EvaluationError::TriggerCleanup {
+                    evaluation: Box::new(e),
+                    cleanup,
+                });
+            }
+            (Ok(_), Err(cleanup)) => return Err(EvaluationError::Context(cleanup)),
+        };
+        let result = VerificationResult::success().and_then(|| result);
+        if !result.continue_verification() {
+            return Ok(result);
+        }
+        if entries.is_empty() {
+            return Ok(result.combine(VerificationResult::success, false));
+        }
+        let (assumptions, feasible) = joiner::joined_conditions(&entries, &factory);
+        let (merged, value, debug) = if entries.len() == 1 {
+            let entry = &entries[0];
+            (
+                entry.state.clone(),
+                entry.data.0.clone(),
+                entry.data.1.clone(),
+            )
+        } else {
+            let sort = self
+                .base
+                .symbol_converter
+                .to_sort(&function.typ)
+                .map_err(|e| EvaluationError::Context(NativeError::Sort(e)))?;
+            let sorts: Vec<_> = args.iter().map(|arg| arg.sort().clone()).collect();
+            let (target, _) = self
+                .base
+                .decider
+                .fresh(
+                    &factory,
+                    &format!("joined_{}", function.name),
+                    &sorts,
+                    &sort,
+                )
+                .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+            let ApplicationTarget::Function(fun) = &target else {
+                return Err(EvaluationError::Context(NativeError::Unsupported(
+                    "function join symbol",
+                )));
+            };
+            let value = factory.app(fun.clone(), args.to_vec());
+            let mut merged = entries[0].state.clone();
+            for entry in &entries[1..] {
+                merged = merged
+                    .merge_unconditional(&entry.state, &mut |warning| self.warnings.push(warning))
+                    .map_err(|e| EvaluationError::Context(NativeError::State(e)))?;
+            }
+            merged.function_recorder = merged.function_recorder.record_path_symbol(target);
+            for entry in &entries {
+                let guard = factory.and(entry.path_conditions.branch_conditions());
+                self.assume_term(&factory.implies(
+                    guard,
+                    factory.builtin_equals(value.clone(), entry.data.0.clone()),
+                ))
+                .map_err(EvaluationError::Context)?;
+            }
+            (merged, value, debug_exp.cloned())
+        };
+        for group in assumptions {
+            for term in group {
+                self.assume_term(&term).map_err(EvaluationError::Context)?;
+            }
+        }
+        self.assume_term(&feasible)
+            .map_err(EvaluationError::Context)?;
+        let next = continuation(self, merged, value, debug)?;
+        Ok(result.combine(|| next, false))
     }
     fn consume_function_preconditions(
         &mut self,
@@ -1246,9 +1358,72 @@ where
             EvaluationError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
-        Err(EvaluationError::Context(NativeError::Unsupported(
-            "consume_function_preconditions",
-        )))
+        use ferrum_silver::ast::{
+            expression::ExpKind,
+            utility::nodes::{Node, subnodes},
+        };
+        fn contains_forall(node: &Node) -> Result<bool, String> {
+            if matches!(node, Node::Exp(exp) if matches!(exp.kind(), ExpKind::Forall(..))) {
+                return Ok(true);
+            }
+            for child in subnodes(node).map_err(|e| format!("{e:?}"))? {
+                if contains_forall(&child)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        for precondition in preconditions {
+            if contains_forall(&Node::Exp(precondition.clone()))
+                .map_err(|e| EvaluationError::Context(NativeError::BranchTraversal(e)))?
+            {
+                return Err(EvaluationError::Context(NativeError::Unsupported(
+                    "removing triggers from function preconditions",
+                )));
+            }
+        }
+        let substitutions: Vec<_> = function
+            .formal_args
+            .iter()
+            .zip(arguments)
+            .map(|(formal, actual)| {
+                (
+                    Exp::new(ExpKind::LocalVar(formal.local_var()), formal.meta.clone()),
+                    actual.clone(),
+                )
+            })
+            .collect();
+        let partial = PartialVerificationError::for_kind(
+            VerificationErrorKind::PreconditionInAppFalse(application.clone()),
+        )
+        .with_reason_node_transformed(move |node| {
+            ferrum_silver::ast::utility::nodes::replace_expressions(&node, &substitutions).map_err(
+                |_| {
+                    ferrum_silver::verifier::verification_result::DiagnosticError::Unsupported(
+                        "function application error substitution",
+                    )
+                },
+            )
+        });
+        let mut callback_error = None;
+        let result = crate::rules::consumer::consume_all(
+            self,
+            state,
+            preconditions,
+            true,
+            &|_| partial.clone(),
+            &mut |ctx, state, snapshot| match continuation(ctx, state, snapshot) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ConsumptionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+        result.map_err(|e| EvaluationError::Context(NativeError::Consumption(format!("{e:?}"))))
     }
     fn function_snapshot_args(
         &mut self,
@@ -1257,14 +1432,18 @@ where
         arguments: &[Term],
         snapshot: &Term,
     ) -> Result<(Vec<Term>, Term), Self::Error> {
-        Err(NativeError::Unsupported("function_snapshot_args"))
+        let snapshot = self.factory.sort_wrapper(snapshot.clone(), Sort::Snap);
+        Ok((vec![snapshot.clone()], snapshot))
     }
     fn heap_function(
         &mut self,
         function: &ferrum_silver::ast::program::Function,
         program: &ferrum_silver::ast::program::Program,
     ) -> Result<crate::state::terms::Applicable, Self::Error> {
-        Err(NativeError::Unsupported("heap_function"))
+        self.base
+            .symbol_converter
+            .heap_dependent_function(function, program, None)
+            .map_err(NativeError::Sort)
     }
     fn assume_function_precondition(
         &mut self,
@@ -1868,6 +2047,38 @@ where
         Err(ProductionError::Context(NativeError::Unsupported(
             "produce_special",
         )))
+    }
+}
+
+impl<S: Prover, PD, FD> crate::supporters::functions::heap_access_replacing_expression_translator::HeapExpressionServices
+    for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+
+    fn fresh_unresolved(&mut self, sort: &Sort, _: &Exp) -> Result<Term, Self::Error> {
+        let variable = self.base.decider.fresh_variable(&self.factory, "$unresolved", sort, false, None)
+            .map_err(NativeError::Decider)?;
+        self.function_fresh_variables.push(variable.clone());
+        Ok(variable)
+    }
+
+    fn warn_unresolved(&mut self, expression: &Exp, function: &ferrum_silver::ast::program::Function) -> Result<(), Self::Error> {
+        self.warnings.push(format!("Could not resolve expression {expression:?} during axiomatisation of function {}; it is replaced by a fresh symbol", function.name));
+        Ok(())
+    }
+
+    fn stop_on_unresolved(&self, _: &Exp, _: &ferrum_silver::ast::program::Function) -> bool { false }
+
+    fn callee_height(&self, name: &str) -> Option<i32> { self.function_heights.get(name).copied() }
+
+    fn heap_function(&mut self, function: &ferrum_silver::ast::program::Function, program: &ferrum_silver::ast::program::Program) -> Result<crate::state::terms::Applicable, Self::Error> {
+        self.base.symbol_converter.heap_dependent_function(function, program, None).map_err(NativeError::Sort)
+    }
+
+    fn translate_heap_function_application(&mut self, function: crate::state::terms::Applicable, snapshot: Term, args: Vec<Term>, _: &ferrum_silver::ast::program::Function, _: &ferrum_silver::ast::program::Program) -> Result<Term, Self::Error> {
+        Ok(crate::supporters::functions::function_encoding::DefaultFunctionEncoding::translate_function_application(&self.factory, function, snapshot, &args))
     }
 }
 
@@ -4904,6 +5115,12 @@ where
 
 /// Member data built once during source-ordered program analysis.
 pub struct NativeAnalysis {
+    functions: std::cell::RefCell<
+        crate::supporters::functions::function_verification_unit::FunctionVerificationUnit<
+            NativeFunctionData,
+        >,
+    >,
+    function_handles: crate::state::package::OrderedMap<String, Arc<NativeFunctionData>>,
     predicates: crate::state::package::OrderedMap<
         String,
         Arc<crate::supporters::predicate_verification_unit::PredicateData>,
@@ -4951,7 +5168,7 @@ impl NativeContext {
         let mut state = State::new(
             program.clone(),
             analysis.predicates.clone(),
-            Default::default(),
+            analysis.function_handles.clone(),
             joins,
             &self.factory,
             false,
@@ -4984,10 +5201,8 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
             r#type::Type,
             utility::nodes::{Node, subnodes},
         };
-        if !program.functions.is_empty() || !program.extensions.is_empty() {
-            return Err(NativeError::Unsupported(
-                "function or program extension analysis",
-            ));
+        if !program.extensions.is_empty() {
+            return Err(NativeError::Unsupported("program extension analysis"));
         }
         native_domain_preamble(program, &self.base.symbol_converter, &self.factory)
             .map_err(NativeError::Preamble)?;
@@ -5166,7 +5381,36 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
             &predicates,
         )
         .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+        let mut functions = crate::supporters::functions::function_verification_unit::FunctionVerificationUnit::default();
+        let factory = self.factory.clone();
+        functions.analyze(&factory, &self.base.symbol_converter, &mut self.base.identifiers, program, false, false,
+            |_, _| Ok::<_, std::convert::Infallible>((crate::supporters::functions::function_encoding::DefaultFunctionEncoding::state_args(&factory), None)))
+            .map_err(|e| NativeError::Execution(format!("function analysis: {e:?}")))?;
+        if !program.functions.is_empty() {
+            functions
+                .declare_analysis_symbols(&factory, &mut self.base.decider.prover, |_| vec![])
+                .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+        }
+        let mut function_handles = crate::state::package::OrderedMap::default();
+        self.function_heights.clear();
+        for (name, data) in &functions.data {
+            let height = data
+                .lock()
+                .map_err(|_| NativeError::Execution("function data lock poisoned".into()))?
+                .height;
+            self.function_heights.insert(name.clone(), height);
+            function_handles.insert(
+                name.clone(),
+                Arc::new(NativeFunctionData(Arc::downgrade(data))),
+            );
+        }
+        self.function_handles = function_handles.clone();
+        self.function_units = functions.units();
+        self.function_fresh_variables.clear();
+        self.failed_functions.clear();
         Ok(NativeAnalysis {
+            functions: std::cell::RefCell::new(functions),
+            function_handles,
             predicates,
             snapshot_sorts: self.predicate_snapshots.snap_map.clone(),
             snapshot_formals: self.predicate_snapshots.formal_var_map.clone(),
@@ -5183,7 +5427,7 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         Ok(())
     }
     fn function_units(&mut self) -> Result<Vec<Self::FunctionUnit>, Self::Error> {
-        Ok(vec![])
+        Ok(self.function_units.clone())
     }
     fn predicate_units(&mut self) -> Result<Vec<Self::PredicateUnit>, Self::Error> {
         Ok(self
@@ -5195,11 +5439,21 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
     }
     fn verify_function(
         &mut self,
-        _: Self::FunctionUnit,
-        _: &ferrum_silver::ast::program::Program,
-        _: &NativeAnalysis,
+        unit: Self::FunctionUnit,
+        program: &ferrum_silver::ast::program::Program,
+        analysis: &NativeAnalysis,
     ) -> Result<Vec<Self::Result>, Self::Error> {
-        Err(NativeError::Unsupported("function verification"))
+        let state = self.initial_state(
+            program,
+            analysis,
+            ferrum_silver::ast::program::Member::Function(unit.clone()),
+        )?;
+        let factory = self.factory.clone();
+        analysis
+            .functions
+            .borrow_mut()
+            .verify(&factory, self, state, &unit)
+            .map_err(|e| NativeError::Execution(format!("function verification: {e:?}")))
     }
     fn verify_predicate(
         &mut self,
@@ -6746,5 +7000,558 @@ where
             return Err(e);
         }
         result.map_err(ConsumptionError::Context)
+    }
+}
+
+#[allow(unused_variables)]
+impl<S: Prover, PD, FD: Clone>
+    crate::supporters::functions::function_verification_unit::FunctionPhaseServices<
+        PD,
+        FD,
+        JoinMode,
+        VerificationError,
+    > for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn function_debugging(&self) -> bool {
+        false
+    }
+    fn empty_function_heap(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+    ) -> Result<Arc<ListBackedHeap>, Self::Error> {
+        Ok(Arc::new(ListBackedHeap::new()))
+    }
+    fn function_debug_begin(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        body: Option<&Exp>,
+    ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
+        Err(NativeError::Unsupported("function debugging"))
+    }
+    fn function_debug_finish(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+    ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
+        Err(NativeError::Unsupported("function debugging"))
+    }
+    fn function_local(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        action: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::supporters::functions::function_verification_unit::FunctionPhaseError<
+                Self::Error,
+            >,
+        >,
+    ) -> Result<
+        VerificationResult<VerificationError>,
+        crate::supporters::functions::function_verification_unit::FunctionPhaseError<Self::Error>,
+    > {
+        use crate::supporters::functions::function_verification_unit::FunctionPhaseError as FE;
+        self.base
+            .decider
+            .push_scope()
+            .map_err(|e| FE::Service(NativeError::Decider(e)))?;
+        let result = action(self, state);
+        let cleanup = self.base.decider.pop_scope();
+        match (result, cleanup) {
+            (Ok(v), Ok(())) => Ok(v),
+            (Err(e), Ok(())) => Err(e),
+            (Ok(_), Err(e)) => Err(FE::Service(NativeError::Decider(e))),
+            (Err(e), Err(cleanup)) => Err(FE::Service(NativeError::Cleanup(format!(
+                "{e:?}; cleanup: {cleanup:?}"
+            )))),
+        }
+    }
+    fn function_mark(&mut self) -> Result<crate::decider::path_conditions::Mark, Self::Error> {
+        Ok(self.base.decider.mark())
+    }
+    fn function_paths_after(
+        &mut self,
+        mark: crate::decider::path_conditions::Mark,
+    ) -> Result<crate::decider::path_conditions::RecordedPathConditions, Self::Error> {
+        self.base
+            .decider
+            .pcs
+            .after(mark)
+            .map_err(|e| NativeError::Decider(DeciderError::Path(e)))
+    }
+    fn produce_function_contract(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        snapshot: crate::supporters::functions::function_verification_unit::ContractSnapshot<'_>,
+        assertions: &[Exp],
+        function: &ferrum_silver::ast::program::Function,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::supporters::functions::function_verification_unit::FunctionPhaseError<
+                Self::Error,
+            >,
+        >,
+    ) -> Result<
+        VerificationResult<VerificationError>,
+        crate::supporters::functions::function_verification_unit::FunctionPhaseError<Self::Error>,
+    > {
+        use crate::supporters::functions::function_verification_unit::{
+            ContractSnapshot, FunctionPhaseError as FE,
+        };
+        let snapshot = match snapshot {
+            ContractSnapshot::Fixed(t) => NativeSnapshot::Projection(t.clone()),
+            ContractSnapshot::Fresh => NativeSnapshot::Fresh,
+        };
+        let mut callback_error = None;
+        let result = crate::rules::producer::produce_all(
+            self,
+            state,
+            snapshot,
+            assertions,
+            &|exp| {
+                PartialVerificationError::for_kind(VerificationErrorKind::ContractNotWellformed(
+                    exp.clone(),
+                ))
+            },
+            &mut |ctx, state| match continuation(ctx, state) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ProductionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(e) = callback_error {
+            return Err(e);
+        }
+        result.map_err(|e| FE::Service(NativeError::Production(format!("{e:?}"))))
+    }
+    fn restore_function_preconditions(
+        &mut self,
+        path: &crate::supporters::functions::function_verification_unit::FunctionPhasePath<
+            PD,
+            FD,
+            JoinMode,
+        >,
+        function: &ferrum_silver::ast::program::Function,
+    ) -> Result<(), Self::Error> {
+        let condition = self.factory.and(path.branch_conditions.clone());
+        let mut exps = path.branch_condition_exps.iter().map(|(e, _)| e.clone());
+        let first = exps
+            .next()
+            .unwrap_or_else(|| Exp::new(ExpKind::TrueLit, Default::default()));
+        let exp = exps.fold(first, |a, b| {
+            Exp::new(ExpKind::And(a, b), Default::default())
+        });
+        self.base
+            .decider
+            .set_branch_condition(condition, (exp, None), None)
+            .map_err(NativeError::Decider)?;
+        self.base
+            .decider
+            .assume(
+                path.assumptions.iter().cloned().map(|t| (t, None)),
+                false,
+                false,
+            )
+            .map_err(NativeError::Decider)
+    }
+    fn saturate_function_contract(&mut self) -> Result<(), Self::Error> {
+        if let Some(ms) = self.options.after_contract_timeout {
+            self.base
+                .decider
+                .prover
+                .saturate(ms, "after contract")
+                .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+        }
+        Ok(())
+    }
+    fn evaluate_function_body(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        body: &Exp,
+        function: &ferrum_silver::ast::program::Function,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Term,
+            Option<Exp>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::supporters::functions::function_verification_unit::FunctionPhaseError<
+                Self::Error,
+            >,
+        >,
+    ) -> Result<
+        VerificationResult<VerificationError>,
+        crate::supporters::functions::function_verification_unit::FunctionPhaseError<Self::Error>,
+    > {
+        use crate::supporters::functions::function_verification_unit::FunctionPhaseError as FE;
+        let error = PartialVerificationError::for_kind(
+            VerificationErrorKind::FunctionNotWellformed(function.clone()),
+        );
+        let mut callback_error = None;
+        let result = crate::rules::evaluator::evaluate(
+            self,
+            state,
+            body,
+            &error,
+            &mut |ctx, state, term, debug| match continuation(ctx, state, term, debug) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(EvaluationError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(e) = callback_error {
+            return Err(e);
+        }
+        result.map_err(|e| FE::Service(NativeError::Evaluation(format!("{e:?}"))))
+    }
+    fn assume_function_result(
+        &mut self,
+        data: &crate::supporters::functions::function_data::FunctionData<FD>,
+        body: &Exp,
+        term: &Term,
+        debug: Option<&Exp>,
+    ) -> Result<(), Self::Error> {
+        self.assume_term(
+            &self
+                .factory
+                .builtin_equals(data.formal_result.clone(), term.clone()),
+        )
+    }
+    fn consume_function_posts(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        posts: &[Exp],
+        function: &ferrum_silver::ast::program::Function,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            crate::supporters::functions::function_verification_unit::FunctionPhaseError<
+                Self::Error,
+            >,
+        >,
+    ) -> Result<
+        VerificationResult<VerificationError>,
+        crate::supporters::functions::function_verification_unit::FunctionPhaseError<Self::Error>,
+    > {
+        use crate::supporters::functions::function_verification_unit::FunctionPhaseError as FE;
+        let mut callback_error = None;
+        let result = crate::rules::consumer::consume_all(
+            self,
+            state,
+            posts,
+            false,
+            &|exp| {
+                PartialVerificationError::for_kind(VerificationErrorKind::PostconditionViolated {
+                    node: exp.clone(),
+                    member: ferrum_silver::ast::program::Member::Function(function.clone()),
+                })
+            },
+            &mut |ctx, state, _| match continuation(ctx, state) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    callback_error = Some(e);
+                    Err(ConsumptionError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        if let Some(e) = callback_error {
+            return Err(e);
+        }
+        result.map_err(|e| FE::Service(NativeError::Consumption(format!("{e:?}"))))
+    }
+}
+
+impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn translate_function_terms(
+        &mut self,
+        data: &crate::supporters::functions::function_data::FunctionData<FD>,
+        body: bool,
+    ) -> Result<(Vec<Term>, Option<Term>), NativeError<S::Error>> {
+        use crate::supporters::{
+            expression_translator::ExpressionTranslator,
+            functions::heap_access_replacing_expression_translator::HeapAccessReplacingTranslator,
+        };
+        let factory = self.factory.clone();
+        let converter = self.base.symbol_converter.clone();
+        let translator = ExpressionTranslator::new(&factory, &converter, |sort: &Sort| {
+            Ok::<_, NativeError<S::Error>>(sort.to_string())
+        });
+        let prior = self.failed_functions.contains(&data.program_function.name);
+        let mut replacing = HeapAccessReplacingTranslator {
+            program: &data.program,
+            data,
+            services: self,
+            failed: false,
+            prior_verification_failures: prior,
+            ignore_access_predicates: false,
+            context: vec![],
+            check_inner_contexts: false,
+        };
+        if body {
+            let translated = replacing
+                .translate_body(&translator)
+                .map_err(|e| NativeError::Execution(format!("function body translation: {e:?}")))?;
+            Ok((vec![], translated))
+        } else {
+            let posts = replacing
+                .translate_postconditions(&translator, &data.program_function.posts)
+                .map_err(|e| {
+                    NativeError::Execution(format!("function postcondition translation: {e:?}"))
+                })?;
+            Ok((posts, None))
+        }
+    }
+}
+
+impl<S: Prover, PD, FD: Clone>
+    crate::supporters::functions::function_verification_unit::FunctionVerificationServices<
+        PD,
+        FD,
+        JoinMode,
+        VerificationError,
+    > for NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = NativeError<S::Error>;
+    fn begin_function(
+        &mut self,
+        function: &ferrum_silver::ast::program::Function,
+        _: &crate::supporters::functions::function_data::FunctionData<FD>,
+    ) -> Result<(), Self::Error> {
+        let options = crate::supporters::annotation_supporter::prover_config_args(
+            &function.name,
+            &function.meta.info,
+            |warning| {
+                self.warnings.push(warning);
+                Ok::<_, ()>(())
+            },
+        )
+        .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+        self.base
+            .decider
+            .set_options(options)
+            .map_err(NativeError::Decider)
+    }
+    fn end_function(&mut self) -> Result<(), Self::Error> {
+        self.base
+            .decider
+            .reset_options()
+            .map_err(NativeError::Decider)
+    }
+    fn check_function_specifications(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        data: &crate::supporters::functions::function_data::FunctionData<FD>,
+    ) -> Result<
+        crate::supporters::functions::function_verification_unit::FunctionPhaseOne<
+            PD,
+            FD,
+            JoinMode,
+            VerificationError,
+        >,
+        Self::Error,
+    > {
+        let factory = self.factory.clone();
+        crate::supporters::functions::function_verification_unit::check_specification_well_definedness(&factory, self, state, data)
+            .map_err(|e| NativeError::Execution(format!("function specification phase: {e:?}")))
+    }
+    fn well_definedness_declarations(
+        &mut self,
+        _: &crate::supporters::functions::function_data::FunctionData<FD>,
+    ) -> Result<Vec<crate::state::terms::Declaration>, Self::Error> {
+        Ok(vec![])
+    }
+    fn build_phase_one_axioms(
+        &mut self,
+        data: &crate::supporters::functions::function_data::FunctionData<FD>,
+    ) -> Result<
+        crate::supporters::functions::function_verification_unit::FunctionPhaseOneAxioms,
+        Self::Error,
+    > {
+        let factory = self.factory.clone();
+        let (posts, _) = self.translate_function_terms(data, false)?;
+        let nested: Vec<_> = data
+            .nested_definitional_axioms()
+            .map_err(|e| NativeError::Execution(format!("function nested axioms: {e:?}")))?
+            .into_iter()
+            .collect();
+        let post_axiom = data
+            .post_axiom(&factory, &posts, &nested, |term| Ok::<_, Self::Error>(term))
+            .map_err(|e| NativeError::Execution(format!("function post axiom: {e:?}")))?;
+        let post_precondition_axioms = data
+            .post_precondition_axioms(
+                &factory,
+                &posts,
+                |term| {
+                    crate::state::function_precondition_transformer::transform(
+                        &factory,
+                        term,
+                        &mut |fun| {
+                            Ok::<_, Self::Error>(
+                                crate::rules::function_supporter::precondition_version(
+                                    &factory, fun,
+                                ),
+                            )
+                        },
+                    )
+                    .map_err(|e| {
+                        NativeError::<S::Error>::Execution(format!(
+                            "function post preconditions: {e:?}"
+                        ))
+                    })
+                },
+                |term| Ok(term),
+            )
+            .map_err(|e| NativeError::Execution(format!("function post propagation: {e:?}")))?;
+        Ok(
+            crate::supporters::functions::function_verification_unit::FunctionPhaseOneAxioms {
+                auxiliary_declarations: vec![],
+                auxiliary_axioms: vec![],
+                post_axiom,
+                post_precondition_axioms,
+            },
+        )
+    }
+    fn declare_function_axiom_symbol(
+        &mut self,
+        decl: &crate::state::terms::Declaration,
+    ) -> Result<(), Self::Error> {
+        self.base
+            .decider
+            .prover
+            .declare(decl)
+            .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))
+    }
+    fn assume_function_axioms(&mut self, axioms: &[Term]) -> Result<(), Self::Error> {
+        self.base
+            .decider
+            .prover
+            .assume_axioms(&axioms.iter().cloned().collect(), "Function axioms")
+            .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))
+    }
+    fn check_function_body(
+        &mut self,
+        data: &crate::supporters::functions::function_data::FunctionData<FD>,
+        paths: Vec<
+            crate::supporters::functions::function_verification_unit::FunctionPhasePath<
+                PD,
+                FD,
+                JoinMode,
+            >,
+        >,
+    ) -> Result<
+        crate::supporters::functions::function_verification_unit::FunctionPhaseTwo<
+            FD,
+            VerificationError,
+        >,
+        Self::Error,
+    > {
+        crate::supporters::functions::function_verification_unit::check_function_body(
+            self, data, paths,
+        )
+        .map_err(|e| NativeError::Execution(format!("function body phase: {e:?}")))
+    }
+    fn build_phase_two_axioms(
+        &mut self,
+        data: &crate::supporters::functions::function_data::FunctionData<FD>,
+    ) -> Result<(Option<Term>, Vec<Term>), Self::Error> {
+        let calls =
+            ferrum_silver::ast::utility::functions::recursive_calls_and_surrounding_unfoldings(
+                &data.program_function,
+            )
+            .map_err(|e| NativeError::Execution(format!("recursive function analysis: {e:?}")))?;
+        if calls.iter().any(|(_, unfoldings)| !unfoldings.is_empty()) {
+            return Err(NativeError::Unsupported(
+                "recursive function predicate triggers",
+            ));
+        }
+        let factory = self.factory.clone();
+        let (_, body) = self.translate_function_terms(data, true)?;
+        let nested: Vec<_> = data
+            .nested_definitional_axioms()
+            .map_err(|e| NativeError::Execution(format!("function nested axioms: {e:?}")))?
+            .into_iter()
+            .collect();
+        let definition = data
+            .definitional_axiom(&factory, body.clone(), &nested, &[], |term| {
+                Ok::<_, Self::Error>(term)
+            })
+            .map_err(|e| NativeError::Execution(format!("function definition: {e:?}")))?;
+        let propagation = data
+            .body_precondition_axioms(
+                &factory,
+                body.as_ref(),
+                |term| {
+                    crate::state::function_precondition_transformer::transform(
+                        &factory,
+                        term,
+                        &mut |fun| {
+                            Ok::<_, Self::Error>(
+                                crate::rules::function_supporter::precondition_version(
+                                    &factory, fun,
+                                ),
+                            )
+                        },
+                    )
+                    .map_err(|e| {
+                        NativeError::<S::Error>::Execution(format!(
+                            "function body preconditions: {e:?}"
+                        ))
+                    })
+                },
+                |term| Ok(term),
+            )
+            .map_err(|e| NativeError::Execution(format!("function body propagation: {e:?}")))?;
+        Ok((definition, propagation))
+    }
+    fn record_function_failure(
+        &mut self,
+        function: &ferrum_silver::ast::program::Function,
+        _: &VerificationResult<VerificationError>,
+    ) {
+        self.failed_functions.insert(function.name.clone());
+    }
+    fn actual_function_recorder(
+        &mut self,
+        data: &crate::supporters::functions::function_data::FunctionData<FD>,
+    ) -> Result<FunctionRecorder<FD>, Self::Error> {
+        let handle = self
+            .function_handles
+            .get(&data.program_function.name)
+            .cloned()
+            .ok_or(NativeError::Unsupported("function recorder owner"))?;
+        let arguments = std::iter::once((self.factory.predef_snapshot_var(), None))
+            .chain(
+                data.formal_args
+                    .iter()
+                    .map(|(local, term)| (term.clone(), Some(local.clone()))),
+            )
+            .collect();
+        Ok(FunctionRecorder::actual(
+            crate::supporters::functions::function_recorder::RecorderOwner::Function {
+                data: handle,
+                arguments,
+            },
+        ))
+    }
+    fn respect_function_pre_permissions(&self) -> bool {
+        self.options.respect_function_pre_permission_amounts
     }
 }

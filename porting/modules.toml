@@ -1974,7 +1974,7 @@ repository = "silicon"
 upstream = "src/main/scala/supporters/functions/FunctionVerificationUnit.scala"
 destination = "crates/ferrum-silicon/src/supporters/functions/function_verification_unit.rs"
 status = "skeleton"
-remaining = ["Source function encoding, analysis and verification algorithms exist; concrete resource, recursive translation, prover and verifier services remain."]
+remaining = ["Function analysis and both verification phases are connected through native services and shared phase data with weak recorder handles. Remaining function trigger services, alternative execution modes and broad source compatibility need completion."]
 
 [[modules]]
 repository = "silicon"
@@ -2568,7 +2568,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Native execution supports source impure joins and nested Seq/Set/Multiset/Map sorts with primitive leaves. Heap-dependent functions, quantified resources, wands, general domain/collection mixing, all-join mode, parallel execution and advanced reporting remain incomplete."]
+remaining = ["Native execution connects source function contract/body phases, post/definition axioms, application preconditions and heap snapshots. Recursive surrounding-unfolding predicate triggers, forall-precondition trigger removal, quantified resources, wands, full joins, parallelism and advanced reporting remain incomplete."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"

@@ -65,7 +65,7 @@ pub enum FunctionAnalysisError<E> {
 /// Ordered function-unit data and source preamble/reuse state.
 pub struct FunctionVerificationUnit<D> {
     pub program: Option<Program>,
-    pub data: Vec<(String, FunctionData<D>)>,
+    pub data: Vec<(String, std::sync::Arc<std::sync::Mutex<FunctionData<D>>>)>,
     pub emitted_axioms: Vec<Term>,
     pub fresh_variables: Vec<Term>,
     /// Source reset deliberately leaves this vector intact.
@@ -133,7 +133,10 @@ impl<D: Clone> FunctionVerificationUnit<D> {
                 debugging,
             )
             .map_err(FunctionAnalysisError::Data)?;
-            data.push((function.name.clone(), data_item));
+            data.push((
+                function.name.clone(),
+                std::sync::Arc::new(std::sync::Mutex::new(data_item)),
+            ));
         }
         self.program = Some(program.clone());
         self.data = data;
@@ -142,14 +145,19 @@ impl<D: Clone> FunctionVerificationUnit<D> {
     pub fn units(&self) -> Vec<Function> {
         self.data
             .iter()
-            .map(|(_, data)| data.program_function.clone())
+            .map(|(_, data)| {
+                data.lock()
+                    .expect("poisoned function data")
+                    .program_function
+                    .clone()
+            })
             .collect()
     }
-    pub fn data_mut(&mut self, name: &str) -> Option<&mut FunctionData<D>> {
+    pub fn data_mut(&self, name: &str) -> Option<std::sync::MutexGuard<'_, FunctionData<D>>> {
         self.data
-            .iter_mut()
+            .iter()
             .find(|(n, _)| n == name)
-            .map(|(_, data)| data)
+            .map(|(_, data)| data.lock().expect("poisoned function data"))
     }
     pub fn declare_analysis_symbols<E>(
         &self,
@@ -161,6 +169,7 @@ impl<D: Clone> FunctionVerificationUnit<D> {
             "Declaring symbols related to program functions (from program analysis)".into()
         })?;
         for (_, data) in &self.data {
+            let data = data.lock().expect("poisoned function data");
             for function in [
                 &data.function,
                 &data.limited_function,
@@ -169,7 +178,7 @@ impl<D: Clone> FunctionVerificationUnit<D> {
             ] {
                 sink.declare(&factory.function_decl(function.clone()))?;
             }
-            for function in auxiliary(data) {
+            for function in auxiliary(&data) {
                 sink.declare(&factory.function_decl(function))?;
             }
         }
@@ -192,6 +201,7 @@ impl<D: Clone> FunctionVerificationUnit<D> {
         let mut normal = Vec::new();
         let mut macros = Vec::new();
         for (_, data) in &self.data {
+            let data = data.lock().expect("poisoned function data");
             for decl in data.recorder_handler.fresh_symbols_across_phases.iter() {
                 if matches!(decl.kind(), DeclarationKind::Macro { .. }) {
                     macros.push(decl.clone());
@@ -312,6 +322,10 @@ pub enum FunctionVerificationError<E> {
     MissingFunction,
     Data(FunctionDataError),
     Service(E),
+    Cleanup {
+        primary: Box<FunctionVerificationError<E>>,
+        cleanup: E,
+    },
 }
 impl<D: Clone> FunctionVerificationUnit<D> {
     /// Run the source two-phase function protocol, emitting only axioms justified
@@ -332,100 +346,109 @@ impl<D: Clone> FunctionVerificationUnit<D> {
             .iter_mut()
             .find(|(name, _)| name == &function.name)
             .ok_or(FunctionVerificationError::MissingFunction)?;
+        let mut data = data.lock().expect("poisoned function data");
         context
-            .begin_function(function, data)
+            .begin_function(function, &data)
             .map_err(FunctionVerificationError::Service)?;
-        for (_, var) in &data.formal_args {
-            context
-                .declare_function_axiom_symbol(
-                    &factory.function_decl_target(ApplicationTarget::Variable(var.clone())),
-                )
-                .map_err(FunctionVerificationError::Service)?;
-        }
-        context
-            .declare_function_axiom_symbol(
-                &factory
-                    .function_decl_target(ApplicationTarget::Variable(data.formal_result.clone())),
-            )
-            .map_err(FunctionVerificationError::Service)?;
-        state.function_recorder = context
-            .actual_function_recorder(data)
-            .map_err(FunctionVerificationError::Service)?;
-        state.conserving_snapshot_generation = true;
-        state.assert_read_access_only = !context.respect_function_pre_permissions();
-        let phase_one = context
-            .check_function_specifications(state, data)
-            .map_err(FunctionVerificationError::Service)?;
-        let declarations = context
-            .well_definedness_declarations(data)
-            .map_err(FunctionVerificationError::Service)?;
-        data.advance_phase(factory, &phase_one.recorders, &declarations)
-            .map_err(FunctionVerificationError::Data)?;
-        let result = if phase_one.result.is_fatal() {
-            context.record_function_failure(function, &phase_one.result);
-            phase_one.result
-        } else {
-            let axioms = context
-                .build_phase_one_axioms(data)
-                .map_err(FunctionVerificationError::Service)?;
-            for group in [
-                vec![data.limited_axiom.clone()],
-                vec![data.trigger_axiom.clone()],
-            ] {
+        let verification =
+            (|| {
+                for (_, var) in &data.formal_args {
+                    context
+                        .declare_function_axiom_symbol(
+                            &factory.function_decl_target(ApplicationTarget::Variable(var.clone())),
+                        )
+                        .map_err(FunctionVerificationError::Service)?;
+                }
                 context
-                    .assume_function_axioms(&group)
+                    .declare_function_axiom_symbol(&factory.function_decl_target(
+                        ApplicationTarget::Variable(data.formal_result.clone()),
+                    ))
                     .map_err(FunctionVerificationError::Service)?;
-                self.emitted_axioms.extend(group);
-            }
-            for decl in &axioms.auxiliary_declarations {
-                context
-                    .declare_function_axiom_symbol(decl)
+                state.function_recorder = context
+                    .actual_function_recorder(&data)
                     .map_err(FunctionVerificationError::Service)?;
-            }
-            let post = axioms.post_axiom.into_iter().collect::<Vec<_>>();
-            for group in [
-                axioms.auxiliary_axioms,
-                post.clone(),
-                axioms.post_precondition_axioms,
-            ] {
-                context
-                    .assume_function_axioms(&group)
+                state.conserving_snapshot_generation = true;
+                state.assert_read_access_only = !context.respect_function_pre_permissions();
+                let phase_one = context
+                    .check_function_specifications(state, &data)
                     .map_err(FunctionVerificationError::Service)?;
-                self.emitted_axioms.extend(group);
-            }
-            self.postcondition_axioms.extend(post);
-            if function.body.is_none() {
-                phase_one.result
-            } else {
-                let phase_two = context
-                    .check_function_body(data, phase_one.paths)
+                let declarations = context
+                    .well_definedness_declarations(&data)
                     .map_err(FunctionVerificationError::Service)?;
-                data.advance_phase(factory, &phase_two.recorders, &[])
+                data.advance_phase(factory, &phase_one.recorders, &declarations)
                     .map_err(FunctionVerificationError::Data)?;
-                if phase_two.result.is_fatal() {
-                    context.record_function_failure(function, &phase_two.result);
+                let result = if phase_one.result.is_fatal() {
+                    context.record_function_failure(function, &phase_one.result);
+                    phase_one.result
                 } else {
-                    let (definition, body_preconditions) = context
-                        .build_phase_two_axioms(data)
+                    let axioms = context
+                        .build_phase_one_axioms(&data)
                         .map_err(FunctionVerificationError::Service)?;
                     for group in [
-                        definition.into_iter().collect::<Vec<_>>(),
-                        body_preconditions,
+                        vec![data.limited_axiom.clone()],
+                        vec![data.trigger_axiom.clone()],
                     ] {
                         context
                             .assume_function_axioms(&group)
                             .map_err(FunctionVerificationError::Service)?;
                         self.emitted_axioms.extend(group);
                     }
-                }
-                phase_one.result.and_then(|| phase_two.result)
-            }
-        };
-        context
-            .end_function()
-            .map_err(FunctionVerificationError::Service)?;
-        let _: &VerificationResult<V> = &result;
-        Ok(vec![result])
+                    for decl in &axioms.auxiliary_declarations {
+                        context
+                            .declare_function_axiom_symbol(decl)
+                            .map_err(FunctionVerificationError::Service)?;
+                    }
+                    let post = axioms.post_axiom.into_iter().collect::<Vec<_>>();
+                    for group in [
+                        axioms.auxiliary_axioms,
+                        post.clone(),
+                        axioms.post_precondition_axioms,
+                    ] {
+                        context
+                            .assume_function_axioms(&group)
+                            .map_err(FunctionVerificationError::Service)?;
+                        self.emitted_axioms.extend(group);
+                    }
+                    self.postcondition_axioms.extend(post);
+                    if function.body.is_none() {
+                        phase_one.result
+                    } else {
+                        let phase_two = context
+                            .check_function_body(&data, phase_one.paths)
+                            .map_err(FunctionVerificationError::Service)?;
+                        data.advance_phase(factory, &phase_two.recorders, &[])
+                            .map_err(FunctionVerificationError::Data)?;
+                        if phase_two.result.is_fatal() {
+                            context.record_function_failure(function, &phase_two.result);
+                        } else {
+                            let (definition, body_preconditions) = context
+                                .build_phase_two_axioms(&data)
+                                .map_err(FunctionVerificationError::Service)?;
+                            for group in [
+                                definition.into_iter().collect::<Vec<_>>(),
+                                body_preconditions,
+                            ] {
+                                context
+                                    .assume_function_axioms(&group)
+                                    .map_err(FunctionVerificationError::Service)?;
+                                self.emitted_axioms.extend(group);
+                            }
+                        }
+                        phase_one.result.and_then(|| phase_two.result)
+                    }
+                };
+                let _: &VerificationResult<V> = &result;
+                Ok(vec![result])
+            })();
+        match (verification, context.end_function()) {
+            (Ok(results), Ok(())) => Ok(results),
+            (Err(primary), Ok(())) => Err(primary),
+            (Ok(_), Err(cleanup)) => Err(FunctionVerificationError::Service(cleanup)),
+            (Err(primary), Err(cleanup)) => Err(FunctionVerificationError::Cleanup {
+                primary: Box::new(primary),
+                cleanup,
+            }),
+        }
     }
 }
 

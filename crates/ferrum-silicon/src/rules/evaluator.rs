@@ -1212,9 +1212,15 @@ where
                 } else {
                     state
                 };
-                let label = context
-                    .debug_old_label(&state, &expression.metadata().position)
-                    .map_err(EvaluationError::Context)?;
+                let label = if context.debugging() {
+                    Some(
+                        context
+                            .debug_old_label(&state, &expression.metadata().position)
+                            .map_err(EvaluationError::Context)?,
+                    )
+                } else {
+                    None
+                };
                 let application_debug = debug_args.as_ref().map(|args| {
                     Exp::with_extra(
                         ExpKind::FuncApp(name.clone(), args.clone()),
@@ -1230,7 +1236,12 @@ where
                         Some(app)
                     } else {
                         Some(Exp::new(
-                            ExpKind::DebugLabelledOld(app, label.clone()),
+                            ExpKind::DebugLabelledOld(
+                                app,
+                                label
+                                    .clone()
+                                    .ok_or(EvaluationError::MissingDebugExpression)?,
+                            ),
                             expression.metadata().clone(),
                         ))
                     }
@@ -1267,7 +1278,7 @@ where
                     let term = factory.app(symbol,all_args);
                     state.function_recorder = state.function_recorder.change_depth_by(-1).record_function_snapshot(expression.clone(),context.branch_conditions(),snapshot_to_record);
                     state.g = base.g.clone(); state.h = base.h.clone(); state.record_visited = base.record_visited; state.sm_domain_needed = base.sm_domain_needed; state.more_joins = base.more_joins.clone(); state.assert_read_access_only = base.assert_read_access_only;
-                    let debug = if context.debugging() { let app = application_debug.clone().ok_or(EvaluationError::MissingDebugExpression)?; if state.is_eval_in_old || pres.iter().all(Exp::is_pure) { Some(app) } else { Some(Exp::new(ExpKind::DebugLabelledOld(app,label.clone()),expression.metadata().clone())) } } else { None };
+                    let debug = if context.debugging() { let app = application_debug.clone().ok_or(EvaluationError::MissingDebugExpression)?; if state.is_eval_in_old || pres.iter().all(Exp::is_pure) { Some(app) } else { Some(Exp::new(ExpKind::DebugLabelledOld(app,label.clone().ok_or(EvaluationError::MissingDebugExpression)?),expression.metadata().clone())) } } else { None };
                     done(context,state,term,debug)
                 })
             },continuation)

@@ -60,6 +60,24 @@ fn final_report_groups_duplicate_branch_failures() {
         "{errors}"
     );
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn function_calls_use_the_current_heap_snapshot() {
+    let prefix = "field value: Int
+        function read(x: Ref): Int requires acc(x.value) { x.value }
+        method test() {
+            var x: Ref := new(value);
+            x.value := 1;
+            var previous: Int := read(x);
+            x.value := 2;";
+    check(
+        &format!("{prefix} assert previous == 1; assert read(x) == 2; }}"),
+        0,
+    );
+    check(&format!("{prefix} assert read(x) == previous; }}"), 1);
+}
+
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn symbolic_expression_branches_keep_source_order() {
