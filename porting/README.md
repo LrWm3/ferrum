@@ -304,3 +304,9 @@ and identity-preserving phase snapshots. The runtime mask gate remains closed
 while its concrete adapters undergo integration review. The linked converter
 includes the corresponding SMT-LIB bindings and a regression for recursive alias
 expansion; pinned Scala API mask support differs as documented below.
+
+Expression utilities now traverse reconstructible plugin expressions when projecting
+Boolean proof-obligation guards. The source name-based variable renaming API also
+renames bound declarations, preserving first-match behavior and declaration
+position/info; capture-avoiding instantiation remains a distinct operation.
+Extensions without reconstruction hooks still fail explicitly.

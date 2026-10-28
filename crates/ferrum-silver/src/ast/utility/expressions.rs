@@ -1054,7 +1054,18 @@ pub fn as_boolean_exp(
     }
     e.map_expression_children(
         &mut as_boolean_exp,
-        &mut |_| Err(Error::Extension),
+        &mut |extension| {
+            extension
+                .0
+                .map_expressions(&|child| {
+                    as_boolean_exp(child).map_err(|_| {
+                        crate::verifier::verification_result::DiagnosticError::Unsupported(
+                            "boolean projection in extension expression",
+                        )
+                    })
+                })
+                .map_err(|_| Error::Extension)
+        },
         &mut |field| {
             let receiver = as_boolean_exp(&field.receiver)?;
             Ok(if receiver == field.receiver {
@@ -1323,6 +1334,82 @@ mod proof_obligations_tests {
     use super::*;
     use crate::ast::{ast::Metadata, program::Program};
     #[test]
+    fn name_based_rename_changes_binder_and_uses_first_domain_occurrence() {
+        use crate::ast::{expression::LocalVar, program::LocalVarDecl, r#type::Type};
+        let meta = Metadata::default();
+        let x = Exp::new(
+            ExpKind::LocalVar(LocalVar::new("x".into(), Type::Int, meta.clone())),
+            meta.clone(),
+        );
+        let y = Exp::new(
+            ExpKind::LocalVar(LocalVar::new("y".into(), Type::Int, meta.clone())),
+            meta.clone(),
+        );
+        let z = Exp::new(
+            ExpKind::LocalVar(LocalVar::new("z".into(), Type::Int, meta.clone())),
+            meta.clone(),
+        );
+        let decl = LocalVarDecl::new("x".into(), Type::Int, meta.clone());
+        let body = Exp::new(ExpKind::EqCmp(x.clone(), x.clone()), meta.clone());
+        let forall = Exp::new(ExpKind::Forall(vec![decl], vec![], body), meta);
+        let renamed = rename_variables(&forall, &[x.clone(), x], &[y, z]).unwrap();
+        let ExpKind::Forall(vars, _, body) = renamed.kind() else {
+            panic!("expected forall")
+        };
+        assert_eq!(vars[0].name, "y");
+        assert!(
+            matches!(body.kind(), ExpKind::EqCmp(a, b) if matches!(a.kind(), ExpKind::LocalVar(v) if v.name == "y") && matches!(b.kind(), ExpKind::LocalVar(v) if v.name == "y"))
+        );
+    }
+    #[test]
+    fn boolean_projection_rewrites_extension_children() {
+        use crate::ast::{
+            expression::FieldAccess,
+            program::{Field, FieldData},
+            r#type::Type,
+        };
+        use crate::plugin::sif::sif_ast_extensions::{SifExpression, SifExpressionKind};
+        let meta = Metadata::default();
+        let field = Field::new(FieldData {
+            name: "f".into(),
+            typ: Type::Int,
+            meta: meta.clone(),
+        });
+        let access = Exp::new(
+            ExpKind::FieldAccessPredicate(
+                FieldAccess::new(
+                    Exp::new(ExpKind::NullLit, meta.clone()),
+                    field,
+                    meta.clone(),
+                ),
+                None,
+            ),
+            meta.clone(),
+        );
+        let extension = SifExpression {
+            kind: SifExpressionKind::Low {
+                exp: access,
+                comparator: None,
+                type_variables: Default::default(),
+            },
+            meta,
+        }
+        .expression()
+        .unwrap();
+        let result = as_boolean_exp(&extension).unwrap();
+        let ExpKind::Extension(extension) = result.kind() else {
+            panic!("expected extension")
+        };
+        let sif = extension
+            .0
+            .as_any()
+            .downcast_ref::<SifExpression>()
+            .unwrap();
+        assert!(
+            matches!(&sif.kind, SifExpressionKind::Low { exp, .. } if matches!(exp.kind(), ExpKind::TrueLit))
+        );
+    }
+    #[test]
     fn guards_division_obligations_in_lazy_conjunction() {
         let m = Metadata::default();
         let program = Program::new(vec![], vec![], vec![], vec![], vec![], vec![], m.clone());
@@ -1337,6 +1424,78 @@ mod proof_obligations_tests {
         assert!(
             matches!(conditions[0].kind(), ExpKind::Implies(left, right) if left == &guard && matches!(right.kind(), ExpKind::NeCmp(..)))
         );
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RenameVariablesError {
+    InvalidVariable,
+    RangeTooShort,
+    Traversal(crate::verifier::verification_result::DiagnosticError),
+}
+
+/// Source name-based rename, including declarations; this is not capture-avoiding substitution.
+pub fn rename_variables(
+    expression: &Exp,
+    domain: &[Exp],
+    range: &[Exp],
+) -> Result<Exp, RenameVariablesError> {
+    use crate::ast::ast::Metadata;
+    use crate::verifier::verification_result::DiagnosticError;
+    fn name(variable: &Exp) -> Option<&str> {
+        match variable.kind() {
+            ExpKind::LocalVar(v) => Some(&v.name),
+            ExpKind::LocalVarWithVersion(name, _) => Some(name),
+            ExpKind::Result(_) => Some("result"),
+            _ => None,
+        }
+    }
+    let names = domain
+        .iter()
+        .map(|v| name(v).ok_or(RenameVariablesError::InvalidVariable))
+        .collect::<Result<Vec<_>, _>>()?;
+    if range.iter().any(|v| name(v).is_none()) {
+        return Err(RenameVariablesError::InvalidVariable);
+    }
+    let missing = std::cell::Cell::new(false);
+    let mapped = super::nodes::map_node_tree(&Node::Exp(expression.clone()), &|node| {
+        let variable_name = match node {
+            Node::LocalVar(v) => Some(v.name.as_str()),
+            Node::Exp(exp) => name(exp),
+            Node::LocalDecl(decl) => Some(decl.name.as_str()),
+            _ => None,
+        };
+        let Some(index) =
+            variable_name.and_then(|n| names.iter().position(|candidate| *candidate == n))
+        else {
+            return Ok(node.clone());
+        };
+        let Some(replacement) = range.get(index) else {
+            missing.set(true);
+            return Err(DiagnosticError::Unsupported("rename variable range"));
+        };
+        if let Node::LocalDecl(decl) = node {
+            let meta = Metadata {
+                position: decl.meta.position.clone(),
+                info: decl.meta.info.clone(),
+                ..Default::default()
+            };
+            return Ok(Node::LocalDecl(crate::ast::program::LocalVarDecl::new(
+                name(replacement).expect("validated variable").into(),
+                decl.typ.clone(),
+                meta,
+            )));
+        }
+        Ok(Node::Exp(replacement.clone()))
+    });
+    if missing.get() {
+        return Err(RenameVariablesError::RangeTooShort);
+    }
+    match mapped.map_err(RenameVariablesError::Traversal)? {
+        Node::Exp(result) => Ok(result),
+        _ => Err(RenameVariablesError::Traversal(
+            DiagnosticError::InvalidNode("renamed expression"),
+        )),
     }
 }
 
