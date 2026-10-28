@@ -48,6 +48,28 @@ fn check(source: &str, expected: i32) {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn heap_havoc_forgets_selected_values_and_preserves_frames() {
+    let prefix = "field value: Int
+        method test(r: Ref, s: Ref)
+            requires r != s && acc(r.value) && acc(s.value)
+            requires r.value == 1 && s.value == 2
+        { quasihavocall x: Ref :: x == r ==> x.value;";
+    check(
+        &format!("{prefix} assert acc(r.value) && s.value == 2; }}"),
+        0,
+    );
+    check(&format!("{prefix} assert r.value == 1; }}"), 1);
+    check(
+        "field value: Int
+        method test(r: Ref, s: Ref)
+            requires r == s && acc(r.value) && r.value == 1
+        { quasihavoc s.value; assert r.value == 1; }",
+        1,
+    );
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn quantified_permissions_preserve_frames_and_consumption() {
     let prefix = "field value: Int
         method test(r: Ref, s: Ref)

@@ -26,6 +26,10 @@ disjoint snapshots and failing assertions; 21 function cases and four existing
 native runner regressions also pass. Full trigger rewriting, wands, complete
 exhale and advanced reporting remain incomplete. No comparative speed improvement
 has been established.
+Single-resource and quantified heap havoc now replace selected snapshots while
+preserving permissions and unrelated chunks. Independent CLI checks cover aliases,
+guards, noninjective receivers, fractional permissions and old call snapshots;
+the permanent havoc regression passes through both solver transports.
 
 - [sources.toml](sources.toml) pins the two semantic baselines.
 - [modules.toml](modules.toml) maps every source file to its Rust destination and

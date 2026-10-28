@@ -1642,6 +1642,43 @@ where
             EvaluationError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
+        if let ExpKind::Asserting(assertion, in_expression) = expression.kind() {
+            let original_store = state.g.clone();
+            let original_heap = state.h.clone();
+            let mut callback_error = None;
+            let result = crate::rules::consumer::consume_all(
+                self,
+                state,
+                std::slice::from_ref(assertion),
+                false,
+                &|_| error.clone(),
+                &mut |ctx, mut state, _| {
+                    state.g = original_store.clone();
+                    state.h = original_heap.clone();
+                    match crate::rules::evaluator::evaluate(
+                        ctx,
+                        state,
+                        in_expression,
+                        error,
+                        continuation,
+                    ) {
+                        Ok(value) => Ok(value),
+                        Err(e) => {
+                            callback_error = Some(e);
+                            Err(ConsumptionError::Context(NativeError::ContinuationAbort))
+                        }
+                    }
+                },
+            );
+            if let Some(error) = callback_error {
+                return Err(error);
+            }
+            return result.map_err(|e| {
+                EvaluationError::Context(NativeError::Consumption(format!(
+                    "asserting expression: {e:?}"
+                )))
+            });
+        }
         if let ExpKind::Applying(wand, in_expression) = expression.kind() {
             return self.join_applying_expression(state, wand, in_expression, error, continuation);
         }
@@ -1969,15 +2006,20 @@ where
             ProductionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ProductionError<Self::Error>> {
-        use ferrum_silver::ast::{program::Member, utility::nodes::Node};
-        let node = match resource {
-            ResourceKey::Field(f) => Node::Member(Member::Field((**f).clone())),
-            ResourceKey::Predicate(p) => Node::Member(Member::Predicate((**p).clone())),
-            ResourceKey::Wand(w) => Node::Exp(w.ghost_free_wand.clone()),
+        // Only ordinary wand production reevaluates resource arguments and needs an
+        // error context; fields and predicates are already evaluated by the producer.
+        let full = match resource {
+            ResourceKey::Wand(w) => Some(
+                error
+                    .due_to(ErrorReason::MagicWandChunkNotFound(
+                        w.ghost_free_wand.clone(),
+                    ))
+                    .map_err(|e| {
+                        ProductionError::Context(NativeError::Diagnostic(format!("{e:?}")))
+                    })?,
+            ),
+            _ => None,
         };
-        let full = error
-            .due_to(ErrorReason::InsufficientPermission(node))
-            .map_err(|e| ProductionError::Context(NativeError::Diagnostic(format!("{e:?}"))))?;
         let mut callback_error = None;
         let result = crate::rules::heap_supporter::produce_single(
             self,
@@ -1989,7 +2031,7 @@ where
             None,
             gain,
             gain_exp,
-            &Some(full),
+            &full,
             true,
             &mut |ctx, state| match continuation(ctx, state) {
                 Ok(value) => Ok(value),
@@ -2585,8 +2627,13 @@ where
             }
             _ => ferrum_silver::ast::utility::nodes::Node::Exp(assertion.clone()),
         };
+        let reason = if matches!(assertion.kind(), ExpKind::MagicWand(..)) {
+            ErrorReason::MagicWandChunkNotFound(assertion.clone())
+        } else {
+            ErrorReason::InsufficientPermission(location)
+        };
         let full = error
-            .due_to(ErrorReason::InsufficientPermission(location))
+            .due_to(reason)
             .map_err(|e| ConsumptionError::Context(NativeError::Diagnostic(format!("{e:?}"))))?;
         let mut callback_error = None;
         let result = crate::rules::heap_supporter::consume_single(
@@ -3718,7 +3765,29 @@ where
         state: &State<PD, FD, JoinMode>,
         resource: &crate::state::terms::ResourceKey,
     ) -> Result<crate::state::terms::Sort, Self::Error> {
-        Err(NativeError::Unsupported("resource_snapshot_sort"))
+        match resource {
+            ResourceKey::Field(field) => self
+                .base
+                .symbol_converter
+                .to_sort(&field.typ)
+                .map_err(NativeError::Sort),
+            ResourceKey::Predicate(predicate) => {
+                if let Some(sort) = state.predicate_snap_map.get(&predicate.name) {
+                    return Ok(sort.clone());
+                }
+                match &predicate.body {
+                    None => Ok(Sort::Snap),
+                    Some(body) => crate::supporters::snapshot_supporter::DefaultSnapshotSupporter {
+                        symbols: &self.base.symbol_converter,
+                        factory: &self.factory,
+                    }
+                    .optimal_snapshot_sort::<()>(body, &state.program)
+                    .map(|(sort, _)| sort)
+                    .map_err(|e| NativeError::Snapshot(format!("{e:?}"))),
+                }
+            }
+            ResourceKey::Wand(_) => Ok(Sort::MagicWandSnapFunction),
+        }
     }
     fn merge_chunk(
         &mut self,
@@ -4431,24 +4500,47 @@ where
         Ok(state)
     }
     fn fresh_havoc_snapshot(&mut self, sort: &Sort, wand_map: bool) -> Result<Term, Self::Error> {
-        Err(NativeError::Unsupported("fresh_havoc_snapshot"))
+        let name = if wand_map { "mwsf" } else { "snap" };
+        let (target, _) = self
+            .base
+            .decider
+            .fresh(&self.factory, name, &[], sort)
+            .map_err(NativeError::Decider)?;
+        Ok(match target {
+            ApplicationTarget::Function(f) => self.factory.app(f, vec![]),
+            ApplicationTarget::Variable(v) => v,
+        })
     }
     fn havoc_codomain(
         &mut self,
         state: &State<PD, FD, JoinMode>,
         resource: &ResourceKey,
     ) -> Result<(Vec<Term>, Term), Self::Error> {
-        Err(NativeError::Unsupported("havoc_codomain"))
+        let source = native_quantified_source(resource);
+        let vars = state
+            .formal_arg_vars(&source, &self.base.symbol_converter, &self.factory)
+            .map_err(|e| NativeError::Chunk(format!("havoc codomain: {e:?}")))?;
+        let aggregate = if matches!(resource, ResourceKey::Field(_)) {
+            self.factory.predef_receiver_var()
+        } else {
+            self.factory.predef_snapshot_var()
+        };
+        Ok((vars, aggregate))
     }
     fn fresh_havoc_map(
         &mut self,
         state: &State<PD, FD, JoinMode>,
         resource: &ResourceKey,
     ) -> Result<Term, Self::Error> {
-        Err(NativeError::Unsupported("fresh_havoc_map"))
+        crate::rules::quantified_chunk_support::SnapshotMapFreshener::fresh_snapshot_map(
+            self,
+            state,
+            resource,
+            &[],
+        )
     }
     fn assume_havoc_axiom(&mut self, axiom: &Term) -> Result<(), Self::Error> {
-        Err(NativeError::Unsupported("assume_havoc_axiom"))
+        self.assume_term(axiom)
     }
     fn next_havoc_axiom_id(&mut self) -> u64 {
         self.havoc_counter = self.havoc_counter.wrapping_add(1);
@@ -5006,7 +5098,31 @@ where
         method: &ferrum_silver::ast::program::Method,
         snapshot: &TermValue,
     ) -> Result<Option<Arc<ListBackedHeap>>, Self::Error> {
-        Err(NativeError::Unsupported("reconstruct_pre_heap"))
+        let partial = self.call_partial(call, method, false)?;
+        let mut reconstructed = None;
+        crate::rules::producer::produce_all(
+            self,
+            state.clone(),
+            NativeSnapshot::Projection(snapshot.clone()),
+            &method.pres,
+            &|_| partial.clone(),
+            &mut |ctx, produced| {
+                reconstructed = Some(
+                    crate::rules::magic_wand_supporter::evaluation_heap(ctx, &produced).map_err(
+                        |e| {
+                            ProductionError::Context(NativeError::Execution(format!(
+                                "reconstructed call heap: {e:?}"
+                            )))
+                        },
+                    )?,
+                );
+                Ok(VerificationResult::success())
+            },
+        )
+        .map_err(|e| {
+            NativeError::Production(format!("reconstruct call precondition heap: {e:?}"))
+        })?;
+        Ok(reconstructed)
     }
     fn produce_call_postconditions(
         &mut self,
@@ -5060,6 +5176,289 @@ where
             PredicateExecutionError, fold_predicate, unfold_predicate,
         };
         use ferrum_silver::ast::statement::StmtKind;
+        if let StmtKind::Quasihavocall {
+            variables,
+            guard,
+            resource,
+        } = statement.kind()
+        {
+            use crate::rules::quantified_chunk_support as qp;
+            use ferrum_silver::ast::statement::ResourceAccess;
+            let error = PartialVerificationError::for_kind(VerificationErrorKind::HavocallFailed(
+                statement.clone(),
+            ));
+            let guard = guard
+                .clone()
+                .unwrap_or_else(|| Exp::new(ExpKind::TrueLit, statement.metadata().clone()));
+            let (expressions, key, qid) = match resource {
+                ResourceAccess::Field(field) => (
+                    vec![field.receiver.clone()],
+                    ResourceKey::Field(Arc::new(field.field.clone())),
+                    field.field.name.clone(),
+                ),
+                ResourceAccess::Predicate(predicate) => (
+                    predicate.args.clone(),
+                    ResourceKey::Predicate(Arc::new(
+                        state
+                            .program
+                            .find_predicate(&predicate.predicate_name)
+                            .map_err(|e| {
+                                ExecutionError::Context(NativeError::Diagnostic(format!("{e:?}")))
+                            })?
+                            .clone(),
+                    )),
+                    predicate.predicate_name.clone(),
+                ),
+                ResourceAccess::MagicWand(wand) => {
+                    let id = crate::state::chunks::MagicWandIdentifier::new(
+                        wand.clone(),
+                        &state.program,
+                    )
+                    .map_err(|e| ExecutionError::Context(NativeError::Chunk(format!("{e:?}"))))?;
+                    (
+                        wand.magic_wand_subexpressions(&state.program)
+                            .map_err(|e| {
+                                ExecutionError::Context(NativeError::Execution(format!("{e:?}")))
+                            })?,
+                        ResourceKey::Wand(id.clone()),
+                        id.to_string(),
+                    )
+                }
+            };
+            let factory = self.factory.clone();
+            let mut callback_error = None;
+            let result = crate::rules::evaluator::evaluate_quantified(
+                self,
+                state,
+                crate::state::terms::Quantifier::Forall,
+                variables,
+                std::slice::from_ref(&guard),
+                &expressions,
+                None,
+                &qid,
+                &error,
+                &mut |ctx, mut state, data| {
+                    let Some(body) = data.second else {
+                        return match continuation(ctx, state) {
+                            Ok(value) => Ok(value),
+                            Err(e) => {
+                                callback_error = Some(e);
+                                Err(EvaluationError::Context(NativeError::ContinuationAbort))
+                            }
+                        };
+                    };
+                    if data.first_terms.len() != 1 {
+                        return Err(EvaluationError::InvalidJoinEntries);
+                    }
+                    let condition = data.first_terms[0].clone();
+                    let source = native_quantified_source(&key);
+                    let formals = state
+                        .formal_arg_vars(&source, &ctx.base.symbol_converter, &factory)
+                        .map_err(|e| {
+                            EvaluationError::Context(NativeError::Chunk(format!(
+                                "havocall formals: {e:?}"
+                            )))
+                        })?;
+                    let check = qp::injectivity_axiom(
+                        &factory,
+                        &data.variables,
+                        &condition,
+                        &factory.full_perm(),
+                        &body.terms,
+                        vec![],
+                        &qid,
+                    )
+                    .map_err(|e| {
+                        EvaluationError::Context(NativeError::Chunk(format!(
+                            "havocall injectivity: {e:?}"
+                        )))
+                    })?;
+                    let precondition = crate::state::function_precondition_transformer::transform(
+                        &factory,
+                        &check,
+                        &mut |fun| {
+                            Ok::<_, NativeError<S::Error>>(
+                                crate::rules::function_supporter::precondition_version(
+                                    &factory, fun,
+                                ),
+                            )
+                        },
+                    )
+                    .map_err(|e| {
+                        EvaluationError::Context(NativeError::Chunk(format!(
+                            "havocall precondition: {e:?}"
+                        )))
+                    })?;
+                    ctx.assume_term(&precondition)
+                        .map_err(EvaluationError::Context)?;
+                    let proven = ctx
+                        .base
+                        .decider
+                        .check(&check, ctx.base.decider.assert_timeout)
+                        .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+                    if !proven {
+                        return ctx
+                            .failure(
+                                &error,
+                                ErrorReason::QuasihavocallNotInjective(statement.clone()),
+                                state.retry_level,
+                            )
+                            .map_err(EvaluationError::Context);
+                    }
+                    let (inverse, images) = qp::fresh_inverse_functions(
+                        &factory,
+                        ctx,
+                        &data.variables,
+                        data.variable_expressions,
+                        condition.clone(),
+                        body.terms,
+                        body.expressions,
+                        &formals,
+                        vec![],
+                        &[],
+                        None,
+                        &qid,
+                        false,
+                    )
+                    .map_err(|e| {
+                        EvaluationError::Context(NativeError::Chunk(format!(
+                            "havocall inverses: {e:?}"
+                        )))
+                    })?;
+                    ctx.base
+                        .decider
+                        .assume(
+                            inverse
+                                .definitional_axioms()
+                                .into_iter()
+                                .cloned()
+                                .map(|t| (t, None)),
+                            false,
+                            false,
+                        )
+                        .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+                    let helper = crate::rules::havoc_supporter::HavocHelperData::All {
+                        inverse_functions: inverse,
+                        codomain_vars: formals,
+                        images_of_codomain: images,
+                    };
+                    let heap = crate::rules::heap_supporter::havoc_resource(
+                        ctx, &state, &condition, &key, &helper,
+                    )
+                    .map_err(|e| {
+                        EvaluationError::Context(NativeError::Execution(format!(
+                            "havocall resource: {e:?}"
+                        )))
+                    })?;
+                    state.h = Arc::new(heap);
+                    match continuation(ctx, state) {
+                        Ok(value) => Ok(value),
+                        Err(e) => {
+                            callback_error = Some(e);
+                            Err(EvaluationError::Context(NativeError::ContinuationAbort))
+                        }
+                    }
+                },
+            );
+            if let Some(error) = callback_error {
+                return Err(error);
+            }
+            return result.map_err(|e| {
+                ExecutionError::Context(NativeError::Evaluation(format!("havocall: {e:?}")))
+            });
+        }
+        if let StmtKind::Quasihavoc { guard, resource } = statement.kind() {
+            use ferrum_silver::ast::statement::ResourceAccess;
+            let error = PartialVerificationError::for_kind(
+                VerificationErrorKind::QuasihavocFailed(statement.clone()),
+            );
+            let guard = guard
+                .clone()
+                .unwrap_or_else(|| Exp::new(ExpKind::TrueLit, statement.metadata().clone()));
+            let expressions = match resource {
+                ResourceAccess::Field(field) => vec![field.receiver.clone()],
+                ResourceAccess::Predicate(predicate) => predicate.args.clone(),
+                ResourceAccess::MagicWand(wand) => wand
+                    .magic_wand_subexpressions(&state.program)
+                    .map_err(|e| {
+                    ExecutionError::Context(NativeError::Execution(format!(
+                        "havoc wand arguments: {e:?}"
+                    )))
+                })?,
+            };
+            let mut callback_error = None;
+            let result = crate::rules::evaluator::evaluate(
+                self,
+                state,
+                &guard,
+                &error,
+                &mut |ctx, state, condition, _| {
+                    crate::rules::evaluator::evaluate_all(
+                        ctx,
+                        state,
+                        &expressions,
+                        &|_| error.clone(),
+                        &mut |ctx, mut state, arguments, _| {
+                            let resource = match resource {
+                                ResourceAccess::Field(field) => {
+                                    ResourceKey::Field(Arc::new(field.field.clone()))
+                                }
+                                ResourceAccess::Predicate(predicate) => {
+                                    ResourceKey::Predicate(Arc::new(
+                                        state
+                                            .program
+                                            .find_predicate(&predicate.predicate_name)
+                                            .map_err(|e| {
+                                                EvaluationError::Context(NativeError::Diagnostic(
+                                                    format!("{e:?}"),
+                                                ))
+                                            })?
+                                            .clone(),
+                                    ))
+                                }
+                                ResourceAccess::MagicWand(wand) => ResourceKey::Wand(
+                                    crate::state::chunks::MagicWandIdentifier::new(
+                                        wand.clone(),
+                                        &state.program,
+                                    )
+                                    .map_err(|e| {
+                                        EvaluationError::Context(NativeError::Chunk(format!(
+                                            "{e:?}"
+                                        )))
+                                    })?,
+                                ),
+                            };
+                            let heap = crate::rules::heap_supporter::havoc_resource(
+                                ctx,
+                                &state,
+                                &condition,
+                                &resource,
+                                &crate::rules::havoc_supporter::HavocHelperData::One(arguments),
+                            )
+                            .map_err(|e| {
+                                EvaluationError::Context(NativeError::Execution(format!(
+                                    "havoc resource: {e:?}"
+                                )))
+                            })?;
+                            state.h = Arc::new(heap);
+                            match continuation(ctx, state) {
+                                Ok(value) => Ok(value),
+                                Err(e) => {
+                                    callback_error = Some(e);
+                                    Err(EvaluationError::Context(NativeError::ContinuationAbort))
+                                }
+                            }
+                        },
+                    )
+                },
+            );
+            if let Some(error) = callback_error {
+                return Err(error);
+            }
+            return result.map_err(|e| {
+                ExecutionError::Context(NativeError::Evaluation(format!("havoc: {e:?}")))
+            });
+        }
         if let StmtKind::Package { wand, proof_script } = statement.kind() {
             use crate::rules::magic_wand_supporter::PackageExecutionError as PE;
             let error = PartialVerificationError::for_kind(VerificationErrorKind::PackageFailed(

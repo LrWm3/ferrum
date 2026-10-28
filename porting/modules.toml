@@ -2568,7 +2568,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Main verification is generic over Prover and connects source arithmetic trigger rewriting. Wand package/application, reserve-heap branches and snapshot services are implemented but remain gated pending independent integration review. Full joins, parallelism and advanced reporting remain incomplete."]
+remaining = ["Concrete single and quantified heap havoc preserves framed chunks and permissions while replacing snapshots. Source call precondition heaps, arithmetic triggers and generic Prover orchestration are connected. Wand package/application services remain gated pending independent review; full joins, more-complete exhale, parallelism and advanced reporting remain incomplete."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"
