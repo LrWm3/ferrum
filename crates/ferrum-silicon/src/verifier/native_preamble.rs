@@ -97,7 +97,9 @@ pub fn analyze(
     program: &Program,
     converter: &DefaultSymbolConverter,
 ) -> Result<NativePreambleData, NativePreambleError<std::convert::Infallible>> {
-    analyze_domain_slice(program, converter, None, false, false, false, false, false)
+    analyze_domain_slice(
+        program, converter, None, false, false, false, false, false, false,
+    )
 }
 /// Analyze and translate the supported non-generic user-domain axioms.
 pub fn analyze_with_axioms(
@@ -109,6 +111,7 @@ pub fn analyze_with_axioms(
         program,
         converter,
         Some(factory),
+        false,
         false,
         false,
         false,
@@ -132,6 +135,7 @@ pub fn analyze_simple_generics(
         false,
         false,
         false,
+        false,
     )
 }
 /// User-domain analysis when a separate sequence contributor supplies all ground Seq sorts.
@@ -146,6 +150,7 @@ pub fn analyze_with_sequences(
         Some(factory),
         true,
         true,
+        false,
         false,
         false,
         false,
@@ -166,6 +171,7 @@ pub fn analyze_with_sequences_and_sets(
         true,
         false,
         false,
+        false,
     )
 }
 /// User-domain analysis when sequence, set and map contributors supply their sorts.
@@ -178,6 +184,25 @@ pub fn analyze_with_maps(
         program,
         converter,
         Some(factory),
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+    )
+}
+/// User-domain analysis when all four collection contributors supply their sorts.
+pub fn analyze_with_multisets(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+) -> Result<NativePreambleData, NativePreambleError<std::convert::Infallible>> {
+    analyze_domain_slice(
+        program,
+        converter,
+        Some(factory),
+        true,
         true,
         true,
         true,
@@ -197,6 +222,7 @@ pub fn analyze_generic_axioms(
         converter,
         Some(factory),
         true,
+        false,
         false,
         false,
         false,
@@ -264,6 +290,7 @@ fn analyze_domain_slice(
     allow_sequences: bool,
     allow_sets: bool,
     allow_maps: bool,
+    allow_multisets: bool,
     allow_generic_axioms: bool,
 ) -> Result<NativePreambleData, NativePreambleError<std::convert::Infallible>> {
     for domain in &program.domains {
@@ -304,7 +331,7 @@ fn analyze_domain_slice(
         for typ in ferrum_silver::ast::utility::domain_instances::down_closure_ground(root)
             .map_err(NativePreambleError::GroundTypes)?
         {
-            if matches!(typ, Type::Multiset(_))
+            if (!allow_multisets && matches!(typ, Type::Multiset(_)))
                 || (!allow_maps && matches!(typ, Type::Map(_)))
                 || (!allow_sequences && matches!(typ, Type::Seq(_)))
                 || (!allow_sets && matches!(typ, Type::Set(_)))
@@ -784,6 +811,15 @@ pub fn analyze_sequences(
     factory: &TermFactory,
     old_axiomatization: bool,
 ) -> Result<NativeSequencePreamble, NativePreambleError<std::convert::Infallible>> {
+    analyze_sequences_inner(program, converter, factory, old_axiomatization, false)
+}
+fn analyze_sequences_inner(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+    old_axiomatization: bool,
+    mixed: bool,
+) -> Result<NativeSequencePreamble, NativePreambleError<std::convert::Infallible>> {
     use crate::state::symbol_converter::BuiltinDomainSort;
     use crate::supporters::{
         builtin_domains_contributor::BuiltinDomainsContributor,
@@ -815,7 +851,7 @@ pub fn analyze_sequences(
     for root in &ground {
         for typ in down_closure_ground(root).map_err(NativePreambleError::GroundTypes)? {
             if let Type::Seq(element) = typ {
-                if !supported_element(&element) {
+                if !(supported_element(&element) || mixed && mixed_collection_type(&element)) {
                     return Err(NativePreambleError::Unsupported(
                         "sequence element requires another contributor",
                     ));
@@ -858,6 +894,14 @@ pub fn analyze_sequences(
     let builtin_converter = converter
         .clone()
         .with_builtin_domain(sequences::SOURCE_DOMAIN_NAME, BuiltinDomainSort::Sequence);
+    let mut instances = instances.into_iter().collect::<Vec<_>>();
+    fn nesting(typ: &Type) -> usize {
+        match typ {
+            Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => 1 + nesting(t),
+            _ => 0,
+        }
+    }
+    instances.sort_by_key(nesting);
     for element in instances {
         let substitution = [(source_domain.type_vars[0].clone(), element.clone())]
             .into_iter()
@@ -1004,7 +1048,14 @@ pub fn analyze_sets(
     factory: &TermFactory,
     old_axiomatization: bool,
 ) -> Result<NativeSetPreamble, NativePreambleError<std::convert::Infallible>> {
-    analyze_sets_inner(program, converter, factory, old_axiomatization, false)
+    analyze_sets_inner(
+        program,
+        converter,
+        factory,
+        old_axiomatization,
+        false,
+        false,
+    )
 }
 /// Include set sorts induced by map domain/range when a map contributor is active.
 pub fn analyze_sets_with_maps(
@@ -1013,7 +1064,7 @@ pub fn analyze_sets_with_maps(
     factory: &TermFactory,
     old_axiomatization: bool,
 ) -> Result<NativeSetPreamble, NativePreambleError<std::convert::Infallible>> {
-    analyze_sets_inner(program, converter, factory, old_axiomatization, true)
+    analyze_sets_inner(program, converter, factory, old_axiomatization, true, false)
 }
 fn analyze_sets_inner(
     program: &Program,
@@ -1021,6 +1072,7 @@ fn analyze_sets_inner(
     factory: &TermFactory,
     old_axiomatization: bool,
     allow_maps: bool,
+    mixed: bool,
 ) -> Result<NativeSetPreamble, NativePreambleError<std::convert::Infallible>> {
     use crate::state::symbol_converter::BuiltinDomainSort;
     use crate::supporters::{
@@ -1052,7 +1104,10 @@ fn analyze_sets_inner(
     for root in &ground {
         for typ in down_closure_ground(root).map_err(NativePreambleError::GroundTypes)? {
             if let Type::Map(pair) = &typ {
-                if !allow_maps || !supported_element(&pair.0) || !supported_element(&pair.1) {
+                if !allow_maps
+                    || !(supported_element(&pair.0) || mixed && mixed_collection_type(&pair.0))
+                    || !(supported_element(&pair.1) || mixed && mixed_collection_type(&pair.1))
+                {
                     return Err(NativePreambleError::Unsupported(
                         "set instances induced by map domains",
                     ));
@@ -1061,7 +1116,7 @@ fn analyze_sets_inner(
                 instances.insert(pair.1.clone());
             }
             if let Type::Set(element) = typ {
-                if !supported_element(&element) {
+                if !(supported_element(&element) || mixed && mixed_collection_type(&element)) {
                     return Err(NativePreambleError::Unsupported(
                         "set element requires another contributor",
                     ));
@@ -1102,6 +1157,14 @@ fn analyze_sets_inner(
     let builtin_converter = converter
         .clone()
         .with_builtin_domain(sets::SOURCE_DOMAIN_NAME, BuiltinDomainSort::Set);
+    let mut instances = instances.into_iter().collect::<Vec<_>>();
+    fn nesting(typ: &Type) -> usize {
+        match typ {
+            Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => 1 + nesting(t),
+            _ => 0,
+        }
+    }
+    instances.sort_by_key(nesting);
     for element in instances {
         let substitution = [(source_domain.type_vars[0].clone(), element.clone())]
             .into_iter()
@@ -1248,6 +1311,15 @@ pub fn analyze_maps(
     factory: &TermFactory,
     old_axiomatization: bool,
 ) -> Result<NativeMapPreamble, NativePreambleError<std::convert::Infallible>> {
+    analyze_maps_inner(program, converter, factory, old_axiomatization, false)
+}
+fn analyze_maps_inner(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+    old_axiomatization: bool,
+    mixed: bool,
+) -> Result<NativeMapPreamble, NativePreambleError<std::convert::Infallible>> {
     use crate::state::symbol_converter::BuiltinDomainSort;
     use crate::supporters::{
         builtin_domains_contributor::BuiltinDomainsContributor, default_maps_contributor as maps,
@@ -1274,7 +1346,9 @@ pub fn analyze_maps(
     for root in &ground {
         for typ in down_closure_ground(root).map_err(NativePreambleError::GroundTypes)? {
             if let Type::Map(pair) = typ {
-                if !supported_element(&pair.0) || !supported_element(&pair.1) {
+                if !(supported_element(&pair.0) || mixed && mixed_collection_type(&pair.0))
+                    || !(supported_element(&pair.1) || mixed && mixed_collection_type(&pair.1))
+                {
                     return Err(NativePreambleError::Unsupported(
                         "map key/value requires another contributor",
                     ));
@@ -1404,6 +1478,331 @@ pub fn analyze_maps(
         }
     }
     Ok(NativeMapPreamble { contributor })
+}
+
+/// Parsed builtin multiset source, instantiated and translated before solver emission.
+/// Collection analysis is intentionally separate from the checked user-domain profile.
+pub struct NativeMultisetPreamble {
+    contributor: crate::supporters::builtin_domains_contributor::BuiltinDomainsContributor,
+}
+impl NativeMultisetPreamble {
+    pub fn sorts(&self) -> impl Iterator<Item = &crate::state::terms::Sort> {
+        self.contributor.sorts.iter()
+    }
+    pub fn declare_sorts<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .declare_sorts(factory, prover)
+            .map_err(NativePreambleError::Sink)
+    }
+    pub fn declare_symbols<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .declare_symbols(factory, prover)
+            .map_err(NativePreambleError::Sink)
+    }
+    pub fn emit_axioms<P: ProverLike>(
+        &self,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .emit_axioms(prover)
+            .map_err(NativePreambleError::Sink)
+    }
+    pub fn emit<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.contributor
+            .declare_sorts(factory, prover)
+            .map_err(NativePreambleError::Sink)?;
+        self.contributor
+            .declare_symbols(factory, prover)
+            .map_err(NativePreambleError::Sink)?;
+        self.contributor
+            .emit_axioms(prover)
+            .map_err(NativePreambleError::Sink)
+    }
+}
+// A mixed contributor is only safe when every nested sort is assembled together.
+fn mixed_collection_type(typ: &Type) -> bool {
+    match typ {
+        Type::Int | Type::Bool | Type::Ref | Type::Perm => true,
+        Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => mixed_collection_type(t),
+        Type::Map(pair) => mixed_collection_type(&pair.0) && mixed_collection_type(&pair.1),
+        _ => false,
+    }
+}
+
+/// All collection contributors required by a program with mixed collection nesting.
+pub struct NativeCollectionsPreamble {
+    pub sequences: NativeSequencePreamble,
+    pub sets: NativeSetPreamble,
+    pub multisets: NativeMultisetPreamble,
+    pub maps: NativeMapPreamble,
+}
+
+impl NativeCollectionsPreamble {
+    pub fn sorts(&self) -> impl Iterator<Item = &crate::state::terms::Sort> {
+        use crate::state::terms::Sort;
+        fn depth(sort: &Sort) -> usize {
+            match sort {
+                Sort::Seq(t) | Sort::Set(t) | Sort::Multiset(t) => 1 + depth(t),
+                Sort::Map(k, v) => 1 + depth(k).max(depth(v)),
+                _ => 0,
+            }
+        }
+        let mut sorts = self
+            .sequences
+            .sorts()
+            .chain(self.sets.sorts())
+            .chain(self.multisets.sorts())
+            .chain(self.maps.sorts())
+            .collect::<Vec<_>>();
+        sorts.sort_by_key(|s| depth(s));
+        sorts.into_iter()
+    }
+    pub fn declare_sorts<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        for sort in self.sorts() {
+            prover
+                .declare(&factory.sort_decl(sort.clone()))
+                .map_err(NativePreambleError::Sink)?;
+        }
+        Ok(())
+    }
+    pub fn declare_symbols<P: ProverLike>(
+        &self,
+        factory: &TermFactory,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.sequences.declare_symbols(factory, prover)?;
+        self.sets.declare_symbols(factory, prover)?;
+        self.multisets.declare_symbols(factory, prover)?;
+        self.maps.declare_symbols(factory, prover)
+    }
+    pub fn emit_axioms<P: ProverLike>(
+        &self,
+        prover: &mut P,
+    ) -> Result<(), NativePreambleError<P::Error>> {
+        self.sequences.emit_axioms(prover)?;
+        self.sets.emit_axioms(prover)?;
+        self.multisets.emit_axioms(prover)?;
+        self.maps.emit_axioms(prover)
+    }
+}
+
+/// Analyze all collection dependencies together. User generic domains remain rejected.
+pub fn analyze_collections(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+    old_axiomatization: bool,
+) -> Result<NativeCollectionsPreamble, NativePreambleError<std::convert::Infallible>> {
+    Ok(NativeCollectionsPreamble {
+        sequences: analyze_sequences_inner(program, converter, factory, old_axiomatization, true)?,
+        sets: analyze_sets_inner(program, converter, factory, old_axiomatization, true, true)?,
+        multisets: analyze_multisets_inner(program, converter, factory, old_axiomatization, true)?,
+        maps: analyze_maps_inner(program, converter, factory, old_axiomatization, true)?,
+    })
+}
+
+/// Build actual multiset axioms for direct ground multiset instances. Programs
+/// with user-defined generic domains are rejected until the full ground-instance
+/// fixed point is available. The source is parsed only when an instance exists.
+pub fn analyze_multisets(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+    old_axiomatization: bool,
+) -> Result<NativeMultisetPreamble, NativePreambleError<std::convert::Infallible>> {
+    analyze_multisets_inner(program, converter, factory, old_axiomatization, false)
+}
+fn analyze_multisets_inner(
+    program: &Program,
+    converter: &DefaultSymbolConverter,
+    factory: &TermFactory,
+    old_axiomatization: bool,
+    mixed: bool,
+) -> Result<NativeMultisetPreamble, NativePreambleError<std::convert::Infallible>> {
+    use crate::state::symbol_converter::BuiltinDomainSort;
+    use crate::supporters::{
+        builtin_domains_contributor::BuiltinDomainsContributor,
+        default_multisets_contributor as multisets,
+    };
+    use ferrum_silver::ast::{
+        program::{AnyLocalVarDecl, DomainAxiomKind, LocalVarDecl},
+        utility::domain_instances::down_closure_ground,
+    };
+    if program
+        .domains
+        .iter()
+        .any(|domain| !domain.type_vars.is_empty())
+    {
+        return Err(NativePreambleError::Unsupported(
+            "multiset ground instances with generic user domains",
+        ));
+    }
+    let ground = collect_ground_types(&Node::Program(program.clone()), program)
+        .map_err(NativePreambleError::GroundTypes)?;
+    fn supported_element(typ: &Type) -> bool {
+        match typ {
+            Type::Int | Type::Bool | Type::Ref | Type::Perm => true,
+            Type::Multiset(inner) => supported_element(inner),
+            _ => false,
+        }
+    }
+    let mut instances = std::collections::HashSet::new();
+    for root in &ground {
+        for typ in down_closure_ground(root).map_err(NativePreambleError::GroundTypes)? {
+            if let Type::Multiset(element) = typ {
+                if !(supported_element(&element) || mixed && mixed_collection_type(&element)) {
+                    return Err(NativePreambleError::Unsupported(
+                        "multiset element requires another contributor",
+                    ));
+                }
+                instances.insert((*element).clone());
+            }
+        }
+    }
+    let mut contributor = BuiltinDomainsContributor::default();
+    if instances.is_empty() {
+        return Ok(NativeMultisetPreamble { contributor });
+    }
+    let path = multisets::source_resource(old_axiomatization);
+    let source = crate::resources::bundled::get(path)
+        .ok_or(NativePreambleError::Unsupported("missing multiset source"))?;
+    let parsed = ferrum_silver::parser::fast_parser::parse_program(source, path)
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    ferrum_silver::parser::macro_expander::expand_global_expression_macros(&parsed)
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    ferrum_silver::parser::parse_ast::init_properties(parsed.node())
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    if !ferrum_silver::parser::resolver::NameAnalyser::default()
+        .run(parsed.node())
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?
+    {
+        return Err(NativePreambleError::Unsupported(
+            "multiset source name resolution",
+        ));
+    }
+    ferrum_silver::parser::resolver::check_program_core(&parsed, &mut |_, _| {})
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    let builtin_program = ferrum_silver::parser::translator::translate_program_core(&parsed)
+        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+    let source_domain = builtin_program
+        .find_domain_optionally(multisets::SOURCE_DOMAIN_NAME)
+        .ok_or(NativePreambleError::Unsupported("multiset source domain"))?;
+    if source_domain.type_vars.len() != 1 {
+        return Err(NativePreambleError::Unsupported(
+            "multiset source domain arity",
+        ));
+    }
+    let builtin_converter = converter
+        .clone()
+        .with_builtin_domain(multisets::SOURCE_DOMAIN_NAME, BuiltinDomainSort::Multiset);
+    let mut instances = instances.into_iter().collect::<Vec<_>>();
+    fn nesting(typ: &Type) -> usize {
+        match typ {
+            Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => 1 + nesting(t),
+            _ => 0,
+        }
+    }
+    instances.sort_by_key(nesting);
+    for element in instances {
+        let substitution = [(source_domain.type_vars[0].clone(), element.clone())]
+            .into_iter()
+            .collect();
+        let instantiated = source_domain.clone();
+        let element_sort = builtin_converter
+            .to_sort(&element)
+            .map_err(NativePreambleError::Symbol)?;
+        contributor.sorts = contributor
+            .sorts
+            .incl(crate::state::terms::Sort::Multiset(Box::new(
+                element_sort.clone(),
+            )));
+        for function in &instantiated.functions {
+            if function.interpretation.is_some() {
+                continue;
+            }
+            let function = function.copy_with(|data| {
+                data.typ = data.typ.substitute(&substitution);
+                data.formal_args = data
+                    .formal_args
+                    .iter()
+                    .map(|arg| match arg {
+                        AnyLocalVarDecl::Named(v) => AnyLocalVarDecl::Named(LocalVarDecl::new(
+                            v.name.clone(),
+                            v.typ.substitute(&substitution),
+                            v.meta.clone(),
+                        )),
+                        AnyLocalVarDecl::Unnamed(v) => AnyLocalVarDecl::Unnamed(
+                            v.copy_with(|d| d.typ = d.typ.substitute(&substitution)),
+                        ),
+                    })
+                    .collect();
+            });
+            let applicable = builtin_converter
+                .domain_function(&function, program)
+                .map_err(NativePreambleError::Symbol)?;
+            contributor.functions = contributor.functions.incl(applicable);
+        }
+        let mut translator = crate::supporters::expression_translator::ExpressionTranslator::new(
+            factory,
+            &builtin_converter,
+            |s: &crate::state::terms::Sort| Ok::<_, std::convert::Infallible>(s.to_string()),
+        );
+        translator.builtin = true;
+        translator.type_substitution = Some(&substitution);
+        for axiom in &instantiated.axioms {
+            let mut term = translator
+                .translate(axiom.exp())
+                .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+            if let crate::state::terms::TermKind::Quantification {
+                quantifier,
+                vars,
+                body,
+                triggers,
+                name,
+                weight,
+                ..
+            } = term.kind()
+            {
+                if name.is_empty() {
+                    let name = match axiom.kind() {
+                        DomainAxiomKind::Named { name, .. } => {
+                            format!("$Multiset[{element_sort}]_prog.{name}")
+                        }
+                        _ => String::new(),
+                    };
+                    term = factory
+                        .quantification(
+                            *quantifier,
+                            vars.clone(),
+                            body.clone(),
+                            triggers.clone(),
+                            name,
+                            false,
+                            *weight,
+                        )
+                        .map_err(|e| NativePreambleError::Translation(format!("{e:?}")))?;
+                }
+            }
+            contributor.axioms = contributor.axioms.incl(term);
+        }
+    }
+    Ok(NativeMultisetPreamble { contributor })
 }
 
 #[cfg(test)]
@@ -1596,6 +1995,194 @@ mod map_tests {
         let mut converter =
             crate::decider::term_to_smt_lib2_converter::TermToSmtLib2Converter::new(factory);
         for axiom in &data.contributor.axioms {
+            converter.convert_term(axiom).unwrap();
+        }
+    }
+}
+
+#[cfg(test)]
+mod multiset_tests {
+    use super::*;
+    use crate::state::terms::{Sort, TermOptions};
+    use ferrum_silver::ast::{
+        ast::Metadata,
+        program::{LocalVarDecl, Method, MethodData},
+    };
+    use std::sync::Arc;
+    #[test]
+    fn bundled_multiset_axioms_expand_macros_and_instantiate() {
+        let meta = Metadata::default();
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![LocalVarDecl::new(
+                "s".into(),
+                Type::Multiset(Arc::new(Type::Int)),
+                meta.clone(),
+            )],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta);
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        for old_axiomatization in [false, true] {
+            let data =
+                analyze_multisets(&program, &converter, &factory, old_axiomatization).unwrap();
+            assert!(
+                data.contributor
+                    .sorts
+                    .contains(&Sort::Multiset(Box::new(Sort::Int)))
+            );
+            assert!(!data.contributor.functions.is_empty());
+            assert!(!data.contributor.axioms.is_empty());
+            let mut converter =
+                crate::decider::term_to_smt_lib2_converter::TermToSmtLib2Converter::new(
+                    factory.clone(),
+                );
+            for axiom in &data.contributor.axioms {
+                converter.convert_term(axiom).unwrap();
+            }
+        }
+    }
+    #[test]
+    fn nested_multiset_sorts_are_inner_first() {
+        let meta = Metadata::default();
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![LocalVarDecl::new(
+                "s".into(),
+                Type::Multiset(Arc::new(Type::Multiset(Arc::new(Type::Int)))),
+                meta.clone(),
+            )],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta);
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        let data = analyze_multisets(&program, &converter, &factory, false).unwrap();
+        assert_eq!(
+            data.sorts().cloned().collect::<Vec<_>>(),
+            vec![
+                Sort::Multiset(Box::new(Sort::Int)),
+                Sort::Multiset(Box::new(Sort::Multiset(Box::new(Sort::Int)))),
+            ]
+        );
+        assert!(!data.contributor.functions.is_empty());
+        assert!(!data.contributor.axioms.is_empty());
+        let mut converter =
+            crate::decider::term_to_smt_lib2_converter::TermToSmtLib2Converter::new(factory);
+        for axiom in &data.contributor.axioms {
+            converter.convert_term(axiom).unwrap();
+        }
+    }
+    #[test]
+    fn mixed_sequence_set_axioms_include_both_sorts() {
+        let meta = Metadata::default();
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![LocalVarDecl::new(
+                "s".into(),
+                Type::Seq(Arc::new(Type::Set(Arc::new(Type::Int)))),
+                meta.clone(),
+            )],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta);
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        let data = analyze_collections(&program, &converter, &factory, false).unwrap();
+        assert_eq!(
+            data.sorts().cloned().collect::<Vec<_>>(),
+            vec![
+                Sort::Set(Box::new(Sort::Int)),
+                Sort::Seq(Box::new(Sort::Set(Box::new(Sort::Int))))
+            ]
+        );
+        assert!(
+            data.sorts()
+                .any(|s| *s == Sort::Seq(Box::new(Sort::Set(Box::new(Sort::Int)))))
+        );
+        let mut converter =
+            crate::decider::term_to_smt_lib2_converter::TermToSmtLib2Converter::new(factory);
+        for axiom in data
+            .sequences
+            .contributor
+            .axioms
+            .iter()
+            .chain(data.sets.contributor.axioms.iter())
+        {
+            converter.convert_term(axiom).unwrap();
+        }
+    }
+    #[test]
+    fn mixed_map_collection_arguments_include_induced_set_sorts() {
+        let meta = Metadata::default();
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![LocalVarDecl::new(
+                "s".into(),
+                Type::map(
+                    Type::Seq(Arc::new(Type::Int)),
+                    Type::Multiset(Arc::new(Type::Bool)),
+                ),
+                meta.clone(),
+            )],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: meta.clone(),
+        });
+        let program = Program::new(vec![], vec![], vec![], vec![], vec![method], vec![], meta);
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let converter = DefaultSymbolConverter::new(factory.clone(), false);
+        let data = analyze_collections(&program, &converter, &factory, false).unwrap();
+        assert!(
+            data.sorts()
+                .any(|s| *s == Sort::Set(Box::new(Sort::Seq(Box::new(Sort::Int)))))
+        );
+        assert!(
+            data.sorts()
+                .any(|s| *s == Sort::Set(Box::new(Sort::Multiset(Box::new(Sort::Bool)))))
+        );
+        let mut converter =
+            crate::decider::term_to_smt_lib2_converter::TermToSmtLib2Converter::new(factory);
+        for axiom in data
+            .sequences
+            .contributor
+            .axioms
+            .iter()
+            .chain(data.sets.contributor.axioms.iter())
+            .chain(data.multisets.contributor.axioms.iter())
+            .chain(data.maps.contributor.axioms.iter())
+        {
             converter.convert_term(axiom).unwrap();
         }
     }

@@ -127,7 +127,7 @@ impl NativeOptions {
                 "requested timeout, logging, solver, worker, cache or encoding policy is not connected",
             ));
         }
-        if config.more_joins != JoinMode::Off {
+        if config.more_joins == JoinMode::All {
             return Err(NativeError::Unsupported("CFG join mode"));
         }
         if config.include_methods != ".*" || !config.exclude_methods.is_empty() {
@@ -1712,9 +1712,16 @@ where
         >,
     ) -> Result<VerificationResult<VerificationError>, ProductionError<Self::Error>> {
         if join {
-            return Err(ProductionError::Context(NativeError::Unsupported(
-                "joined branch production",
-            )));
+            return self.joined_production(
+                state,
+                condition,
+                original,
+                rewritten,
+                consolidate_on_merge,
+                when_true,
+                when_false,
+                continuation,
+            );
         }
         let saved_error = std::cell::RefCell::new(None);
         let continuation = std::cell::RefCell::new(continuation);
@@ -2236,9 +2243,16 @@ where
         >,
     ) -> Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>> {
         if join {
-            return Err(ConsumptionError::Context(NativeError::Unsupported(
-                "joined branch consumption",
-            )));
+            return self.joined_consumption(
+                state,
+                condition,
+                original,
+                rewritten,
+                return_snapshot,
+                when_true,
+                when_false,
+                continuation,
+            );
         }
         let saved_error = std::cell::RefCell::new(None);
         let continuation = std::cell::RefCell::new(continuation);
@@ -4977,33 +4991,15 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         }
         native_domain_preamble(program, &self.base.symbol_converter, &self.factory)
             .map_err(NativeError::Preamble)?;
-        let (has_sequence, has_set, has_map) =
+        let (has_sequence, has_set, has_map, has_multiset) =
             collection_program(program).map_err(NativeError::Preamble)?;
-        if (has_sequence || has_set || has_map) && !program.domains.is_empty() {
+        if (has_sequence || has_set || has_map || has_multiset) && !program.domains.is_empty() {
             return Err(NativeError::Unsupported(
                 "collections combined with user domains",
             ));
         }
-        if has_sequence {
-            crate::verifier::native_preamble::analyze_sequences(
-                program,
-                &self.base.symbol_converter,
-                &self.factory,
-                self.factory.options().use_old_axiomatization,
-            )
-            .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        }
-        if has_set || has_map {
-            crate::verifier::native_preamble::analyze_sets_with_maps(
-                program,
-                &self.base.symbol_converter,
-                &self.factory,
-                self.factory.options().use_old_axiomatization,
-            )
-            .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        }
-        if has_map {
-            crate::verifier::native_preamble::analyze_maps(
+        if has_sequence || has_set || has_map || has_multiset {
+            crate::verifier::native_preamble::analyze_collections(
                 program,
                 &self.base.symbol_converter,
                 &self.factory,
@@ -5024,7 +5020,7 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
             if matches!(node, Node::DomainAxiom(_)) {
                 return Ok(());
             }
-            if matches!(node, Node::Type(typ) if matches!(typ,Type::Multiset(_) | Type::Backend(_) | Type::Extension(_)))
+            if matches!(node, Node::Type(typ) if matches!(typ,Type::Backend(_) | Type::Extension(_)))
             {
                 return Err("collection or domain preamble analysis");
             }
@@ -5079,37 +5075,11 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         &mut self,
         program: &ferrum_silver::ast::program::Program,
     ) -> Result<NativeAnalysis, Self::Error> {
-        let (has_sequence, has_set, has_map) =
+        let (has_sequence, has_set, has_map, has_multiset) =
             collection_program(program).map_err(NativeError::Preamble)?;
-        let sequence_preamble = if has_sequence {
+        let collections = if has_sequence || has_set || has_map || has_multiset {
             Some(
-                crate::verifier::native_preamble::analyze_sequences(
-                    program,
-                    &self.base.symbol_converter,
-                    &self.factory,
-                    self.factory.options().use_old_axiomatization,
-                )
-                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?,
-            )
-        } else {
-            None
-        };
-        let set_preamble = if has_set || has_map {
-            Some(
-                crate::verifier::native_preamble::analyze_sets_with_maps(
-                    program,
-                    &self.base.symbol_converter,
-                    &self.factory,
-                    self.factory.options().use_old_axiomatization,
-                )
-                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?,
-            )
-        } else {
-            None
-        };
-        let map_preamble = if has_map {
-            Some(
-                crate::verifier::native_preamble::analyze_maps(
+                crate::verifier::native_preamble::analyze_collections(
                     program,
                     &self.base.symbol_converter,
                     &self.factory,
@@ -5126,17 +5096,7 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         domain_preamble
             .declare_sorts(&self.factory, &mut self.base.decider.prover)
             .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        if let Some(preamble) = &sequence_preamble {
-            preamble
-                .declare_sorts(&self.factory, &mut self.base.decider.prover)
-                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        }
-        if let Some(preamble) = &set_preamble {
-            preamble
-                .declare_sorts(&self.factory, &mut self.base.decider.prover)
-                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        }
-        if let Some(preamble) = &map_preamble {
+        if let Some(preamble) = &collections {
             preamble
                 .declare_sorts(&self.factory, &mut self.base.decider.prover)
                 .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
@@ -5144,17 +5104,7 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         domain_preamble
             .declare_symbols(&self.factory, &mut self.base.decider.prover)
             .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        if let Some(preamble) = &sequence_preamble {
-            preamble
-                .declare_symbols(&self.factory, &mut self.base.decider.prover)
-                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        }
-        if let Some(preamble) = &set_preamble {
-            preamble
-                .declare_symbols(&self.factory, &mut self.base.decider.prover)
-                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        }
-        if let Some(preamble) = &map_preamble {
+        if let Some(preamble) = &collections {
             preamble
                 .declare_symbols(&self.factory, &mut self.base.decider.prover)
                 .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
@@ -5162,17 +5112,7 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         domain_preamble
             .emit_axioms(&self.factory, &mut self.base.decider.prover)
             .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        if let Some(preamble) = &sequence_preamble {
-            preamble
-                .emit_axioms(&mut self.base.decider.prover)
-                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        }
-        if let Some(preamble) = &set_preamble {
-            preamble
-                .emit_axioms(&mut self.base.decider.prover)
-                .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-        }
-        if let Some(preamble) = &map_preamble {
+        if let Some(preamble) = &collections {
             preamble
                 .emit_axioms(&mut self.base.decider.prover)
                 .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
@@ -5188,13 +5128,7 @@ impl crate::verifier::default_main_verifier::MainVerificationServices for Native
         let reader = crate::decider::smt_lib2_preamble_reader::SmtLib2PreambleReader::default();
         let mut wrapper_sorts = vec![Sort::Int, Sort::Bool, Sort::Ref, Sort::Perm];
         wrapper_sorts.extend(domain_preamble.sorts().cloned());
-        if let Some(preamble) = &sequence_preamble {
-            wrapper_sorts.extend(preamble.sorts().cloned());
-        }
-        if let Some(preamble) = &set_preamble {
-            wrapper_sorts.extend(preamble.sorts().cloned());
-        }
-        if let Some(preamble) = &map_preamble {
+        if let Some(preamble) = &collections {
             wrapper_sorts.extend(preamble.sorts().cloned());
         }
         for sort in wrapper_sorts {
@@ -6355,19 +6289,26 @@ fn wildcard_permission_locations<E>(
 /// Restrict collection element sorts until nested declaration order is wired.
 fn collection_program(
     program: &ferrum_silver::ast::program::Program,
-) -> Result<(bool, bool, bool), String> {
+) -> Result<(bool, bool, bool, bool), String> {
     use ferrum_silver::ast::{
         r#type::Type,
         utility::{domain_instances::collect_ground_types, nodes::Node},
     };
     let ground = collect_ground_types(&Node::Program(program.clone()), program)
         .map_err(|e| format!("{e:?}"))?;
-    let (mut sequences, mut sets, mut maps) = (false, false, false);
-    let primitive = |t: &Type| matches!(t, Type::Int | Type::Bool | Type::Ref | Type::Perm);
+    let (mut sequences, mut sets, mut maps, mut multisets) = (false, false, false, false);
+    fn nested_element(t: &Type) -> bool {
+        match t {
+            Type::Seq(inner) | Type::Set(inner) | Type::Multiset(inner) => nested_element(inner),
+            Type::Map(pair) => nested_element(&pair.0) && nested_element(&pair.1),
+            Type::Int | Type::Bool | Type::Ref | Type::Perm => true,
+            _ => false,
+        }
+    }
     for typ in ground {
         match typ {
             Type::Seq(element) => {
-                if !primitive(&element) {
+                if !nested_element(&element) {
                     return Err(
                         "nested or nonprimitive sequence element sort is not connected".into(),
                     );
@@ -6375,13 +6316,21 @@ fn collection_program(
                 sequences = true;
             }
             Type::Set(element) => {
-                if !primitive(&element) {
+                if !nested_element(&element) {
                     return Err("nested or nonprimitive set element sort is not connected".into());
                 }
                 sets = true;
             }
+            Type::Multiset(element) => {
+                if !nested_element(&element) {
+                    return Err(
+                        "nested or nonprimitive multiset element sort is not connected".into(),
+                    );
+                }
+                multisets = true;
+            }
             Type::Map(pair) => {
-                if !primitive(&pair.0) || !primitive(&pair.1) {
+                if !nested_element(&pair.0) || !nested_element(&pair.1) {
                     return Err("nonprimitive map key or value sort is not connected".into());
                 }
                 maps = true;
@@ -6389,7 +6338,7 @@ fn collection_program(
             _ => {}
         }
     }
-    Ok((sequences, sets, maps))
+    Ok((sequences, sets, maps, multisets))
 }
 
 fn native_domain_preamble(
@@ -6404,7 +6353,398 @@ fn native_domain_preamble(
     if has_generic_axioms {
         crate::verifier::native_preamble::analyze_generic_axioms(program, converter, factory)
     } else {
-        crate::verifier::native_preamble::analyze_with_maps(program, converter, factory)
+        crate::verifier::native_preamble::analyze_with_multisets(program, converter, factory)
     }
     .map_err(|e| format!("{e:?}"))
+}
+
+impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    /// Source join(resetState=false): collect branch-local outcomes, merge and replay paths.
+    fn join_impure_branches<T: Clone>(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        condition: Term,
+        original: &Exp,
+        rewritten: Option<&Exp>,
+        yes: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            &mut dyn FnMut(
+                &mut Self,
+                State<PD, FD, JoinMode>,
+                T,
+            )
+                -> Result<VerificationResult<VerificationError>, NativeError<S::Error>>,
+        )
+            -> Result<VerificationResult<VerificationError>, NativeError<S::Error>>,
+        no: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            &mut dyn FnMut(
+                &mut Self,
+                State<PD, FD, JoinMode>,
+                T,
+            )
+                -> Result<VerificationResult<VerificationError>, NativeError<S::Error>>,
+        )
+            -> Result<VerificationResult<VerificationError>, NativeError<S::Error>>,
+        merge: &mut dyn FnMut(
+            &mut Self,
+            &[crate::rules::joiner::JoinDataEntry<PD, FD, JoinMode, T>],
+        )
+            -> Result<(State<PD, FD, JoinMode>, T), NativeError<S::Error>>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            T,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            NativeError<S::Error>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
+        use crate::rules::joiner::{self, JoinDataEntry};
+        self.base
+            .decider
+            .push_scope()
+            .map_err(NativeError::Decider)?;
+        let mark = self.base.decider.pcs.mark();
+        let mut state = state;
+        state.under_join = true;
+        let entries = std::cell::RefCell::new(Vec::<JoinDataEntry<PD, FD, JoinMode, T>>::new());
+        let saved_error = std::cell::RefCell::new(None);
+        let block = crate::rules::executor::CfgContext::branch_edge(
+            self,
+            state,
+            condition,
+            original,
+            rewritten,
+            &mut |ctx, state| {
+                let result = yes(ctx, state, &mut |ctx, state, data| {
+                    let paths = ctx
+                        .base
+                        .decider
+                        .pcs
+                        .after(mark)
+                        .map_err(|e| NativeError::Decider(DeciderError::Path(e)))?;
+                    entries.borrow_mut().push(JoinDataEntry {
+                        state,
+                        data,
+                        path_conditions: paths,
+                    });
+                    Ok(VerificationResult::success())
+                });
+                match result {
+                    Ok(v) => Ok(v),
+                    Err(e) => {
+                        *saved_error.borrow_mut() = Some(e);
+                        Err(ExecutionError::Context(NativeError::ContinuationAbort))
+                    }
+                }
+            },
+            &mut |ctx, state| {
+                let result = no(ctx, state, &mut |ctx, state, data| {
+                    let paths = ctx
+                        .base
+                        .decider
+                        .pcs
+                        .after(mark)
+                        .map_err(|e| NativeError::Decider(DeciderError::Path(e)))?;
+                    entries.borrow_mut().push(JoinDataEntry {
+                        state,
+                        data,
+                        path_conditions: paths,
+                    });
+                    Ok(VerificationResult::success())
+                });
+                match result {
+                    Ok(v) => Ok(v),
+                    Err(e) => {
+                        *saved_error.borrow_mut() = Some(e);
+                        Err(ExecutionError::Context(NativeError::ContinuationAbort))
+                    }
+                }
+            },
+        );
+        let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
+        let block = if let Some(e) = saved_error.into_inner() {
+            Err(e)
+        } else {
+            block.map_err(|e| NativeError::Execution(format!("{e:?}")))
+        };
+        let block = match (block, cleanup) {
+            (Ok(v), Ok(())) => v,
+            (Err(e), Ok(())) => return Err(e),
+            (Ok(_), Err(e)) => return Err(e),
+            (Err(e), Err(cleanup)) => {
+                return Err(NativeError::Cleanup(format!("{e:?}; cleanup: {cleanup:?}")));
+            }
+        };
+        let block = VerificationResult::success().and_then(|| block);
+        if !block.continue_verification() {
+            return Ok(block);
+        }
+        let entries = entries.into_inner();
+        if entries.is_empty() {
+            return Ok(block.combine(VerificationResult::success, false));
+        }
+        let (state, data) = merge(self, &entries)?;
+        let (assumptions, feasible) = joiner::joined_conditions(&entries, &self.factory);
+        for group in assumptions {
+            for term in group {
+                self.assume_term(&term)?;
+            }
+        }
+        self.assume_term(&feasible)?;
+        let next = continuation(self, state, data)?;
+        Ok(block.combine(|| next, false))
+    }
+}
+impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn joined_production(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        condition: Term,
+        original: &Exp,
+        rewritten: Option<&Exp>,
+        consolidate: bool,
+        yes: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            &mut dyn FnMut(
+                &mut Self,
+                State<PD, FD, JoinMode>,
+            ) -> Result<
+                VerificationResult<VerificationError>,
+                ProductionError<NativeError<S::Error>>,
+            >,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ProductionError<NativeError<S::Error>>,
+        >,
+        no: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            &mut dyn FnMut(
+                &mut Self,
+                State<PD, FD, JoinMode>,
+            ) -> Result<
+                VerificationResult<VerificationError>,
+                ProductionError<NativeError<S::Error>>,
+            >,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ProductionError<NativeError<S::Error>>,
+        >,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ProductionError<NativeError<S::Error>>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, ProductionError<NativeError<S::Error>>> {
+        let error = std::cell::RefCell::new(None);
+        let result = self.join_impure_branches(
+            state,
+            condition,
+            original,
+            rewritten,
+            &mut |ctx, state, done| match yes(ctx, state, &mut |ctx, state| {
+                done(ctx, state, ()).map_err(ProductionError::Context)
+            }) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    *error.borrow_mut() = Some(e);
+                    Err(NativeError::ContinuationAbort)
+                }
+            },
+            &mut |ctx, state, done| match no(ctx, state, &mut |ctx, state| {
+                done(ctx, state, ()).map_err(ProductionError::Context)
+            }) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    *error.borrow_mut() = Some(e);
+                    Err(NativeError::ContinuationAbort)
+                }
+            },
+            &mut |ctx, entries| {
+                let state = match entries {
+                    [entry] => entry.state.clone(),
+                    [first, second] => {
+                        let factory = ctx.factory.clone();
+                        let merged = first
+                            .state
+                            .merge_recorded(
+                                &first.path_conditions,
+                                &second.state,
+                                &second.path_conditions,
+                                &factory,
+                                false,
+                                &mut |w| ctx.warnings.push(w),
+                            )
+                            .map_err(NativeError::State)?;
+                        if consolidate {
+                            crate::rules::execution_flow_controller::RetryContext::consolidate(
+                                ctx, merged,
+                            )?
+                        } else {
+                            merged
+                        }
+                    }
+                    _ => {
+                        return Err(NativeError::Unsupported(
+                            "unexpected joined production branches",
+                        ));
+                    }
+                };
+                Ok((state, ()))
+            },
+            &mut |ctx, state, ()| match continuation(ctx, state) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    *error.borrow_mut() = Some(e);
+                    Err(NativeError::ContinuationAbort)
+                }
+            },
+        );
+        if let Some(e) = error.into_inner() {
+            return Err(e);
+        }
+        result.map_err(ProductionError::Context)
+    }
+    fn joined_consumption(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        condition: Term,
+        original: &Exp,
+        rewritten: Option<&Exp>,
+        return_snapshot: bool,
+        yes: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            &mut dyn FnMut(
+                &mut Self,
+                State<PD, FD, JoinMode>,
+                Arc<ListBackedHeap>,
+                Option<Term>,
+            ) -> Result<
+                VerificationResult<VerificationError>,
+                ConsumptionError<NativeError<S::Error>>,
+            >,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ConsumptionError<NativeError<S::Error>>,
+        >,
+        no: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            &mut dyn FnMut(
+                &mut Self,
+                State<PD, FD, JoinMode>,
+                Arc<ListBackedHeap>,
+                Option<Term>,
+            ) -> Result<
+                VerificationResult<VerificationError>,
+                ConsumptionError<NativeError<S::Error>>,
+            >,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ConsumptionError<NativeError<S::Error>>,
+        >,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Arc<ListBackedHeap>,
+            Option<Term>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ConsumptionError<NativeError<S::Error>>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, ConsumptionError<NativeError<S::Error>>>
+    {
+        let error = std::cell::RefCell::new(None);
+        let result = self.join_impure_branches(
+            state,
+            condition,
+            original,
+            rewritten,
+            &mut |ctx, state, done| match yes(ctx, state, &mut |ctx, state, heap, snapshot| {
+                done(ctx, state, (heap, snapshot)).map_err(ConsumptionError::Context)
+            }) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    *error.borrow_mut() = Some(e);
+                    Err(NativeError::ContinuationAbort)
+                }
+            },
+            &mut |ctx, state, done| match no(ctx, state, &mut |ctx, state, heap, snapshot| {
+                done(ctx, state, (heap, snapshot)).map_err(ConsumptionError::Context)
+            }) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    *error.borrow_mut() = Some(e);
+                    Err(NativeError::ContinuationAbort)
+                }
+            },
+            &mut |ctx, entries| match entries {
+                [entry] => Ok((entry.state.clone(), entry.data.clone())),
+                [first, second] => {
+                    let factory = ctx.factory.clone();
+                    let c1 = factory.and(first.path_conditions.branch_conditions());
+                    let c2 = factory.and(second.path_conditions.branch_conditions());
+                    let heap = crate::state::state::merge_heap(
+                        first.data.0.as_ref(),
+                        &c1,
+                        &None,
+                        second.data.0.as_ref(),
+                        &c2,
+                        &None,
+                        &factory,
+                    )
+                    .map_err(NativeError::State)?;
+                    let snapshot = match (&first.data.1, &second.data.1, return_snapshot) {
+                        (Some(a), Some(b), true) => Some(factory.ite(c1, a.clone(), b.clone())),
+                        (None, None, false) => None,
+                        _ => {
+                            return Err(NativeError::Unsupported(
+                                "inconsistent joined consumption snapshots",
+                            ));
+                        }
+                    };
+                    let state = first
+                        .state
+                        .merge_recorded(
+                            &first.path_conditions,
+                            &second.state,
+                            &second.path_conditions,
+                            &factory,
+                            false,
+                            &mut |w| ctx.warnings.push(w),
+                        )
+                        .map_err(NativeError::State)?;
+                    Ok((state, (Arc::new(heap), snapshot)))
+                }
+                _ => Err(NativeError::Unsupported(
+                    "unexpected joined consumption branches",
+                )),
+            },
+            &mut |ctx, state, (heap, snapshot)| match continuation(ctx, state, heap, snapshot) {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    *error.borrow_mut() = Some(e);
+                    Err(NativeError::ContinuationAbort)
+                }
+            },
+        );
+        if let Some(e) = error.into_inner() {
+            return Err(e);
+        }
+        result.map_err(ConsumptionError::Context)
+    }
 }

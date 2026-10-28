@@ -12,7 +12,9 @@ checks cover valid and invalid ordinary methods, contracts, branches, allocation
 field permissions and method calls. Unsupported features return execution errors.
 The default runtime currently uses one worker. Loops, fold/unfold, scoped
 unfolding, heap-independent quantifiers, selected generic domain axioms and
-primitive Seq/Set/Map instances now reach Z3. Heap-dependent functions, general
+nested Seq/Set/Multiset/Map instances with primitive leaves now reach Z3.
+Impure branch joins preserve conditional ownership and consumed snapshots in
+focused positive and negative checks. Heap-dependent functions, general
 domain instances, quantified resources, wands, complete exhale and advanced
 reporting remain incomplete. No comparative speed improvement has been established.
 

@@ -34,7 +34,8 @@ The native CLI now connects the frontend and default plugins to source-shaped
 Silicon execution rules and a native Z3 process. Ordinary methods, contracts,
 branches, loops, predicate permissions, unfolding and method calls have native
 smoke coverage. Heap-independent quantifiers, restricted generic domain axioms
-and primitive Seq/Set/Map instances now reach the solver. Heap-dependent functions,
+and nested Seq/Set/Multiset/Map instances with primitive leaves now reach the solver.
+The native context also connects impure branch joins. Heap-dependent functions,
 quantified resources, wands, general domain instances and advanced execution or
 reporting profiles remain incomplete; unsupported paths return execution errors.
 Full compatibility and comparative performance remain unmeasured.
