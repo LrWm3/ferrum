@@ -258,49 +258,49 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/components/Components.scala"
 destination = "crates/ferrum-silver/src/components/components.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/Frontend.scala"
 destination = "crates/ferrum-silver/src/frontend/frontend.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ReformatterAstProvider.scala"
 destination = "crates/ferrum-silver/src/frontend/reformatter_ast_provider.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/SilFrontEndConfig.scala"
 destination = "crates/ferrum-silver/src/frontend/sil_front_end_config.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/SilFrontend.scala"
 destination = "crates/ferrum-silver/src/frontend/sil_frontend.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ViperAstProvider.scala"
 destination = "crates/ferrum-silver/src/frontend/viper_ast_provider.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ViperFrontendAPI.scala"
 destination = "crates/ferrum-silver/src/frontend/viper_frontend_api.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/frontend/ViperPAstProvider.scala"
 destination = "crates/ferrum-silver/src/frontend/viper_p_ast_provider.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
@@ -312,49 +312,49 @@ status = "mapped"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/FastMessage.scala"
 destination = "crates/ferrum-silver/src/parser/fast_message.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/FastParser.scala"
 destination = "crates/ferrum-silver/src/parser/fast_parser.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/MacroExpander.scala"
 destination = "crates/ferrum-silver/src/parser/macro_expander.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ParseAst.scala"
 destination = "crates/ferrum-silver/src/parser/parse_ast.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ParseAstKeyword.scala"
 destination = "crates/ferrum-silver/src/parser/parse_ast_keyword.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ReformatPrettyPrinter.scala"
 destination = "crates/ferrum-silver/src/parser/reformat_pretty_printer.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/Resolver.scala"
 destination = "crates/ferrum-silver/src/parser/resolver.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/Translator.scala"
 destination = "crates/ferrum-silver/src/parser/translator.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
@@ -642,49 +642,49 @@ status = "mapped"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/Caching.scala"
 destination = "crates/ferrum-silver/src/utility/caching.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/Common.scala"
 destination = "crates/ferrum-silver/src/utility/common.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/NameGenerator.scala"
 destination = "crates/ferrum-silver/src/utility/name_generator.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/Paths.scala"
 destination = "crates/ferrum-silver/src/utility/paths.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/ProgramSubmitter.scala"
 destination = "crates/ferrum-silver/src/utility/program_submitter.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/Sanitizer.scala"
 destination = "crates/ferrum-silver/src/utility/sanitizer.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/SilNameGenerator.scala"
 destination = "crates/ferrum-silver/src/utility/sil_name_generator.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/utility/TimingUtils.scala"
 destination = "crates/ferrum-silver/src/utility/timing_utils.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
