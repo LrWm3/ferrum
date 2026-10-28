@@ -1564,7 +1564,8 @@ remaining = ["Greedy chunk matching, permission consumption, retry/lookup and pr
 repository = "silicon"
 upstream = "src/main/scala/rules/Consumer.scala"
 destination = "crates/ferrum-silicon/src/rules/consumer.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Exhale projection, branch/let handling, pure and quantified consumption dispatch exist; concrete evaluation/heap/verifier services remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1576,7 +1577,8 @@ status = "ported"
 repository = "silicon"
 upstream = "src/main/scala/rules/Evaluator.scala"
 destination = "crates/ferrum-silicon/src/rules/evaluator.rs"
-status = "described"
+status = "skeleton"
+remaining = ["CPS expression, quantifier and trigger evaluation algorithms exist; complete extension handling and concrete verifier services remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1589,13 +1591,14 @@ remaining = ["Retry and solver-scope orchestration exist; concrete consolidation
 repository = "silicon"
 upstream = "src/main/scala/rules/Executor.scala"
 destination = "crates/ferrum-silicon/src/rules/executor.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Statement, call, CFG and loop-phase algorithms exist; wand/extension dispatch and concrete verifier contexts remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/FunctionSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/function_supporter.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
@@ -1662,7 +1665,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/rules/Producer.scala"
 destination = "crates/ferrum-silicon/src/rules/producer.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Conjunct snapshot splitting, branch/let handling, pure and quantified production dispatch exist; concrete evaluation/heap/verifier services remain."]
 
 [[modules]]
 repository = "silicon"
