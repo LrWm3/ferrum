@@ -8244,6 +8244,34 @@ where
             .reset_options()
             .map_err(NativeError::Decider)
     }
+    fn open_post_wellformedness_scope(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        posts: &[Exp],
+    ) -> Result<Option<i32>, Self::Error> {
+        let Some(log) = &self.member_log else {
+            return Ok(None);
+        };
+        if log.when_enabled(|| ()).is_none() {
+            return Ok(None);
+        }
+        let factory = self
+            .record_factory
+            .as_ref()
+            .ok_or(NativeError::Unsupported(
+                "active symbolic logger requires record factory",
+            ))?;
+        let record = factory.wellformedness(posts, state, &self.base.decider.pcs);
+        let renderer = crate::logger::state_reporting::NativeStateRecordRenderer {
+            factory: &self.factory,
+        };
+        log.open_scope(record, &renderer)
+            .map(Some)
+            .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))
+    }
+    fn close_post_wellformedness_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
+        self.close_logged_scope(id)
+    }
     fn open_method_log(&mut self, method: &Method) -> Result<(), Self::Error> {
         self.open_member_log(ferrum_silver::ast::program::Member::Method(method.clone()))
     }

@@ -56,6 +56,16 @@ pub trait MethodVerificationServices<P, D, J, V>: Sized {
     ) -> Result<(), Self::Error>;
     fn reset_method_prover_options(&mut self) -> Result<(), Self::Error>;
     fn open_method_log(&mut self, method: &Method) -> Result<(), Self::Error>;
+    fn open_post_wellformedness_scope(
+        &mut self,
+        _state: &State<P, D, J>,
+        _posts: &[ferrum_silver::ast::expression::Exp],
+    ) -> Result<Option<i32>, Self::Error> {
+        Ok(None)
+    }
+    fn close_post_wellformedness_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
+        Ok(())
+    }
     fn close_method_log(&mut self) -> Result<(), Self::Error>;
     fn warn_ignored_loop_labels(
         &mut self,
@@ -220,6 +230,7 @@ pub fn verify_method<P, D, J: Clone, V, C: MethodVerificationServices<P, D, J, V
     state.old_heaps = Default::default();
     state.debug_old_heaps = Default::default();
     state.method_cfg = Some(cfg.clone());
+    let initial_method_state = state.clone();
     state = context
         .prepare_method_debug(state)
         .map_err(MethodVerificationError::Service)?;
@@ -241,7 +252,13 @@ pub fn verify_method<P, D, J: Clone, V, C: MethodVerificationServices<P, D, J, V
                 state.h = context
                     .empty_method_heap(&state)
                     .map_err(MethodVerificationError::Service)?;
-                context.produce_method_contract(state, &method.posts, method, &mut |_, _| {
+                let scope = context
+                    .open_post_wellformedness_scope(&initial_method_state, &method.posts)
+                    .map_err(MethodVerificationError::Service)?;
+                context.produce_method_contract(state, &method.posts, method, &mut |context, _| {
+                    context
+                        .close_post_wellformedness_scope(scope)
+                        .map_err(MethodVerificationError::Service)?;
                     Ok(VerificationResult::success())
                 })
             })?;

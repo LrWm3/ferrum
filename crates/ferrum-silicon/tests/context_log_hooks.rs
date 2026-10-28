@@ -213,6 +213,23 @@ fn context_scope_hooks_capture_full_state_and_reject_missing_factory() {
     assert_eq!(comment.comment.as_deref(), Some("Retry"));
     assert!(comment.state.as_ref().unwrap().under_join);
     worker.context.close_retry_scope(retry).unwrap();
+    use ferrum_silicon::supporters::method_supporter::MethodVerificationServices;
+    let wellformed = worker
+        .context
+        .open_post_wellformedness_scope(&state, &[expr.clone()])
+        .unwrap();
+    let records = log.records().unwrap();
+    let record = records
+        .iter()
+        .find(|r| r.id() == wellformed.unwrap())
+        .unwrap();
+    let record = record.as_any().downcast_ref::<ferrum_silicon::logger::records::data::wellformedness_check_record::WellformednessCheckRecord<NativeBranchState>>().unwrap();
+    assert!(record.state.as_ref().unwrap().under_join);
+    assert!(record.conditions[0].same_node(&expr));
+    worker
+        .context
+        .close_post_wellformedness_scope(wellformed)
+        .unwrap();
     let disabled = NativeSymbExLogger::of_config(
         &config,
         Arc::new(ferrum_silver::reporter::reporter::NoopReporter),

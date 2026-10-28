@@ -629,3 +629,8 @@ consistency phases; reformatting remains parse-only. Source plugin resolution
 failures emit exception events and stop before phases. Reporter failures retain
 the original plugin error. Native exception stack provenance and the generic
 missing-dependency catch remain incomplete; no stack trace is synthesized.
+
+Method postcondition well-formedness checks now retain their source logging
+record: the initialized method state before debug setup, the postcondition
+identities and current path conditions. The record opens after the empty
+post-check heap is selected and closes only in the production continuation.

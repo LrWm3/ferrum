@@ -98,6 +98,12 @@ pub trait NativeRecordFactory<P, D, J> {
         state: Option<&crate::state::state::State<P, D, J>>,
         paths: &crate::decider::path_conditions::LayeredPathConditionStack,
     ) -> std::sync::Arc<dyn DataRecord>;
+    fn wellformedness(
+        &self,
+        posts: &[ferrum_silver::ast::expression::Exp],
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord>;
     fn joining(
         &self,
         state: &crate::state::state::State<P, D, J>,
@@ -186,6 +192,20 @@ where
             state.cloned(),
             Some(paths),
         ))
+    }
+    fn wellformedness(
+        &self,
+        posts: &[ferrum_silver::ast::expression::Exp],
+        state: &crate::state::state::State<P, D, J>,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+    ) -> std::sync::Arc<dyn DataRecord> {
+        std::sync::Arc::new(
+            super::wellformedness_check_record::WellformednessCheckRecord::new(
+                posts.to_vec(),
+                Some(state.clone()),
+                Some(paths),
+            ),
+        )
     }
     fn joining(
         &self,
