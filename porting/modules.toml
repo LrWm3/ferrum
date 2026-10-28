@@ -2036,7 +2036,7 @@ repository = "silicon"
 upstream = "src/main/scala/verifier/VerificationPoolManager.scala"
 destination = "crates/ferrum-silicon/src/verifier/verification_pool_manager.rs"
 status = "skeleton"
-remaining = ["Owner-thread execution, cooperative nested waits and an internally gated joined-CFG scheduler are connected, including cancellation and worker-state restoration. Other branch families, logger migration, restore-failure injection and broad parallel compatibility remain."]
+remaining = ["Owner-thread execution, cooperative nested waits and internally gated joined CFG/predicate scheduling are connected, including cancellation and worker-state restoration. Nonjoined continuations, logger migration, restore-failure injection and broad parallel compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2567,7 +2567,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Native default/mask heaps, quantified resources, wands, function frames and source phase ordering are connected. Joined-CFG scheduling is internally gated; remaining branch continuations, debug/reporting profiles, CFG-only contributor analysis and broad compatibility remain."]
+remaining = ["Native default/mask heaps, quantified resources, wands, function frames and source phase ordering are connected. Joined CFG/predicate scheduling is internally gated; nonjoined continuations, debug/reporting profiles, CFG-only contributor analysis and broad compatibility remain."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"

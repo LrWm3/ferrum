@@ -533,3 +533,11 @@ record factories also construct joins, implications (including the nullable
 ForPerm expression) and conditional expressions. Session attachment and exact
 JVM double formatting for statistic deltas remain explicit dependencies; these
 hooks do not enable public logging profiles.
+
+The internally gated branch scheduler now also accepts owned predicate-content
+actions. It reuses CFG worker transfer/restoration and queue handling, while
+predicate joins merge recorded states without CFG consolidation, as in the
+source. Focused one/two-worker positive and negative cases submit real predicate
+jobs, pass through stdio and linked Z3, and agree with the pinned JVM result.
+Evaluator, joined producer/consumer and nonjoined continuations retain their
+existing synchronous behavior. The public parallel-branch option remains gated.

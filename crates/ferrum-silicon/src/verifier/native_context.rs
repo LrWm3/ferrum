@@ -293,10 +293,6 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub factory: TermFactory,
     pub options: NativeOptions,
     pub warnings: Vec<String>,
-    pub(crate) cfg_join_scheduler: Option<
-        std::rc::Rc<dyn super::verification_pool_manager::NativeCfgJoinScheduler<S, PD, FD>>,
-    >,
-    pub(crate) cfg_join_scheduler_enabled: bool,
     /// Owner-local symbolic logger and record constructor. Both are inactive until
     /// the verification lifecycle explicitly installs a member log.
     pub(crate) logging_root: Option<Arc<crate::logger::symb_ex_logger::NativeSymbExLogger>>,
@@ -306,6 +302,9 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
             dyn crate::logger::records::data::data_record::NativeRecordFactory<PD, FD, JoinMode>,
         >,
     >,
+    pub(crate) joined_branch_scheduler:
+        Option<std::rc::Rc<dyn super::verification_pool_manager::NativeJoinScheduler<S, PD, FD>>>,
+    pub(crate) joined_branch_scheduler_enabled: bool,
     /// Source-order quantifier trigger choices from preprocessing, for reporter delivery.
     pub quantifier_trigger_events: Vec<crate::utils::ast::QuantifierTriggerEvent>,
     preprocessing_reporter: Option<Arc<dyn ferrum_silver::reporter::reporter::Reporter>>,
@@ -343,11 +342,11 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             factory,
             options,
             warnings: Vec::new(),
-            cfg_join_scheduler: None,
-            cfg_join_scheduler_enabled: false,
             logging_root: None,
             member_log: None,
             record_factory: None,
+            joined_branch_scheduler: None,
+            joined_branch_scheduler_enabled: false,
             quantifier_trigger_events: Vec::new(),
             preprocessing_reporter: None,
             cancellation: None,
@@ -7674,17 +7673,18 @@ where
             ExecutionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
-        if self.cfg_join_scheduler_enabled
+        if self.joined_branch_scheduler_enabled
             && state.parallelize_branches
-            && self.cfg_join_scheduler.is_some()
+            && self.joined_branch_scheduler.is_some()
         {
-            return self.join_cfg_branches_parallel(
+            return self.join_owned_branches_parallel(
                 state,
                 condition,
                 original,
                 rewritten,
-                yes,
-                no,
+                super::verification_pool_manager::NativeJoinAction::Cfg(yes),
+                super::verification_pool_manager::NativeJoinAction::Cfg(no),
+                true,
                 continuation,
             );
         }
@@ -8632,13 +8632,13 @@ where
         }
     }
 
-    /// Execute one transferred CFG branch until its owned join point.
-    pub(crate) fn verify_worker_cfg_join(
+    /// Execute one transferred branch until its owned join point.
+    pub(crate) fn verify_worker_join(
         &mut self,
         analysis: &NativeWorkerAnalysis,
-        branch: super::verification_pool_manager::NativeCfgJoinJob,
-    ) -> Result<super::verification_pool_manager::NativeCfgJoinOutput, NativeError<S::Error>> {
-        use crate::rules::{executor, joiner::JoinDataEntry};
+        branch: super::verification_pool_manager::NativeJoinJob,
+    ) -> Result<super::verification_pool_manager::NativeJoinOutput, NativeError<S::Error>> {
+        use crate::rules::joiner::JoinDataEntry;
         self.checkpoint()?;
         self.active_program = Some(analysis.program.clone());
         self.predicate_contents = analysis.predicates.clone();
@@ -8683,9 +8683,11 @@ where
                             saturation.as_ref(),
                         );
                     return Err(match cleanup {
-                        Ok(()) => NativeError::Execution(format!("CFG branch setup: {primary:?}")),
+                        Ok(()) => {
+                            NativeError::Execution(format!("joined branch setup: {primary:?}"))
+                        }
                         Err(cleanup) => NativeError::Cleanup(format!(
-                            "CFG branch setup: {primary:?}; worker restore: {cleanup:?}"
+                            "joined branch setup: {primary:?}; worker restore: {cleanup:?}"
                         )),
                     });
                 }
@@ -8739,23 +8741,18 @@ where
                 let state = self
                     .consolidate_optional(branch.state)
                     .map_err(ExecutionError::Context)?;
-                executor::execute_cfg_join_branch(
-                    self,
-                    state,
-                    &branch.action,
-                    &mut |context, state| {
-                        let path_conditions =
-                            context.base.decider.pcs.after(branch.mark).map_err(|e| {
-                                ExecutionError::Context(NativeError::Decider(DeciderError::Path(e)))
-                            })?;
-                        entries.push(JoinDataEntry {
-                            state,
-                            data: (),
-                            path_conditions,
-                        });
-                        Ok(VerificationResult::success())
-                    },
-                )
+                self.execute_join_action(state, &branch.action, &mut |context, state| {
+                    let path_conditions =
+                        context.base.decider.pcs.after(branch.mark).map_err(|e| {
+                            ExecutionError::Context(NativeError::Decider(DeciderError::Path(e)))
+                        })?;
+                    entries.push(JoinDataEntry {
+                        state,
+                        data: (),
+                        path_conditions,
+                    });
+                    Ok(VerificationResult::success())
+                })
             })();
             let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
             match (executed, cleanup) {
@@ -8763,9 +8760,9 @@ where
                 (Err(ExecutionError::Context(NativeError::Cancelled)), Ok(())) => {
                     Err(NativeError::Cancelled)
                 }
-                (Err(e), Ok(())) => Err(NativeError::Execution(format!("CFG branch: {e:?}"))),
+                (Err(e), Ok(())) => Err(NativeError::Execution(format!("joined branch: {e:?}"))),
                 (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
-                    "CFG branch: {primary:?}; scope cleanup: {cleanup:?}"
+                    "joined branch: {primary:?}; scope cleanup: {cleanup:?}"
                 ))),
                 (Ok(_), Err(cleanup)) => Err(cleanup),
             }
@@ -8778,7 +8775,7 @@ where
         };
         let result = match (result, cleanup) {
             (Ok((result, entries)), Ok(declarations)) => {
-                Ok(super::verification_pool_manager::NativeCfgJoinOutput {
+                Ok(super::verification_pool_manager::NativeJoinOutput {
                     result,
                     entries,
                     declarations,
@@ -8788,7 +8785,7 @@ where
             (Err(primary), Ok(_)) => Err(primary),
             (Ok(_), Err(cleanup)) => Err(cleanup),
             (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
-                "CFG branch: {primary:?}; options cleanup: {cleanup:?}"
+                "joined branch: {primary:?}; options cleanup: {cleanup:?}"
             ))),
         };
         let state_cleanup = match &saved_worker {
@@ -8806,7 +8803,7 @@ where
             (result, Ok(())) => result,
             (Ok(_), Err(cleanup)) => Err(cleanup),
             (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
-                "CFG branch: {primary:?}; worker restore: {cleanup:?}"
+                "joined branch: {primary:?}; worker restore: {cleanup:?}"
             ))),
         };
         let warnings = self.warnings.split_off(warning_start);
@@ -8849,11 +8846,12 @@ where
             snapshot_sorts: analysis.snapshot_sorts.clone(),
             snapshot_formals: analysis.snapshot_formals.clone(),
         };
-        let state = self.initial_state(
+        let mut state = self.initial_state(
             &analysis.program,
             &local,
             ferrum_silver::ast::program::Member::Method(method.clone()),
         )?;
+        state.parallelize_branches = self.joined_branch_scheduler_enabled;
         let results = crate::supporters::method_supporter::verify_method(self, state, method)
             .map(flatten_results)
             .map_err(|e| match e {
@@ -11535,15 +11533,57 @@ impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
 where
     S::Error: std::fmt::Debug,
 {
-    /// Source-eligible CFG join scheduler; other join families remain synchronous.
-    fn join_cfg_branches_parallel(
+    fn execute_join_action(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        action: &super::verification_pool_manager::NativeJoinAction,
+        done: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ExecutionError<NativeError<S::Error>>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, ExecutionError<NativeError<S::Error>>> {
+        use crate::rules::predicate_supporter::PredicateExecutionError as PE;
+        match action {
+            super::verification_pool_manager::NativeJoinAction::Cfg(action) => {
+                crate::rules::executor::execute_cfg_join_branch(self, state, action, done)
+            }
+            super::verification_pool_manager::NativeJoinAction::Predicate(action) => {
+                let result = crate::rules::predicate_supporter::execute_predicate_contents_action(
+                    self,
+                    state,
+                    action,
+                    &mut |ctx, state| {
+                        done(ctx, state).map_err(|e| match e {
+                            ExecutionError::Context(error) => PE::Service(error),
+                            other => PE::Service(NativeError::Execution(format!(
+                                "predicate join continuation: {other:?}"
+                            ))),
+                        })
+                    },
+                );
+                result.map_err(|e| match e {
+                    PE::Service(error) => ExecutionError::Context(error),
+                    other => ExecutionError::Context(NativeError::Production(format!(
+                        "predicate contents: {other:?}"
+                    ))),
+                })
+            }
+        }
+    }
+
+    /// Schedule source-eligible CFG and predicate joins; other joins remain synchronous.
+    fn join_owned_branches_parallel(
         &mut self,
         mut state: State<PD, FD, JoinMode>,
         condition: Term,
         original: &Exp,
         rewritten: Option<&Exp>,
-        yes: crate::rules::executor::CfgJoinBranch,
-        no: crate::rules::executor::CfgJoinBranch,
+        yes: super::verification_pool_manager::NativeJoinAction,
+        no: super::verification_pool_manager::NativeJoinAction,
+        consolidate_join: bool,
         continuation: &mut dyn FnMut(
             &mut Self,
             State<PD, FD, JoinMode>,
@@ -11553,7 +11593,7 @@ where
         >,
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<NativeError<S::Error>>> {
         use crate::rules::{
-            brancher, executor,
+            brancher,
             joiner::{self, JoinDataEntry},
         };
         let factory = self.factory.clone();
@@ -11591,7 +11631,7 @@ where
                 )
             });
             let future = if let Some(snapshot) = &snapshot {
-                let job = super::verification_pool_manager::NativeCfgJoinJob {
+                let job = super::verification_pool_manager::NativeJoinJob {
                     source_worker_id: self.base.unique_id.clone(),
                     snapshot: snapshot.clone(),
                     state: state.clone(),
@@ -11607,13 +11647,13 @@ where
                     replay_check: None,
                 };
                 Some(
-                    self.cfg_join_scheduler
+                    self.joined_branch_scheduler
                         .as_ref()
                         .expect("scheduler")
                         .submit(job)
                         .map_err(|e| {
                             ExecutionError::Context(NativeError::Diagnostic(format!(
-                                "CFG branch submission: {e:?}"
+                                "joined branch submission: {e:?}"
                             )))
                         })?,
                 )
@@ -11623,7 +11663,7 @@ where
             let run = |this: &mut Self,
                        active: bool,
                        positive: bool,
-                       action: &crate::rules::executor::CfgJoinBranch|
+                       action: &super::verification_pool_manager::NativeJoinAction|
              -> Result<
                 (
                     VerificationResult<VerificationError>,
@@ -11662,7 +11702,7 @@ where
                     let state = this
                         .consolidate_optional(state.clone())
                         .map_err(ExecutionError::Context)?;
-                    executor::execute_cfg_join_branch(this, state, action, &mut |context, state| {
+                    this.execute_join_action(state, action, &mut |context, state| {
                         let path_conditions =
                             context.base.decider.pcs.after(mark).map_err(|e| {
                                 ExecutionError::Context(NativeError::Decider(DeciderError::Path(e)))
@@ -11681,18 +11721,20 @@ where
                     (Err(e), Ok(())) => Err(e),
                     (Ok(_), Err(e)) => Err(ExecutionError::Context(e)),
                     (Err(e), Err(cleanup)) => Err(ExecutionError::Context(NativeError::Cleanup(
-                        format!("CFG branch: {e:?}; scope cleanup: {cleanup:?}"),
+                        format!("joined branch: {e:?}; scope cleanup: {cleanup:?}"),
                     ))),
                 }
             };
             let then_result = run(self, decision.execute_then, true, &yes);
             let then_report_error = if state.is_last_retry() {
                 match &then_result {
-                    Ok((result, _)) => self.cfg_join_scheduler.as_ref().and_then(|scheduler| {
-                        scheduler
-                            .report_failure(state.current_member.as_ref(), result)
-                            .err()
-                    }),
+                    Ok((result, _)) => {
+                        self.joined_branch_scheduler.as_ref().and_then(|scheduler| {
+                            scheduler
+                                .report_failure(state.current_member.as_ref(), result)
+                                .err()
+                        })
+                    }
                     Err(_) => None,
                 }
             } else {
@@ -11748,13 +11790,13 @@ where
                         Err(NativeError::Cancelled)
                     }
                     Err(error) => Err(NativeError::Diagnostic(format!(
-                        "CFG branch wait: {error:?}"
+                        "joined branch wait: {error:?}"
                     ))),
                 };
                 match (then_result, other, restoration, then_report_error) {
                     (Ok((result, mut entries)), Ok(other), None, None) => {
                         if state.is_last_retry() {
-                            self.cfg_join_scheduler
+                            self.joined_branch_scheduler
                                 .as_ref()
                                 .expect("scheduler")
                                 .report_failure(state.current_member.as_ref(), &other.result)
@@ -11774,7 +11816,7 @@ where
                     }
                     (then, other, restoration, reporting) => {
                         Err(ExecutionError::Context(NativeError::Cleanup(format!(
-                            "CFG join: then={:?}, else={:?}, restoration={restoration:?}, reporting={reporting:?}",
+                            "joined branch: then={:?}, else={:?}, restoration={restoration:?}, reporting={reporting:?}",
                             then.err(),
                             other.err()
                         ))))
@@ -11788,7 +11830,7 @@ where
                 let result = if then_result.continue_verification() {
                     let (other, other_entries) = run(self, decision.execute_else, false, &no)?;
                     if state.is_last_retry() {
-                        self.cfg_join_scheduler
+                        self.joined_branch_scheduler
                             .as_ref()
                             .expect("scheduler")
                             .report_failure(state.current_member.as_ref(), &other)
@@ -11809,7 +11851,7 @@ where
             (Ok(_), Err(e)) => return Err(ExecutionError::Context(e)),
             (Err(e), Err(cleanup)) => {
                 return Err(ExecutionError::Context(NativeError::Cleanup(format!(
-                    "CFG join: {e:?}; cleanup: {cleanup:?}"
+                    "joined branch: {e:?}; cleanup: {cleanup:?}"
                 ))));
             }
         };
@@ -11835,15 +11877,21 @@ where
                         &mut |warning| self.warnings.push(warning),
                     )
                     .map_err(|e| ExecutionError::Context(NativeError::State(e)))?;
-                let choice = self
-                    .consolidation_choice(&merged)
-                    .map_err(ExecutionError::Context)?;
-                crate::rules::state_consolidator::consolidate(&factory, self, merged, choice, false)
+                if consolidate_join {
+                    let choice = self
+                        .consolidation_choice(&merged)
+                        .map_err(ExecutionError::Context)?;
+                    crate::rules::state_consolidator::consolidate(
+                        &factory, self, merged, choice, false,
+                    )
                     .map_err(|e| {
                         ExecutionError::Context(NativeError::Consolidation(format!(
                             "CFG join: {e:?}"
                         )))
                     })?
+                } else {
+                    merged
+                }
             }
             _ => {
                 return Err(ExecutionError::Context(NativeError::Unsupported(
@@ -16481,6 +16529,36 @@ where
         crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
     > {
         use crate::rules::predicate_supporter::PredicateExecutionError as PE;
+        if join
+            && self.joined_branch_scheduler_enabled
+            && state.parallelize_branches
+            && self.joined_branch_scheduler.is_some()
+        {
+            let error = std::cell::RefCell::new(None);
+            let result = self.join_owned_branches_parallel(
+                state,
+                condition,
+                &condition_exp.0,
+                condition_exp.1.as_ref(),
+                super::verification_pool_manager::NativeJoinAction::Predicate(left),
+                super::verification_pool_manager::NativeJoinAction::Predicate(right),
+                false,
+                &mut |context, state| match continuation(context, state) {
+                    Ok(result) => Ok(result),
+                    Err(e) => {
+                        *error.borrow_mut() = Some(e);
+                        Err(ExecutionError::Context(NativeError::ContinuationAbort))
+                    }
+                },
+            );
+            if let Some(error) = error.into_inner() {
+                return Err(error);
+            }
+            return result.map_err(|e| match e {
+                ExecutionError::Context(error) => PE::Service(error),
+                other => PE::Service(NativeError::Execution(format!("predicate join: {other:?}"))),
+            });
+        }
         let error = std::cell::RefCell::new(None);
         let result = crate::rules::producer::ProductionContext::branch_production(
             self,
@@ -17188,7 +17266,7 @@ mod queued_cfg_isolation_tests {
         decider::{prover_std_io::ProverStdIo, z3_prover_std_io},
         rules::{brancher::BranchTransferSnapshot, executor::CfgJoinBranch},
         verifier::verification_pool_manager::{
-            NativeCfgJoinJob, NativeMethodWorker, NativeWorkerOutput, NativeWorkerTarget,
+            NativeJoinJob, NativeMethodWorker, NativeWorkerOutput, NativeWorkerTarget,
             NativeWorkerTask, ThreadBoundWorker, ThreadVerificationPool, WorkerPreambleCommand,
             WorkerQueueHandle, execute_intervening_native_worker_task, execute_native_worker_task,
             native_method_worker,
@@ -17378,7 +17456,7 @@ mod queued_cfg_isolation_tests {
                         .assume([(opposite.clone(), None)], false, false)
                         .map_err(NativeError::Decider)?;
                     let mark = self.native.context.base.decider.pcs.mark();
-                    let NativeWorkerTarget::CfgJoin(job) = &mut own.target else {
+                    let NativeWorkerTarget::Join(job) = &mut own.target else {
                         return Err(NativeError::Unsupported("expected own CFG job"));
                     };
                     job.source_worker_id = self.native.context.base.unique_id.clone();
@@ -17396,7 +17474,7 @@ mod queued_cfg_isolation_tests {
                         Job::Inline(task) => {
                             let output =
                                 execute_native_worker_task(&mut self.native.context, task)?;
-                            let NativeWorkerOutput::CfgJoin(output) = output else {
+                            let NativeWorkerOutput::Join(output) = output else {
                                 return Err(NativeError::Unsupported("unexpected branch output"));
                             };
                             let restored = self
@@ -17461,7 +17539,7 @@ mod queued_cfg_isolation_tests {
                     wake.notify_all();
                     self.release_rx.lock().unwrap().recv().unwrap();
                     let output = execute_native_worker_task(&mut self.native.context, task)?;
-                    let NativeWorkerOutput::CfgJoin(output) = output else {
+                    let NativeWorkerOutput::Join(output) = output else {
                         return Err(NativeError::Unsupported("unexpected CFG branch output"));
                     };
                     let retained = self
@@ -17650,7 +17728,7 @@ mod queued_cfg_isolation_tests {
                 *inspect_started.0.lock().unwrap() = false;
                 let remote = NativeWorkerTask {
                     analysis: analysis.clone(),
-                    target: NativeWorkerTarget::CfgJoin(Box::new(NativeCfgJoinJob {
+                    target: NativeWorkerTarget::Join(Box::new(NativeJoinJob {
                         source_worker_id: "source".into(),
                         snapshot: snapshot.clone(),
                         state: state.clone(),
@@ -17658,7 +17736,9 @@ mod queued_cfg_isolation_tests {
                         condition: factory.boolean(true),
                         original: Exp::new(ExpKind::TrueLit, Default::default()),
                         rewritten: None,
-                        action: action.clone(),
+                        action: crate::verifier::verification_pool_manager::NativeJoinAction::Cfg(
+                            action.clone(),
+                        ),
                         after_start: None,
                         replay_check: Some(requirement.clone()),
                     })),
@@ -17693,7 +17773,7 @@ mod queued_cfg_isolation_tests {
         {
             let make_job = || NativeWorkerTask {
                 analysis: analysis.clone(),
-                target: NativeWorkerTarget::CfgJoin(Box::new(NativeCfgJoinJob {
+                target: NativeWorkerTarget::Join(Box::new(NativeJoinJob {
                     source_worker_id: "source".into(),
                     snapshot: snapshot.clone(),
                     state: state.clone(),
@@ -17701,7 +17781,9 @@ mod queued_cfg_isolation_tests {
                     condition: factory.boolean(true),
                     original: Exp::new(ExpKind::TrueLit, Default::default()),
                     rewritten: None,
-                    action: action.clone(),
+                    action: crate::verifier::verification_pool_manager::NativeJoinAction::Cfg(
+                        action.clone(),
+                    ),
                     after_start: None,
                     replay_check: Some(requirement.clone()),
                 })),
@@ -17786,7 +17868,7 @@ mod queued_cfg_isolation_tests {
                 .unwrap();
             let remote = NativeWorkerTask {
                 analysis: analysis.clone(),
-                target: NativeWorkerTarget::CfgJoin(Box::new(NativeCfgJoinJob {
+                target: NativeWorkerTarget::Join(Box::new(NativeJoinJob {
                     source_worker_id: "source".into(),
                     snapshot: snapshot.clone(),
                     state: state.clone(),
@@ -17794,7 +17876,9 @@ mod queued_cfg_isolation_tests {
                     condition: factory.boolean(true),
                     original: Exp::new(ExpKind::TrueLit, Default::default()),
                     rewritten: None,
-                    action: action.clone(),
+                    action: crate::verifier::verification_pool_manager::NativeJoinAction::Cfg(
+                        action.clone(),
+                    ),
                     after_start: None,
                     replay_check: Some(requirement.clone()),
                 })),
@@ -17802,7 +17886,7 @@ mod queued_cfg_isolation_tests {
                 warning_sink: None,
             };
             let result = pool.submit(remote).unwrap().wait().unwrap();
-            assert!(matches!(result, NativeWorkerOutput::CfgJoin(_)));
+            assert!(matches!(result, NativeWorkerOutput::Join(_)));
             let target = if use_cfg {
                 NativeWorkerTarget::Cfg(cfg.clone())
             } else {
@@ -17841,7 +17925,7 @@ mod queued_cfg_isolation_tests {
         });
         let remote = NativeWorkerTask {
             analysis: analysis.clone(),
-            target: NativeWorkerTarget::CfgJoin(Box::new(NativeCfgJoinJob {
+            target: NativeWorkerTarget::Join(Box::new(NativeJoinJob {
                 source_worker_id: "source".into(),
                 snapshot: snapshot.clone(),
                 state: state.clone(),
@@ -17849,7 +17933,9 @@ mod queued_cfg_isolation_tests {
                 condition: factory.boolean(true),
                 original: Exp::new(ExpKind::TrueLit, Default::default()),
                 rewritten: None,
-                action: action.clone(),
+                action: crate::verifier::verification_pool_manager::NativeJoinAction::Cfg(
+                    action.clone(),
+                ),
                 after_start: Some(hook),
                 replay_check: Some(requirement.clone()),
             })),
