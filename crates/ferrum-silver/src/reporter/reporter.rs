@@ -179,11 +179,58 @@ impl Reporter for PluginAwareReporter {
         self.target.report(message)
     }
 }
-/// Queue insertion and pass-through execute while holding the same lock, matching source ordering.
+// JVM synchronized monitors are reentrant. Keep the monitor separate from queue storage so
+// pass-through callbacks can enter this reporter again on the owning thread.
+#[derive(Default)]
+struct ReentrantGate {
+    state: Mutex<GateState>,
+    available: std::sync::Condvar,
+}
+#[derive(Default)]
+struct GateState {
+    owner: Option<std::thread::ThreadId>,
+    depth: usize,
+}
+struct GateGuard<'a> {
+    gate: &'a ReentrantGate,
+    // A guard must be dropped on the thread that acquired it.
+    _not_send: std::marker::PhantomData<std::rc::Rc<()>>,
+}
+impl ReentrantGate {
+    fn enter(&self) -> GateGuard<'_> {
+        let thread = std::thread::current().id();
+        let mut state = self.state.lock().expect("poisoned polling monitor");
+        while state.owner.is_some() && state.owner != Some(thread) {
+            state = self
+                .available
+                .wait(state)
+                .expect("poisoned polling monitor");
+        }
+        state.owner = Some(thread);
+        state.depth += 1;
+        GateGuard {
+            gate: self,
+            _not_send: std::marker::PhantomData,
+        }
+    }
+}
+impl Drop for GateGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = self.gate.state.lock().expect("poisoned polling monitor");
+        debug_assert_eq!(state.owner, Some(std::thread::current().id()));
+        state.depth -= 1;
+        if state.depth == 0 {
+            state.owner = None;
+            self.gate.available.notify_one();
+        }
+    }
+}
+/// Queue insertion and pass-through execute under a reentrant monitor, as in the source.
 pub struct PollingReporter {
     pub name: String,
     pub pass_through: Arc<dyn Reporter>,
     messages: Mutex<VecDeque<Message>>,
+    gate: ReentrantGate,
     mapper: MapperSlot,
 }
 impl PollingReporter {
@@ -192,10 +239,12 @@ impl PollingReporter {
             name: "polling_reporter".into(),
             pass_through,
             messages: Mutex::new(VecDeque::new()),
+            gate: ReentrantGate::default(),
             mapper: RwLock::new(None),
         }
     }
     pub fn has_new_message(&self) -> bool {
+        let _guard = self.gate.enter();
         !self
             .messages
             .lock()
@@ -203,6 +252,7 @@ impl PollingReporter {
             .is_empty()
     }
     pub fn get_new_message(&self) -> Result<Message, ReportError> {
+        let _guard = self.gate.enter();
         self.messages
             .lock()
             .expect("poisoned reporter queue")
@@ -222,8 +272,11 @@ impl Reporter for PollingReporter {
     }
     fn report(&self, message: Message) -> Result<(), ReportError> {
         let message = map_entity_message(&self.mapper, message)?;
-        let mut messages = self.messages.lock().expect("poisoned reporter queue");
-        messages.push_back(message.clone());
+        let _guard = self.gate.enter();
+        self.messages
+            .lock()
+            .expect("poisoned reporter queue")
+            .push_back(message.clone());
         self.pass_through.report(message)
     }
 }
@@ -1183,6 +1236,121 @@ mod tests {
             Err(ReportError::Io(_))
         ));
         assert_eq!(reporter.counter(), 0);
+    }
+    #[test]
+    fn polling_passthrough_can_reenter_report_and_queue_access() {
+        struct Reenter {
+            reporter: Mutex<std::sync::Weak<PollingReporter>>,
+            entered: std::sync::atomic::AtomicBool,
+        }
+        impl Reporter for Reenter {
+            fn name(&self) -> &str {
+                "reenter"
+            }
+            fn report(&self, _: Message) -> Result<(), ReportError> {
+                if !self.entered.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                    let reporter = self.reporter.lock().unwrap().upgrade().unwrap();
+                    assert!(reporter.has_new_message());
+                    assert!(matches!(
+                        reporter.get_new_message().unwrap(),
+                        Message::VerificationTermination
+                    ));
+                    reporter.report(Message::AstConstructionSuccess { time: 1 })?;
+                    assert!(reporter.has_new_message());
+                }
+                Ok(())
+            }
+        }
+        let target = Arc::new(Reenter {
+            reporter: Mutex::new(std::sync::Weak::new()),
+            entered: std::sync::atomic::AtomicBool::new(false),
+        });
+        let reporter = Arc::new(PollingReporter::new(target.clone()));
+        *target.reporter.lock().unwrap() = Arc::downgrade(&reporter);
+        reporter.report(Message::VerificationTermination).unwrap();
+        assert!(matches!(
+            reporter.get_new_message().unwrap(),
+            Message::AstConstructionSuccess { time: 1 }
+        ));
+        assert!(!reporter.has_new_message());
+    }
+    #[test]
+    fn polling_gate_serializes_other_threads_and_releases_after_panic_or_error() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            mpsc,
+        };
+        struct Target {
+            calls: AtomicUsize,
+            started: mpsc::Sender<()>,
+            release: Mutex<mpsc::Receiver<()>>,
+        }
+        impl Reporter for Target {
+            fn name(&self) -> &str {
+                "gate-test"
+            }
+            fn report(&self, _: Message) -> Result<(), ReportError> {
+                match self.calls.fetch_add(1, Ordering::SeqCst) {
+                    0 => {
+                        self.started.send(()).unwrap();
+                        self.release.lock().unwrap().recv().unwrap();
+                        Ok(())
+                    }
+                    1 => Err(ReportError::Unsupported("callback")),
+                    2 => panic!("callback panic"),
+                    _ => Ok(()),
+                }
+            }
+        }
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let reporter = Arc::new(PollingReporter::new(Arc::new(Target {
+            calls: AtomicUsize::new(0),
+            started: started_tx,
+            release: Mutex::new(release_rx),
+        })));
+        let first = {
+            let reporter = reporter.clone();
+            std::thread::spawn(move || reporter.report(Message::VerificationTermination))
+        };
+        started_rx.recv().unwrap();
+        let (done_tx, done_rx) = mpsc::channel();
+        let second = {
+            let reporter = reporter.clone();
+            std::thread::spawn(move || {
+                let value = reporter.has_new_message();
+                done_tx.send(value).unwrap();
+            })
+        };
+        assert!(matches!(
+            done_rx.recv_timeout(std::time::Duration::from_millis(50)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        release_tx.send(()).unwrap();
+        first.join().unwrap().unwrap();
+        assert!(
+            done_rx
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .unwrap()
+        );
+        second.join().unwrap();
+        assert!(reporter.report(Message::VerificationTermination).is_err());
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                || reporter.report(Message::VerificationTermination)
+            ))
+            .is_err()
+        );
+        let later = {
+            let reporter = reporter.clone();
+            std::thread::spawn(move || reporter.report(Message::VerificationTermination))
+        };
+        later.join().unwrap().unwrap();
+        let mut count = 0;
+        while reporter.get_new_message().is_ok() {
+            count += 1;
+        }
+        assert_eq!(count, 4);
     }
     #[test]
     fn polling_maps_before_queue_lock_on_reentrant_report() {

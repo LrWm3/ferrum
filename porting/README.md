@@ -583,3 +583,11 @@ are used in ordinary synchronous execution and preserve fallback, branch and
 block-completion order. Their enclosing CFG/loop/retry/production/consumption
 continuations still borrow outer callbacks; nonjoined offloading stays disabled
 until the complete continuation chain can move together.
+
+PollingReporter now uses an owner-thread reentrant monitor for reporting and
+queue access, matching the JVM synchronized methods. Queue storage locks end
+before pass-through callbacks, while the monitor preserves ordering against
+other threads. Nested reporting and queue access on the same thread therefore
+complete, and RAII releases the monitor after callback errors or unwinding.
+Already queued messages remain available. Focused checks cover reentry,
+serialization and error/panic recovery.
