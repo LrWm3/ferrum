@@ -1,37 +1,182 @@
-//! Port plan: Shared node traversal, metadata, scope and diagnostic back-transformation contracts.
+//! Common Silver AST metadata and contracts.
 //!
-//! Upstream:
-//! https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/ast/Ast.scala
+//! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/ast/Ast.scala
 //!
-//! Purpose:
-//! Shared node traversal, metadata, scope and diagnostic back-transformation contracts.
-//!
-//! Planned Rust structure:
-//! Node exposes subnodes, reductions, visits, collection, replacement and strategy-based transforms;
-//! retain Hashable collaborators and metadata-bearing traits Positioned, Infoed, Typed, Declaration and
-//! Scope.
-//! Model Info variants NoInfo, SourcePNodeInfo, AnnotationInfo, SimpleInfo, AutoTriggered,
-//! WeightedQuantifier, Cached, Synthesized, FailureExpectedInfo, ConsInfo and MakeInfoPair; model
-//! ErrorTrafo variants and TransformableErrors.
-//!
-//! Behavior to preserve:
-//! Node traversal and transitive checks include ordered children; default metadata is
-//! NoPosition/NoInfo/NoTrafos. Error and reason transformations fold right, then repeatedly
-//! back-transform offending nodes; combining trafos concatenates transformations and prefers the right
-//! node. Info pairs drop NoInfo, concatenate comments, OR cache flags, and recursively find/remove
-//! typed entries. Scope includes nested scoped declarations.
-//!
-//! Integration:
-//! Coordinate ast::utility::{nodes,visitor,viper_strategy,rewriter},
-//! ast::{program,position,pretty::pretty_printer}, parser and verifier::verification_error::errors.
-//!
-//! Rust adaptations:
-//! Follow porting/conventions.md for ownership, identity, ordering and errors; proposed interfaces
-//! remain provisional.
-//!
-//! Open decisions:
-//! Node extension and typed metadata/back-transformation ownership require agreement with the rewriter,
-//! diagnostics and plugins; preserve case-class structural equality fields without treating metadata as
-//! ordinary product fields.
-//!
-//! Status: description only; implementation has not started.
+//! Status: partial. Metadata and info composition are implemented; node traversal,
+//! rewriting, consistency and typed diagnostic backtransformation await their collaborators.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+//
+// Copyright (c) 2011-2019 ETH Zurich.
+
+use std::any::Any;
+use std::collections::HashMap;
+use std::fmt::Debug;
+use std::sync::Arc;
+
+use super::position::Position;
+use super::r#type::Type;
+use crate::parser::parse_ast::PNodeHandle;
+
+/// Metadata supplied by extensions, including failure-expected tags and source nodes.
+/// Its precise parser handle and plugin dispatch require cross-module reconciliation.
+pub trait ExtensionInfo: Debug + Send + Sync {
+    fn as_any(&self) -> &dyn Any;
+    fn comments(&self) -> Vec<String> {
+        Vec::new()
+    }
+    fn is_cached(&self) -> bool {
+        false
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub enum Info {
+    #[default]
+    NoInfo,
+    SourcePNode(PNodeHandle),
+    Annotation(HashMap<String, Vec<String>>),
+    Simple(Vec<String>),
+    AutoTriggered,
+    WeightedQuantifier(i32),
+    Cached,
+    Synthesized,
+    /// Includes FailureExpectedInfo and other plugin-provided metadata.
+    Extension(Arc<dyn ExtensionInfo>),
+    Cons(Box<Info>, Box<Info>),
+}
+impl Info {
+    pub fn pair(head: Self, tail: Self) -> Self {
+        match (head, tail) {
+            (Self::NoInfo, b) => b,
+            (a, Self::NoInfo) => a,
+            (a, b) => Self::Cons(Box::new(a), Box::new(b)),
+        }
+    }
+    pub fn comments(&self) -> Vec<String> {
+        match self {
+            Self::Simple(c) => c.clone(),
+            Self::Extension(e) => e.comments(),
+            Self::Cons(a, b) => {
+                let mut c = a.comments();
+                c.extend(b.comments());
+                c
+            }
+            _ => Vec::new(),
+        }
+    }
+    pub fn is_cached(&self) -> bool {
+        match self {
+            Self::Cached => true,
+            Self::Extension(e) => e.is_cached(),
+            Self::Cons(a, b) => a.is_cached() || b.is_cached(),
+            _ => false,
+        }
+    }
+    /// Find the first matching info in source order, including composed infos.
+    pub fn find(&self, predicate: &impl Fn(&Info) -> bool) -> Option<&Info> {
+        if predicate(self) {
+            return Some(self);
+        }
+        match self {
+            Self::Cons(a, b) => a.find(predicate).or_else(|| b.find(predicate)),
+            _ => None,
+        }
+    }
+    pub fn all_matching<'a>(&'a self, predicate: &impl Fn(&Info) -> bool) -> Vec<&'a Info> {
+        if predicate(self) {
+            return vec![self];
+        }
+        match self {
+            Self::Cons(a, b) => {
+                let mut out = a.all_matching(predicate);
+                out.extend(b.all_matching(predicate));
+                out
+            }
+            _ => Vec::new(),
+        }
+    }
+    pub fn remove_matching(&self, predicate: &impl Fn(&Info) -> bool) -> Info {
+        // Upstream recurses into ConsInfo before testing the requested subtype.
+        match self {
+            Self::Cons(a, b) => {
+                Self::pair(a.remove_matching(predicate), b.remove_matching(predicate))
+            }
+            _ if predicate(self) => Self::NoInfo,
+            _ => self.clone(),
+        }
+    }
+    pub fn find_extension<T: Any>(&self) -> Option<&T> {
+        match self {
+            Self::Extension(e) => e.as_any().downcast_ref(),
+            Self::Cons(a, b) => a.find_extension().or_else(|| b.find_extension()),
+            _ => None,
+        }
+    }
+    pub fn all_extensions<T: Any>(&self) -> Vec<&T> {
+        match self {
+            Self::Extension(e) => e.as_any().downcast_ref().into_iter().collect(),
+            Self::Cons(a, b) => {
+                let mut result = a.all_extensions::<T>();
+                result.extend(b.all_extensions::<T>());
+                result
+            }
+            _ => Vec::new(),
+        }
+    }
+    pub fn remove_extension<T: Any>(&self) -> Self {
+        match self {
+            Self::Extension(e) if e.as_any().is::<T>() => Self::NoInfo,
+            Self::Cons(a, b) => Self::pair(a.remove_extension::<T>(), b.remove_extension::<T>()),
+            _ => self.clone(),
+        }
+    }
+}
+
+/// Placeholder boundary retaining transformation objects without pretending to
+/// execute them. Concrete error/reason/node callbacks depend on verifier errors.
+pub trait ErrorTransformation: Debug + Send + Sync {}
+#[derive(Clone, Debug, Default)]
+pub struct ErrorTrafo {
+    pub error: Vec<Arc<dyn ErrorTransformation>>,
+    pub reason: Vec<Arc<dyn ErrorTransformation>>,
+    pub node: Option<Arc<dyn ErrorTransformation>>,
+}
+impl ErrorTrafo {
+    pub fn combine(&self, other: &Self) -> Self {
+        let mut error = self.error.clone();
+        error.extend(other.error.iter().cloned());
+        let mut reason = self.reason.clone();
+        reason.extend(other.reason.iter().cloned());
+        Self {
+            error,
+            reason,
+            node: other.node.clone().or_else(|| self.node.clone()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Metadata {
+    pub position: Position,
+    pub info: Info,
+    pub error_trafo: ErrorTrafo,
+}
+
+pub trait Positioned {
+    fn position(&self) -> &Position;
+}
+pub trait Infoed {
+    fn info(&self) -> &Info;
+}
+pub trait Typed {
+    fn typ(&self) -> &Type;
+    fn is_subtype(&self, other: &Type) -> bool {
+        self.typ().is_subtype(other)
+    }
+}
+pub trait Declaration: Positioned {
+    fn name(&self) -> &str;
+}

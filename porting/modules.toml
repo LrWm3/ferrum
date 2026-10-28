@@ -6,13 +6,15 @@ schema_version = 1
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Ast.scala"
 destination = "crates/ferrum-silver/src/ast/ast.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Common metadata and info composition exist; full Node contracts, consistency and executable typed diagnostic backtransformation remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Expression.scala"
 destination = "crates/ferrum-silver/src/ast/expression.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Expression families, queries, child reconstruction and implicit permissions exist; full consistency, generic rewriting, trigger generation and pretty printing remain."]
 
 [[modules]]
 repository = "silver"
@@ -24,13 +26,15 @@ status = "ported"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Program.scala"
 destination = "crates/ferrum-silver/src/ast/program.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Declarations, member lookup, operator signatures and cached wand structures exist; consistency, dependency hashing, domain instantiation and CFG conversion remain."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/Statement.scala"
 destination = "crates/ferrum-silver/src/ast/statement.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Statement families and scope queries exist; complete consistency, generic rewriting, CFG and pretty printing remain."]
 
 [[modules]]
 repository = "silver"
@@ -67,7 +71,8 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Expressions.scala"
 destination = "crates/ferrum-silver/src/ast/utility/expressions.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Projection, variable queries and wand canonicalization exist; remaining expression helpers and extension integration need source audit."]
 
 [[modules]]
 repository = "silver"
@@ -115,7 +120,8 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Nodes.scala"
 destination = "crates/ferrum-silver/src/ast/utility/nodes.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Ordered child dispatch and member references exist; complete product reconstruction and identity for value node families remain."]
 
 [[modules]]
 repository = "silver"
@@ -139,7 +145,8 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Statements.scala"
 destination = "crates/ferrum-silver/src/ast/utility/statements.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Statement collection and variable queries exist; complete extension and reconstruction integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -151,7 +158,8 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Types.scala"
 destination = "crates/ferrum-silver/src/ast/utility/types.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Type and domain-member queries exist; extension constituent hooks remain."]
 
 [[modules]]
 repository = "silver"
@@ -163,7 +171,8 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/ast/utility/Visitor.scala"
 destination = "crates/ferrum-silver/src/ast/utility/visitor.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Generic traversal and reduction exist; complete AST and parser child-provider integration remains."]
 
 [[modules]]
 repository = "silver"
@@ -313,7 +322,7 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/FastMessage.scala"
 destination = "crates/ferrum-silver/src/parser/fast_message.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
@@ -331,13 +340,15 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ParseAst.scala"
 destination = "crates/ferrum-silver/src/parser/parse_ast.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Typed mutable graph, signatures, substitutions and traversal exist; macro types, expression equality, copying/rewriting, grammar/resolution integration and graph ownership remain. Strong declaration links can cycle; weak navigation and owner links can detach."]
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/parser/ParseAstKeyword.scala"
 destination = "crates/ferrum-silver/src/parser/parse_ast_keyword.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Tokens, delimiters, formatting metadata and type signatures exist; complete formatter and parser integration remain."]
 
 [[modules]]
 repository = "silver"
@@ -711,7 +722,8 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/verifier/VerificationResult.scala"
 destination = "crates/ferrum-silver/src/verifier/verification_result.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Parse reports and shared mutable scope exist; verification outcomes and other error categories remain."]
 
 [[modules]]
 repository = "silver"

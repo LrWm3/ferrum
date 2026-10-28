@@ -1,37 +1,609 @@
-//! Port plan: Program declarations, resources, built-in operators and program-wide consistency.
+//! Silver programs, declarations, domains and built-in operators.
 //!
-//! Upstream:
-//! https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/ast/Program.scala
+//! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/ast/Program.scala
 //!
-//! Purpose:
-//! Program declarations, resources, built-in operators and program-wide consistency.
-//!
-//! Planned Rust structure:
-//! Model Program, Hashable, Field, Predicate, Method, Function, local declarations, Domain, DomainFunc,
-//! named/anonymous DomainAxiom and Substitution. Preserve Member, DomainMember, Callable, FuncLike,
-//! Contracted, Resource, Location, AbstractDomainFunc and ExtensionMember interfaces.
-//! Include built-in integer, Boolean and permission operator families and BackendFunc.
-//!
-//! Behavior to preserve:
-//! Keep ordered member lists and name-based lookup across cyclic call relationships; strict lookup
-//! fails when absent. Name validation tracks nested scopes and checks duplicate declarations, while
-//! domain function scopes start empty. Check calls against argument and return types, abstract
-//! predicate fold/unfold, and ordered program-level diagnostics; preserve local and transitive
-//! consistency checks, declaration scoping, abstract predicate usage restrictions, contracts and
-//! optional bodies. Missing method bodies have a bodyOrAssumeFalse helper containing inhale false.
-//! Retain program-dependent hashing and operator signatures/precedence, domain substitutions and
-//! interpretation fields; metadata does not automatically belong to structural equality.
-//!
-//! Integration:
-//! Used throughout ast::{expression,statement,type,pretty::pretty_printer}, ast::utility
-//! consistency/domain/visitor routines, parser translation, CFG generation and Silicon.
-//!
-//! Rust adaptations:
-//! Follow porting/conventions.md for ownership, identity, ordering and errors; proposed interfaces
-//! remain provisional.
-//!
-//! Open decisions:
-//! Reconcile program-aware hash/equality, lookup lifetime, substitution and plugin extension ownership
-//! with ast::ast, rewriter and Silicon consumers.
-//!
-//! Status: description only; implementation has not started.
+//! Status: partial. Declaration representations and direct lookup are implemented;
+//! consistency, dependency hashing, domain instantiation and CFG conversion remain pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+//
+// Copyright (c) 2011-2019 ETH Zurich.
+
+use super::ast::Metadata;
+use super::expression::{Exp, LocalVar};
+use super::statement::Stmt;
+use super::r#type::{DomainType, Type, TypeSubstitution, TypeVar};
+use std::any::Any;
+use std::collections::HashMap;
+use std::fmt::Debug;
+use std::sync::{Arc, Mutex, OnceLock};
+
+// Scala case-class metadata and the second argument list do not participate in equality.
+macro_rules! structural_eq {
+    ($name:ident, $($field:ident),+ $(,)?) => {
+        impl PartialEq for $name { fn eq(&self, other: &Self) -> bool { true $(&& self.$field == other.$field)+ } }
+        impl Eq for $name {}
+    };
+}
+
+#[derive(Debug)]
+pub struct LocalVarDeclNode {
+    pub name: String,
+    pub typ: Type,
+    pub meta: Metadata,
+    local_var: OnceLock<LocalVar>,
+}
+#[derive(Clone, Debug)]
+pub struct LocalVarDecl(pub Arc<LocalVarDeclNode>);
+structural_eq!(LocalVarDecl, name, typ);
+impl LocalVarDecl {
+    pub fn new(name: String, typ: Type, meta: Metadata) -> Self {
+        Self(Arc::new(LocalVarDeclNode {
+            name,
+            typ,
+            meta,
+            local_var: OnceLock::new(),
+        }))
+    }
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub fn local_var(&self) -> LocalVar {
+        self.local_var
+            .get_or_init(|| LocalVar::new(self.name.clone(), self.typ.clone(), self.meta.clone()))
+            .clone()
+    }
+}
+impl std::ops::Deref for LocalVarDecl {
+    type Target = LocalVarDeclNode;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+#[derive(Clone, Debug)]
+pub struct UnnamedLocalVarDecl {
+    pub typ: Type,
+    pub meta: Metadata,
+}
+structural_eq!(UnnamedLocalVarDecl, typ);
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AnyLocalVarDecl {
+    Named(LocalVarDecl),
+    Unnamed(UnnamedLocalVarDecl),
+}
+impl AnyLocalVarDecl {
+    pub fn typ(&self) -> &Type {
+        match self {
+            Self::Named(v) => &v.typ,
+            Self::Unnamed(v) => &v.typ,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Field {
+    pub name: String,
+    pub typ: Type,
+    pub meta: Metadata,
+}
+structural_eq!(Field, name, typ);
+#[derive(Clone, Debug)]
+pub struct Predicate {
+    pub name: String,
+    pub formal_args: Vec<LocalVarDecl>,
+    pub body: Option<Exp>,
+    pub meta: Metadata,
+}
+structural_eq!(Predicate, name, formal_args, body);
+impl Predicate {
+    pub fn is_abstract(&self) -> bool {
+        self.body.is_none()
+    }
+}
+#[derive(Clone, Debug)]
+pub struct Method {
+    pub name: String,
+    pub formal_args: Vec<LocalVarDecl>,
+    pub formal_returns: Vec<LocalVarDecl>,
+    pub pres: Vec<Exp>,
+    pub posts: Vec<Exp>,
+    pub body: Option<Stmt>,
+    pub meta: Metadata,
+}
+structural_eq!(Method, name, formal_args, formal_returns, pres, posts, body);
+#[derive(Clone, Debug)]
+pub struct Function {
+    pub name: String,
+    pub formal_args: Vec<LocalVarDecl>,
+    pub typ: Type,
+    pub pres: Vec<Exp>,
+    pub posts: Vec<Exp>,
+    pub body: Option<Exp>,
+    pub meta: Metadata,
+}
+structural_eq!(Function, name, formal_args, typ, pres, posts, body);
+impl Function {
+    pub fn is_abstract(&self) -> bool {
+        self.body.is_none()
+    }
+
+    /// Upstream classifies a function by its preconditions' purity.
+    pub fn is_pure(&self) -> bool {
+        self.pres.iter().all(Exp::is_pure)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DomainFunc {
+    pub name: String,
+    pub formal_args: Vec<AnyLocalVarDecl>,
+    pub typ: Type,
+    pub unique: bool,
+    pub interpretation: Option<String>,
+    pub domain_name: String,
+    pub meta: Metadata,
+}
+structural_eq!(DomainFunc, name, formal_args, typ, unique, interpretation);
+#[derive(Clone, Debug)]
+pub enum DomainAxiom {
+    Named {
+        name: String,
+        exp: Exp,
+        domain_name: String,
+        meta: Metadata,
+    },
+    Anonymous {
+        exp: Exp,
+        domain_name: String,
+        meta: Metadata,
+    },
+}
+impl PartialEq for DomainAxiom {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Named {
+                    name: a, exp: x, ..
+                },
+                Self::Named {
+                    name: b, exp: y, ..
+                },
+            ) => a == b && x == y,
+            (Self::Anonymous { exp: x, .. }, Self::Anonymous { exp: y, .. }) => x == y,
+            _ => false,
+        }
+    }
+}
+impl Eq for DomainAxiom {}
+impl DomainAxiom {
+    pub fn exp(&self) -> &Exp {
+        match self {
+            Self::Named { exp, .. } | Self::Anonymous { exp, .. } => exp,
+        }
+    }
+}
+#[derive(Clone, Debug)]
+pub struct Domain {
+    pub name: String,
+    pub functions: Vec<DomainFunc>,
+    pub axioms: Vec<DomainAxiom>,
+    pub type_vars: Vec<TypeVar>,
+    pub interpretations: Option<HashMap<String, String>>,
+    pub meta: Metadata,
+}
+structural_eq!(Domain, name, functions, axioms, type_vars, interpretations);
+impl Domain {
+    pub fn domain_type(&self, substitutions: TypeSubstitution) -> DomainType {
+        DomainType::new(self.name.clone(), substitutions, self.type_vars.clone())
+    }
+}
+
+pub trait ExtensionMember: Debug + Send + Sync {
+    fn as_any(&self) -> &dyn Any;
+    fn name(&self) -> &str;
+    fn equals(&self, other: &dyn ExtensionMember) -> bool;
+    fn subnodes(
+        &self,
+    ) -> Result<Vec<super::utility::nodes::Node>, super::utility::nodes::TraversalError> {
+        Err(super::utility::nodes::TraversalError::Extension(
+            "member subnodes",
+        ))
+    }
+}
+#[derive(Clone, Debug)]
+pub struct ExtensionMemberHandle(pub Arc<dyn ExtensionMember>);
+impl PartialEq for ExtensionMemberHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.equals(other.0.as_ref())
+    }
+}
+impl Eq for ExtensionMemberHandle {}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Member {
+    Domain(Domain),
+    Field(Field),
+    Function(Function),
+    Predicate(Predicate),
+    Method(Method),
+    Extension(ExtensionMemberHandle),
+}
+impl Member {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Domain(v) => &v.name,
+            Self::Field(v) => &v.name,
+            Self::Function(v) => &v.name,
+            Self::Predicate(v) => &v.name,
+            Self::Method(v) => &v.name,
+            Self::Extension(v) => v.0.name(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ProgramContents {
+    pub domains: Vec<Domain>,
+    pub fields: Vec<Field>,
+    pub functions: Vec<Function>,
+    pub predicates: Vec<Predicate>,
+    pub methods: Vec<Method>,
+    pub extensions: Vec<ExtensionMemberHandle>,
+    pub meta: Metadata,
+}
+#[derive(Debug)]
+struct ProgramData {
+    contents: ProgramContents,
+    magic_wand_structures: Mutex<Option<Vec<Exp>>>,
+}
+/// An immutable source program. Clones share its identity and lazy cache.
+#[derive(Clone, Debug)]
+pub struct Program(Arc<ProgramData>);
+impl std::ops::Deref for Program {
+    type Target = ProgramContents;
+    fn deref(&self) -> &Self::Target {
+        &self.0.contents
+    }
+}
+structural_eq!(
+    Program, domains, fields, functions, predicates, methods, extensions
+);
+impl Program {
+    pub fn new(
+        domains: Vec<Domain>,
+        fields: Vec<Field>,
+        functions: Vec<Function>,
+        predicates: Vec<Predicate>,
+        methods: Vec<Method>,
+        extensions: Vec<ExtensionMemberHandle>,
+        meta: Metadata,
+    ) -> Self {
+        Self::from_contents(ProgramContents {
+            domains,
+            fields,
+            functions,
+            predicates,
+            methods,
+            extensions,
+            meta,
+        })
+    }
+    pub fn from_contents(contents: ProgramContents) -> Self {
+        Self(Arc::new(ProgramData {
+            contents,
+            magic_wand_structures: Mutex::new(None),
+        }))
+    }
+    /// Produce a fresh program and cache even if the edited contents compare equal.
+    pub fn copy_with(&self, edit: impl FnOnce(&mut ProgramContents)) -> Self {
+        let mut contents = self.0.contents.clone();
+        edit(&mut contents);
+        Self::from_contents(contents)
+    }
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub fn members(&self) -> Vec<Member> {
+        self.domains
+            .iter()
+            .cloned()
+            .map(Member::Domain)
+            .chain(self.fields.iter().cloned().map(Member::Field))
+            .chain(self.functions.iter().cloned().map(Member::Function))
+            .chain(self.predicates.iter().cloned().map(Member::Predicate))
+            .chain(self.methods.iter().cloned().map(Member::Method))
+            .chain(self.extensions.iter().cloned().map(Member::Extension))
+            .collect()
+    }
+    // Scala's toMap keeps the last declaration for duplicate names.
+    pub fn find_domain_optionally(&self, name: &str) -> Option<&Domain> {
+        self.domains.iter().rev().find(|x| x.name == name)
+    }
+    pub fn find_field_optionally(&self, name: &str) -> Option<&Field> {
+        self.fields.iter().rev().find(|x| x.name == name)
+    }
+    pub fn find_function_optionally(&self, name: &str) -> Option<&Function> {
+        self.functions.iter().rev().find(|x| x.name == name)
+    }
+    pub fn find_predicate_optionally(&self, name: &str) -> Option<&Predicate> {
+        self.predicates.iter().rev().find(|x| x.name == name)
+    }
+    pub fn find_method_optionally(&self, name: &str) -> Option<&Method> {
+        self.methods.iter().rev().find(|x| x.name == name)
+    }
+    pub fn find_domain_function_optionally(&self, name: &str) -> Option<&DomainFunc> {
+        self.domains
+            .iter()
+            .rev()
+            .flat_map(|d| d.functions.iter().rev())
+            .find(|x| x.name == name)
+    }
+    pub fn find_domain(&self, name: &str) -> Result<&Domain, MissingMember> {
+        self.find_domain_optionally(name)
+            .ok_or_else(|| MissingMember::new("Domain", name))
+    }
+    pub fn find_field(&self, name: &str) -> Result<&Field, MissingMember> {
+        self.find_field_optionally(name)
+            .ok_or_else(|| MissingMember::new("Field", name))
+    }
+    pub fn find_function(&self, name: &str) -> Result<&Function, MissingMember> {
+        self.find_function_optionally(name)
+            .ok_or_else(|| MissingMember::new("Function", name))
+    }
+    pub fn find_predicate(&self, name: &str) -> Result<&Predicate, MissingMember> {
+        self.find_predicate_optionally(name)
+            .ok_or_else(|| MissingMember::new("Predicate", name))
+    }
+    pub fn find_method(&self, name: &str) -> Result<&Method, MissingMember> {
+        self.find_method_optionally(name)
+            .ok_or_else(|| MissingMember::new("Method", name))
+    }
+    pub fn find_domain_function(&self, name: &str) -> Result<&DomainFunc, MissingMember> {
+        self.find_domain_function_optionally(name)
+            .ok_or_else(|| MissingMember::new("Domain function", name))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MissingMember {
+    pub kind: &'static str,
+    pub name: String,
+}
+impl MissingMember {
+    fn new(kind: &'static str, name: &str) -> Self {
+        Self {
+            kind,
+            name: name.to_owned(),
+        }
+    }
+}
+impl std::fmt::Display for MissingMember {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.kind == "Domain function" {
+            write!(f, "Domain function {} not found in program.", self.name)
+        } else {
+            write!(f, "{} name {} not found in program.", self.kind, self.name)
+        }
+    }
+}
+impl std::error::Error for MissingMember {}
+
+/// Operators have distinct source identities, including the permission variants.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BuiltinOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    PermAdd,
+    PermSub,
+    PermMul,
+    DebugPermMin,
+    IntPermMul,
+    PermDiv,
+    Frac,
+    Neg,
+    PermNeg,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    PermLt,
+    PermLe,
+    PermGt,
+    PermGe,
+    Or,
+    And,
+    Implies,
+    MagicWand,
+    Not,
+}
+
+/// Plugin declarations need not be members of the program.
+pub trait ExtensionDeclaration: Debug + Send + Sync {
+    fn as_any(&self) -> &dyn Any;
+    fn name(&self) -> &str;
+    fn equals(&self, other: &dyn ExtensionDeclaration) -> bool;
+}
+#[derive(Clone, Debug)]
+pub struct ExtensionDeclarationHandle(pub Arc<dyn ExtensionDeclaration>);
+impl PartialEq for ExtensionDeclarationHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.equals(other.0.as_ref())
+    }
+}
+impl Eq for ExtensionDeclarationHandle {}
+#[derive(Clone, Debug)]
+pub struct LabelDeclaration {
+    pub name: String,
+    pub invariants: Vec<Exp>,
+    pub meta: Metadata,
+}
+structural_eq!(LabelDeclaration, name, invariants);
+
+/// Declarations admitted by a scope, including plugin-provided declarations.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Declaration {
+    Local(LocalVarDecl),
+    Field(Field),
+    Predicate(Predicate),
+    Method(Method),
+    Function(Function),
+    Domain(Domain),
+    DomainFunc(DomainFunc),
+    NamedDomainAxiom(DomainAxiom),
+    Label(LabelDeclaration),
+    Extension(ExtensionDeclarationHandle),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OperatorFixity {
+    Prefix,
+    InfixLeft,
+    InfixRight,
+    InfixNonAssociative,
+}
+impl BuiltinOp {
+    pub fn spelling(self) -> &'static str {
+        use BuiltinOp::*;
+        match self {
+            Add | PermAdd => "+",
+            Sub | PermSub | Neg | PermNeg => "-",
+            Mul | PermMul | IntPermMul => "*",
+            Div => "\\",
+            Mod => "%",
+            PermDiv | Frac => "/",
+            DebugPermMin => "min",
+            Lt | PermLt => "<",
+            Le | PermLe => "<=",
+            Gt | PermGt => ">",
+            Ge | PermGe => ">=",
+            Or => "||",
+            And => "&&",
+            Implies => "==>",
+            MagicWand => "--*",
+            Not => "!",
+        }
+    }
+    pub fn result_type(self) -> Type {
+        use BuiltinOp::*;
+        match self {
+            Add | Sub | Mul | Div | Mod | Neg => Type::Int,
+            PermAdd | PermSub | PermMul | DebugPermMin | IntPermMul | PermDiv | Frac | PermNeg => {
+                Type::Perm
+            }
+            MagicWand => Type::Wand,
+            _ => Type::Bool,
+        }
+    }
+    pub fn argument_types(self) -> Vec<Type> {
+        use BuiltinOp::*;
+        match self {
+            Neg => vec![Type::Int],
+            PermNeg => vec![Type::Perm],
+            Not => vec![Type::Bool],
+            Add | Sub | Mul | Div | Mod | Lt | Le | Gt | Ge | Frac => vec![Type::Int, Type::Int],
+            PermAdd | PermSub | PermMul | DebugPermMin | PermLt | PermLe | PermGt | PermGe => {
+                vec![Type::Perm, Type::Perm]
+            }
+            IntPermMul => vec![Type::Int, Type::Perm],
+            PermDiv => vec![Type::Perm, Type::Int],
+            Or | And | Implies | MagicWand => vec![Type::Bool, Type::Bool],
+        }
+    }
+    pub fn priority(self) -> u8 {
+        use BuiltinOp::*;
+        match self {
+            Implies => 2,
+            MagicWand => 3,
+            Or => 4,
+            And => 5,
+            Lt | Le | Gt | Ge | PermLt | PermLe | PermGt | PermGe => 7,
+            Add | Sub | PermAdd | PermSub | DebugPermMin => 8,
+            Mul | Div | Mod | PermMul | IntPermMul | PermDiv | Frac => 9,
+            Neg | PermNeg | Not => 10,
+        }
+    }
+    pub fn fixity(self) -> OperatorFixity {
+        use BuiltinOp::*;
+        match self {
+            Neg | PermNeg | Not => OperatorFixity::Prefix,
+            Implies | MagicWand => OperatorFixity::InfixRight,
+            Lt | Le | Gt | Ge | PermLt | PermLe | PermGt | PermGe => {
+                OperatorFixity::InfixNonAssociative
+            }
+            _ => OperatorFixity::InfixLeft,
+        }
+    }
+}
+impl Method {
+    /// The source's absent-body helper is `inhale false`, not an empty body.
+    pub fn body_or_assume_false(&self) -> Stmt {
+        self.body.clone().unwrap_or_else(|| {
+            let false_exp = Exp::new(super::expression::ExpKind::FalseLit, Metadata::default());
+            Stmt::new(
+                super::statement::StmtKind::Seqn {
+                    statements: vec![Stmt::new(
+                        super::statement::StmtKind::Inhale(false_exp),
+                        Metadata::default(),
+                    )],
+                    declarations: Vec::new(),
+                },
+                Metadata::default(),
+            )
+        })
+    }
+}
+impl Function {
+    pub fn result(&self) -> Exp {
+        Exp::new(
+            super::expression::ExpKind::Result(self.typ.clone()),
+            Metadata::default(),
+        )
+    }
+}
+
+impl Program {
+    /// Source deepCollect is evaluated bottom-up but returned parent-before-child;
+    /// distinct retains the first structurally equal canonical wand.
+    pub fn magic_wand_structures(
+        &self,
+    ) -> Result<Vec<Exp>, super::utility::expressions::MagicWandError> {
+        use super::utility::expressions::MagicWandError;
+        use super::utility::nodes::{self, Node};
+        // Failures are not cached: like a throwing Scala lazy val, a later
+        // access retries. Recover a poisoned guard rather than caching failure.
+        let mut cache = self
+            .0
+            .magic_wand_structures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(structures) = cache.as_ref() {
+            return Ok(structures.clone());
+        }
+        fn collect(node: &Node, program: &Program) -> Result<Vec<Exp>, MagicWandError> {
+            let mut descendants = Vec::new();
+            for child in nodes::subnodes(node)? {
+                descendants.extend(collect(&child, program)?);
+            }
+            let mut result = Vec::new();
+            if let Node::Exp(wand) = node {
+                if matches!(wand.kind(), super::expression::ExpKind::MagicWand(..)) {
+                    result.push(wand.magic_wand_structure(program, false)?);
+                }
+            }
+            result.extend(descendants);
+            Ok(result)
+        }
+        let mut result = Vec::new();
+        for wand in collect(&Node::Program(self.clone()), self)? {
+            if !result.contains(&wand) {
+                result.push(wand);
+            }
+        }
+        *cache = Some(result.clone());
+        Ok(result)
+    }
+}

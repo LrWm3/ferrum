@@ -18,7 +18,7 @@ requests explicitly fail with `PortIncomplete`.
   asset imports or exhaustive content reviews.
 - [conventions.md](conventions.md) separates shared requirements from open Rust
   representation choices. [differences.md](differences.md) records adopted
-  behavioral departures once there are any.
+  behavioral departures.
 
 Three `gpt-6.1-terra` agents read source files and their relevant collaborators,
 wrote separate batches, and performed targeted peer reviews. Coordinator review
@@ -26,7 +26,15 @@ included representative source/brief comparisons, mapping and stage checks, and
 reconciliation of peer corrections. Higher-risk peer checks covered parser and
 plugin transformations, state merging, heap encodings, retries, continuations,
 quantified permissions, snapshot caches and function-axiom phases. This does not
-prove future code correct or replace the broader testing pass in [PLAN.md](../PLAN.md).
+prove code correct or replace the broader testing pass in [PLAN.md](../PLAN.md).
+
+The implementation pass has activated every module, embedded the pinned resources,
+and added core AST/parser representations, source type and name utilities, generic
+CFG algorithms, and early Silicon term/state support. Most source modules still
+contain descriptions only. Parser ownership and rewriting, verification rules,
+solver orchestration and complete frontend assembly remain open. Targeted
+regressions cover specific identity and translation issues; no end-to-end
+verification or performance improvement has been demonstrated.
 
 Run the inventory and implementation checks from the repository root:
 

@@ -1,29 +1,92 @@
-//! Port plan: Collect type variables and constituents.
-//!
-//! Upstream:
-//! https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/ast/utility/Types.scala
-//!
-//! Purpose:
-//! Collect type variables and constituents.
-//!
-//! Planned Rust structure:
-//! Types.typeVariables, freeTypeVariables and typeConstituents overloads for types and domain
-//! members.
-//!
-//! Behavior to preserve:
-//! Recurse through domain mappings, collection element and map key/value; domain function
-//! signatures and typed nodes in axioms determine free variables. Constituents omit the outer
-//! type; domain arguments are returned directly while collection and map paths recurse.
-//!
-//! Integration:
-//! ast::{type,program,ast}, ast::utility::{nodes,visitor,domain_instances}.
-//!
-//! Rust adaptations:
-//! Follow porting/conventions.md for identity, ordering, explicit ownership, errors and
-//! replacement of Scala reflection; interfaces remain provisional.
-//!
-//! Open decisions:
-//! Reconcile domain parameter mappings and set/order semantics with ast::type and
-//! domain_instances.
-//!
-//! Status: description only; implementation has not started.
+//! Type-variable and constituent queries.
+//! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/ast/utility/Types.scala
+//! Status: partial. Type and domain-member queries are implemented; extension
+//! constituent behavior requires a source-compatible hook.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+//
+// Copyright (c) 2011-2019 ETH Zurich.
+
+use super::nodes::{self, Node, TraversalError};
+use crate::ast::program::{DomainAxiom, DomainFunc};
+use crate::ast::r#type::{Type, TypeVar};
+use std::collections::HashSet;
+
+pub fn type_variables(typ: &Type) -> HashSet<TypeVar> {
+    match typ {
+        Type::Var(v) => [v.clone()].into_iter().collect(),
+        // The case-class extractor exposes the partial constructor map, not
+        // the separately computed complete mapping of declared parameters.
+        Type::Domain(d) => d
+            .partial_type_vars
+            .values()
+            .flat_map(type_variables)
+            .collect(),
+        Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => type_variables(t),
+        Type::Map(k, v) => type_variables(k)
+            .union(&type_variables(v))
+            .cloned()
+            .collect(),
+        Type::Int
+        | Type::Bool
+        | Type::Perm
+        | Type::Ref
+        | Type::InternalType
+        | Type::Wand
+        | Type::Backend(_)
+        | Type::Extension(_) => HashSet::new(),
+    }
+}
+
+pub fn domain_function_free_type_variables(f: &DomainFunc) -> HashSet<TypeVar> {
+    let mut variables = type_variables(&f.typ);
+    for argument in &f.formal_args {
+        variables.extend(type_variables(argument.typ()));
+    }
+    variables
+}
+
+pub fn domain_axiom_free_type_variables(
+    axiom: &DomainAxiom,
+) -> Result<HashSet<TypeVar>, TraversalError> {
+    fn collect(node: &Node, result: &mut HashSet<TypeVar>) -> Result<(), TraversalError> {
+        if let Some(typ) = node.typ()? {
+            result.extend(type_variables(&typ));
+        }
+        for child in nodes::subnodes(node)? {
+            collect(&child, result)?;
+        }
+        Ok(())
+    }
+    let mut result = HashSet::new();
+    collect(&Node::Exp(axiom.exp().clone()), &mut result)?;
+    Ok(result)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UnsupportedExtensionConstituents;
+
+pub fn type_constituents(typ: &Type) -> Result<Vec<Type>, UnsupportedExtensionConstituents> {
+    Ok(match typ {
+        Type::Domain(d) => d.type_arguments(),
+        Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => std::iter::once((**t).clone())
+            .chain(type_constituents(t)?)
+            .collect(),
+        Type::Map(k, v) => [(*k.clone()), (*v.clone())]
+            .into_iter()
+            .chain(type_constituents(k)?)
+            .chain(type_constituents(v)?)
+            .collect(),
+        Type::Int
+        | Type::Bool
+        | Type::Perm
+        | Type::Ref
+        | Type::InternalType
+        | Type::Wand
+        | Type::Var(_)
+        | Type::Backend(_) => Vec::new(),
+        Type::Extension(_) => return Err(UnsupportedExtensionConstituents),
+    })
+}

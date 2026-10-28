@@ -35,13 +35,16 @@ distinguish semantic requirements, adopted interfaces and open design choices.
 - Rust 1.89.0, edition 2024, three packages and a committed lockfile are the
   reproducible build baseline. Module declarations activate the tree without
   claiming the described modules are implemented.
-- Verification expressions and statements use typed, immutable `Arc` handles;
+- Verification programs, expressions and statements use typed, immutable `Arc` handles;
   metadata stays outside structural equality, and pointer identity is available
   separately for identity-sensitive rewriting. Lazy caches are explicit state.
 - The mutable parser graph uses typed `Arc<RwLock<_>>` handles and weak navigation
   links. This permits `SourcePNodeInfo` to retain real parser nodes in worker-safe
   metadata. Release guards before recursive traversal or callbacks; do not use
-  unsafe `Send` or discard source metadata to bypass ownership constraints.
+  unsafe `Send` or discard source metadata to bypass ownership constraints. The current
+  parser graph is partial: strong resolution links can form cycles, and weak
+  navigation/owner links can lose relationships when roots are dropped. These
+  lifetimes must be resolved before parser ownership is considered complete.
 - Term construction receives explicit options. Flyweight terms use a shared,
   process-wide strong pool, preserving reuse across verifier contexts. Each term
   keeps a stable equality mode; reject mixing modes in one graph. Recursive
@@ -59,8 +62,9 @@ distinguish semantic requirements, adopted interfaces and open design choices.
 - **AST handles and metadata:** owned enums, reference-counted nodes, or arenas
   remain choices for other node families. Reconcile traversal, rewriting, parent links, source metadata,
   cached properties, and identity-sensitive callers before choosing one globally.
-- **Terms and snapshots:** enum/newtype layouts and interning policy remain open.
-  Read factory normalization and equality rules before deciding which values can
+- **Terms and snapshots:** typed enums and the stable equality/interner boundary
+  above are adopted. Remaining chunk and snapshot representations must preserve
+  factory normalization and equality rules when deciding which values can
   share identity. A Rust heap snapshot is a symbolic verifier value, not permission
   to change the encoded ownership or permission semantics.
 - **State and contexts:** distinguish logically copied branch state from the
@@ -86,11 +90,12 @@ distinguish semantic requirements, adopted interfaces and open design choices.
 
 ## Review and progress
 
-Agents read the pinned source and its immediate collaborators, write file-specific
-briefs, and report unresolved cross-file decisions. The coordinator checks source
-links, comment-only contents, coverage and representative behavioral claims,
-reconciles shared issues, and advances reviewed entries to `described` in logical
-commits. Structural validation cannot prove the accuracy or completeness of prose.
+Agents read the pinned source and its immediate collaborators, implement bounded
+batches, and report unresolved cross-file decisions. Another agent reviews
+identity, ordering and semantic boundaries. The coordinator checks coverage,
+source attribution, representative behavior and the staged workspace before
+committing logical chunks. Partial modules remain `skeleton` with explicit gaps;
+compilation and targeted review do not establish full behavioral compatibility.
 
 Source-specific open issues stay in their module comments. Promote an issue here
 when it needs agreement across components; record adopted behavior changes in
