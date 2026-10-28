@@ -360,247 +360,247 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/ParserPluginTemplate.scala"
 destination = "crates/ferrum-silver/src/plugin/parser_plugin_template.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/PluginTemplate.scala"
 destination = "crates/ferrum-silver/src/plugin/plugin_template.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/SilverPlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/silver_plugin.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/SilverPluginManager.scala"
 destination = "crates/ferrum-silver/src/plugin/silver_plugin_manager.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/sif/SIFAstExtensions.scala"
 destination = "crates/ferrum-silver/src/plugin/sif/sif_ast_extensions.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/sif/SIFError.scala"
 destination = "crates/ferrum-silver/src/plugin/sif/sif_error.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/sif/SIFExtendedTransformer.scala"
 destination = "crates/ferrum-silver/src/plugin/sif/sif_extended_transformer.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/sif/SIFPAstExtensions.scala"
 destination = "crates/ferrum-silver/src/plugin/sif/sifp_ast_extensions.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/sif/SIFPlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/sif/sif_plugin.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/adt/AdtASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/adt/adt_ast_extension.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/adt/AdtPASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/adt/adt_past_extension.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/adt/AdtPlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/adt/adt_plugin.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/adt/encoding/AdtEncoder.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/adt/encoding/adt_encoder.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/adt/encoding/AdtNameManager.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/adt/encoding/adt_name_manager.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/arp/ARPASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/arp/arpast_extension.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/arp/ARPPASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/arp/arppast_extension.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/arp/ARPPlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/arp/arp_plugin.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/predicateinstance/PredicateInstanceASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_ast_extension.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/predicateinstance/PredicateInstanceErrors.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_errors.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/predicateinstance/PredicateInstancePASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_past_extension.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/predicateinstance/PredicateInstancePlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_plugin.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/refute/RefuteASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/refute/refute_ast_extension.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/refute/RefuteErrors.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/refute/refute_errors.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/refute/RefutePASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/refute/refute_past_extension.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/refute/RefutePlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/refute/refute_plugin.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/smoke/SmokeDetectionPlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/smoke/smoke_detection_plugin.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/smoke/UnreachableASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/smoke/unreachable_ast_extension.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/smoke/UnreachablePASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/smoke/unreachable_past_extension.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/TerminationASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/termination_ast_extension.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/TerminationErrors.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/termination_errors.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/TerminationPASTExtension.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/termination_past_extension.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/TerminationPlugin.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/termination_plugin.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/CallGraph.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/call_graph.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/DecreasesCheck.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/decreases_check.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/ErrorTrafoFactory.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/error_trafo_factory.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/ExpTransformer.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/exp_transformer.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/FunctionCheck.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/function_check.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/MethodCheck.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/method_check.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/NestedPredicates.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/nested_predicates.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/ProgramManager.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/program_manager.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/plugin/standard/termination/transformation/Trafo.scala"
 destination = "crates/ferrum-silver/src/plugin/standard/termination/transformation/trafo.rs"
-status = "mapped"
+status = "described"
 
 [[modules]]
 repository = "silver"
