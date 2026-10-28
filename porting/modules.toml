@@ -1973,7 +1973,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/verifier/BaseVerifier.scala"
 destination = "crates/ferrum-silicon/src/verifier/base_verifier.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Owned native worker components, lifecycle and prover broadcasts exist; concrete execution services, verification units and scheduling remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1985,7 +1986,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/verifier/VerificationPoolManager.scala"
 destination = "crates/ferrum-silicon/src/verifier/verification_pool_manager.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Owned native worker components, lifecycle and prover broadcasts exist; concrete execution services, verification units and scheduling remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1997,7 +1999,8 @@ status = "described"
 repository = "silicon"
 upstream = "src/main/scala/verifier/WorkerVerifier.scala"
 destination = "crates/ferrum-silicon/src/verifier/worker_verifier.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Owned native worker components, lifecycle and prover broadcasts exist; concrete execution services, verification units and scheduling remain."]
 
 [[modules]]
 repository = "silicon"
