@@ -448,3 +448,11 @@ parse failure. Reporter errors propagate before committing the phase state. The
 standalone facade keeps its existing warning collection path. Focused checks cover
 warning delivery on successful/failed analysis and reporter failure during either
 phase. Shared reporter configuration/plugin rebinding remains separate.
+
+The injected-AST frontend now accepts a backend factory that configures the
+verifier once and returns its effective shared configuration, including backend
+options. It builds configured standard/custom plugins and preserves the pinned
+source's starting state (and consequently skipped consistency phase) and retained
+errors across repeated calls. Native invalid/exit configuration rejection remains
+an explicit deviation from the source initializer. Focused tests use a stub
+backend; a concrete Silicon verifier adapter is still required.
