@@ -205,13 +205,13 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/cfg/Block.scala"
 destination = "crates/ferrum-silver/src/cfg/block.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/cfg/Cfg.scala"
 destination = "crates/ferrum-silver/src/cfg/cfg.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
@@ -223,7 +223,7 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/cfg/Edge.scala"
 destination = "crates/ferrum-silver/src/cfg/edge.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
@@ -241,13 +241,13 @@ status = "described"
 repository = "silver"
 upstream = "src/main/scala/viper/silver/cfg/utility/CfgSimplifier.scala"
 destination = "crates/ferrum-silver/src/cfg/utility/cfg_simplifier.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
 upstream = "src/main/scala/viper/silver/cfg/utility/Dominators.scala"
 destination = "crates/ferrum-silver/src/cfg/utility/dominators.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silver"
