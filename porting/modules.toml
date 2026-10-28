@@ -1070,7 +1070,8 @@ status = "ported"
 repository = "silicon"
 upstream = "src/main/scala/Config.scala"
 destination = "crates/ferrum-silicon/src/config.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source mode enums exist; complete CLI options, defaults and validation remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1120,7 +1121,7 @@ repository = "silicon"
 upstream = "src/main/scala/decider/Decider.scala"
 destination = "crates/ferrum-silicon/src/decider/decider.rs"
 status = "skeleton"
-remaining = ["Scoped assumptions, replay, facts, queries, lifecycle and declaration transfer exist; solver selection/version reporting, fresh variable/macros, logging and converter-warning integration remain."]
+remaining = ["Scoped assumptions, proof queries, fresh declarations and model operations exist; solver selection, reporting and concrete verifier lifecycle remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1177,7 +1178,7 @@ status = "ported"
 repository = "silicon"
 upstream = "src/main/scala/decider/package.scala"
 destination = "crates/ferrum-silicon/src/decider/package.rs"
-status = "described"
+status = "ported"
 
 [[modules]]
 repository = "silicon"
@@ -1682,7 +1683,8 @@ remaining = ["Concrete basic, mask, quantified and wand chunks, updates and subs
 repository = "silicon"
 upstream = "src/main/scala/state/FunctionPreconditionTransformer.scala"
 destination = "crates/ferrum-silicon/src/state/function_precondition_transformer.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Source term precondition transform exists; concrete heap-function symbol resolver and verifier integration remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1735,7 +1737,8 @@ remaining = ["Chunk-backed wand terms, source sorts/factories and partial traver
 repository = "silicon"
 upstream = "src/main/scala/state/Triggers.scala"
 destination = "crates/ferrum-silicon/src/state/triggers.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Term trigger classification and arithmetic adapter exist; generic trigger generation and axiom adapter integration remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1755,7 +1758,8 @@ remaining = ["Source helper operations and conflict-free union exist; downstream
 repository = "silicon"
 upstream = "src/main/scala/supporters/AnnotationSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/annotation_supporter.rs"
-status = "described"
+status = "skeleton"
+remaining = ["Member mode and option annotations are parsed; complete config and verifier lifecycle integration remain."]
 
 [[modules]]
 repository = "silicon"

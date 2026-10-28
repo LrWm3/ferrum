@@ -30,4 +30,63 @@
 //! Open decisions:
 //! Native CLI parsing, validation and execution-wide config ownership.
 //!
-//! Status: description only; implementation has not started.
+//! Status: partial; source mode enums implemented. CLI options and validation remain pending.
+
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// Copyright (c) 2011-2021 ETH Zurich.
+/// Source exhale algorithms, including the on-demand fallback.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ExhaleMode {
+    Greedy,
+    MoreComplete,
+    MoreCompleteOnDemand,
+}
+/// IDs match the source Enumeration's declaration order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(i32)]
+pub enum JoinMode {
+    Off = 0,
+    Impure = 1,
+    All = 2,
+}
+impl TryFrom<i32> for JoinMode {
+    type Error = i32;
+    fn try_from(value: i32) -> Result<Self, i32> {
+        match value {
+            0 => Ok(Self::Off),
+            1 => Ok(Self::Impure),
+            2 => Ok(Self::All),
+            _ => Err(value),
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(i32)]
+pub enum StateConsolidationMode {
+    Minimal = 0,
+    Default = 1,
+    Retrying = 2,
+    MinimalRetrying = 3,
+    MoreCompleteExhale = 4,
+    LastRetry = 5,
+    RetryingFailOnly = 6,
+    LastRetryFailOnly = 7,
+}
+impl TryFrom<i32> for StateConsolidationMode {
+    type Error = i32;
+    fn try_from(value: i32) -> Result<Self, i32> {
+        match value {
+            0 => Ok(Self::Minimal),
+            1 => Ok(Self::Default),
+            2 => Ok(Self::Retrying),
+            3 => Ok(Self::MinimalRetrying),
+            4 => Ok(Self::MoreCompleteExhale),
+            5 => Ok(Self::LastRetry),
+            6 => Ok(Self::RetryingFailOnly),
+            7 => Ok(Self::LastRetryFailOnly),
+            _ => Err(value),
+        }
+    }
+}

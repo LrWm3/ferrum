@@ -32,7 +32,7 @@
 //! Per-worker solver, mutable term alias, path stack and continuation ownership.
 //!
 //! Status: partial; per-worker options, scoped assumptions and proof checks are implemented.
-//! Solver selection/version reporting, macro creation, aliasing and logging remain.
+//! Solver selection/version reporting, AST fresh-variable helpers and logging remain.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -42,8 +42,8 @@
 use crate::debugger::debug_exp::DebugExp;
 use crate::decider::path_conditions::{LayeredPathConditionStack, Mark, PathError};
 use crate::interfaces::decider::prover::{Prover, SatResult};
+use crate::package::Map;
 use crate::state::terms::{Term, TermFactory, TermKind};
-use std::collections::HashMap;
 
 /// Solver errors remain distinct from a failed proof or an invalid path operation.
 #[derive(Debug)]
@@ -52,6 +52,8 @@ pub enum DeciderError<E> {
     Path(PathError),
     MissingDebugExpression,
     InvalidDeclaration,
+    InvalidFreshVariable,
+    MissingDebugVariableType,
 }
 
 /// Per-worker decider. Options and solver ownership are explicit until verifier integration.
@@ -64,13 +66,15 @@ pub struct DefaultDecider<P: Prover> {
     pub push_timeout: Option<i32>,
     /// Last failed assertion; the symbolic execution logger consumes this at integration.
     pub failed_query: Option<Term>,
-    options: HashMap<String, String>,
-    reset_options: HashMap<String, String>,
+    options: Map<String, String>,
+    reset_options: Map<String, String>,
     pub fresh_functions:
         crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<
             crate::state::terms::Declaration,
         >,
     pub fresh_macros: Vec<crate::state::terms::Declaration>,
+    pub debug_variable_types:
+        crate::package::Map<String, ferrum_silver::parser::parse_ast::PTypeHandle>,
 }
 impl<P: Prover> DefaultDecider<P> {
     pub fn new(
@@ -88,10 +92,11 @@ impl<P: Prover> DefaultDecider<P> {
             check_timeout,
             push_timeout,
             failed_query: None,
-            options: HashMap::new(),
-            reset_options: HashMap::new(),
+            options: Map::new(),
+            reset_options: Map::new(),
             fresh_functions: Default::default(),
             fresh_macros: Vec::new(),
+            debug_variable_types: Default::default(),
         }
     }
     pub fn start(&mut self, user_args: Option<&str>) -> Result<(), DeciderError<P::Error>> {
@@ -111,12 +116,12 @@ impl<P: Prover> DefaultDecider<P> {
     pub fn stop(&mut self) -> Result<(), DeciderError<P::Error>> {
         self.prover.stop().map_err(DeciderError::Prover)
     }
-    pub fn options(&self) -> &HashMap<String, String> {
+    pub fn options(&self) -> &Map<String, String> {
         &self.options
     }
     pub fn set_options(
         &mut self,
-        options: HashMap<String, String>,
+        options: Map<String, String>,
     ) -> Result<(), DeciderError<P::Error>> {
         self.options.extend(options);
         for (key, value) in &self.options {
@@ -328,6 +333,110 @@ impl<P: Prover> DefaultDecider<P> {
         self.fresh_functions = self.fresh_functions.incl(declaration.clone());
         Ok((target, declaration))
     }
+    /// Fresh variable creation keeps the source conversion from a nullary prover function.
+    pub fn fresh_variable(
+        &mut self,
+        factory: &TermFactory,
+        name: &str,
+        sort: &crate::state::terms::Sort,
+        is_arp: bool,
+        debug_type: Option<ferrum_silver::parser::parse_ast::PTypeHandle>,
+    ) -> Result<Term, DeciderError<P::Error>> {
+        use crate::state::terms::{ApplicationTarget, TermKind};
+        let target = self
+            .prover
+            .fresh(name, &[], sort)
+            .map_err(DeciderError::Prover)?;
+        let variable = match target {
+            ApplicationTarget::Variable(term) if matches!(term.kind(), TermKind::Var(_)) => term,
+            ApplicationTarget::Function(fun) if fun.data().arg_sorts.is_empty() => factory.var(
+                fun.data().id.clone(),
+                fun.data().result_sort.clone(),
+                is_arp,
+            ),
+            _ => return Err(DeciderError::InvalidFreshVariable),
+        };
+        self.fresh_functions = self
+            .fresh_functions
+            .incl(factory.function_decl_target(ApplicationTarget::Variable(variable.clone())));
+        if self.debug_mode {
+            let typ = debug_type.ok_or(DeciderError::MissingDebugVariableType)?;
+            if let TermKind::Var(var) = variable.kind() {
+                self.debug_variable_types.insert(var.id.name(), typ);
+            }
+        }
+        Ok(variable)
+    }
+    pub fn fresh_arp(
+        &mut self,
+        factory: &TermFactory,
+        name: &str,
+        debug_type: Option<ferrum_silver::parser::parse_ast::PTypeHandle>,
+    ) -> Result<(Term, Term), DeciderError<P::Error>> {
+        let variable = self.fresh_variable(
+            factory,
+            name,
+            &crate::state::terms::Sort::Perm,
+            true,
+            debug_type,
+        )?;
+        let constraint = factory.is_read_perm_var(variable.clone());
+        Ok((variable, constraint))
+    }
+    /// Define and record an actual SMT macro with a fresh source identifier.
+    pub fn fresh_macro(
+        &mut self,
+        factory: &TermFactory,
+        identifiers: &mut impl crate::state::identifiers::IdentifierFactory,
+        name: &str,
+        args: Vec<Term>,
+        body: Term,
+    ) -> Result<crate::state::terms::Declaration, DeciderError<P::Error>> {
+        let declaration = factory.macro_decl(identifiers.fresh(name), args, body);
+        self.prover
+            .declare(&declaration)
+            .map_err(DeciderError::Prover)?;
+        self.fresh_macros.push(declaration.clone());
+        Ok(declaration)
+    }
+    /// Add a zero-argument macro alias only where the source permits it.
+    pub fn create_alias<PD, FD, J>(
+        &mut self,
+        factory: &TermFactory,
+        identifiers: &mut impl crate::state::identifiers::IdentifierFactory,
+        term: &Term,
+        state: &crate::state::state::State<PD, FD, J>,
+    ) -> Result<Term, DeciderError<P::Error>> {
+        use crate::state::terms::{ApplicableData, ApplicableKind, TermKind};
+        let eligible = matches!(
+            term.kind(),
+            TermKind::HeapUpdate(..)
+                | TermKind::HeapToSnap(..)
+                | TermKind::SnapToHeap(..)
+                | TermKind::MaskAdd(..)
+                | TermKind::MergeSingle(..)
+                | TermKind::MergeHeaps(..)
+        );
+        if eligible
+            && term.var_repr().is_none()
+            && state.quantified_variables.is_empty()
+            && state.packaging_wand_snapshots.is_empty()
+            && state.current_member.as_ref().is_none_or(|member| {
+                matches!(member, ferrum_silver::ast::program::Member::Method(_))
+            })
+        {
+            let decl =
+                self.fresh_macro(factory, identifiers, "tmpTerm", Vec::new(), term.clone())?;
+            let macro_fn = factory.applicable(ApplicableData {
+                kind: ApplicableKind::Macro,
+                id: decl.id(),
+                arg_sorts: vec![],
+                result_sort: term.sort().clone(),
+            });
+            term.set_var_repr(Some(factory.app(macro_fn, Vec::new())));
+        }
+        Ok(term.clone())
+    }
     /// Declarations imported from another branch are emitted once, preserving input order.
     pub fn declare_fresh_functions(
         &mut self,
@@ -406,6 +515,21 @@ impl<P: Prover> DefaultDecider<P> {
         let success = self.check(term, timeout)?;
         self.failed_query = (!success).then(|| term.clone());
         Ok(continuation(success))
+    }
+    pub fn has_model(&self) -> bool {
+        self.prover.has_model()
+    }
+    pub fn is_model_valid(&self) -> bool {
+        self.prover.is_model_valid()
+    }
+    pub fn get_model(&mut self) -> Result<P::Model, DeciderError<P::Error>> {
+        self.prover.get_model().map_err(DeciderError::Prover)
+    }
+    pub fn clear_model(&mut self) {
+        self.prover.clear_last_assert();
+    }
+    pub fn statistics(&mut self) -> Result<Vec<(String, String)>, DeciderError<P::Error>> {
+        self.prover.statistics().map_err(DeciderError::Prover)
     }
     pub fn generate_model(&mut self, factory: &TermFactory) -> Result<(), DeciderError<P::Error>> {
         self.prover
