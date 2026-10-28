@@ -25,8 +25,8 @@
 //! Agree on scheduler shutdown and branch-path snapshot ownership with symb_ex_logger and
 //! reporter.
 //!
-//! Status: partial; branch/scope tracking, stall snapshots and ordered polling exist.
-//! Native fixed-delay scheduling and member-logger hooks remain to be connected.
+//! Status: partial; branch/scope tracking, owned fixed-delay polling and member hooks exist.
+//! Verifier lifecycle integration remains to be connected.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -384,6 +384,7 @@ impl StateReportingMember {
 pub enum StateReportError {
     Record(RecordError),
     Report(ReportError),
+    Panicked(String),
 }
 #[derive(Default)]
 struct ActiveMembers {
@@ -447,17 +448,185 @@ impl StateReporter {
             .clone();
         let mut errors = Vec::new();
         for log in logs {
-            match log.stalled_message(now_ms, self.report_after_ms, renderer) {
-                Ok(Some(message)) => {
-                    if let Err(e) = reporter.report(message) {
-                        errors.push(StateReportError::Report(e));
-                    }
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                match log.stalled_message(now_ms, self.report_after_ms, renderer) {
+                    Ok(Some(message)) => reporter.report(message).map_err(StateReportError::Report),
+                    Ok(None) => Ok(()),
+                    Err(error) => Err(StateReportError::Record(error)),
                 }
-                Ok(None) => (),
-                Err(e) => errors.push(StateReportError::Record(e)),
+            }));
+            match outcome {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => errors.push(error),
+                Err(panic) => {
+                    let detail = panic
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+                        .unwrap_or_else(|| "non-string panic".into());
+                    errors.push(StateReportError::Panicked(detail));
+                }
             }
         }
         Ok(errors)
+    }
+}
+
+/// Owned fixed-delay polling worker. The first poll occurs one interval after
+/// registration, and each subsequent delay starts after the preceding poll.
+/// Stopping joins outside registry locks; a blocking reporter can therefore delay
+/// shutdown because Rust cannot interrupt an arbitrary callback. A callback which
+/// stops its own worker signals it and leaves that one handle detached instead of
+/// attempting to join itself; the worker retains its owned dependencies until exit.
+pub struct ScheduledStateReporter {
+    registry: Arc<StateReporter>,
+    reporter: Arc<dyn Reporter>,
+    factory: TermFactory,
+    on_error: Arc<dyn Fn(StateReportError) + Send + Sync>,
+    worker: Mutex<Option<StateReporterWorker>>,
+}
+struct StateReporterWorker {
+    stop: std::sync::mpsc::Sender<()>,
+    thread: std::thread::JoinHandle<()>,
+}
+#[derive(Debug)]
+pub enum StateSchedulerError {
+    Record(RecordError),
+    Spawn(std::io::Error),
+    WorkerPanicked,
+}
+impl ScheduledStateReporter {
+    pub fn new(
+        report_after_ms: i64,
+        reporter: Arc<dyn Reporter>,
+        factory: TermFactory,
+        on_error: impl Fn(StateReportError) + Send + Sync + 'static,
+    ) -> Result<Self, RecordError> {
+        Ok(Self {
+            registry: Arc::new(StateReporter::new(report_after_ms)?),
+            reporter,
+            factory,
+            on_error: Arc::new(on_error),
+            worker: Mutex::new(None),
+        })
+    }
+    pub fn factory(&self) -> &TermFactory {
+        &self.factory
+    }
+    pub fn register(&self, log: Arc<StateReportingMember>) -> Result<(), StateSchedulerError> {
+        let mut worker = self
+            .worker
+            .lock()
+            .map_err(|_| StateSchedulerError::Record(RecordError::Poisoned))?;
+        let mut active = self
+            .registry
+            .active
+            .lock()
+            .map_err(|_| StateSchedulerError::Record(RecordError::Poisoned))?;
+        if active.closed {
+            return Ok(());
+        }
+        let added = !active.logs.iter().any(|old| Arc::ptr_eq(old, &log));
+        if added {
+            active.logs.push(log.clone());
+        }
+        if worker.is_none() {
+            let (stop, receiver) = std::sync::mpsc::channel();
+            let registry = self.registry.clone();
+            let reporter = self.reporter.clone();
+            let factory = self.factory.clone();
+            let on_error = self.on_error.clone();
+            let interval = std::time::Duration::from_millis(registry.poll_interval_ms as u64);
+            let spawned = std::thread::Builder::new()
+                .name("silicon-state-reporter".into())
+                .spawn(move || {
+                    loop {
+                        match receiver.recv_timeout(interval) {
+                            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                        }
+                        let now = match std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                        {
+                            Ok(d) => d.as_millis() as i64,
+                            Err(e) => -(e.duration().as_millis() as i64),
+                        };
+                        let renderer = NativeStateRecordRenderer { factory: &factory };
+                        match registry.poll(now, &renderer, reporter.as_ref()) {
+                            Ok(errors) => {
+                                for error in errors {
+                                    on_error(error);
+                                }
+                            }
+                            Err(error) => on_error(StateReportError::Record(error)),
+                        }
+                    }
+                });
+            match spawned {
+                Ok(thread) => *worker = Some(StateReporterWorker { stop, thread }),
+                Err(error) => {
+                    if added {
+                        active.logs.retain(|old| !Arc::ptr_eq(old, &log));
+                    }
+                    return Err(StateSchedulerError::Spawn(error));
+                }
+            }
+        }
+        Ok(())
+    }
+    pub fn unregister(&self, log: &Arc<StateReportingMember>) -> Result<(), StateSchedulerError> {
+        let stopped = {
+            let mut worker = self
+                .worker
+                .lock()
+                .map_err(|_| StateSchedulerError::Record(RecordError::Poisoned))?;
+            let mut active = self
+                .registry
+                .active
+                .lock()
+                .map_err(|_| StateSchedulerError::Record(RecordError::Poisoned))?;
+            active.logs.retain(|old| !Arc::ptr_eq(old, log));
+            if active.logs.is_empty() {
+                worker.take()
+            } else {
+                None
+            }
+        };
+        Self::stop(stopped)
+    }
+    pub fn close(&self) -> Result<(), StateSchedulerError> {
+        let stopped = {
+            let mut worker = self
+                .worker
+                .lock()
+                .map_err(|_| StateSchedulerError::Record(RecordError::Poisoned))?;
+            let mut active = self
+                .registry
+                .active
+                .lock()
+                .map_err(|_| StateSchedulerError::Record(RecordError::Poisoned))?;
+            active.closed = true;
+            active.logs.clear();
+            worker.take()
+        };
+        Self::stop(stopped)
+    }
+    fn stop(worker: Option<StateReporterWorker>) -> Result<(), StateSchedulerError> {
+        if let Some(worker) = worker {
+            let _ = worker.stop.send(());
+            if worker.thread.thread().id() != std::thread::current().id() {
+                worker
+                    .thread
+                    .join()
+                    .map_err(|_| StateSchedulerError::WorkerPanicked)?;
+            }
+        }
+        Ok(())
+    }
+}
+impl Drop for ScheduledStateReporter {
+    fn drop(&mut self) {
+        let _ = self.close();
     }
 }
 
@@ -473,6 +642,143 @@ mod tests {
         r#type::Type,
     };
     struct Text;
+    #[test]
+    fn scheduled_poller_starts_lazily_restarts_and_closes() {
+        struct ChannelReporter(std::sync::mpsc::Sender<Message>);
+        impl Reporter for ChannelReporter {
+            fn name(&self) -> &str {
+                "channel"
+            }
+            fn report(&self, message: Message) -> Result<(), ReportError> {
+                let _ = self.0.send(message);
+                Ok(())
+            }
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let scheduler =
+            ScheduledStateReporter::new(1, Arc::new(ChannelReporter(tx)), factory, |error| {
+                panic!("unexpected scheduler error: {error:?}")
+            })
+            .unwrap();
+        let make_log = || {
+            Arc::new(StateReportingMember::new(
+                Arc::new(Member::Field(Field::new(FieldData {
+                    name: "f".into(),
+                    typ: Type::Int,
+                    meta: Default::default(),
+                }))),
+                0,
+            ))
+        };
+        let first = make_log();
+        assert!(rx.try_recv().is_err());
+        let started = std::time::Instant::now();
+        scheduler.register(first.clone()).unwrap();
+        assert!(matches!(
+            rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap(),
+            Message::VerifierState { .. }
+        ));
+        assert!(started.elapsed() >= std::time::Duration::from_millis(50));
+        scheduler.unregister(&first).unwrap();
+        let second = make_log();
+        scheduler.register(second.clone()).unwrap();
+        assert!(matches!(
+            rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap(),
+            Message::VerifierState { .. }
+        ));
+        scheduler.close().unwrap();
+        scheduler.register(make_log()).unwrap();
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_millis(100))
+                .is_err()
+        );
+    }
+    #[test]
+    fn polling_continues_after_one_reporter_failure() {
+        struct FailsOnce(std::sync::atomic::AtomicUsize);
+        impl Reporter for FailsOnce {
+            fn name(&self) -> &str {
+                "fails once"
+            }
+            fn report(&self, _: Message) -> Result<(), ReportError> {
+                if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    Err(ReportError::Unsupported("first"))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        let registry = StateReporter::new(1).unwrap();
+        for name in ["a", "b"] {
+            let member = Arc::new(Member::Field(Field::new(FieldData {
+                name: name.into(),
+                typ: Type::Int,
+                meta: Default::default(),
+            })));
+            registry
+                .register(Arc::new(StateReportingMember::new(member, 0)))
+                .unwrap();
+        }
+        let reporter = FailsOnce(std::sync::atomic::AtomicUsize::new(0));
+        let errors = registry.poll(1, &Text, &reporter).unwrap();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(reporter.0.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+    #[test]
+    fn scheduled_reporter_can_close_from_callback() {
+        struct ClosingReporter {
+            scheduler: Mutex<Option<std::sync::Weak<ScheduledStateReporter>>>,
+            done: std::sync::mpsc::Sender<()>,
+        }
+        impl Reporter for ClosingReporter {
+            fn name(&self) -> &str {
+                "closing"
+            }
+            fn report(&self, _: Message) -> Result<(), ReportError> {
+                self.scheduler
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .upgrade()
+                    .unwrap()
+                    .close()
+                    .unwrap();
+                self.done.send(()).unwrap();
+                Ok(())
+            }
+        }
+        let (done, completed) = std::sync::mpsc::channel();
+        let reporter = Arc::new(ClosingReporter {
+            scheduler: Mutex::new(None),
+            done,
+        });
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let scheduler =
+            Arc::new(ScheduledStateReporter::new(1, reporter.clone(), factory, |_| {}).unwrap());
+        *reporter.scheduler.lock().unwrap() = Some(Arc::downgrade(&scheduler));
+        let member = Arc::new(Member::Field(Field::new(FieldData {
+            name: "f".into(),
+            typ: Type::Int,
+            meta: Default::default(),
+        })));
+        scheduler
+            .register(Arc::new(StateReportingMember::new(member, 0)))
+            .unwrap();
+        completed
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        scheduler.close().unwrap();
+    }
     #[test]
     fn native_renderer_preserves_position_node_and_source_text() {
         use crate::state::terms::TermOptions;

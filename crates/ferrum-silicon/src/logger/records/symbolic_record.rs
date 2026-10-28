@@ -44,6 +44,7 @@ use std::{
 pub enum RecordError {
     Unsupported(&'static str),
     InvalidBranch,
+    Reporting(String),
     Poisoned,
 }
 /// Source rendering is explicit: Rust Debug text is not an equivalent printer.

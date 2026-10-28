@@ -1275,14 +1275,14 @@ repository = "silicon"
 upstream = "src/main/scala/logger/StateReporting.scala"
 destination = "crates/ferrum-silicon/src/logger/state_reporting.rs"
 status = "skeleton"
-remaining = ["Branch/scope tracking, ordinary native record rendering, stall snapshots and ordered polling exist. Fixed-delay scheduling and member execution hooks remain."]
+remaining = ["Ordinary rendering, stall snapshots, fixed-delay polling and member scope/branch hooks are connected. Verifier event/lifecycle integration and broad concurrent compatibility remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/logger/SymbExLogger.scala"
 destination = "crates/ferrum-silicon/src/logger/symb_ex_logger.rs"
 status = "skeleton"
-remaining = ["Recording root/member ownership, configuration loading, scope/branch records, tree rendering and filters exist. State-report composition, runtime event producers and exact numeric diagnostic formatting remain."]
+remaining = ["Run ownership, configuration mode selection, recording/discard/noop member logs and timed reporting hooks exist. Verifier event/lifecycle integration, advanced trace emission and exact numeric diagnostic formatting remain."]
 
 [[modules]]
 repository = "silicon"

@@ -422,3 +422,14 @@ positions; missing hooks return unsupported errors. Focused positive/negative
 checks cover parsing through checked translation and macro argument substitution.
 This does not provide a general parser-combinator or custom binding-scope API;
 the pinned source's PScope trait is sealed.
+
+State reporting now has an owned fixed-delay polling worker with lazy startup,
+restart after the last member unregisters, and permanent shutdown. Recording and
+discard-only member logs forward source data/scope/branch events, including
+records excluded by log filters. Configuration selects disabled, state-only,
+advanced recording or combined modes, reading the log config only for advanced
+recording. Per-member reporting failures do not stop other member reports.
+Shutdown joins outside logger locks; a blocked callback can delay it. Callback
+self-close signals shutdown without joining its own thread, whose dependencies
+remain owned until it exits. Verifier event/lifecycle wiring and advanced trace
+emission are still incomplete; public reporting profiles remain gated.

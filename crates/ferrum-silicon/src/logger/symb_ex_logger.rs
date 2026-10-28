@@ -30,8 +30,8 @@
 //! verifier and state_reporting.
 //!
 //! Status: member scope/branch recording, filters, query tracking and macro/statistic collection implemented.
-//! Recording-run ownership and configuration loading are connected. State reporting,
-//! verifier event integration and exact double formatting remain.
+//! Recording and state-reporting run ownership and member hooks are connected.
+//! Verifier event integration and exact double formatting remain.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -87,13 +87,93 @@ pub struct MemberSymbExLog {
     config: LogConfig,
     ids: Arc<AtomicI32>,
     state: Mutex<MemberLogState>,
+    reporting: Option<MemberReporting>,
+}
+struct MemberReporting {
+    member: Arc<super::state_reporting::StateReportingMember>,
+    scheduler: Arc<super::state_reporting::ScheduledStateReporter>,
+}
+fn reporting_error(error: super::state_reporting::StateSchedulerError) -> RecordError {
+    RecordError::Reporting(format!("{error:?}"))
+}
+
+/// Run-owned logger selected by the source `SymbExLogger.ofConfig` rules.
+/// Constructing it does not enable verifier event production by itself.
+pub enum NativeSymbExLogger {
+    Disabled(Arc<MemberSymbExLog>),
+    Enabled(SymbExLog),
+}
+impl NativeSymbExLogger {
+    pub fn of_config(
+        config: &crate::config::Config,
+        reporter: Arc<dyn ferrum_silver::reporter::reporter::Reporter>,
+        factory: crate::state::terms::TermFactory,
+        warn: impl FnMut(String),
+        on_reporting_error: impl Fn(super::state_reporting::StateReportError) + Send + Sync + 'static,
+    ) -> Result<Self, RecordError> {
+        let advanced = config.frontend.ide_mode_advanced;
+        let scheduler = config
+            .report_state_after
+            .filter(|seconds| *seconds > 0)
+            .map(|seconds| {
+                super::state_reporting::ScheduledStateReporter::new(
+                    i64::from(seconds) * 1000,
+                    reporter,
+                    factory,
+                    on_reporting_error,
+                )
+                .map(Arc::new)
+            })
+            .transpose()?;
+        if !advanced && scheduler.is_none() {
+            return Ok(Self::Disabled(Arc::new(MemberSymbExLog::new(
+                LogMode::Disabled,
+                LogConfig::default(),
+                Arc::new(AtomicI32::new(0)),
+            ))));
+        }
+        let config = if advanced {
+            LogConfig::load_or_default(config.log_config.as_deref().map(std::path::Path::new), warn)
+        } else {
+            LogConfig::default()
+        };
+        Ok(Self::Enabled(match scheduler {
+            Some(scheduler) => SymbExLog::with_state_reporting(config, scheduler, advanced),
+            None => SymbExLog::new(config),
+        }))
+    }
+    pub fn open_member_scope(
+        &self,
+        member: ferrum_silver::ast::program::Member,
+        paths: &crate::decider::path_conditions::LayeredPathConditionStack,
+        renderer: &dyn RecordRenderer,
+    ) -> Result<Arc<MemberSymbExLog>, RecordError> {
+        match self {
+            Self::Disabled(log) => Ok(log.clone()),
+            Self::Enabled(root) => root.open_member_scope(member, paths, renderer),
+        }
+    }
+    pub fn logs(&self) -> Result<Vec<Arc<MemberSymbExLog>>, RecordError> {
+        match self {
+            Self::Disabled(_) => Ok(Vec::new()),
+            Self::Enabled(root) => root.logs(),
+        }
+    }
+    pub fn close(&self) -> Result<(), RecordError> {
+        match self {
+            Self::Disabled(_) => Ok(()),
+            Self::Enabled(root) => root.close(),
+        }
+    }
 }
 
 /// The source recording root: one shared ID sequence and insertion-ordered
-/// member logs for a verification run. State-reporting composition is separate.
+/// member logs for a verification run, optionally with state-reporting hooks.
 pub struct SymbExLog {
     pub log_config: LogConfig,
     ids: Arc<AtomicI32>,
+    reporting: Option<Arc<super::state_reporting::ScheduledStateReporter>>,
+    mode: LogMode,
     // Member equality is structural, but the heterogeneous AST has no Hash contract.
     members: Mutex<Vec<(ferrum_silver::ast::program::Member, Arc<MemberSymbExLog>)>>,
 }
@@ -102,6 +182,26 @@ impl SymbExLog {
         Self {
             log_config,
             ids: Arc::new(AtomicI32::new(0)),
+            reporting: None,
+            mode: LogMode::Recording,
+            members: Mutex::new(Vec::new()),
+        }
+    }
+    /// Attach source stall reporting to recording or discard-only member logs.
+    pub fn with_state_reporting(
+        log_config: LogConfig,
+        scheduler: Arc<super::state_reporting::ScheduledStateReporter>,
+        recording: bool,
+    ) -> Self {
+        Self {
+            log_config,
+            ids: Arc::new(AtomicI32::new(0)),
+            reporting: Some(scheduler),
+            mode: if recording {
+                LogMode::Recording
+            } else {
+                LogMode::Discarding
+            },
             members: Mutex::new(Vec::new()),
         }
     }
@@ -132,11 +232,21 @@ impl SymbExLog {
             }
             _ => return Err(RecordError::Unsupported("symbolic log member kind")),
         };
-        let log = Arc::new(MemberSymbExLog::new(
-            LogMode::Recording,
-            self.log_config.clone(),
-            self.ids.clone(),
-        ));
+        let mut log = MemberSymbExLog::new(self.mode, self.log_config.clone(), self.ids.clone());
+        if let Some(scheduler) = &self.reporting {
+            let observer = Arc::new(super::state_reporting::StateReportingMember::new(
+                Arc::new(member.clone()),
+                time_ms(),
+            ));
+            scheduler
+                .register(observer.clone())
+                .map_err(reporting_error)?;
+            log.reporting = Some(MemberReporting {
+                member: observer,
+                scheduler: scheduler.clone(),
+            });
+        }
+        let log = Arc::new(log);
         {
             let mut members = self.members.lock().map_err(|_| RecordError::Poisoned)?;
             if let Some((_, retained)) = members.iter_mut().find(|(old, _)| old == &member) {
@@ -160,13 +270,11 @@ impl SymbExLog {
     /// The pinned source closes retained members without setting its root
     /// `closed` flag. Preserve that behavior: a later member can still be opened.
     pub fn close(&self) -> Result<(), RecordError> {
-        for (_, log) in self
-            .members
-            .lock()
-            .map_err(|_| RecordError::Poisoned)?
-            .iter()
-        {
+        for log in self.logs()? {
             log.close()?;
+        }
+        if let Some(scheduler) = &self.reporting {
+            scheduler.close().map_err(reporting_error)?;
         }
         Ok(())
     }
@@ -209,6 +317,167 @@ mod tests {
         }
         fn source_line_column(&self, _: &Node) -> Result<String, RecordError> {
             Err(RecordError::Unsupported("unexpected position"))
+        }
+    }
+    #[test]
+    fn configuration_selects_source_logging_modes() {
+        use ferrum_silver::reporter::reporter::NoopReporter;
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let mut config = crate::config::Config::default();
+        config.log_config = Some("/nonexistent-ferrum-log-config".into());
+        let mut warnings = Vec::new();
+        let make = |config: &crate::config::Config, warnings: &mut Vec<String>| {
+            NativeSymbExLogger::of_config(
+                config,
+                Arc::new(NoopReporter),
+                factory.clone(),
+                |message| warnings.push(message),
+                |_| {},
+            )
+            .unwrap()
+        };
+        let disabled = make(&config, &mut warnings);
+        assert!(matches!(disabled, NativeSymbExLogger::Disabled(_)));
+        config.report_state_after = Some(1);
+        let state_only = make(&config, &mut warnings);
+        assert!(
+            matches!(&state_only, NativeSymbExLogger::Enabled(root) if root.mode == LogMode::Discarding && root.reporting.is_some())
+        );
+        state_only.close().unwrap();
+        config.report_state_after = Some(0);
+        assert!(matches!(
+            make(&config, &mut warnings),
+            NativeSymbExLogger::Disabled(_)
+        ));
+        assert!(warnings.is_empty());
+        config.frontend.ide_mode_advanced = true;
+        let advanced = make(&config, &mut warnings);
+        assert!(
+            matches!(&advanced, NativeSymbExLogger::Enabled(root) if root.mode == LogMode::Recording && root.reporting.is_none())
+        );
+        assert_eq!(warnings.len(), 1);
+        advanced.close().unwrap();
+        config.report_state_after = Some(2);
+        let both = make(&config, &mut warnings);
+        assert!(
+            matches!(&both, NativeSymbExLogger::Enabled(root) if root.mode == LogMode::Recording && root.reporting.is_some())
+        );
+        assert_eq!(warnings.len(), 2);
+        both.close().unwrap();
+    }
+    #[test]
+    fn reporting_observes_filtered_records_in_both_log_modes() {
+        use crate::decider::path_conditions::LayeredPathConditionStack;
+        use crate::logger::{
+            log_config::RecordConfig,
+            state_reporting::{NativeStateRecordRenderer, ScheduledStateReporter},
+        };
+        use ferrum_silver::{
+            ast::program::{Member, Predicate, PredicateData},
+            reporter::{
+                message::Message,
+                reporter::{ReportError, Reporter},
+            },
+        };
+        struct ChannelReporter(std::sync::mpsc::Sender<Message>);
+        impl Reporter for ChannelReporter {
+            fn name(&self) -> &str {
+                "channel"
+            }
+            fn report(&self, message: Message) -> Result<(), ReportError> {
+                let _ = self.0.send(message);
+                Ok(())
+            }
+        }
+        for recording in [true, false] {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let factory = TermFactory::new(TermOptions {
+                use_flyweight: false,
+                use_old_axiomatization: false,
+                mask_heap_mode: false,
+            });
+            let scheduler = Arc::new(
+                ScheduledStateReporter::new(
+                    1,
+                    Arc::new(ChannelReporter(tx)),
+                    factory.clone(),
+                    |e| panic!("{e:?}"),
+                )
+                .unwrap(),
+            );
+            let mut config = LogConfig::default();
+            config.record_configs.push(RecordConfig {
+                kind: "comment".into(),
+                value: None,
+            });
+            let root = SymbExLog::with_state_reporting(config, scheduler, recording);
+            let member = Member::Predicate(Predicate::new(PredicateData {
+                name: "p".into(),
+                formal_args: vec![],
+                body: None,
+                meta: Default::default(),
+            }));
+            let renderer = NativeStateRecordRenderer { factory: &factory };
+            let log = root
+                .open_member_scope(member, &LayeredPathConditionStack::new(false), &renderer)
+                .unwrap();
+            let id = log
+                .open_scope(
+                    Arc::new(CommentRecord::<()>::new(Some("hidden".into()), None, None)),
+                    &renderer,
+                )
+                .unwrap();
+            let Message::VerifierState { state, .. } =
+                rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap()
+            else {
+                panic!("expected state")
+            };
+            assert!(
+                state.frames[0]
+                    .steps
+                    .iter()
+                    .any(|step| step.description == "hidden")
+            );
+            assert!(!log.records().unwrap().iter().any(|r| r.id() == id));
+            let reporting = log.reporting.as_ref().unwrap();
+            reporting.scheduler.unregister(&reporting.member).unwrap();
+            let branch = log.insert_branch_point(2, None, None).unwrap();
+            log.close_scope(id).unwrap();
+            let observer = &reporting.member;
+            let Some(Message::VerifierState { state, .. }) = observer
+                .stalled_message(time_ms() + 5, 1, &renderer)
+                .unwrap()
+            else {
+                panic!("expected branch state")
+            };
+            assert_eq!(state.frames.len(), 2);
+            assert!(
+                !state.frames[0]
+                    .steps
+                    .iter()
+                    .any(|step| step.description == "hidden")
+            );
+            log.switch_to_next_branch(branch).unwrap();
+            let Some(Message::VerifierState { state, .. }) = observer
+                .stalled_message(time_ms() + 5, 1, &renderer)
+                .unwrap()
+            else {
+                panic!("expected next branch state")
+            };
+            assert!(
+                state.frames[0]
+                    .steps
+                    .iter()
+                    .any(|step| step.description == "hidden")
+            );
+            log.mark_reachable(branch).unwrap();
+            log.end_branch_point(branch).unwrap();
+            log.close_member_scope().unwrap();
+            root.close().unwrap();
         }
     }
     #[test]
@@ -312,6 +581,7 @@ impl MemberSymbExLog {
                 macros: Map::new(),
                 main: None,
             }),
+            reporting: None,
         }
     }
     fn fresh_uid(&self) -> i32 {
@@ -325,6 +595,13 @@ impl MemberSymbExLog {
     }
     pub fn close(&self) -> Result<(), RecordError> {
         self.state.lock().map_err(|_| RecordError::Poisoned)?.closed = true;
+        if let Some(reporting) = &self.reporting {
+            reporting.member.finish()?;
+            reporting
+                .scheduler
+                .unregister(&reporting.member)
+                .map_err(reporting_error)?;
+        }
         Ok(())
     }
     pub fn records(&self) -> Result<Vec<RecordRef>, RecordError> {
@@ -359,6 +636,25 @@ impl MemberSymbExLog {
             && !state.ignored.contains(&record.ref_id())
         {
             Self::append(&mut state, record.clone(), root)?;
+        }
+        let finish = if !state.closed
+            && let Some(reporting) = &self.reporting
+            && record.as_any().is::<CloseScopeRecord>()
+        {
+            let main_id = state.main.as_ref().map(|main| main.id());
+            reporting
+                .member
+                .close_scope(record.ref_id(), main_id, time_ms())?;
+            main_id == Some(record.ref_id())
+        } else {
+            false
+        };
+        drop(state);
+        if finish && let Some(reporting) = &self.reporting {
+            reporting
+                .scheduler
+                .unregister(&reporting.member)
+                .map_err(reporting_error)?;
         }
         Ok(record.id())
     }
@@ -399,6 +695,11 @@ impl MemberSymbExLog {
                 } else {
                     Self::append(&mut state, record.clone(), false)?;
                 }
+            }
+            if !state.closed
+                && let Some(reporting) = &self.reporting
+            {
+                reporting.member.append_data(record.clone(), time_ms())?;
             }
         }
         self.insert_scope(Arc::new(OpenScopeRecord::new(record.as_ref())), false)?;
@@ -441,6 +742,11 @@ impl MemberSymbExLog {
             Self::append(&mut state, branch.clone(), false)?;
             state.branches.push(branch.clone());
         }
+        if !state.closed
+            && let Some(reporting) = &self.reporting
+        {
+            reporting.member.append_branch(&branch, time_ms())?;
+        }
         Ok(branch.id())
     }
     fn branch(&self, id: i32) -> Result<Arc<BranchingRecord>, RecordError> {
@@ -456,11 +762,19 @@ impl MemberSymbExLog {
         if self.mode == LogMode::Recording {
             self.branch(id)?.switch_to_next_branch()?;
         }
+        if let Some(reporting) = &self.reporting {
+            reporting
+                .member
+                .next_branch(reporting.scheduler.factory(), time_ms())?;
+        }
         Ok(())
     }
     pub fn mark_reachable(&self, id: i32) -> Result<(), RecordError> {
         if self.mode == LogMode::Recording {
             self.branch(id)?.mark_reachable_at(time_ms())?;
+        }
+        if let Some(reporting) = &self.reporting {
+            reporting.member.mark_reachable(time_ms())?;
         }
         Ok(())
     }
@@ -471,6 +785,9 @@ impl MemberSymbExLog {
                 return Err(RecordError::InvalidBranch);
             }
             state.branches.pop();
+        }
+        if let Some(reporting) = &self.reporting {
+            reporting.member.end_branch(time_ms())?;
         }
         Ok(())
     }
