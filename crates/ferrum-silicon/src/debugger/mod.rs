@@ -5,3 +5,5 @@ pub mod debug_exp;
 pub mod debug_parser;
 pub mod debug_typechecker;
 pub mod silicon_debugger;
+
+pub mod native_failure;

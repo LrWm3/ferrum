@@ -1695,6 +1695,9 @@ impl<
     fn all_emits(&self) -> Vec<String> {
         self.main.all_emits()
     }
+    fn debug_preamble_assumptions(&self) -> Option<Vec<crate::debugger::debug_exp::DebugAxiom>> {
+        self.main.debug_preamble_assumptions()
+    }
 }
 
 fn set_verification_scope(

@@ -831,6 +831,22 @@ impl Prover for ProverStdIo {
     fn all_emits(&self) -> Vec<String> {
         self.emits.clone()
     }
+    fn debug_preamble_assumptions(&self) -> Option<Vec<crate::debugger::debug_exp::DebugAxiom>> {
+        if !self.settings.debug {
+            return None;
+        }
+        Some(
+            self.preamble_assumptions
+                .iter()
+                .map(
+                    |(description, terms)| crate::debugger::debug_exp::DebugAxiom {
+                        description: description.clone(),
+                        terms: terms.clone(),
+                    },
+                )
+                .collect(),
+        )
+    }
 }
 impl Drop for ProverStdIo {
     fn drop(&mut self) {

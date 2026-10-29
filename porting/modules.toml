@@ -2685,3 +2685,8 @@ role = "assembly"
 destination = "tests/native_quantified_warning.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/debugger/native_failure.rs"
+status = "wired"
+role = "assembly"

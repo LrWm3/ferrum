@@ -3853,6 +3853,8 @@ pub trait GeneralConsumptionExecution<P, D, J, V>:
         &mut self,
         state: &crate::state::state::State<P, D, J>,
         error: &Self::VerificationError,
+        goal: Option<&Term>,
+        description: &str,
     ) -> Result<
         crate::interfaces::verification::VerificationResult<V>,
         <Self as QuantifiedReadPermissionSolver>::Error,
@@ -4066,7 +4068,7 @@ pub fn execute_general_quantified_consumption<
         .map_err(GeneralConsumptionExecutionError::Removal)?;
         if !result.is_complete() {
             return context
-                .general_insufficient_permission(&state, error)
+                .general_insufficient_permission(&state, error, None, "QP consume")
                 .map_err(GeneralConsumptionExecutionError::Service);
         }
         remaining.extend(untouched.clone());

@@ -810,7 +810,7 @@ impl VerificationErrorKind {
 }
 
 /// The source allows failure contexts to be appended after constructing an error.
-pub trait FailureContext: fmt::Debug + Send + Sync {
+pub trait FailureContext: fmt::Debug + Send + Sync + std::any::Any {
     fn counterexample(&self) -> Option<Arc<dyn Counterexample>>;
     fn render(&self) -> String;
 }

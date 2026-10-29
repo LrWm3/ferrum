@@ -116,4 +116,8 @@ pub trait Prover: ProverLike {
     fn pop(&mut self, n: usize) -> Result<(), Self::Error>;
     fn all_declarations(&self) -> Vec<Declaration>;
     fn all_emits(&self) -> Vec<String>;
+    /// Debug replay needs the actual recorded preamble, even when it is empty.
+    fn debug_preamble_assumptions(&self) -> Option<Vec<crate::debugger::debug_exp::DebugAxiom>> {
+        None
+    }
 }

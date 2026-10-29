@@ -370,6 +370,41 @@ pub type NativeContext = NativeVerifierContext<
     crate::supporters::predicate_verification_unit::PredicateData,
     NativeFunctionData,
 >;
+impl<S: Prover>
+    NativeVerifierContext<
+        S,
+        crate::supporters::predicate_verification_unit::PredicateData,
+        NativeFunctionData,
+    >
+{
+    /// Rehydrate the detached registries required by debugger evaluation.
+    pub fn restore_debug_runtime(
+        &mut self,
+        snapshot: &crate::debugger::native_failure::NativeDebugFailureContext<
+            crate::supporters::predicate_verification_unit::PredicateData,
+            NativeFunctionData,
+        >,
+    ) -> Result<(), String> {
+        let state = &snapshot.obligation.state;
+        self.active_program = Some(state.program.clone());
+        self.predicate_contents = state.predicate_data.clone();
+        self.predicate_snapshots.snap_map = state.predicate_snap_map.clone();
+        self.predicate_snapshots.formal_var_map = state.predicate_formal_var_map.clone();
+        self.function_handles = state.function_data.clone();
+        self.function_owners = snapshot.function_owners.clone();
+        self.function_heights.clear();
+        self.function_units.clear();
+        for (name, data) in &self.function_owners {
+            let data = data.lock().map_err(|_| "poisoned captured function data")?;
+            self.function_heights.insert(name.clone(), data.height);
+            self.function_units.push(data.program_function.clone());
+        }
+        self.base.decider.debug_mode = true;
+        self.base.decider.debug_variable_types =
+            snapshot.obligation.verifier.debug_variable_types.clone();
+        Ok(())
+    }
+}
 #[derive(Clone, Copy)]
 enum LoggedScopeKind {
     Evaluate,
@@ -498,6 +533,8 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     config_options: Vec<String>,
     start_observer: Option<Box<dyn FnMut(&mut S) -> Result<(), NativeError<S::Error>>>>,
     preamble_config: std::collections::BTreeMap<String, String>,
+    debug_failure_factory:
+        Option<crate::debugger::native_failure::NativeDebugFailureFactory<PD, FD>>,
     general_logger_name: String,
     general_logging: Option<(
         crate::logger::general::GeneralLogger,
@@ -531,6 +568,12 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
     /// Supply the source prover settings for configuration confirmation reporting.
     pub fn set_preamble_config(&mut self, options: std::collections::BTreeMap<String, String>) {
         self.preamble_config = options;
+    }
+    pub fn set_debug_failure_factory(
+        &mut self,
+        factory: crate::debugger::native_failure::NativeDebugFailureFactory<PD, FD>,
+    ) {
+        self.debug_failure_factory = Some(factory);
     }
     pub fn set_general_worker_logger_name(&mut self, index: usize) {
         self.general_logger_name =
@@ -896,6 +939,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             config_options: Vec::new(),
             start_observer: None,
             preamble_config: Default::default(),
+            debug_failure_factory: None,
             general_logger_name: "viper.silicon.verifier.DefaultMainVerifier-00".into(),
             general_logging: None,
             predicate_snapshots: Default::default(),
@@ -1769,9 +1813,18 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
     }
     fn failure_full(
         &mut self,
+        error: VerificationError,
+        state: &State<PD, FD, JoinMode>,
+        generate_new_model: bool,
+    ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
+        self.failure_full_with_assertion(error, state, generate_new_model, None)
+    }
+    fn failure_full_with_assertion(
+        &mut self,
         mut error: VerificationError,
         state: &State<PD, FD, JoinMode>,
         generate_new_model: bool,
+        assertion: Option<(Term, crate::debugger::debug_exp::DebugExp)>,
     ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
         self.checkpoint()?;
         if state.retry_level == 0
@@ -1861,14 +1914,176 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         } else {
             Vec::new()
         };
-        let context = crate::reporting::silicon_resolved_counterexample::SiliconFailureContext::from_transformed_with_reason(
-            branches, counterexample, example_transformer.as_ref(), reason,
-        ).map_err(NativeError::Diagnostic)?;
-        error.failure_contexts = vec![Arc::new(context)];
+        if let Some(factory) = &self.debug_failure_factory {
+            let counterexample = match (counterexample, example_transformer.as_ref()) {
+                (Some(value), Some(transform)) => {
+                    Some(transform(value).map_err(NativeError::Diagnostic)?)
+                }
+                (value, _) => value,
+            };
+            use crate::debugger::native_failure::{
+                NativeDebugFailureRecord, NativeDebugVerifierSnapshot,
+            };
+            let (assertion, assertion_exp) = assertion.ok_or(NativeError::Unsupported(
+                "debug failure assertion is not connected",
+            ))?;
+            let recorded = self.base.decider.pcs.recorded();
+            let branch_condition_exps = recorded
+                .branch_condition_exps()
+                .into_iter()
+                .map(|(a, b)| {
+                    b.map(|b| (a, b))
+                        .ok_or(NativeError::Unsupported("missing debug branch expression"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let preamble_assumptions = self
+                .base
+                .decider
+                .prover
+                .debug_preamble_assumptions()
+                .ok_or(NativeError::Unsupported(
+                    "debug prover preamble assumptions",
+                ))?;
+            let record = NativeDebugFailureRecord {
+                verifier: NativeDebugVerifierSnapshot {
+                    worker_id: self.base.unique_id.clone(),
+                    prover_name: self.base.decider.prover.name().into(),
+                    macro_declarations: self.base.decider.fresh_macros.clone(),
+                    function_declarations: self
+                        .base
+                        .decider
+                        .fresh_functions
+                        .iter()
+                        .cloned()
+                        .collect(),
+                    debug_variable_types: self.base.decider.debug_variable_types.clone(),
+                },
+                prover_emits: self.base.decider.prover.all_emits(),
+                preamble_assumptions,
+                branch_conditions: recorded.branch_conditions(),
+                branch_condition_exps,
+                assumptions: recorded.assumption_exps(),
+                assertion,
+                assertion_exp,
+                original_error_reason: error.reason.clone(),
+                counterexample,
+                reason_unknown: reason,
+            };
+            error.failure_contexts = vec![
+                factory(state.clone(), record, &self.function_owners)
+                    .map_err(NativeError::Diagnostic)?,
+            ];
+        } else {
+            let context = crate::reporting::silicon_resolved_counterexample::SiliconFailureContext::from_transformed_with_reason(
+                branches, counterexample, example_transformer.as_ref(), reason,
+            ).map_err(NativeError::Diagnostic)?;
+            error.failure_contexts = vec![Arc::new(context)];
+        }
         Ok(VerificationResult::failure(
             error,
             self.base.report_further_errors(self.options.error_limit),
         ))
+    }
+    fn failure_with_goal(
+        &mut self,
+        partial: &PartialVerificationError,
+        reason: ErrorReason,
+        state: &State<PD, FD, JoinMode>,
+        goal: &Term,
+        rewritten: Option<&Exp>,
+    ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
+        let error = partial
+            .due_to(reason)
+            .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+        let assertion = if self.debug_failure_factory.is_some() {
+            let rewritten = rewritten.ok_or(NativeError::Unsupported(
+                "missing debug assertion expression",
+            ))?;
+            let simplify = |e: &Exp| {
+                ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                    Ok::<_, std::convert::Infallible>(true)
+                })
+            };
+            let debug = crate::debugger::debug_exp::DebugExp::create(
+                None,
+                Some(rewritten.clone()),
+                Some(rewritten.clone()),
+                None,
+                false,
+                Default::default(),
+                false,
+                &simplify,
+            )
+            .map_err(|e| {
+                NativeError::Diagnostic(format!("assertion debug simplification: {e:?}"))
+            })?;
+            Some((goal.clone(), debug))
+        } else {
+            None
+        };
+        self.failure_full_with_assertion(error, state, false, assertion)
+    }
+    fn failure_with_description(
+        &mut self,
+        partial: &PartialVerificationError,
+        reason: ErrorReason,
+        state: &State<PD, FD, JoinMode>,
+        goal: Option<&Term>,
+        description: &str,
+    ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
+        let error = partial
+            .due_to(reason)
+            .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+        if let Some(goal) = goal {
+            let assertion = if self.debug_failure_factory.is_some() {
+                let simplify = |e: &Exp| Ok::<_, std::convert::Infallible>(e.clone());
+                let debug = crate::debugger::debug_exp::DebugExp::create(
+                    Some(description.to_owned()),
+                    None,
+                    None,
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .expect("infallible debug description");
+                Some((goal.clone(), debug))
+            } else {
+                None
+            };
+            self.failure_full_with_assertion(error, state, false, assertion)
+        } else {
+            self.missing_term_failure(error, state, description, false)
+        }
+    }
+    fn missing_term_failure(
+        &mut self,
+        error: VerificationError,
+        state: &State<PD, FD, JoinMode>,
+        description: &str,
+        generate_model: bool,
+    ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
+        let assertion = if self.debug_failure_factory.is_some() {
+            let text =
+                format!("Asserted term for '{description}' not available, substituting false.");
+            let simplify = |e: &Exp| Ok::<_, std::convert::Infallible>(e.clone());
+            let debug = crate::debugger::debug_exp::DebugExp::create(
+                Some(text),
+                None,
+                None,
+                None,
+                false,
+                Default::default(),
+                false,
+                &simplify,
+            )
+            .expect("infallible debug description");
+            Some((self.factory.boolean(false), debug))
+        } else {
+            None
+        };
+        self.failure_full_with_assertion(error, state, generate_model, assertion)
     }
     fn failure(
         &mut self,
@@ -1922,11 +2137,11 @@ where
     fn debugging(&self) -> bool {
         #[cfg(test)]
         {
-            return self.evaluator_debug_for_test;
+            return self.evaluator_debug_for_test || self.base.decider.debug_mode;
         }
         #[cfg(not(test))]
         {
-            false
+            self.base.decider.debug_mode
         }
     }
     fn verifier_unique_id(&self) -> &str {
@@ -2082,10 +2297,12 @@ where
         assertion: &Term,
         rewritten_assertion: Option<&Exp>,
     ) -> Result<VerificationResult<VerificationError>, Self::Error> {
-        self.failure(
+        self.failure_with_goal(
             partial,
             ErrorReason::DivisionByZero(divisor.clone()),
-            &state,
+            state,
+            assertion,
+            rewritten_assertion,
         )
     }
     fn sequence_bounds_failure(
@@ -2098,7 +2315,7 @@ where
         goal: &Term,
         rewritten: Option<&Exp>,
     ) -> Result<VerificationResult<VerificationError>, Self::Error> {
-        self.failure(
+        self.failure_with_goal(
             partial,
             if negative {
                 ErrorReason::SeqIndexNegative {
@@ -2111,7 +2328,9 @@ where
                     index: index.clone(),
                 }
             },
-            &state,
+            state,
+            goal,
+            rewritten,
         )
     }
     fn map_key_failure(
@@ -2123,13 +2342,15 @@ where
         assertion: &Term,
         rewritten_assertion: Option<&Exp>,
     ) -> Result<VerificationResult<VerificationError>, Self::Error> {
-        self.failure(
+        self.failure_with_goal(
             partial,
             ErrorReason::MapKeyNotContained {
                 map: base.clone(),
                 key: key.clone(),
             },
-            &state,
+            state,
+            assertion,
+            rewritten_assertion,
         )
     }
     fn fresh_arp(&mut self) -> Result<(Term, Term, Option<Exp>), Self::Error> {
@@ -2215,10 +2436,12 @@ where
         original: &Exp,
         label: &str,
     ) -> Result<VerificationResult<VerificationError>, Self::Error> {
-        self.failure(
+        self.failure_with_description(
             partial,
             ErrorReason::LabelledStateNotReached(original.clone()),
-            &state,
+            state,
+            None,
+            "labelled state reached",
         )
     }
     fn fresh_let_application(
@@ -3483,13 +3706,15 @@ where
         expression: &Exp,
         error: &Self::PartialError,
     ) -> Result<VerificationResult<VerificationError>, Self::Error> {
-        self.failure(
+        self.failure_with_description(
             error,
             ErrorReason::Internal {
                 node: ferrum_silver::ast::utility::nodes::Node::Exp(expression.clone()),
                 explanation: "Quantifier evaluation failed.".into(),
             },
-            &state,
+            state,
+            None,
+            "quantifier could be evaluated",
         )
     }
     fn join_off(&self) -> JoinMode {
@@ -5709,11 +5934,11 @@ where
     fn debugging(&self) -> bool {
         #[cfg(test)]
         {
-            self.evaluator_debug_for_test
+            self.evaluator_debug_for_test || self.base.decider.debug_mode
         }
         #[cfg(not(test))]
         {
-            false
+            self.base.decider.debug_mode
         }
     }
     fn unsafe_wildcard_optimization(&self) -> bool {
@@ -5795,10 +6020,16 @@ where
         if check.is_none() {
             continuation(self, state)
         } else {
-            self.failure(
+            let goal = factory.is_nonnegative_perm(permission.clone());
+            let assertion = rewritten.map(|exp| {
+                crate::state::terms::is_nonnegative_perm_exp(exp.clone(), exp.metadata().clone())
+            });
+            self.failure_with_goal(
                 error,
                 ErrorReason::NegativePermission(original.clone()),
                 &state,
+                &goal,
+                assertion.as_ref(),
             )
             .map_err(ProductionError::Context)
         }
@@ -6181,7 +6412,7 @@ where
                         &state,
                     )
                     .map_err(ProductionError::Context),
-                MaskQuantifiedProduction::NonInjective { .. } => {
+                MaskQuantifiedProduction::NonInjective { condition } => {
                     use ferrum_silver::ast::utility::nodes::Node;
                     let node = match access.kind() {
                         ExpKind::FieldAccessPredicate(location, _) => {
@@ -6197,8 +6428,14 @@ where
                             )));
                         }
                     };
-                    self.failure(error, ErrorReason::QPAssertionNotInjective(node), &state)
-                        .map_err(ProductionError::Context)
+                    self.failure_with_description(
+                        error,
+                        ErrorReason::QPAssertionNotInjective(node),
+                        &state,
+                        Some(&condition),
+                        "QP receiver is injective",
+                    )
+                    .map_err(ProductionError::Context)
                 }
             };
         }
@@ -6277,11 +6514,11 @@ where
             debugging: {
                 #[cfg(test)]
                 {
-                    self.evaluator_debug_for_test
+                    self.evaluator_debug_for_test || self.base.decider.debug_mode
                 }
                 #[cfg(not(test))]
                 {
-                    false
+                    self.base.decider.debug_mode
                 }
             },
         };
@@ -7264,11 +7501,11 @@ where
     fn debugging(&self) -> bool {
         #[cfg(test)]
         {
-            self.evaluator_debug_for_test
+            self.evaluator_debug_for_test || self.base.decider.debug_mode
         }
         #[cfg(not(test))]
         {
-            false
+            self.base.decider.debug_mode
         }
     }
     fn unsafe_wildcard_optimization(&self) -> bool {
@@ -7353,10 +7590,16 @@ where
         if check.is_none() {
             continuation(self, state)
         } else {
-            self.failure(
+            let goal = factory.is_nonnegative_perm(permission.clone());
+            let assertion = rewritten.map(|exp| {
+                crate::state::terms::is_nonnegative_perm_exp(exp.clone(), exp.metadata().clone())
+            });
+            self.failure_with_goal(
                 error,
                 ErrorReason::NegativePermission(original.clone()),
                 &state,
+                &goal,
+                assertion.as_ref(),
             )
             .map_err(ConsumptionError::Context)
         }
@@ -7655,7 +7898,36 @@ where
         goal: &Term,
         rewritten: Option<&Exp>,
     ) -> Result<VerificationResult<VerificationError>, Self::Error> {
-        self.failure(error, ErrorReason::AssertionFalse(original.clone()), &state)
+        let error = error
+            .due_to(ErrorReason::AssertionFalse(original.clone()))
+            .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+        let assertion = if self.debug_failure_factory.is_some() {
+            let rewritten = rewritten.ok_or(NativeError::Unsupported(
+                "missing consumed assertion debug expression",
+            ))?;
+            let simplify = |e: &Exp| {
+                ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                    Ok::<_, std::convert::Infallible>(true)
+                })
+            };
+            let debug = crate::debugger::debug_exp::DebugExp::create(
+                None,
+                Some(rewritten.clone()),
+                Some(rewritten.clone()),
+                None,
+                false,
+                Default::default(),
+                false,
+                &simplify,
+            )
+            .map_err(|e| {
+                NativeError::Diagnostic(format!("assertion debug simplification: {e:?}"))
+            })?;
+            Some((goal.clone(), debug))
+        } else {
+            None
+        };
+        self.failure_full_with_assertion(error, state, false, assertion)
     }
     fn report_further_errors(&self) -> bool {
         self.base.report_further_errors(self.options.error_limit)
@@ -7996,7 +8268,7 @@ where
                             )
                             .map_err(ConsumptionError::Context);
                     }
-                    MaskQuantifiedPreparation::NonInjective { .. } => {
+                    MaskQuantifiedPreparation::NonInjective { condition } => {
                         use ferrum_silver::ast::utility::nodes::Node;
                         let node = match failure.access.kind() {
                             ExpKind::FieldAccessPredicate(location, _) => {
@@ -8013,7 +8285,13 @@ where
                             }
                         };
                         return self
-                            .failure(error, ErrorReason::QPAssertionNotInjective(node), &state)
+                            .failure_with_description(
+                                error,
+                                ErrorReason::QPAssertionNotInjective(node),
+                                &state,
+                                Some(&condition),
+                                "QP receiver is injective",
+                            )
                             .map_err(ConsumptionError::Context);
                     }
                 };
@@ -8189,7 +8467,7 @@ where
                         &state,
                     )
                     .map_err(ConsumptionError::Context),
-                MaskQuantifiedConsumption::NonInjective { .. } => {
+                MaskQuantifiedConsumption::NonInjective { condition } => {
                     use ferrum_silver::ast::utility::nodes::Node;
                     let node = match failure.access.kind() {
                         ExpKind::FieldAccessPredicate(location, _) => {
@@ -8205,10 +8483,10 @@ where
                             )));
                         }
                     };
-                    self.failure(error, ErrorReason::QPAssertionNotInjective(node), &state)
+                    self.failure_with_description(error, ErrorReason::QPAssertionNotInjective(node), &state, Some(&condition), "QP receiver is injective")
                         .map_err(ConsumptionError::Context)
                 }
-                MaskQuantifiedConsumption::Insufficient { .. } => crate::rules::quantified_chunk_support::GeneralConsumptionExecution::general_insufficient_permission(self, &state, &failure)
+                MaskQuantifiedConsumption::Insufficient { condition } => crate::rules::quantified_chunk_support::GeneralConsumptionExecution::general_insufficient_permission(self, &state, &failure, Some(&condition), "QP consume")
                     .map_err(ConsumptionError::Context),
             };
         }
@@ -8242,11 +8520,11 @@ where
             debugging: {
                 #[cfg(test)]
                 {
-                    self.evaluator_debug_for_test
+                    self.evaluator_debug_for_test || self.base.decider.debug_mode
                 }
                 #[cfg(not(test))]
                 {
-                    false
+                    self.base.decider.debug_mode
                 }
             },
         };
@@ -9995,7 +10273,9 @@ where
                 heap,
                 resource,
                 args,
+                debug_args,
                 permission,
+                debug_permission,
                 return_snapshot,
                 error,
                 continuation,
@@ -10038,7 +10318,7 @@ where
         };
         let goal = factory.implies(
             factory.is_positive_perm(permission.clone()),
-            factory.is_positive_perm(available),
+            factory.is_positive_perm(available.clone()),
         );
         if self
             .base
@@ -10048,7 +10328,7 @@ where
         {
             continuation(self, state, heap, snapshot)
         } else {
-            self.consumption_failure(&state, error, "complete read permission", true)
+            self.complete_debug_permission_failure(&state, error, &chunks, debug_args, available)
                 .map_err(ChunkExecutionError::Context)
         }
     }
@@ -10134,7 +10414,12 @@ where
         let error = error.clone().ok_or(NativeError::Unsupported(
             "failure from null partial verification error",
         ))?;
-        self.failure_full(error, state, generate_model)
+        match description {
+            "consuming chunk" | "looking up chunk" => {
+                self.missing_term_failure(error, state, description, generate_model)
+            }
+            _ => self.failure_full(error, state, generate_model),
+        }
     }
     fn fresh_snapshot(
         &mut self,
@@ -10212,14 +10497,37 @@ where
                 }
                 return Ok(VerificationResult::success());
             }
+            let full =
+                error
+                    .clone()
+                    .ok_or(ChunkExecutionError::Context(NativeError::Unsupported(
+                        "failure from null partial verification error",
+                    )))?;
+            let assertion = if self.debug_failure_factory.is_some() {
+                let simplify = |e: &Exp| Ok::<_, std::convert::Infallible>(e.clone());
+                let debug = crate::debugger::debug_exp::DebugExp::create(
+                    Some("branch is dead".into()),
+                    None,
+                    None,
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .expect("infallible description");
+                Some((self.factory.boolean(false), debug))
+            } else {
+                None
+            };
             return self
-                .consumption_failure(&state, error, "branch is dead", true)
+                .failure_full_with_assertion(full, &state, true, assertion)
                 .map_err(ChunkExecutionError::Context);
         }
         let (state, snapshot, permission) = self
             .complete_lookup_summary(state, resource, &chunks, args, None)
             .map_err(ChunkExecutionError::Context)?;
-        let positive = self.factory.is_positive_perm(permission);
+        let positive = self.factory.is_positive_perm(permission.clone());
         if self
             .base
             .decider
@@ -10228,7 +10536,7 @@ where
         {
             continuation(self, state, snapshot)
         } else {
-            self.consumption_failure(&state, error, "complete lookup permission", true)
+            self.complete_debug_permission_failure(&state, error, &chunks, debug_args, permission)
                 .map_err(ChunkExecutionError::Context)
         }
     }
@@ -11417,11 +11725,11 @@ where
     fn debugging(&self) -> bool {
         #[cfg(test)]
         {
-            return self.executor_debug_for_test;
+            return self.executor_debug_for_test || self.base.decider.debug_mode;
         }
         #[cfg(not(test))]
         {
-            false
+            self.base.decider.debug_mode
         }
     }
     fn fresh_ssa(
@@ -12108,12 +12416,38 @@ where
                     state.h = original_heap.clone();
                     done(ctx, state, ())
                 } else {
-                    ctx.failure(
-                        &partial,
-                        ErrorReason::AssertionFalse(expression.clone()),
-                        &state,
-                    )
-                    .map_err(ConsumptionError::Context)
+                    let error = partial
+                        .due_to(ErrorReason::AssertionFalse(expression.clone()))
+                        .map_err(|e| {
+                            ConsumptionError::Context(NativeError::Diagnostic(format!("{e:?}")))
+                        })?;
+                    let assertion = if ctx.debug_failure_factory.is_some() {
+                        let simplify = |e: &Exp| {
+                            ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                                Ok::<_, std::convert::Infallible>(true)
+                            })
+                        };
+                        let debug = crate::debugger::debug_exp::DebugExp::create(
+                            None,
+                            Some(expression.clone()),
+                            Some(expression.clone()),
+                            None,
+                            false,
+                            Default::default(),
+                            false,
+                            &simplify,
+                        )
+                        .map_err(|e| {
+                            ConsumptionError::Context(NativeError::Diagnostic(format!(
+                                "assertion debug simplification: {e:?}"
+                            )))
+                        })?;
+                        Some((ctx.factory.boolean(false), debug))
+                    } else {
+                        None
+                    };
+                    ctx.failure_full_with_assertion(error, &state, false, assertion)
+                        .map_err(ConsumptionError::Context)
                 }
             },
             &mut |_, _, ()| Ok(VerificationResult::success()),
@@ -12664,10 +12998,12 @@ where
                         .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
                     if !proven {
                         return ctx
-                            .failure(
+                            .failure_with_description(
                                 &error,
                                 ErrorReason::QuasihavocallNotInjective(statement.clone()),
                                 &state,
+                                Some(&check),
+                                "QP receiver injective",
                             )
                             .map_err(EvaluationError::Context);
                     }
@@ -13143,11 +13479,16 @@ where
         )
         .map_err(ExecutionError::Context)?;
         if !valid {
+            let goal = ctx.factory.is_positive_perm(amount.clone());
+            let assertion =
+                crate::state::terms::is_positive_perm_exp(permission.clone(), Default::default());
             return ctx
-                .failure(
+                .failure_with_goal(
                     partial,
                     ErrorReason::NonPositivePermission(permission.clone()),
                     &state,
+                    &goal,
+                    Some(&assertion),
                 )
                 .map_err(ExecutionError::Context);
         }
@@ -16557,11 +16898,11 @@ where
             {
                 #[cfg(test)]
                 {
-                    self.evaluator_debug_for_test
+                    self.evaluator_debug_for_test || self.base.decider.debug_mode
                 }
                 #[cfg(not(test))]
                 {
-                    false
+                    self.base.decider.debug_mode
                 }
             },
             self.options.respect_function_pre_permission_amounts,
@@ -16606,11 +16947,11 @@ where
             {
                 #[cfg(test)]
                 {
-                    self.evaluator_debug_for_test
+                    self.evaluator_debug_for_test || self.base.decider.debug_mode
                 }
                 #[cfg(not(test))]
                 {
-                    false
+                    self.base.decider.debug_mode
                 }
             },
             self.options.respect_function_pre_permission_amounts,
@@ -17146,9 +17487,9 @@ where
         let converter = self.base.symbol_converter.clone();
         let mask_mode = self.options.mask_heap_mode;
         #[cfg(test)]
-        let function_debug = self.evaluator_debug_for_test;
+        let function_debug = self.evaluator_debug_for_test || self.base.decider.debug_mode;
         #[cfg(not(test))]
-        let function_debug = false;
+        let function_debug = self.base.decider.debug_mode;
         functions.analyze(&factory, &self.base.symbol_converter, &mut self.base.identifiers, program, self.options.alternative_function_verification_order, function_debug,
             |function, program| {
                 if mask_mode {
@@ -21558,11 +21899,11 @@ where
     fn function_debugging(&self) -> bool {
         #[cfg(test)]
         {
-            self.evaluator_debug_for_test
+            self.evaluator_debug_for_test || self.base.decider.debug_mode
         }
         #[cfg(not(test))]
         {
-            false
+            self.base.decider.debug_mode
         }
     }
     fn empty_function_heap(
@@ -23220,7 +23561,7 @@ where
         let error = error.clone().ok_or(NativeError::Unsupported(
             "failure from null partial verification error",
         ))?;
-        self.failure_full(error, &state, false)
+        self.missing_term_failure(error, state, "single QP consume", false)
     }
     fn consume_single_in_package(
         &mut self,
@@ -23756,7 +24097,7 @@ where
         state: &State<PD, FD, JoinMode>,
         error: &Self::VerificationError,
         reason: crate::rules::quantified_chunk_support::QuantifiedProductionFailure,
-        _: &Term,
+        goal: &Term,
     ) -> Result<VerificationResult<VerificationError>, Self::Error> {
         let reason = match reason {
             crate::rules::quantified_chunk_support::QuantifiedProductionFailure::NegativePermission => ErrorReason::NegativePermission(error.permission.clone()),
@@ -23771,7 +24112,17 @@ where
                 ErrorReason::QPAssertionNotInjective(node)
             }
         };
-        self.failure(&error.partial, reason, state)
+        if matches!(reason, ErrorReason::QPAssertionNotInjective(_)) {
+            self.failure_with_description(
+                &error.partial,
+                reason,
+                state,
+                Some(goal),
+                "QP receiver is injective",
+            )
+        } else {
+            self.failure(&error.partial, reason, state)
+        }
     }
     fn warn_missing_quantified_triggers(
         &mut self,
@@ -24037,7 +24388,33 @@ where
         reason: crate::rules::quantified_chunk_support::QuantifiedProductionFailure,
         goal: &Term,
     ) -> Result<VerificationResult<VerificationError>, Self::Error> {
-        crate::rules::quantified_chunk_support::GeneralQuantifiedProduction::quantified_production_failure(self, state, error, reason, goal)
+        if matches!(
+            reason,
+            crate::rules::quantified_chunk_support::QuantifiedProductionFailure::NotInjective
+        ) {
+            use ferrum_silver::ast::utility::nodes::Node;
+            let node = match error.access.kind() {
+                ExpKind::FieldAccessPredicate(access, _) => Node::FieldAccess(access.clone()),
+                ExpKind::PredicateAccessPredicate(access) => {
+                    Node::PredicateAccess(access.location.clone())
+                }
+                ExpKind::MagicWand(..) => Node::Exp(error.access.clone()),
+                _ => {
+                    return Err(NativeError::Unsupported(
+                        "quantified injectivity error location",
+                    ));
+                }
+            };
+            self.failure_with_description(
+                &error.partial,
+                ErrorReason::QPAssertionNotInjective(node),
+                state,
+                Some(goal),
+                "QP receiver injective",
+            )
+        } else {
+            crate::rules::quantified_chunk_support::GeneralQuantifiedProduction::quantified_production_failure(self, state, error, reason, goal)
+        }
     }
     fn consume_trigger_summary(
         &mut self,
@@ -24136,6 +24513,8 @@ where
         &mut self,
         state: &State<PD, FD, JoinMode>,
         error: &Self::VerificationError,
+        goal: Option<&Term>,
+        description: &str,
     ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
         use ferrum_silver::ast::utility::nodes::Node;
         let reason = match error.access.kind() {
@@ -24152,7 +24531,7 @@ where
                 ));
             }
         };
-        self.failure(&error.partial, reason, state)
+        self.failure_with_description(&error.partial, reason, state, goal, description)
     }
     fn consume_general_in_package(
         &mut self,
@@ -24183,7 +24562,7 @@ where
             )));
         }
         let failure = self
-            .general_insufficient_permission(&state, error)
+            .general_insufficient_permission(&state, error, None, "consuming QP")
             .map_err(GE::Service)?;
         let factory = self.factory.clone();
         let original_arps = state.constrainable_arps.clone();
@@ -25350,6 +25729,89 @@ where
     S::Error: std::fmt::Debug,
 {
     /// Summarise a source-ordered nonquantified resource heap for complete exhale.
+    fn complete_debug_permission_sum(
+        &self,
+        chunks: &[crate::state::package::NonQuantifiedChunkKey],
+        args: Option<&[Exp]>,
+    ) -> Result<Exp, NativeError<S::Error>> {
+        use crate::interfaces::state::chunks::{GeneralChunk, NonQuantifiedChunk};
+        use crate::state::package::NonQuantifiedChunkKey;
+        let args = args.ok_or(NativeError::Unsupported(
+            "missing complete lookup debug arguments",
+        ))?;
+        let mut sum = Exp::new(ExpKind::NoPerm, Default::default());
+        for chunk in chunks {
+            let (chunk_args, permission) = match chunk {
+                NonQuantifiedChunkKey::Basic(c) => (c.args_exp(), c.permission_exp()),
+                NonQuantifiedChunkKey::Wand(c) => (c.args_exp(), c.permission_exp()),
+            };
+            let chunk_args =
+                chunk_args.ok_or(NativeError::Unsupported("missing chunk debug arguments"))?;
+            if chunk_args.len() != args.len() {
+                return Err(NativeError::Unsupported("complete debug argument count"));
+            }
+            let equalities: Vec<_> = chunk_args
+                .iter()
+                .zip(args)
+                .map(|(a, b)| Exp::new(ExpKind::EqCmp(a.clone(), b.clone()), Default::default()))
+                .collect();
+            let equal = crate::utils::ast::big_and(
+                equalities,
+                |e| e,
+                ferrum_silver::ast::position::Position::NoPosition,
+            );
+            let permission =
+                permission.ok_or(NativeError::Unsupported("missing chunk debug permission"))?;
+            let conditional = Exp::new(
+                ExpKind::CondExp(
+                    equal,
+                    permission,
+                    Exp::new(ExpKind::NoPerm, Default::default()),
+                ),
+                Default::default(),
+            );
+            sum = Exp::new(ExpKind::PermAdd(sum, conditional), Default::default());
+        }
+        Ok(sum)
+    }
+    fn complete_debug_permission_failure(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        error: &Option<VerificationError>,
+        chunks: &[crate::state::package::NonQuantifiedChunkKey],
+        args: Option<&[Exp]>,
+        permission: Term,
+    ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
+        let full = error.clone().ok_or(NativeError::Unsupported(
+            "failure from null partial verification error",
+        ))?;
+        let assertion = if self.debug_failure_factory.is_some() {
+            let sum = self.complete_debug_permission_sum(chunks, args)?;
+            let exp = crate::state::terms::is_positive_perm_exp(sum, Default::default());
+            let simplify = |e: &Exp| {
+                ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                    Ok::<_, std::convert::Infallible>(true)
+                })
+            };
+            let debug = crate::debugger::debug_exp::DebugExp::create(
+                None,
+                Some(exp.clone()),
+                Some(exp),
+                None,
+                false,
+                Default::default(),
+                false,
+                &simplify,
+            )
+            .map_err(|e| {
+                NativeError::Diagnostic(format!("assertion debug simplification: {e:?}"))
+            })?;
+            Some((self.factory.is_positive_perm(permission), debug))
+        } else {
+            None
+        };
+        self.failure_full_with_assertion(full, state, true, assertion)
+    }
     fn complete_lookup_summary(
         &mut self,
         mut state: State<PD, FD, JoinMode>,
@@ -25581,7 +26043,9 @@ where
         heap: Arc<ListBackedHeap>,
         resource: &ResourceKey,
         args: &[Term],
+        debug_args: Option<&[Exp]>,
         permission: &Term,
+        debug_permission: Option<&Exp>,
         return_snapshot: bool,
         error: &Option<VerificationError>,
         continuation: &mut dyn FnMut(
@@ -25596,7 +26060,6 @@ where
     ) -> Result<VerificationResult<VerificationError>, ChunkExecutionError<NativeError<S::Error>>>
     {
         use crate::interfaces::state::chunks::{GeneralChunk, NonQuantifiedChunk};
-        use crate::rules::chunk_supporter::ChunkExecutionContext;
         use crate::state::{
             heap::Heap,
             package::NonQuantifiedChunkKey as C,
@@ -25635,8 +26098,46 @@ where
             {
                 return continuation(self, state, heap, None);
             }
+            let full =
+                error
+                    .clone()
+                    .ok_or(ChunkExecutionError::Context(NativeError::Unsupported(
+                        "failure from null partial verification error",
+                    )))?;
+            let assertion = if self.debug_failure_factory.is_some() {
+                let exp = debug_permission.ok_or(ChunkExecutionError::Context(
+                    NativeError::Unsupported("missing complete permission debug expression"),
+                ))?;
+                let cmp = Exp::new(
+                    ExpKind::EqCmp(exp.clone(), Exp::new(ExpKind::NoPerm, Default::default())),
+                    exp.metadata().clone(),
+                );
+                let simplify = |e: &Exp| {
+                    ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                        Ok::<_, std::convert::Infallible>(true)
+                    })
+                };
+                let debug = crate::debugger::debug_exp::DebugExp::create(
+                    None,
+                    Some(cmp.clone()),
+                    Some(cmp),
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .map_err(|e| {
+                    ChunkExecutionError::Context(NativeError::Diagnostic(format!(
+                        "assertion debug simplification: {e:?}"
+                    )))
+                })?;
+                Some((goal, debug))
+            } else {
+                None
+            };
             return self
-                .consumption_failure(&state, error, "complete empty heap", true)
+                .failure_full_with_assertion(full, &state, true, assertion)
                 .map_err(ChunkExecutionError::Context);
         }
         if !crate::state::terms::consume_exact_read(permission, &state.constrainable_arps) {
@@ -25704,6 +26205,7 @@ where
             .chain(state.quantified_variables.iter().map(|(t, _)| t.clone()))
             .collect();
         let mut needed = permission.clone();
+        let mut needed_exp = debug_permission.cloned();
         let mut more = true;
         let mut updated = Vec::new();
         for chunk in relevant {
@@ -25712,12 +26214,70 @@ where
                 continue;
             }
             let (arguments, available) = view(&chunk);
-            let equal = factory.and(
-                arguments
-                    .into_iter()
-                    .zip(args.iter().cloned())
-                    .map(|(a, b)| factory.equals(a, b)),
-            );
+            let eq_terms: Vec<_> = arguments
+                .iter()
+                .cloned()
+                .zip(args.iter().cloned())
+                .map(|(a, b)| factory.equals(a, b))
+                .collect();
+            let debug_eq_terms = needed_exp.as_ref().map(|_| eq_terms.clone());
+            let equal = factory.and(eq_terms);
+            let (taken_exp, remaining_exp) = if let Some(needed_exp) = needed_exp.as_ref() {
+                let (chunk_args, chunk_permission) = match &chunk {
+                    C::Basic(c) => (c.args_exp(), c.permission_exp()),
+                    C::Wand(c) => (c.args_exp(), c.permission_exp()),
+                };
+                let chunk_args = chunk_args.ok_or(ChunkExecutionError::Context(
+                    NativeError::Unsupported("missing chunk debug arguments"),
+                ))?;
+                let args = debug_args.ok_or(ChunkExecutionError::Context(
+                    NativeError::Unsupported("missing complete debug arguments"),
+                ))?;
+                let chunk_permission = chunk_permission.ok_or(ChunkExecutionError::Context(
+                    NativeError::Unsupported("missing chunk debug permission"),
+                ))?;
+                if chunk_args.len() != args.len() {
+                    return Err(ChunkExecutionError::Context(NativeError::Unsupported(
+                        "complete debug argument count",
+                    )));
+                }
+                let equalities: Vec<_> = chunk_args
+                    .iter()
+                    .zip(args)
+                    .map(|(a, b)| {
+                        Exp::new(
+                            ExpKind::EqCmp(a.clone(), b.clone()),
+                            needed_exp.metadata().clone(),
+                        )
+                    })
+                    .collect();
+                let equalities = crate::utils::ast::remove_known_to_be_true(
+                    &equalities,
+                    debug_eq_terms.as_ref().expect("debug equality terms"),
+                );
+                let equal_exp = crate::utils::ast::big_and(
+                    equalities,
+                    |e| e,
+                    ferrum_silver::ast::position::Position::NoPosition,
+                );
+                let minimum = crate::utils::ast::build_min_exp(&[
+                    chunk_permission.clone(),
+                    needed_exp.clone(),
+                ])
+                .map_err(|e| ChunkExecutionError::Context(NativeError::Unsupported(e)))?;
+                let zero = Exp::new(ExpKind::NoPerm, needed_exp.metadata().clone());
+                let taken = Exp::new(
+                    ExpKind::CondExp(equal_exp.clone(), minimum, zero),
+                    equal_exp.metadata().clone(),
+                );
+                let remaining = Exp::new(
+                    ExpKind::PermSub(chunk_permission, taken.clone()),
+                    needed_exp.metadata().clone(),
+                );
+                (Some(taken), Some(remaining))
+            } else {
+                (None, None)
+            };
             let taken = factory.ite(
                 equal,
                 factory.perm_min(available.clone(), needed.clone()),
@@ -25755,6 +26315,12 @@ where
             };
             let remaining = factory.perm_minus(available, taken.clone());
             needed = factory.perm_minus(needed, taken);
+            needed_exp = needed_exp.zip(taken_exp).map(|(before, taken)| {
+                Exp::new(
+                    ExpKind::PermSub(before.clone(), taken),
+                    before.metadata().clone(),
+                )
+            });
             let keep = !self
                 .base
                 .decider
@@ -25765,8 +26331,8 @@ where
                 .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?;
             if keep {
                 updated.push(match chunk {
-                    C::Basic(c) => C::Basic(c.with_permission(remaining, None)),
-                    C::Wand(c) => C::Wand(c.with_permission(remaining, None)),
+                    C::Basic(c) => C::Basic(c.with_permission(remaining, remaining_exp)),
+                    C::Wand(c) => C::Wand(c.with_permission(remaining, remaining_exp)),
                 });
             }
             more = !self
@@ -25830,18 +26396,54 @@ where
         } else {
             None
         };
+        let residual_goal = factory.equals(needed, factory.no_perm());
         if more
             && !self
                 .base
                 .decider
-                .check(
-                    &factory.equals(needed, factory.no_perm()),
-                    self.base.decider.assert_timeout,
-                )
+                .check(&residual_goal, self.base.decider.assert_timeout)
                 .map_err(|e| ChunkExecutionError::Context(NativeError::Decider(e)))?
         {
+            let full =
+                error
+                    .clone()
+                    .ok_or(ChunkExecutionError::Context(NativeError::Unsupported(
+                        "failure from null partial verification error",
+                    )))?;
+            let assertion = if self.debug_failure_factory.is_some() {
+                let exp = needed_exp.ok_or(ChunkExecutionError::Context(
+                    NativeError::Unsupported("missing residual permission debug expression"),
+                ))?;
+                let cmp = Exp::new(
+                    ExpKind::EqCmp(exp.clone(), Exp::new(ExpKind::NoPerm, Default::default())),
+                    exp.metadata().clone(),
+                );
+                let simplify = |e: &Exp| {
+                    ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                        Ok::<_, std::convert::Infallible>(true)
+                    })
+                };
+                let debug = crate::debugger::debug_exp::DebugExp::create(
+                    None,
+                    Some(cmp.clone()),
+                    Some(cmp),
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .map_err(|e| {
+                    ChunkExecutionError::Context(NativeError::Diagnostic(format!(
+                        "assertion debug simplification: {e:?}"
+                    )))
+                })?;
+                Some((residual_goal, debug))
+            } else {
+                None
+            };
             return self
-                .consumption_failure(&state, error, "complete permission consumption", true)
+                .failure_full_with_assertion(full, &state, true, assertion)
                 .map_err(ChunkExecutionError::Context);
         }
         continuation(self, state, Arc::new(result_heap), snapshot)
@@ -25990,6 +26592,364 @@ where
 
 #[cfg(test)]
 mod worker_analysis_contract_tests {
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn debug_failure_snapshot_survives_scope_cleanup() {
+        std::thread::Builder::new().stack_size(128 * 1024 * 1024).spawn(|| {
+            use super::*;
+            use crate::{config::Config, decider::z3_prover_std_io, debugger::native_failure::NativeDebugFailureContext, interfaces::verification::ResultKind, state::{terms::TermOptions, store::Store}, verifier::verification_pool_manager::native_method_worker};
+            use ferrum_silver::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
+            let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+            let config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "debug.vpr".into()]).unwrap();
+            let factory = TermFactory::new(TermOptions { use_flyweight: config.use_flyweight(), use_old_axiomatization: config.use_old_axiomatization, mask_heap_mode: config.mask_heap_mode });
+            let mut settings = z3_prover_std_io::settings(z3.into());
+            settings.debug = true;
+            let prover = z3_prover_std_io::new("capture".into(), settings, factory.clone(), |_| {});
+            let identifiers = prover.identifier_factory();
+            let mut worker = native_method_worker("capture".into(), prover, identifiers, factory, NativeOptions::from_config(&config).unwrap(), &config);
+            let mut phases = SilFrontendPhases::new("debug.vpr".into(), ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+            let parsed = phases.parse("function f(x: Int): Int { x } method m(x: Int) requires x > 0 { assert f(x) > 1; }").unwrap();
+            let analyzed = phases.analyze(parsed).unwrap(); let program = phases.translate(analyzed).unwrap();
+            worker.context.start(None, &[]).unwrap();
+            worker.context.base.decider.debug_mode = true;
+            worker.context.evaluator_debug_for_test = true;
+            worker.context.set_debug_failure_factory(Arc::new(|state, record, owners| Ok(Arc::new(NativeDebugFailureContext::capture_native(state, record, owners)?))));
+            let results = worker.context.verify_program(&program, &[]).unwrap();
+            worker.context.stop().unwrap();
+            drop(worker);
+            let failure = results.iter().find_map(|result| result.with_kind(|kind| match kind { ResultKind::Failure(error) => error.failure_contexts.first().cloned(), _ => None })).expect("failure context");
+            type Captured = NativeDebugFailureContext<crate::supporters::predicate_verification_unit::PredicateData, NativeFunctionData>;
+            let context = (failure.as_ref() as &dyn std::any::Any).downcast_ref::<Captured>().expect("debug failure");
+            assert_eq!(context.obligation.verifier.worker_id, "capture");
+            assert!(!context.obligation.state.g.values().is_empty());
+            let handle = context.obligation.state.function_data.get(&"f".to_owned()).expect("function handle");
+            let owner = handle.0.upgrade().expect("detached owner survives verifier drop");
+            assert_eq!(owner.lock().unwrap().program_function.name, "f");
+            assert!(!context.obligation.preamble_assumptions.is_empty());
+            assert!(context.obligation.assertion_exp.original_exp().is_some());
+            assert!(!matches!(context.obligation.assertion.kind(), crate::state::terms::TermKind::False));
+            assert!(!context.obligation.assumptions.is_empty());
+            let new_factory = TermFactory::new(TermOptions { use_flyweight: config.use_flyweight(), use_old_axiomatization: config.use_old_axiomatization, mask_heap_mode: config.mask_heap_mode });
+            let prover = z3_prover_std_io::new("replay".into(), z3_prover_std_io::settings(std::env::var("FERRUM_TEST_Z3").unwrap().into()), new_factory.clone(), |_| {});
+            let identifiers = prover.identifier_factory();
+            let mut replay = native_method_worker("replay".into(), prover, identifiers, new_factory, NativeOptions::from_config(&config).unwrap(), &config);
+            replay.context.start(None, &[]).unwrap();
+            let replay_state = context.prepare_runtime(&mut replay.context).unwrap();
+            assert!(replay.context.base.decider.debug_mode);
+            assert_eq!(replay.context.function_heights.get("f"), Some(&owner.lock().unwrap().height));
+            let replay_owner = replay_state.function_data.get(&"f".to_owned()).unwrap().0.upgrade().unwrap();
+            assert!(!Arc::ptr_eq(&owner, &replay_owner));
+            let second_state = context.prepare_runtime_with_state(&mut replay.context, &replay_state).unwrap();
+            let second_owner = second_state.function_data.get(&"f".to_owned()).unwrap().0.upgrade().unwrap();
+            assert!(!Arc::ptr_eq(&replay_owner, &second_owner));
+            assert!(!Arc::ptr_eq(&owner, &second_owner));
+            assert!(replay.context.function_handles.get(&"f".to_owned()).unwrap().0.upgrade().is_some());
+            assert!(replay.context.active_program.is_some());
+            replay.context.stop().unwrap();
+        }).unwrap().join().unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn debug_failure_captures_division_goal() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024 * 1024)
+            .spawn(|| {
+                use super::*;
+                use crate::{
+                    config::Config, debugger::native_failure::NativeDebugFailureContext,
+                    decider::z3_prover_std_io, interfaces::verification::ResultKind,
+                    state::terms::TermOptions,
+                    verifier::verification_pool_manager::native_method_worker,
+                };
+                use ferrum_silver::frontend::{
+                    frontend::FrontendPhases, sil_frontend::SilFrontendPhases,
+                };
+                let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+                let config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3.clone(),
+                    "debug.vpr".into(),
+                ])
+                .unwrap();
+                let factory = TermFactory::new(TermOptions {
+                    use_flyweight: config.use_flyweight(),
+                    use_old_axiomatization: config.use_old_axiomatization,
+                    mask_heap_mode: config.mask_heap_mode,
+                });
+                let mut settings = z3_prover_std_io::settings(z3.into());
+                settings.debug = true;
+                let prover =
+                    z3_prover_std_io::new("division".into(), settings, factory.clone(), |_| {});
+                let identifiers = prover.identifier_factory();
+                let mut worker = native_method_worker(
+                    "division".into(),
+                    prover,
+                    identifiers,
+                    factory,
+                    NativeOptions::from_config(&config).unwrap(),
+                    &config,
+                );
+                let mut phases = SilFrontendPhases::new(
+                    "debug.vpr".into(),
+                    ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                let parsed = phases
+                    .parse("method m(x: Int) { assert 1 / x > 0; }")
+                    .unwrap();
+                let analyzed = phases.analyze(parsed).unwrap();
+                let program = phases.translate(analyzed).unwrap();
+                worker.context.start(None, &[]).unwrap();
+                worker.context.base.decider.debug_mode = true;
+                worker
+                    .context
+                    .set_debug_failure_factory(Arc::new(|state, record, owners| {
+                        Ok(Arc::new(NativeDebugFailureContext::capture_native(
+                            state, record, owners,
+                        )?))
+                    }));
+                let results = worker.context.verify_program(&program, &[]).unwrap();
+                worker.context.stop().unwrap();
+                let failure = results
+                    .iter()
+                    .find_map(|result| {
+                        result.with_kind(|kind| match kind {
+                            ResultKind::Failure(error) => error.failure_contexts.first().cloned(),
+                            _ => None,
+                        })
+                    })
+                    .expect("failure context");
+                type Captured = NativeDebugFailureContext<
+                    crate::supporters::predicate_verification_unit::PredicateData,
+                    NativeFunctionData,
+                >;
+                let context = (failure.as_ref() as &dyn std::any::Any)
+                    .downcast_ref::<Captured>()
+                    .unwrap();
+                assert!(matches!(
+                    context.obligation.original_error_reason,
+                    ErrorReason::DivisionByZero(_)
+                ));
+                assert!(!matches!(
+                    context.obligation.assertion.kind(),
+                    crate::state::terms::TermKind::False
+                ));
+                assert!(context.obligation.assertion_exp.original_exp().is_some());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn debug_failure_captures_complete_empty_heap_goal() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024 * 1024)
+            .spawn(|| {
+                use super::*;
+                use crate::{
+                    config::Config, debugger::native_failure::NativeDebugFailureContext,
+                    decider::z3_prover_std_io, interfaces::verification::ResultKind,
+                    state::terms::TermOptions,
+                    verifier::verification_pool_manager::native_method_worker,
+                };
+                use ferrum_silver::frontend::{
+                    frontend::FrontendPhases, sil_frontend::SilFrontendPhases,
+                };
+                let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+                let config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3.clone(),
+                    "--exhaleMode".into(),
+                    "1".into(),
+                    "debug.vpr".into(),
+                ])
+                .unwrap();
+                let factory = TermFactory::new(TermOptions {
+                    use_flyweight: config.use_flyweight(),
+                    use_old_axiomatization: config.use_old_axiomatization,
+                    mask_heap_mode: config.mask_heap_mode,
+                });
+                let mut settings = z3_prover_std_io::settings(z3.into());
+                settings.debug = true;
+                let prover =
+                    z3_prover_std_io::new("division".into(), settings, factory.clone(), |_| {});
+                let identifiers = prover.identifier_factory();
+                let mut worker = native_method_worker(
+                    "division".into(),
+                    prover,
+                    identifiers,
+                    factory,
+                    NativeOptions::from_config(&config).unwrap(),
+                    &config,
+                );
+                let mut phases = SilFrontendPhases::new(
+                    "debug.vpr".into(),
+                    ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                let parsed = phases
+                    .parse("field f: Int method m(r: Ref) requires r != null { exhale acc(r.f); }")
+                    .unwrap();
+                let analyzed = phases.analyze(parsed).unwrap();
+                let program = phases.translate(analyzed).unwrap();
+                worker.context.start(None, &[]).unwrap();
+                worker.context.base.decider.debug_mode = true;
+                worker
+                    .context
+                    .set_debug_failure_factory(Arc::new(|state, record, owners| {
+                        Ok(Arc::new(NativeDebugFailureContext::capture_native(
+                            state, record, owners,
+                        )?))
+                    }));
+                let results = worker.context.verify_program(&program, &[]).unwrap();
+                worker.context.stop().unwrap();
+                let failure = results
+                    .iter()
+                    .find_map(|result| {
+                        result.with_kind(|kind| match kind {
+                            ResultKind::Failure(error) => error.failure_contexts.first().cloned(),
+                            _ => None,
+                        })
+                    })
+                    .expect("failure context");
+                type Captured = NativeDebugFailureContext<
+                    crate::supporters::predicate_verification_unit::PredicateData,
+                    NativeFunctionData,
+                >;
+                let context = (failure.as_ref() as &dyn std::any::Any)
+                    .downcast_ref::<Captured>()
+                    .unwrap();
+                assert!(matches!(
+                    context.obligation.original_error_reason,
+                    ErrorReason::InsufficientPermission(_)
+                ));
+                assert!(context.obligation.assertion_exp.original_exp().is_some());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn debug_failure_captures_complete_residual_goal() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024 * 1024)
+            .spawn(|| {
+                use super::*;
+                use crate::{
+                    config::Config, debugger::native_failure::NativeDebugFailureContext,
+                    decider::z3_prover_std_io, interfaces::verification::ResultKind,
+                    state::terms::TermOptions,
+                    verifier::verification_pool_manager::native_method_worker,
+                };
+                use ferrum_silver::frontend::{
+                    frontend::FrontendPhases, sil_frontend::SilFrontendPhases,
+                };
+                let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+                let config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3.clone(),
+                    "--exhaleMode".into(),
+                    "1".into(),
+                    "debug.vpr".into(),
+                ])
+                .unwrap();
+                let factory = TermFactory::new(TermOptions {
+                    use_flyweight: config.use_flyweight(),
+                    use_old_axiomatization: config.use_old_axiomatization,
+                    mask_heap_mode: config.mask_heap_mode,
+                });
+                let mut settings = z3_prover_std_io::settings(z3.into());
+                settings.debug = true;
+                let prover =
+                    z3_prover_std_io::new("division".into(), settings, factory.clone(), |_| {});
+                let identifiers = prover.identifier_factory();
+                let mut worker = native_method_worker(
+                    "division".into(),
+                    prover,
+                    identifiers,
+                    factory,
+                    NativeOptions::from_config(&config).unwrap(),
+                    &config,
+                );
+                let mut phases = SilFrontendPhases::new(
+                    "debug.vpr".into(),
+                    ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                let parsed = phases
+                    .parse(
+                        "field f: Int method m(r: Ref) requires acc(r.f, 1/2) { exhale acc(r.f); }",
+                    )
+                    .unwrap();
+                let analyzed = phases.analyze(parsed).unwrap();
+                let program = phases.translate(analyzed).unwrap();
+                worker.context.start(None, &[]).unwrap();
+                worker.context.base.decider.debug_mode = true;
+                worker
+                    .context
+                    .set_debug_failure_factory(Arc::new(|state, record, owners| {
+                        Ok(Arc::new(NativeDebugFailureContext::capture_native(
+                            state, record, owners,
+                        )?))
+                    }));
+                let results = worker.context.verify_program(&program, &[]).unwrap();
+                worker.context.stop().unwrap();
+                let failure = results
+                    .iter()
+                    .find_map(|result| {
+                        result.with_kind(|kind| match kind {
+                            ResultKind::Failure(error) => error.failure_contexts.first().cloned(),
+                            _ => None,
+                        })
+                    })
+                    .expect("failure context");
+                type Captured = NativeDebugFailureContext<
+                    crate::supporters::predicate_verification_unit::PredicateData,
+                    NativeFunctionData,
+                >;
+                let context = (failure.as_ref() as &dyn std::any::Any)
+                    .downcast_ref::<Captured>()
+                    .unwrap();
+                assert!(matches!(
+                    context.obligation.original_error_reason,
+                    ErrorReason::InsufficientPermission(_)
+                ));
+                assert!(context.obligation.assertion_exp.original_exp().is_some());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn debug_failure_captures_qp_insufficient_description() {
+        std::thread::Builder::new().stack_size(128 * 1024 * 1024).spawn(|| {
+            use super::*;
+            use crate::{config::Config, decider::z3_prover_std_io, debugger::native_failure::NativeDebugFailureContext, interfaces::verification::ResultKind, state::terms::TermOptions, verifier::verification_pool_manager::native_method_worker};
+            use ferrum_silver::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
+            let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+            let config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "debug.vpr".into()]).unwrap();
+            let factory = TermFactory::new(TermOptions { use_flyweight: config.use_flyweight(), use_old_axiomatization: config.use_old_axiomatization, mask_heap_mode: config.mask_heap_mode });
+            let mut settings = z3_prover_std_io::settings(z3.into()); settings.debug = true;
+            let prover = z3_prover_std_io::new("division".into(), settings, factory.clone(), |_| {});
+            let identifiers = prover.identifier_factory();
+            let mut worker = native_method_worker("division".into(), prover, identifiers, factory, NativeOptions::from_config(&config).unwrap(), &config);
+            let mut phases = SilFrontendPhases::new("debug.vpr".into(), ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+            let parsed = phases.parse("field f: Int method m() { exhale forall r: Ref :: r != null ==> acc(r.f); }").unwrap();
+            let analyzed = phases.analyze(parsed).unwrap(); let program = phases.translate(analyzed).unwrap();
+            worker.context.start(None, &[]).unwrap(); worker.context.base.decider.debug_mode = true;
+            worker.context.set_debug_failure_factory(Arc::new(|state, record, owners| Ok(Arc::new(NativeDebugFailureContext::capture_native(state, record, owners)?))));
+            let results = worker.context.verify_program(&program, &[]).unwrap(); worker.context.stop().unwrap();
+            let failure = results.iter().find_map(|result| result.with_kind(|kind| match kind { ResultKind::Failure(error) => error.failure_contexts.first().cloned(), _ => None })).expect("failure context");
+            type Captured = NativeDebugFailureContext<crate::supporters::predicate_verification_unit::PredicateData, NativeFunctionData>;
+            let context = (failure.as_ref() as &dyn std::any::Any).downcast_ref::<Captured>().unwrap();
+            assert!(matches!(context.obligation.original_error_reason, ErrorReason::InsufficientPermission(_)));
+            assert!(matches!(context.obligation.assertion.kind(), crate::state::terms::TermKind::False));
+            assert_eq!(context.obligation.assertion_exp.description(), Some("Asserted term for 'QP consume' not available, substituting false."));
+        }).unwrap().join().unwrap();
+    }
     #[test]
     #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
     fn direct_context_keeps_function_postconditions_across_reset() {

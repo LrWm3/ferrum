@@ -1535,6 +1535,7 @@ pub struct LinkedZ3Prover {
     last_model: Option<RetainedModel>,
     last_reason_unknown: Option<String>,
     randomize_options: Vec<String>,
+    debug_preamble: Vec<crate::debugger::debug_exp::DebugAxiom>,
     warnings: Vec<String>,
     warning_reporter: Option<Box<dyn FnMut(&str)>>,
     interrupt: LinkedZ3CancellationHandle,
@@ -1553,6 +1554,7 @@ impl LinkedZ3Prover {
             last_model: None,
             last_reason_unknown: None,
             randomize_options: vec!["RANDOMIZE_SEEDS".into()],
+            debug_preamble: Vec::new(),
             warnings: Vec::new(),
             warning_reporter: None,
             interrupt: LinkedZ3CancellationHandle::default(),
@@ -1732,8 +1734,15 @@ impl crate::interfaces::decider::prover::ProverLike for LinkedZ3Prover {
         terms: &crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<
             crate::state::terms::Term,
         >,
-        _: &str,
+        description: &str,
     ) -> Result<(), Self::Error> {
+        if self.options.debug {
+            self.debug_preamble
+                .push(crate::debugger::debug_exp::DebugAxiom {
+                    description: description.into(),
+                    terms: terms.clone(),
+                });
+        }
         for term in terms.iter() {
             self.assume_with_trigger_retry(term)?;
         }
@@ -1822,6 +1831,7 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
     fn stop(&mut self) -> Result<(), Self::Error> {
         self.last_model = None;
         self.last_reason_unknown = None;
+        self.debug_preamble.clear();
         self.session = None;
         self.identifiers.stop();
         Ok(())
@@ -1944,11 +1954,58 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
             .as_ref()
             .map_or_else(Vec::new, |s| s.emissions().to_vec())
     }
+    fn debug_preamble_assumptions(&self) -> Option<Vec<crate::debugger::debug_exp::DebugAxiom>> {
+        self.options.debug.then(|| self.debug_preamble.clone())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn linked_debug_preamble_records_and_resets() {
+        use crate::{
+            interfaces::decider::prover::{Prover, ProverLike},
+            state::terms::{TermFactory, TermOptions},
+        };
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        for debug in [false, true] {
+            let options = LinkedProverOptions {
+                timeout: super::super::z3_prover_api::ApiTimeoutSettings {
+                    default_timeout_ms: 0,
+                    use_time_bounds: true,
+                    resources_per_millisecond: 1,
+                },
+                counterexamples: false,
+                report_reason_unknown: false,
+                debug,
+                soft_assertions: false,
+                custom_options: vec![],
+                disable_nonlinear: false,
+            };
+            let mut prover = LinkedZ3Prover::new("debug-api", factory.clone(), options);
+            prover.start(None).unwrap();
+            let terms = [factory.boolean(true)].into_iter().collect();
+            prover.assume_axioms(&terms, "test axiom").unwrap();
+            if debug {
+                let recorded = prover.debug_preamble_assumptions().unwrap();
+                assert_eq!(recorded.len(), 1);
+                assert_eq!(recorded[0].description, "test axiom");
+                assert_eq!(recorded[0].terms, terms);
+            } else {
+                assert!(prover.debug_preamble_assumptions().is_none());
+            }
+            prover.reset().unwrap();
+            if debug {
+                assert!(prover.debug_preamble_assumptions().unwrap().is_empty());
+            }
+            prover.stop().unwrap();
+        }
+    }
     #[test]
     fn linked_soft_assertion_reason_remains_absent() {
         use crate::{
