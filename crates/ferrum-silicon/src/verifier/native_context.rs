@@ -122,20 +122,12 @@ impl NativeOptions {
     pub fn from_config(
         config: &crate::config::Config,
     ) -> Result<Self, NativeError<crate::decider::prover_std_io::ProverError>> {
-        if config.enable_debugging
-            || config.frontend.ide_mode_advanced
-            || config.generate_block_messages
-        {
+        if config.enable_debugging || config.generate_block_messages {
             return Err(NativeError::Unsupported(
                 "requested verifier configuration is not connected",
             ));
         }
-        if config.report_state_after.is_some()
-            || config.log_config.is_some()
-            || config.log_level.is_some()
-            || !config.logger.is_empty()
-            || config.report_state_after.is_some()
-        {
+        if config.log_level.is_some() || !config.logger.is_empty() {
             return Err(NativeError::Unsupported(
                 "requested timeout, logging, solver, worker, cache or encoding policy is not connected",
             ));

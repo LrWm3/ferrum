@@ -2613,3 +2613,8 @@ remaining = ["Explicit run ownership, worker attachment and timeout reuse are co
 destination = "crates/ferrum-silicon/tests/state_report_stack.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "tests/native_logging_api.rs"
+status = "wired"
+role = "assembly"

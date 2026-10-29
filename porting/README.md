@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 410 mapped and assembly modules. `described` files
+The Cargo workspace now has 411 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
@@ -929,3 +929,15 @@ precondition frames carry that same label. Function joins now retain guarded
 debug definitions, joined paths, feasible branches and merged-heap records.
 Real-Z3 checks exercise debug reconstruction and ordinary/owned function calls;
 public interactive debugging remains gated.
+
+Advanced execution traces (`--ideModeAdvanced`) and stalled-state reports
+(`--reportStateAfter`) now construct the configured run logger through the public
+Session and CLI. The CLI forwards symbolic diagnostics and prints the final
+result once. Source-disabled `--logConfig` alone remains inactive. Reporter
+failures are retained, and log ownership survives the intended reset/stop order.
+Positive/negative and repeated Session checks cover one/two workers with both
+Z3 transports. A public single-worker stdio fixture holds a real solver query
+until the state callback and checks callback-error delivery and solver cleanup.
+These profiles supersede the earlier blanket logging gate; interactive debugging,
+block messages and general logger-level configuration remain incomplete. Active
+logs still disable owned branch dispatch.

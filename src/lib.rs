@@ -779,6 +779,43 @@ fn combine_logger_cleanup(
         }),
     }
 }
+/// Build the source-selected native logger using the reporter effective at startup.
+fn configured_run_log_owner(
+    config: &Config,
+    reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
+    factory: TermFactory,
+    warnings: SharedWarnings,
+) -> Result<RunLogOwner, FerrumError> {
+    let reporter = reporter.ok_or_else(|| {
+        FerrumError::Configuration("configured logging requires a reporter".into())
+    })?;
+    let log_warnings = warnings.clone();
+    let state_warnings = warnings;
+    let root = silicon::logger::symb_ex_logger::NativeSymbExLogger::of_config(
+        config,
+        reporter,
+        factory,
+        move |warning| {
+            log_warnings
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(warning)
+        },
+        move |error| {
+            state_warnings
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(format!("state reporting failed: {error:?}"))
+        },
+    )
+    .map_err(execution)?;
+    RunLogOwner::new(
+        Arc::new(root),
+        Some(silicon::logger::symb_ex_logger::native_statistics_double),
+        config.frontend.ide_mode_advanced,
+    )
+    .map_err(execution)
+}
 impl Drop for NativeBackend {
     fn drop(&mut self) {
         // Standalone paths stop contexts before releasing the run logger. Production
@@ -809,6 +846,16 @@ impl SiliconBackend for NativeBackend {
             use_old_axiomatization: config.use_old_axiomatization,
             mask_heap_mode: config.mask_heap_mode,
         });
+        if (config.frontend.ide_mode_advanced || config.report_state_after.is_some())
+            && self.logging.is_none()
+        {
+            self.logging = Some(configured_run_log_owner(
+                config,
+                self.reporter.clone(),
+                factory.clone(),
+                self.warnings.clone(),
+            )?);
+        }
         // Preserve the initial native single-worker default; explicit source configuration
         // selects the now-connected worker pool.
         let count = if config.is_supplied("numberOfParallelVerifiers") {
@@ -1380,6 +1427,27 @@ pub fn run_file(config: Config) -> Result<RunReport, FerrumError> {
         .map_err(|_| FerrumError::Execution("Native verifier thread panicked".into()))?
 }
 
+/// Forward only symbolic diagnostics; the CLI already prints final verification results.
+struct CliLoggingReporter(silver::reporter::reporter::StdIoReporter<std::io::Stdout>);
+impl silver::reporter::reporter::Reporter for CliLoggingReporter {
+    fn name(&self) -> &str {
+        "ferrum_cli_logging"
+    }
+    fn report(
+        &self,
+        message: silver::reporter::message::Message,
+    ) -> Result<(), silver::reporter::reporter::ReportError> {
+        if matches!(
+            &message,
+            silver::reporter::message::Message::ExecutionTrace { .. }
+                | silver::reporter::message::Message::VerifierState { .. }
+        ) {
+            silver::reporter::reporter::Reporter::report(&self.0, message)?;
+        }
+        Ok(())
+    }
+}
+
 fn run_file_on_current_thread(config: Config) -> Result<RunReport, FerrumError> {
     let file = config
         .frontend
@@ -1427,7 +1495,15 @@ fn run_file_on_current_thread(config: Config) -> Result<RunReport, FerrumError> 
             .iter()
             .map(|w| w.readable_message().unwrap_or_else(|_| w.full_id().into())),
     );
-    let mut session = Session::new(config)?;
+    let mut session = if config.frontend.ide_mode_advanced || config.report_state_after.is_some() {
+        let reporter = CliLoggingReporter(silver::reporter::reporter::StdIoReporter::new(
+            std::io::stdout(),
+            !config.frontend.no_timing,
+        ));
+        Session::new_with_reporter(config, Arc::new(reporter))?
+    } else {
+        Session::new(config)?
+    };
     let result = session.verify(&program, &[]);
     let cleanup = session.stop();
     warnings.extend(session.take_warnings());
@@ -1981,10 +2057,220 @@ mod direct_session_reporter_tests {
                 assert!(session.verify(&program, &[]).is_err());
                 session.stop().unwrap();
                 let mut unsupported = config;
-                unsupported.frontend.ide_mode_advanced = true;
+                unsupported.enable_debugging = true;
                 assert!(Session::new_with_reporter(unsupported, Arc::new(NoopReporter)).is_err());
             }
         }).unwrap().join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod configured_logging_setup_tests {
+    use super::*;
+    use silver::{
+        frontend::frontend::FrontendPhases,
+        reporter::{
+            message::Message,
+            reporter::{NoopReporter, PollingReporter},
+        },
+    };
+
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn configured_logger_uses_start_reporter_and_requires_reporter() {
+        std::thread::Builder::new()
+            .stack_size(VERIFICATION_STACK_SIZE)
+            .spawn(|| {
+                let z3 = std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+                let mut phases = SilFrontendPhases::new(
+                    "injected.vpr".into(),
+                    silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                let parsed = phases
+                    .parse("method first() {} method second() {}")
+                    .unwrap();
+                let checked = phases.analyze(parsed).unwrap();
+                let program = phases.translate(checked).unwrap();
+                for workers in [1, 2] {
+                    let config = Config::parse(&[
+                        "--ignoreFile".into(),
+                        "--z3Exe".into(),
+                        z3.clone(),
+                        "--numberOfParallelVerifiers".into(),
+                        workers.to_string(),
+                        "--ideModeAdvanced".into(),
+                        "injected.vpr".into(),
+                    ])
+                    .unwrap();
+                    assert!(Session::new(config.clone()).is_err());
+                    let earlier = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+                    let current = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+                    let mut backend = NativeBackend::new(config);
+                    backend.reporter = Some(earlier.clone());
+                    backend.reporter = Some(current.clone());
+                    let mut silicon = Silicon::new(backend);
+                    silicon.configure(&[]).unwrap();
+                    silicon.start().unwrap();
+                    for _ in 0..2 {
+                        assert!(matches!(
+                            silicon.verify(&program, &[]).unwrap(),
+                            SiliconOutcome::BackendResult(VerificationResult::Success)
+                        ));
+                        let mut trace = false;
+                        let mut terminated = false;
+                        while current.has_new_message() {
+                            match current.get_new_message().unwrap() {
+                                Message::ExecutionTrace { member_traces, .. } => {
+                                    assert_eq!(member_traces.len(), 2);
+                                    trace = true;
+                                }
+                                Message::VerificationTermination => {
+                                    assert!(trace);
+                                    terminated = true;
+                                }
+                                _ => {}
+                            }
+                        }
+                        assert!(trace && terminated);
+                    }
+                    assert!(!earlier.has_new_message());
+                    silicon.stop().unwrap();
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn configured_state_reporting_preserves_callback_failures_in_warning_sink() {
+        use silicon::{
+            decider::z3_prover_std_io, logger::records::data::data_record::FullStateRecordFactory,
+            supporters::method_supporter::MethodVerificationServices,
+            verifier::verification_pool_manager::native_method_worker,
+        };
+        use silver::{
+            ast::program::{Method, MethodData},
+            reporter::reporter::{ReportError, Reporter},
+        };
+        struct RejectState(std::sync::mpsc::Sender<()>);
+        impl Reporter for RejectState {
+            fn name(&self) -> &str {
+                "reject-state"
+            }
+            fn report(&self, message: Message) -> Result<(), ReportError> {
+                if matches!(message, Message::VerifierState { .. }) {
+                    let _ = self.0.send(());
+                    Err(ReportError::Unsupported("state callback rejected"))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let mut config = Config::default();
+        config.report_state_after = Some(1);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let warnings = Arc::new(Mutex::new(Vec::new()));
+        let owner = configured_run_log_owner(
+            &config,
+            Some(Arc::new(RejectState(tx))),
+            factory.clone(),
+            warnings.clone(),
+        )
+        .unwrap();
+        let prover = z3_prover_std_io::new(
+            "test".into(),
+            z3_prover_std_io::settings("z3".into()),
+            factory.clone(),
+            |_| {},
+        );
+        let identifiers = prover.identifier_factory();
+        let worker_config = Config::default();
+        let mut worker = native_method_worker(
+            "test".into(),
+            prover,
+            identifiers,
+            factory,
+            NativeOptions::from_config(&worker_config).unwrap(),
+            &worker_config,
+        );
+        owner
+            .attachment()
+            .attach(&mut worker.context, Rc::new(FullStateRecordFactory));
+        let method = Method::new(MethodData {
+            name: "m".into(),
+            formal_args: vec![],
+            formal_returns: vec![],
+            pres: vec![],
+            posts: vec![],
+            body: None,
+            meta: Default::default(),
+        });
+        worker.context.open_method_log(&method).unwrap();
+        rx.recv_timeout(std::time::Duration::from_secs(3)).unwrap();
+        let limit = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while !warnings
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|warning| warning.contains("state callback rejected"))
+        {
+            assert!(
+                std::time::Instant::now() < limit,
+                "scheduler error was lost"
+            );
+            std::thread::yield_now();
+        }
+        owner.close().unwrap();
+    }
+    #[test]
+    fn configured_logging_exposes_bad_log_config_warning() {
+        let mut config = Config::default();
+        config.frontend.ide_mode_advanced = true;
+        config.log_config = Some(format!("/nonexistent-ferrum-config-{}", std::process::id()));
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let warnings = Arc::new(Mutex::new(Vec::new()));
+        let owner = configured_run_log_owner(
+            &config,
+            Some(Arc::new(NoopReporter)),
+            factory,
+            warnings.clone(),
+        )
+        .unwrap();
+        assert!(
+            warnings
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|warning| warning.contains("default configuration will be used"))
+        );
+        owner.close().unwrap();
+    }
+    #[test]
+    fn configured_logging_requires_reporter_and_does_not_bypass_debug() {
+        let mut config = Config::default();
+        config.frontend.ide_mode_advanced = true;
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        assert!(
+            configured_run_log_owner(&config, None, factory, Arc::new(Mutex::new(vec![]))).is_err()
+        );
+        config.enable_debugging = true;
+        let mut backend = NativeBackend::new(config);
+        backend.reporter = Some(Arc::new(NoopReporter));
+        assert!(backend.start().is_err());
     }
 }
 
@@ -2017,5 +2303,414 @@ mod postcondition_owner_tests {
                 silicon.stop().unwrap();
             }
         }).unwrap().join().unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires real Z3, Python 3; set FERRUM_TEST_Z3"]
+fn public_session_delivers_stalled_state_and_preserves_reporter_error() {
+    use silver::frontend::frontend::FrontendPhases;
+    use silver::reporter::message::Message;
+    use silver::reporter::reporter::{ReportError, Reporter};
+    struct RejectState {
+        sent: std::sync::mpsc::Sender<()>,
+        held: std::path::PathBuf,
+        resume: std::path::PathBuf,
+    }
+    impl Reporter for RejectState {
+        fn name(&self) -> &str {
+            "reject-state"
+        }
+        fn report(&self, message: Message) -> Result<(), ReportError> {
+            if matches!(message, Message::VerifierState { .. }) {
+                assert!(
+                    self.held.exists(),
+                    "state report arrived before the held verifier query"
+                );
+                std::fs::write(&self.resume, b"resume").unwrap();
+                let _ = self.sent.send(());
+                Err(ReportError::Unsupported("state rejected"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+    std::thread::Builder::new()
+        .stack_size(VERIFICATION_STACK_SIZE)
+        .spawn(|| {
+            let n = 14;
+            let vars = (0..n).map(|i| format!("x{i}: Int")).collect::<Vec<_>>();
+            let mut clauses = (0..n)
+                .map(|i| format!("(0 <= x{i} && x{i} < {})", n - 1))
+                .collect::<Vec<_>>();
+            for i in 0..n {
+                for j in i + 1..n {
+                    clauses.push(format!("x{i} != x{j}"));
+                }
+            }
+            let source = format!(
+                "method hard({}) {{ assert !({}); }}",
+                vars.join(", "),
+                clauses.join(" && ")
+            );
+            let mut phases = SilFrontendPhases::new(
+                "state.vpr".into(),
+                silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+            );
+            let parsed = phases.parse(&source).unwrap();
+            let checked = phases.analyze(parsed).unwrap();
+            let program = phases.translate(checked).unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            struct ProxyDir(std::path::PathBuf);
+            impl Drop for ProxyDir {
+                fn drop(&mut self) {
+                    let _ = std::fs::remove_dir_all(&self.0);
+                }
+            }
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let dir = ProxyDir(
+                std::env::temp_dir()
+                    .join(format!("ferrum-state-proxy-{}-{stamp}", std::process::id())),
+            );
+            std::fs::create_dir(&dir.0).unwrap();
+            let proxy = dir.0.join("z3-proxy");
+            let held = dir.0.join("held");
+            let resume = dir.0.join("resume");
+            let timeout = dir.0.join("timeout");
+            let reaped = dir.0.join("reaped");
+            // The first check is preamble setup; the third reaches the nested
+            // member evaluation. Hold that Z3 query until its state report.
+            // A timeout prevents a broken reporter from deadlocking the test.
+            let script = format!(
+                r#"#!/usr/bin/env python3
+import os, pathlib, subprocess, sys, time
+child = subprocess.Popen([os.environ['FERRUM_TEST_Z3'], *sys.argv[1:]], stdin=subprocess.PIPE)
+held = pathlib.Path({held:?})
+resume = pathlib.Path({resume:?})
+timeout = pathlib.Path({timeout:?})
+reaped = pathlib.Path({reaped:?})
+checks = 0
+try:
+    for line in sys.stdin.buffer:
+        if line.lstrip().startswith(b'(check-sat'):
+            checks += 1
+            if checks == 3:
+                held.write_text('held')
+                deadline = time.monotonic() + 15
+                while not resume.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                if not resume.exists():
+                    timeout.write_text('timeout')
+        child.stdin.write(line)
+        child.stdin.flush()
+        if line.strip() == b'(exit)':
+            break
+finally:
+    child.stdin.close()
+    try:
+        child.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        child.kill()
+        child.wait(timeout=5)
+    reaped.write_text('reaped')
+"#,
+                held = held.to_str().unwrap(),
+                resume = resume.to_str().unwrap(),
+                timeout = timeout.to_str().unwrap()
+            );
+            std::fs::write(&proxy, script).unwrap();
+            std::fs::set_permissions(&proxy, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let z3 = proxy.to_string_lossy().into_owned();
+            let config = Config::parse(&[
+                "--ignoreFile".into(),
+                "--z3Exe".into(),
+                z3,
+                "--assertTimeout".into(),
+                "5000".into(),
+                "--checkTimeout".into(),
+                "0".into(),
+                "--reportStateAfter".into(),
+                "1".into(),
+                "state.vpr".into(),
+            ])
+            .unwrap();
+            let (reports_tx, reports_rx) = std::sync::mpsc::channel();
+            let reporter = Arc::new(RejectState {
+                sent: reports_tx,
+                held: held.clone(),
+                resume,
+            });
+            let mut session = Session::new_with_reporter(config, reporter).unwrap();
+            let outcome = session.verify(&program, &[]);
+            assert!(
+                outcome.is_ok(),
+                "verification execution failed: {outcome:?}"
+            );
+            reports_rx
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .expect("stalled state report");
+            assert!(
+                session
+                    .take_warnings()
+                    .iter()
+                    .any(|warning| warning.contains("state rejected"))
+            );
+            assert!(
+                !timeout.exists(),
+                "held query timed out before a state report"
+            );
+            // Stop the real solver through the proxy and observe it being reaped
+            // before the stdio prover terminates the proxy process.
+            let Some(OwnedContext::Stdio(context)) = session.silicon.backend_mut().context.as_mut()
+            else {
+                panic!("expected single stdio context")
+            };
+            context.base.decider.prover.write_line("(exit)").unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while !reaped.exists() && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert!(reaped.exists(), "proxy did not reap the real solver");
+            session.stop().unwrap();
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[cfg(test)]
+mod public_logging_tests {
+    use super::*;
+    use silver::{
+        frontend::frontend::FrontendPhases,
+        reporter::{
+            message::Message,
+            reporter::{NoopReporter, PollingReporter},
+        },
+    };
+
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn public_state_reporting_allows_session_reuse() {
+        std::thread::Builder::new()
+            .stack_size(VERIFICATION_STACK_SIZE)
+            .spawn(|| {
+                let z3 = std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+                let mut phases = SilFrontendPhases::new(
+                    "state.vpr".into(),
+                    silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                for workers in [1, 2] {
+                    let config = Config::parse(&[
+                        "--ignoreFile".into(),
+                        "--z3Exe".into(),
+                        z3.clone(),
+                        "--numberOfParallelVerifiers".into(),
+                        workers.to_string(),
+                        "--reportStateAfter".into(),
+                        "1".into(),
+                        "state.vpr".into(),
+                    ])
+                    .unwrap();
+                    let mut session =
+                        Session::new_with_reporter(config, Arc::new(NoopReporter)).unwrap();
+                    for (source, expected) in [
+                        ("method m() { assert true; }", true),
+                        ("method m() { assert false; }", false),
+                        ("method m() { assert true; }", true),
+                    ] {
+                        let parsed = phases.parse(source).unwrap();
+                        let checked = phases.analyze(parsed).unwrap();
+                        let program = phases.translate(checked).unwrap();
+                        assert_eq!(
+                            matches!(
+                                session.verify(&program, &[]).unwrap(),
+                                VerificationResult::Success
+                            ),
+                            expected
+                        );
+                    }
+                    session.stop().unwrap();
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn public_advanced_trace_renders_domain_function_predicate_and_quantified_permissions() {
+        std::thread::Builder::new().stack_size(VERIFICATION_STACK_SIZE).spawn(|| {
+            let z3 = std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+            let prefix = "domain D { function value(): Int axiom fixed { value() == 1 } } field fld: Int predicate P(r: Ref) { acc(r.fld) } function f(x: Int): Int ensures result == x { x }";
+            for workers in [1, 2] {
+                for (assertion, expected) in [("f(value()) == 1", true), ("f(value()) == 2", false)] {
+                    let source = format!("{prefix} method m() requires forall x: Ref :: x != null ==> acc(x.fld) {{ assert {assertion}; }}");
+                    let mut phases = SilFrontendPhases::new("trace.vpr".into(), silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+                    let parsed = phases.parse(&source).unwrap(); let checked = phases.analyze(parsed).unwrap(); let program = phases.translate(checked).unwrap();
+                    let config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "--numberOfParallelVerifiers".into(), workers.to_string(), "--ideModeAdvanced".into(), "trace.vpr".into()]).unwrap();
+                    let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+                    let mut session = Session::new_with_reporter(config, reporter.clone()).unwrap();
+                    let outcome = session.verify(&program, &[]).unwrap();
+                    assert_eq!(matches!(outcome, VerificationResult::Success), expected, "{assertion}, workers={workers}");
+                    let mut traces = 0; let mut ended = false;
+                    while reporter.has_new_message() { match reporter.get_new_message().unwrap() {
+                        trace @ Message::ExecutionTrace { .. } => { let text = trace.render_source().unwrap(); assert!(text.contains("axioms=List(")); traces += 1; },
+                        Message::VerificationTermination => { assert_eq!(traces, 1); ended = true; }, _ => {}
+                    }}
+                    assert_eq!(traces, 1); assert!(ended); session.stop().unwrap();
+                }
+            }
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn public_trace_preserves_postcondition_axioms_across_resets_and_phase_two_failure() {
+        std::thread::Builder::new()
+            .stack_size(VERIFICATION_STACK_SIZE)
+            .spawn(|| {
+                let z3 = std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+                let mut phases = SilFrontendPhases::new(
+                    "post.vpr".into(),
+                    silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                let parsed = phases
+                    .parse("function f(x: Int): Int ensures result == x { x }")
+                    .unwrap();
+                let checked = phases.analyze(parsed).unwrap();
+                let good = phases.translate(checked).unwrap();
+                let parsed = phases
+                    .parse("function bad(x: Int): Int ensures result == x + 1 { x }")
+                    .unwrap();
+                let checked = phases.analyze(parsed).unwrap();
+                let bad = phases.translate(checked).unwrap();
+                for workers in [1, 2] {
+                    let config = Config::parse(&[
+                        "--ignoreFile".into(),
+                        "--z3Exe".into(),
+                        z3.clone(),
+                        "--numberOfParallelVerifiers".into(),
+                        workers.to_string(),
+                        "--ideModeAdvanced".into(),
+                        "post.vpr".into(),
+                    ])
+                    .unwrap();
+                    let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+                    let mut session = Session::new_with_reporter(config, reporter.clone()).unwrap();
+                    let mut counts = Vec::new();
+                    for (program, success) in [(&good, true), (&good, true), (&bad, false)] {
+                        assert_eq!(
+                            matches!(
+                                session.verify(program, &[]).unwrap(),
+                                VerificationResult::Success
+                            ),
+                            success
+                        );
+                        while reporter.has_new_message() {
+                            if let Message::ExecutionTrace {
+                                function_post_axioms,
+                                ..
+                            } = reporter.get_new_message().unwrap()
+                            {
+                                counts.push(function_post_axioms.len());
+                            }
+                        }
+                    }
+                    assert!(counts[0] > 0);
+                    assert_eq!(counts, vec![counts[0], counts[0] * 2, counts[0] * 3]);
+                    session.stop().unwrap();
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn injected_api_advanced_trace_and_source_disabled_log_config_policy() {
+        std::thread::Builder::new()
+            .stack_size(VERIFICATION_STACK_SIZE)
+            .spawn(|| {
+                let z3 = std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+                let args = vec![
+                    "--z3Exe".into(),
+                    z3.clone(),
+                    "--disableDefaultPlugins".into(),
+                    "--ideModeAdvanced".into(),
+                ];
+                let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+                let mut api = NativeFrontendApi::new(&args, reporter.clone(), false).unwrap();
+                let mut phases = SilFrontendPhases::new(
+                    "injected.vpr".into(),
+                    silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                let parsed = phases.parse("method m() { assert true; }").unwrap();
+                let checked = phases.analyze(parsed).unwrap();
+                let program = phases.translate(checked).unwrap();
+                assert!(matches!(
+                    api.verify(&program).unwrap(),
+                    VerificationResult::Success
+                ));
+                let mut saw_trace = false;
+                while reporter.has_new_message() {
+                    match reporter.get_new_message().unwrap() {
+                        trace @ Message::ExecutionTrace { .. } => {
+                            trace.render_source().unwrap();
+                            saw_trace = true;
+                        }
+                        Message::VerificationTermination => assert!(saw_trace),
+                        _ => {}
+                    }
+                }
+                assert!(saw_trace);
+                api.stop().unwrap();
+                let unused_config = std::env::temp_dir()
+                    .join(format!("ferrum-unused-log-config-{}", std::process::id()));
+                std::fs::write(&unused_config, "invalid json").unwrap();
+                let config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3,
+                    "--logConfig".into(),
+                    unused_config.to_string_lossy().into_owned(),
+                    "injected.vpr".into(),
+                ])
+                .unwrap();
+                let mut session = Session::new(config).unwrap();
+                assert!(matches!(
+                    session.verify(&program, &[]).unwrap(),
+                    VerificationResult::Success
+                ));
+                assert!(session.take_warnings().is_empty());
+                session.stop().unwrap();
+                std::fs::remove_file(unused_config).unwrap();
+                assert!(
+                    Config::parse(&[
+                        "--ignoreFile".into(),
+                        "--reportStateAfter".into(),
+                        "0".into(),
+                        "injected.vpr".into()
+                    ])
+                    .is_err()
+                );
+                assert!(
+                    Config::parse(&[
+                        "--ignoreFile".into(),
+                        "--ideModeAdvanced".into(),
+                        "--parallelizeBranches".into(),
+                        "injected.vpr".into()
+                    ])
+                    .is_err()
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }
