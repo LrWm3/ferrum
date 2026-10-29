@@ -2731,8 +2731,8 @@ pub fn check_program_core(
                             }) = &kind
                             {
                                 let unsupported = match expression {
-                                    PExpressionKind::AccPred { .. }
-                                    | PExpressionKind::Extension(_) => true,
+                                    PExpressionKind::AccPred { .. } => true,
+                                    PExpressionKind::Extension(extension) => !extension.as_any().is::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>(),
                                     _ => false,
                                 };
                                 if unsupported {

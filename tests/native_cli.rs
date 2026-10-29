@@ -1055,3 +1055,83 @@ fn sif_relational_condition_respects_active_executions() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn sif_invalid_function_and_domain_reports_all_structured_diagnostics() {
+    let source = "function bad(x: Int): Int requires low(x) ensures lowEvent { x }\ndomain D { function f(): Int axiom { low(f()) } axiom { lowEvent } }\n";
+    let output = run(
+        source,
+        &[
+            "--plugin",
+            "viper.silver.plugin.sif.SIFPlugin",
+            "--disableCaches",
+            "--numberOfParallelVerifiers",
+            "1",
+        ],
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    let lines: Vec<_> = stderr.lines().collect();
+    assert_eq!(lines.len(), 4, "{stderr}");
+    for (line, expected, position) in lines
+        .iter()
+        .zip([
+            "low(x) is not supported. Relational assertions are not allowed in functions.",
+            "lowEvent is not supported. Relational assertions are not allowed in functions.",
+            "low(f()) is not supported. Relational assertions are not allowed in domains.",
+            "lowEvent is not supported. Relational assertions are not allowed in domains.",
+        ])
+        .zip([
+            "@1.36--1.42)",
+            "@1.51--1.59)",
+            "@2.38--2.46)",
+            "@2.57--2.65)",
+        ])
+        .map(|((line, expected), position)| (line, expected, position))
+    {
+        assert!(
+            line.contains("internal:feature.unsupported")
+                && line.contains(expected)
+                && line.contains(position),
+            "{stderr}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn sif_unsupported_goto_reports_source_error() {
+    let source = "method m() {\n  goto end\n  label end\n}";
+    let output = run(source, &["--plugin", "viper.silver.plugin.sif.SIFPlugin"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains("internal:feature.unsupported")
+            && stderr.contains(
+                "goto end is not supported. Goto statements are currently not supported."
+            )
+            && stderr.contains("@2.3--2.11)"),
+        "{stderr}"
+    );
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn sif_plugin_errors_preserve_typechecking_warnings_and_exit_status() {
+    let source =
+        "field f: Int\nfunction bad(r: Ref): Int requires acc(r.f, 1/2) requires low(r) { r.f }\n";
+    let output = run(source, &["--plugin", "viper.silver.plugin.sif.SIFPlugin"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    let warning = stderr
+        .find("Function contains specific permission amount")
+        .expect("typechecking warning");
+    let error = stderr
+        .find("internal:feature.unsupported")
+        .expect("SIF error");
+    assert!(
+        warning < error && stderr.contains("@2.45--2.48)") && stderr.contains("@2.59--2.65)"),
+        "{stderr}"
+    );
+}

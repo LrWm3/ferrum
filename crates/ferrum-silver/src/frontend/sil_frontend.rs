@@ -237,9 +237,9 @@ fn standard_plugin_manager_internal(
             SMOKE_PLUGIN => Box::new(SmokeDetectionPlugin),
             ARP_PLUGIN => Box::new(ArpPlugin),
             "viper.silver.plugin.sif.SIFPlugin" => {
-                Box::new(crate::plugin::sif::sif_plugin::SifPlugin {
-                    transformer: crate::plugin::sif::sif_extended_transformer::NativeSifTransformer,
-                })
+                Box::new(crate::plugin::sif::sif_plugin::SifPlugin::new(
+                    crate::plugin::sif::sif_extended_transformer::NativeSifTransformer,
+                ))
             }
             _ => match extra(&name) {
                 Ok(Some(plugin)) => plugin,
@@ -1369,10 +1369,26 @@ mod tests {
         let program = phases.check_consistency(program).unwrap();
         let product = phases.prepare_verification(program).unwrap();
         phases.check_consistency(product).unwrap();
-        let parsed = phases
+        let mut invalid_phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let parsed = invalid_phases
             .parse("domain D { axiom { low(true) } } method m() {}")
             .unwrap();
-        assert!(phases.analyze(parsed).is_err());
+        let analyzed = invalid_phases.analyze(parsed).unwrap();
+        let program = invalid_phases.translate(analyzed).unwrap();
+        let program = invalid_phases.check_consistency(program).unwrap();
+        let errors = invalid_phases.prepare_verification(program).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].full_id(), "internal:feature.unsupported");
+        let parsed = invalid_phases
+            .parse("method valid() { assert true }")
+            .unwrap();
+        let analyzed = invalid_phases.analyze(parsed).unwrap();
+        let program = invalid_phases.translate(analyzed).unwrap();
+        let program = invalid_phases.check_consistency(program).unwrap();
+        invalid_phases.prepare_verification(program).unwrap();
         let parsed = phases
             .parse(
                 "method permissions(p: Perm) requires low(p) { var q: Perm := p; assert low(q); }",
@@ -4335,9 +4351,9 @@ method chainParen2(i1: Int, i2: Int, i3: Int, i4: Int)
         let count = Arc::new(AtomicUsize::new(0));
         let mut frontend = DefaultFrontend::new(SilFrontendPhases::new(
             PathBuf::from("test.vpr"),
-            SilverPluginManager::new(vec![Box::new(crate::plugin::sif::sif_plugin::SifPlugin {
-                transformer: UnavailableSif,
-            })]),
+            SilverPluginManager::new(vec![Box::new(
+                crate::plugin::sif::sif_plugin::SifPlugin::new(UnavailableSif),
+            )]),
         ));
         frontend.init(Box::new(Counter {
             count: count.clone(),

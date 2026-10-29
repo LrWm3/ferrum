@@ -5542,6 +5542,98 @@ fn sif_assertion_block(
 }
 
 impl super::sif_plugin::SifTransformer for NativeSifTransformer {
+    fn validate_input(
+        &self,
+        input: &Program,
+    ) -> Result<
+        Vec<crate::verifier::verification_result::AbstractError>,
+        crate::plugin::silver_plugin::PluginHookError,
+    > {
+        use crate::plugin::silver_plugin::PluginHookError;
+        use crate::verifier::verification_error::{
+            ErrorReason, NativeErrorNodeRenderer, RenderedVerificationError, VerificationError,
+            VerificationErrorKind,
+        };
+        use crate::verifier::verification_result::AbstractError;
+        let config = SifConfig::default();
+        let relational = source_relational_predicates(input, &config)
+            .map_err(|e| PluginHookError(format!("SIF relational predicate analysis: {e:?}")))?;
+        let mut errors = Vec::new();
+        let mut check = |exp: &Exp, explanation: &str| -> Result<(), PluginHookError> {
+            if !is_unary(exp, &config, input, &relational)
+                .map_err(|e| PluginHookError(format!("SIF relational analysis: {e:?}")))?
+            {
+                let node = Node::Exp(exp.clone());
+                let error = VerificationError::new(
+                    VerificationErrorKind::Internal(Some(node.clone())),
+                    ErrorReason::FeatureUnsupported {
+                        node,
+                        explanation: explanation.into(),
+                    },
+                );
+                let diagnostic = RenderedVerificationError::new(
+                    error,
+                    std::sync::Arc::new(NativeErrorNodeRenderer),
+                )
+                .map_err(|e| PluginHookError(format!("SIF diagnostic: {e:?}")))?;
+                errors.push(AbstractError::Verification(std::sync::Arc::new(diagnostic)));
+            }
+            Ok(())
+        };
+        for function in &input.functions {
+            for exp in function
+                .pres
+                .iter()
+                .chain(&function.posts)
+                .chain(function.body.iter())
+            {
+                check(exp, "Relational assertions are not allowed in functions.")?;
+            }
+        }
+        for domain in &input.domains {
+            for axiom in &domain.axioms {
+                check(
+                    axiom.exp(),
+                    "Relational assertions are not allowed in domains.",
+                )?;
+            }
+        }
+        drop(check);
+        fn goto_nodes(node: &Node, out: &mut Vec<Node>) -> Result<(), PluginHookError> {
+            if matches!(node, Node::Stmt(stmt) if matches!(stmt.kind(), crate::ast::statement::StmtKind::Goto(_)))
+            {
+                out.push(node.clone());
+            }
+            for child in crate::ast::utility::nodes::subnodes(node)
+                .map_err(|e| PluginHookError(format!("SIF statement traversal: {e:?}")))?
+            {
+                goto_nodes(&child, out)?;
+            }
+            Ok(())
+        }
+        for method in &input.methods {
+            if let Some(body) = &method.body {
+                let mut gotos = Vec::new();
+                goto_nodes(&Node::Stmt(body.clone()), &mut gotos)?;
+                for node in gotos {
+                    let error = VerificationError::new(
+                        VerificationErrorKind::Internal(Some(node.clone())),
+                        ErrorReason::FeatureUnsupported {
+                            node,
+                            explanation: "Goto statements are currently not supported.".into(),
+                        },
+                    );
+                    let diagnostic = RenderedVerificationError::new(
+                        error,
+                        std::sync::Arc::new(NativeErrorNodeRenderer),
+                    )
+                    .map_err(|e| PluginHookError(format!("SIF diagnostic: {e:?}")))?;
+                    errors.push(AbstractError::Verification(std::sync::Arc::new(diagnostic)));
+                }
+            }
+        }
+        Ok(errors)
+    }
     fn transform(
         &mut self,
         input: Program,

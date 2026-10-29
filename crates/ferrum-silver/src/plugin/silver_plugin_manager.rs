@@ -108,6 +108,9 @@ impl SilverPluginManager {
         Some(current)
     }
     pub fn before_parse(&mut self, input: String, imported: bool) -> Option<String> {
+        if !imported {
+            self.errors.clear();
+        }
         self.fold_with_error(input, |p, input| p.before_parse(input, imported))
     }
     pub fn before_resolve(&mut self, input: PProgramHandle) -> Option<PProgramHandle> {

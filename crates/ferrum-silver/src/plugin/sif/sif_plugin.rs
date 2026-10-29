@@ -38,6 +38,12 @@ use crate::plugin::silver_plugin::{PluginHookError, SilverPlugin};
 /// A concrete implementation of the SIF extended transformation must supply
 /// the actual rewrite; no unchanged-program fallback represents a successful transform.
 pub trait SifTransformer: Send {
+    fn validate_input(
+        &self,
+        _input: &Program,
+    ) -> Result<Vec<crate::verifier::verification_result::AbstractError>, PluginHookError> {
+        Ok(Vec::new())
+    }
     fn transform(
         &mut self,
         input: Program,
@@ -46,6 +52,20 @@ pub trait SifTransformer: Send {
 }
 pub struct SifPlugin<T: SifTransformer> {
     pub transformer: T,
+    pub errors: Vec<crate::verifier::verification_result::AbstractError>,
+}
+impl<T: SifTransformer> SifPlugin<T> {
+    pub fn new(transformer: T) -> Self {
+        Self {
+            transformer,
+            errors: Vec::new(),
+        }
+    }
+}
+impl<T: SifTransformer + Default> Default for SifPlugin<T> {
+    fn default() -> Self {
+        Self::new(T::default())
+    }
 }
 impl<T: SifTransformer> SilverPlugin for SifPlugin<T> {
     fn shared_entity_mapper(
@@ -56,7 +76,20 @@ impl<T: SifTransformer> SilverPlugin for SifPlugin<T> {
     fn parser_features(&self) -> Vec<ParserFeature> {
         vec![ParserFeature::Sif]
     }
+    fn errors(&self) -> &[crate::verifier::verification_result::AbstractError] {
+        &self.errors
+    }
+    fn before_parse(&mut self, input: String, imported: bool) -> String {
+        if !imported {
+            self.errors.clear();
+        }
+        input
+    }
     fn before_verify(&mut self, input: Program) -> Result<Program, PluginHookError> {
+        self.errors = self.transformer.validate_input(&input)?;
+        if !self.errors.is_empty() {
+            return Ok(input);
+        }
         self.transformer.transform(input, false)
     }
 }
