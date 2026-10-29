@@ -1673,9 +1673,17 @@ impl ExpressionParser<'_> {
                 }
             }
         };
+        let end = if let PStatementKind::Label { idndef, invs, .. } = &kind {
+            invs.to_seq()
+                .last()
+                .map(|spec| spec.position().1.clone())
+                .unwrap_or_else(|| idndef.read().expect("poisoned label").pos.1.clone())
+        } else {
+            self.position(self.cursor)
+        };
         Ok(PStmtHandle::new(
             PStatement { kind },
-            self.span(start, self.cursor),
+            (self.position(start), end),
         ))
     }
     fn member(&mut self) -> Result<PMemberHandle, SyntaxError> {
@@ -1691,6 +1699,7 @@ impl ExpressionParser<'_> {
         let name = &self.source[keyword_start..end];
         self.cursor = end;
         let keyword_span = self.span(keyword_start, end);
+        let mut adt_end = None;
         let kind = match name {
             "define" => {
                 let keyword = PReserved::new(PKw::Define, keyword_span);
@@ -1960,6 +1969,16 @@ impl ExpressionParser<'_> {
                 } else {
                     None
                 };
+                adt_end = Some(
+                    deriving_syntax
+                        .as_ref()
+                        .unwrap_or(&constructors_syntax)
+                        .read()
+                        .expect("poisoned ADT syntax")
+                        .pos
+                        .1
+                        .clone(),
+                );
                 let keyword = adt_keyword("adt", keyword_span);
                 let mut syntax = vec![keyword.node().clone(), idndef.clone()];
                 syntax.extend(type_vars_group.graph_nodes());
@@ -1972,7 +1991,7 @@ impl ExpressionParser<'_> {
                     type_vars_present,
                     constructors,
                     deriving,
-                    pos: self.span(start, self.cursor),
+                    pos: (self.position(start), adt_end.clone().expect("ADT end")),
                     syntax,
                 }))
             }
@@ -2434,7 +2453,7 @@ impl ExpressionParser<'_> {
         };
         Ok(PMemberHandle::new(
             PMember::new(annotations, kind),
-            (self.position(start), end),
+            (self.position(start), adt_end.unwrap_or(end)),
         ))
     }
     /// Parse the source `if` / `elseif` continuation chain, retaining each keyword.
@@ -4341,6 +4360,37 @@ mod wand_statement_precedence_tests {
         )
         .unwrap();
         assert_eq!(comment_in_member.errors().len(), 1);
+    }
+    #[test]
+    fn adt_and_label_spans_exclude_following_trivia() {
+        let program = parse_program_with_features(
+            "adt X {}\n\nmethod m() {\n label x\n}",
+            "source.vpr",
+            &[ParserFeature::Adt],
+        )
+        .unwrap();
+        let members = program.all_members();
+        assert_eq!(
+            members[0].node().read().unwrap().pos.1.to_string(),
+            "source.vpr@1.9"
+        );
+        fn label(node: &PNodeHandle) -> Option<String> {
+            let guard = node.read().unwrap();
+            if matches!(
+                &guard.kind,
+                PNodeKind::Statement(PStatement {
+                    kind: PStatementKind::Label { .. }
+                })
+            ) {
+                return Some(guard.pos.1.to_string());
+            }
+            drop(guard);
+            super::super::parse_ast::subnodes(node)
+                .unwrap()
+                .iter()
+                .find_map(label)
+        }
+        assert_eq!(label(members[1].node()).as_deref(), Some("source.vpr@4.9"));
     }
     #[test]
     fn abstract_function_member_ends_at_last_specification() {

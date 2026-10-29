@@ -2475,11 +2475,26 @@ pub fn check_program_core(
                             },
                         ) = kind
                         {
+                            let mut names = std::collections::HashMap::new();
                             for arg in args.inner().to_seq() {
                                 retain_type_mismatches(
                                     &mut member_errors,
                                     check_supported_type(arg.typ()),
                                 )?;
+                                if let Some(id) = &arg.name {
+                                    let name = definition_name(id);
+                                    let entry =
+                                        names.entry(name).or_insert_with(|| (id.clone(), 0usize));
+                                    entry.1 += 1;
+                                }
+                            }
+                            for (name, (node, count)) in names {
+                                if count > 1 {
+                                    member_errors.push(TypeCheckError::PositionedMessage {
+                                        node,
+                                        message: format!("duplicate argument name `{name}`"),
+                                    });
+                                }
                             }
                             retain_type_mismatches(
                                 &mut member_errors,
@@ -3046,22 +3061,42 @@ pub fn check_statement_core(
             check_program_expression(&exp, Some(&impure), &mut *warn)?;
         }
         S::If { cond, thn, els, .. } => {
-            check_program_expression(cond.inner(), Some(&boolean), &mut *warn)?;
-            check_statement_core(&thn, &mut *warn)?;
+            let mut errors = Vec::new();
+            retain_type_mismatches(
+                &mut errors,
+                check_program_expression(cond.inner(), Some(&boolean), &mut *warn),
+            )?;
+            retain_type_mismatches(&mut errors, check_statement_core(&thn, &mut *warn))?;
             if let Some(els) = els {
-                check_statement_core(&els, &mut *warn)?;
+                retain_type_mismatches(&mut errors, check_statement_core(&els, &mut *warn))?;
+            }
+            if !errors.is_empty() {
+                return Err(TypeCheckError::Mismatches(errors));
             }
         }
         S::Else { els, .. } => check_statement_core(&els, &mut *warn)?,
         S::While {
             cond, invs, body, ..
         } => {
-            check_program_expression(cond.inner(), Some(&boolean), &mut *warn)?;
+            let mut errors = Vec::new();
+            retain_type_mismatches(
+                &mut errors,
+                check_program_expression(cond.inner(), Some(&boolean), &mut *warn),
+            )?;
             for inv in invs.specs().to_seq() {
-                check_expression_context(inv.exp(), true, false, false)?;
-                check_program_expression(inv.exp(), Some(&impure), &mut *warn)?;
+                retain_type_mismatches(
+                    &mut errors,
+                    check_expression_context(inv.exp(), true, false, false),
+                )?;
+                retain_type_mismatches(
+                    &mut errors,
+                    check_program_expression(inv.exp(), Some(&impure), &mut *warn),
+                )?;
             }
-            check_statement_core(&body, &mut *warn)?;
+            retain_type_mismatches(&mut errors, check_statement_core(&body, &mut *warn))?;
+            if !errors.is_empty() {
+                return Err(TypeCheckError::Mismatches(errors));
+            }
         }
         S::Label { invs, .. } => {
             for inv in invs.to_seq() {
@@ -3070,19 +3105,23 @@ pub fn check_statement_core(
         }
         S::Goto { .. } | S::Skip => {}
         S::Vars { vars, init, .. } => {
+            let mut errors = Vec::new();
             for declaration in vars.to_seq() {
                 let typ = match &declaration.node().read().expect("poisoned parse node").kind {
                     PNodeKind::Declaration(d) => d.typ.clone(),
                     _ => return Err(TypeCheckError::Unsupported("local declaration")),
                 };
-                check_supported_type(&typ)?;
+                retain_type_mismatches(&mut errors, check_supported_type(&typ))?;
             }
             if init.is_some() {
                 let generated = statement
                     .vars_assign()
                     .map_err(TypeCheckError::Unsupported)?
                     .ok_or(TypeCheckError::Unsupported("missing generated initializer"))?;
-                check_statement_core(&generated, &mut *warn)?;
+                retain_type_mismatches(&mut errors, check_statement_core(&generated, &mut *warn))?;
+            }
+            if !errors.is_empty() {
+                return Err(TypeCheckError::Mismatches(errors));
             }
         }
         S::Assign {
@@ -3248,6 +3287,37 @@ pub fn check_statement_core(
 mod program_tests {
     use super::*;
     use crate::parser::fast_parser::parse_program;
+    #[test]
+    fn duplicate_domain_argument_reports_first_name() {
+        let program =
+            parse_program("domain D { function f(x: Int, x: Int): Int }", "test.vpr").unwrap();
+        crate::parser::parse_ast::init_properties(program.node()).unwrap();
+        assert!(NameAnalyser::default().run(program.node()).unwrap());
+        let result = check_program_core(&program, &mut |_, _| {});
+        assert!(
+            matches!(result, Err(TypeCheckError::Mismatches(errors)) if errors.iter().any(|e| matches!(e, TypeCheckError::PositionedMessage { message, .. } if message == "duplicate argument name `x`")))
+        );
+    }
+    #[test]
+    fn invalid_local_type_does_not_hide_initializer_mismatch() {
+        let program = parse_program("method m() { var x: bool := true }", "test.vpr").unwrap();
+        crate::parser::parse_ast::init_properties(program.node()).unwrap();
+        assert!(NameAnalyser::default().run(program.node()).unwrap());
+        let result = check_program_core(&program, &mut |_, _| {});
+        assert!(matches!(result, Err(TypeCheckError::Mismatches(errors)) if errors.len() >= 2));
+    }
+    #[test]
+    fn invalid_while_invariant_does_not_hide_body_errors() {
+        let program = parse_program(
+            "method m() { while (true) invariant missing { assert absent } }",
+            "test.vpr",
+        )
+        .unwrap();
+        crate::parser::parse_ast::init_properties(program.node()).unwrap();
+        assert!(NameAnalyser::default().run(program.node()).unwrap());
+        let result = check_program_core(&program, &mut |_, _| {});
+        assert!(matches!(result, Err(TypeCheckError::Mismatches(errors)) if errors.len() >= 2));
+    }
     #[test]
     fn domain_axiom_allows_only_precondition_free_function_calls() {
         for (precondition, expected_error) in [("", false), ("requires x > 0", true)] {
