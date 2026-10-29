@@ -21,15 +21,24 @@ class Compare(unittest.TestCase):
     def test_timeout_id_is_not_failure_match(self):
         row = {'outcome':'failure', 'errors':[{'id':'timeout.error', 'position':'1.1'}]}
         self.assertEqual(c.compare(row, row), 'inconclusive')
+        for other in ({'outcome':'verified', 'errors':[]},
+                {'outcome':'failure', 'errors':[{'id':'assert.failed:assertion.false', 'position':'1.1'}]}):
+            self.assertEqual(c.compare(row, other), 'inconclusive')
+            self.assertEqual(c.compare(other, row), 'inconclusive')
 
     def test_success_requires_empty_error_list(self):
         success = {'outcome':'verified', 'errors':[]}
         self.assertEqual(c.compare(success, success), 'both_verified')
         self.assertEqual(c.compare({'outcome':'verified'}, success), 'invalid_success_evidence')
+        self.assertEqual(c.compare({'outcome':'verified'}, {'outcome':'verifier_timeout'}),
+            'invalid_success_evidence')
 
     def test_timeouts_are_inconclusive(self):
-        timeout = {'outcome': 'timeout'}
-        self.assertEqual(c.compare(timeout, timeout), 'inconclusive')
-        self.assertEqual(c.compare(timeout, {'outcome': 'verified'}), 'different_outcome')
+        success = {'outcome': 'verified', 'errors': []}
+        for outcome in ('timeout', 'verifier_timeout'):
+            timeout = {'outcome': outcome}
+            self.assertEqual(c.compare(timeout, timeout), 'inconclusive')
+            self.assertEqual(c.compare(timeout, success), 'inconclusive')
+            self.assertEqual(c.compare(success, timeout), 'inconclusive')
 
 if __name__ == '__main__': unittest.main()

@@ -30,15 +30,20 @@ def compare(source, native):
     # A per-case row is usable only if its enclosing process completed normally.
     if any(x.get('session_outcome') != 'completed' or x.get('exit_code') != 0 for x in (source, native)):
         return 'session_inconclusive'
+    if any(x.get('outcome') == 'verified' and x.get('errors') != [] for x in (source, native)):
+        return 'invalid_success_evidence'
+    # A completed proof on one side cannot establish the result of the timed-out side.
+    if any(x.get('outcome') in ('timeout', 'verifier_timeout') or any(
+            isinstance(error, dict) and error.get('id') == 'timeout.error'
+            for error in (x.get('errors') or [])) for x in (source, native)):
+        return 'inconclusive'
     if source['outcome'] == native['outcome'] == 'verified':
-        return 'both_verified' if all(x.get('errors') == [] for x in (source, native)) else 'invalid_success_evidence'
+        return 'both_verified'
     if source['outcome'] != native['outcome']:
         return 'different_outcome'
     if source['outcome'] != 'failure':
         return 'inconclusive'
     a, b = source.get('errors'), native.get('errors')
-    if any(e.get('id') == 'timeout.error' for e in (a or []) + (b or [])):
-        return 'inconclusive'
     if not a or not b or any(not e.get('id') or not e.get('position') or e['position'] == '<no position>' for e in a + b):
         return 'failure_evidence_incomplete'
     key = lambda e: (e['id'], e['position'])

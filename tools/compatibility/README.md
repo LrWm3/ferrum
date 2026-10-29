@@ -107,6 +107,9 @@ and incomplete batches; successful retries do not establish successful reuse.
 Messages, warnings and phase comparisons remain separate from outcome/error-ID
 comparison. Unexpected worker exceptions become incomplete observations and
 retain their tracebacks, rather than aborting the remaining corpus silently.
+Any pair containing a verifier timeout is inconclusive even when the other
+backend completes a proof or reports an ordinary verification failure. Its raw
+outcomes remain available for follow-up; it is not counted as a semantic mismatch.
 
 A separate supervisor bounds each session runner, adopts its descendants on
 Linux and records its own cleanup evidence. If that supervisor itself fails to
