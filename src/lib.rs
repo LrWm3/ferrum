@@ -83,6 +83,10 @@ pub enum FerrumError {
     Configuration(String),
     Input(std::io::Error),
     Diagnostics(Vec<AbstractError>),
+    DiagnosticsWithWarnings {
+        errors: Vec<AbstractError>,
+        warnings: Vec<String>,
+    },
     Execution(String),
     SourceException(silicon::reporting::package::ExceptionCause),
     ExceptionReporting {
@@ -103,6 +107,12 @@ impl std::fmt::Display for FerrumError {
                 write!(f, "{primary}; exception reporting also failed: {reporting}")
             }
             Self::Input(error) => write!(f, "{error}"),
+            Self::DiagnosticsWithWarnings { errors, warnings } => {
+                for warning in warnings {
+                    writeln!(f, "{warning}")?;
+                }
+                write!(f, "{}", FerrumError::Diagnostics(errors.clone()))
+            }
             Self::Diagnostics(errors) => {
                 for (i, error) in errors.iter().enumerate() {
                     if i > 0 {
@@ -2125,20 +2135,47 @@ fn run_file_on_current_thread(config: Config) -> Result<RunReport, FerrumError> 
             warnings,
         });
     }
-    let analyzed = phases.analyze(parsed).map_err(FerrumError::Diagnostics)?;
-    let translated = phases
-        .translate(analyzed)
-        .map_err(FerrumError::Diagnostics)?;
-    let program = phases
-        .check_consistency(translated)
-        .map_err(FerrumError::Diagnostics)?;
-    let program = phases
-        .prepare_verification(program)
-        .map_err(FerrumError::Diagnostics)?;
+    let analyzed = match phases.analyze(parsed) {
+        Ok(program) => program,
+        Err(errors) => {
+            warnings.extend(
+                phases
+                    .typechecking_warnings
+                    .iter()
+                    .map(|w| w.readable_message().unwrap_or_else(|_| w.full_id().into())),
+            );
+            return if warnings.is_empty() {
+                Err(FerrumError::Diagnostics(errors))
+            } else {
+                Err(FerrumError::DiagnosticsWithWarnings { errors, warnings })
+            };
+        }
+    };
     warnings.extend(
         phases
             .typechecking_warnings
             .iter()
+            .map(|w| w.readable_message().unwrap_or_else(|_| w.full_id().into())),
+    );
+    let collected_type_warnings = phases.typechecking_warnings.len();
+    let diagnostic = |errors| {
+        if warnings.is_empty() {
+            FerrumError::Diagnostics(errors)
+        } else {
+            FerrumError::DiagnosticsWithWarnings {
+                errors,
+                warnings: warnings.clone(),
+            }
+        }
+    };
+    let translated = phases.translate(analyzed).map_err(&diagnostic)?;
+    let program = phases.check_consistency(translated).map_err(&diagnostic)?;
+    let program = phases.prepare_verification(program).map_err(&diagnostic)?;
+    warnings.extend(
+        phases
+            .typechecking_warnings
+            .iter()
+            .skip(collected_type_warnings)
             .map(|w| w.readable_message().unwrap_or_else(|_| w.full_id().into())),
     );
     let reporter = CliLoggingReporter(silver::reporter::reporter::StdIoReporter::new(
@@ -2161,7 +2198,16 @@ fn run_file_on_current_thread(config: Config) -> Result<RunReport, FerrumError> 
     };
     let result = phases
         .map_verification(&program, result)
-        .map_err(FerrumError::Diagnostics)?;
+        .map_err(|errors| {
+            if warnings.is_empty() {
+                FerrumError::Diagnostics(errors)
+            } else {
+                FerrumError::DiagnosticsWithWarnings {
+                    errors,
+                    warnings: warnings.clone(),
+                }
+            }
+        })?;
     // Source finish transforms before plugins and groups after beforeFinish.
     // The AST Session entry point deliberately returns the backend result.
     let result = result.transformed_result().map_err(execution)?;

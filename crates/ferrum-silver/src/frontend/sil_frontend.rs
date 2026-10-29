@@ -1061,6 +1061,37 @@ impl FrontendPhases for SilFrontendPhases {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn specific_function_permission_warning_reporter_failure_propagates() {
+        use super::*;
+        use crate::reporter::{
+            message::Message,
+            reporter::{ReportError, Reporter},
+        };
+        struct Reject;
+        impl Reporter for Reject {
+            fn name(&self) -> &str {
+                "reject-function-warning"
+            }
+            fn report(&self, message: Message) -> Result<(), ReportError> {
+                if matches!(message, Message::WarningsDuringTypechecking { .. }) {
+                    Err(ReportError::Unsupported("permission warning rejected"))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        let mut phases = SilFrontendPhases::new("test.vpr".into(), SilverPluginManager::default());
+        phases.set_phase_reporter(std::sync::Arc::new(Reject));
+        let parsed = phases
+            .parse("field f: Int function read(r: Ref): Int requires acc(r.f, write)")
+            .unwrap();
+        assert!(phases.analyze(parsed).is_err());
+        assert!(matches!(
+            phases.take_report_error(),
+            Some(ReportError::Unsupported("permission warning rejected"))
+        ));
+    }
+    #[test]
     fn function_permission_warnings_survive_other_type_errors_but_not_invalid_access() {
         use super::*;
         for (source, expected) in [
