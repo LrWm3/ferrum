@@ -160,6 +160,14 @@ pub struct OwnedOldValueFrame {
 pub enum OwnedEvaluationReturnFrame {
     Old(OwnedOldValueFrame),
     Asserting(OwnedValueWrapper),
+    FunctionArg {
+        wrapper: OwnedValueWrapper,
+        function: ferrum_silver::ast::program::Function,
+        record_heap: bool,
+        index: usize,
+        terms: Vec<Term>,
+        debug_args: Vec<Option<Exp>>,
+    },
     DomainArg {
         wrapper: OwnedValueWrapper,
         function: ferrum_silver::ast::program::DomainFunc,
@@ -984,6 +992,7 @@ enum OwnedPathStep {
     LetValue,
     LetBody,
     DomainArg(usize),
+    FunctionArg(usize),
     CurrentPermArg(usize),
     AddLeft,
     AddRight,
@@ -1043,6 +1052,11 @@ fn owned_asserting_path(expression: &Exp) -> Option<Vec<OwnedPathStep>> {
                         }
                         _ => (),
                     },
+                    ExpKind::FuncApp(_, args) => {
+                        for (index, arg) in args.iter().enumerate().rev() {
+                            work.push(Work::Visit(arg, Some(OwnedPathStep::FunctionArg(index))));
+                        }
+                    }
                     ExpKind::DomainFuncApp(_, args, _) | ExpKind::BackendFuncApp(_, args) => {
                         for (index, arg) in args.iter().enumerate().rev() {
                             work.push(Work::Visit(arg, Some(OwnedPathStep::DomainArg(index))));
@@ -1084,6 +1098,7 @@ pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
             }
             _ => false,
         },
+        ExpKind::FuncApp(_, args) => args.iter().any(has_owned_asserting_path),
         ExpKind::DomainFuncApp(_, args, _) | ExpKind::BackendFuncApp(_, args) => {
             args.iter().any(has_owned_asserting_path)
         }
@@ -1286,6 +1301,32 @@ where
                 receiver,
                 rest,
                 frames,
+            )
+        }
+        (ExpKind::FuncApp(name, _), OwnedPathStep::FunctionArg(index)) => {
+            let function = state
+                .program
+                .functions
+                .iter()
+                .find(|function| &function.name == name)
+                .cloned()
+                .ok_or_else(|| EvaluationError::MissingFunction(name.clone()))?;
+            let record_heap = context.debugging() && state.temporary_heap_record.is_some();
+            evaluate_owned_arguments(
+                context,
+                state,
+                &wrapper,
+                &OwnedArgumentsTerminal::Function {
+                    function,
+                    record_heap,
+                },
+                0,
+                Vec::new(),
+                Vec::new(),
+                &frames,
+                error,
+                receiver,
+                Some((*index, rest)),
             )
         }
         (
@@ -1589,6 +1630,101 @@ where
     )
 }
 
+/// Complete a function application after all arguments have been evaluated.
+fn complete_function_application<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    function: &ferrum_silver::ast::program::Function,
+    record_heap: bool,
+    terms: Vec<Term>,
+    debug_args: Option<Vec<Exp>>,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let ExpKind::FuncApp(name, args) = expression.kind() else {
+        unreachable!("function application frame")
+    };
+    let factory = context.factory().clone();
+    let state = if record_heap {
+        context
+            .record_intermediate_heap(state, expression)
+            .map_err(EvaluationError::Context)?
+    } else {
+        state
+    };
+    let label = context
+        .debug_old_label(&state, &expression.metadata().position)
+        .map_err(EvaluationError::Context)?;
+    let application_debug = debug_args.as_ref().map(|args| {
+        Exp::with_extra(
+            ExpKind::FuncApp(name.clone(), args.clone()),
+            expression.metadata().clone(),
+            expression.0.extra.clone(),
+        )
+    });
+    let join_debug = if context.debugging() {
+        let app = application_debug
+            .clone()
+            .ok_or(EvaluationError::MissingDebugExpression)?;
+        if state.is_eval_in_old || function.pres.iter().all(Exp::is_pure) {
+            Some(app)
+        } else {
+            Some(Exp::new(
+                ExpKind::DebugLabelledOld(app, label.clone()),
+                expression.metadata().clone(),
+            ))
+        }
+    } else {
+        None
+    };
+    context.join_function_application_with_owned(state,&function,&terms,join_debug.as_ref(),&mut |context,base,done,owned_join| {
+                let mut pres = Vec::new();
+                for pre in &function.pres {
+                    let transformed = ferrum_silver::ast::utility::rewriter::strategy::rewrite_expression_bottom_up(pre,&mut |e| Ok::<_, &'static str>(match e.kind() { ExpKind::Forall(vars,_,body) => Exp::new(ExpKind::Forall(vars.clone(),vec![],body.clone()),e.metadata().clone()), _ => e.clone() }),&|_,_| Err(ferrum_silver::ast::utility::rewriter::strategy::ExpressionRewriteError::Callback("extension reconstruction unsupported"))).map_err(EvaluationError::PreconditionRewrite)?;
+                    pres.push(transformed);
+                }
+                let mut bindings = Vec::new();
+                for (index,(decl,term)) in function.formal_args.iter().zip(&terms).enumerate() {
+                    let debug = if context.debugging() { Some(debug_args.as_ref().and_then(|es| es.get(index)).cloned().ok_or(EvaluationError::MissingDebugExpression)?) } else { None };
+                    bindings.push((AbstractLocalVar::new(Exp::new(ExpKind::LocalVar(decl.local_var()),decl.meta.clone())),(term.clone(),debug)));
+                }
+                let mut pre_state = base.clone();
+                pre_state.g = Arc::new(crate::state::store::MapBackedStore::from_bindings(bindings));
+                pre_state.record_visited = true; pre_state.function_recorder = pre_state.function_recorder.change_depth_by(1);
+                pre_state.sm_domain_needed = true; pre_state.more_joins = context.join_off();
+                if !context.respect_function_pre_permission_amounts() { pre_state.assert_read_access_only = true; }
+                let pre_state_for_snapshot = pre_state.clone();
+                if let Some(join) = owned_join {
+                    let frame = OwnedFunctionPre { join: join.clone(), base: base.clone(), pre_state: pre_state.clone(), function: function.clone(), expression: expression.clone(), argument_expressions: args.to_vec(), arguments: terms.clone(), debug_arguments: debug_args.clone(), application_debug: application_debug.clone(), label: label.clone(), preconditions: pres.clone() };
+                    if let Some(result) = context.try_consume_owned_function_preconditions(&pre_state, &frame) { return result; }
+                }
+                context.consume_function_preconditions(pre_state,&base.g,&function,expression,args,&pres,&mut |context,mut state,snapshot| {
+                    let snapshot = snapshot.ok_or(EvaluationError::MissingFunctionSnapshot)?;
+                    let (state_args,snapshot_to_record) = context.function_snapshot_args(&pre_state_for_snapshot,&function,&terms,&snapshot).map_err(EvaluationError::Context)?;
+                    let symbol = context.heap_function(&function,&base.program).map_err(EvaluationError::Context)?;
+                    let pre = crate::rules::function_supporter::precondition_version(&factory,&symbol);
+                    let mut all_args = state_args; all_args.extend(terms.iter().cloned());
+                    context.assume_function_precondition(&factory.app(pre,all_args.clone()),&function,debug_args.as_deref()).map_err(EvaluationError::Context)?;
+                    let opaque = matches!(function.meta.info.find(&|info| matches!(info,ferrum_silver::ast::ast::Info::Annotation(_))),Some(ferrum_silver::ast::ast::Info::Annotation(a)) if a.contains_key("opaque"));
+                    let revealed = matches!(expression.metadata().info.find(&|info| matches!(info,ferrum_silver::ast::ast::Info::Annotation(_))),Some(ferrum_silver::ast::ast::Info::Annotation(a)) if a.contains_key("reveal"));
+                    let symbol = if opaque && !revealed { crate::rules::function_supporter::limited_version(&factory,&symbol) } else { symbol };
+                    let term = factory.app(symbol,all_args);
+                    state.function_recorder = state.function_recorder.change_depth_by(-1).record_function_snapshot(expression.clone(),context.branch_conditions(),snapshot_to_record);
+                    state.g = base.g.clone(); state.h = base.h.clone(); state.record_visited = base.record_visited; state.sm_domain_needed = base.sm_domain_needed; state.more_joins = base.more_joins.clone(); state.assert_read_access_only = base.assert_read_access_only;
+                    let debug = if context.debugging() { let app = application_debug.clone().ok_or(EvaluationError::MissingDebugExpression)?; if state.is_eval_in_old || pres.iter().all(Exp::is_pure) { Some(app) } else { Some(Exp::new(ExpKind::DebugLabelledOld(app,label.clone()),expression.metadata().clone())) } } else { None };
+                    done(context,state,term,debug)
+                })
+            },continuation)
+}
+
 /// Complete a resolved domain/backend application after its arguments.
 fn complete_domain_application<C, P, D, J: Clone, V>(
     context: &mut C,
@@ -1668,6 +1804,10 @@ fn rebuild_domain_debug_arguments<E>(
 
 #[derive(Clone)]
 enum OwnedArgumentsTerminal {
+    Function {
+        function: ferrum_silver::ast::program::Function,
+        record_heap: bool,
+    },
     Domain(ferrum_silver::ast::program::DomainFunc),
     CurrentPerm {
         access: Exp,
@@ -1695,6 +1835,10 @@ where
     C: EvaluationContext<P, D, J, V>,
 {
     let args = match terminal {
+        OwnedArgumentsTerminal::Function { .. } => match wrapper.expression.kind() {
+            ExpKind::FuncApp(_, args) => args,
+            _ => unreachable!("function argument frame"),
+        },
         OwnedArgumentsTerminal::Domain(_) => match wrapper.expression.kind() {
             ExpKind::DomainFuncApp(_, args, _) | ExpKind::BackendFuncApp(_, args) => args,
             _ => unreachable!("domain argument frame"),
@@ -1708,6 +1852,19 @@ where
             resume_owned_return_frames(context, state, term, debug, frames, error, receiver)
         };
         return match terminal {
+            OwnedArgumentsTerminal::Function {
+                function,
+                record_heap,
+            } => complete_function_application(
+                context,
+                state,
+                &wrapper.expression,
+                function,
+                *record_heap,
+                terms,
+                debug,
+                &mut done,
+            ),
             OwnedArgumentsTerminal::Domain(function) => complete_domain_application(
                 context,
                 state,
@@ -1745,6 +1902,17 @@ where
     if let Some(path) = planned {
         let mut next = frames.to_vec();
         next.push(match terminal {
+            OwnedArgumentsTerminal::Function {
+                function,
+                record_heap,
+            } => OwnedEvaluationReturnFrame::FunctionArg {
+                wrapper: wrapper.clone(),
+                function: function.clone(),
+                record_heap: *record_heap,
+                index,
+                terms,
+                debug_args,
+            },
             OwnedArgumentsTerminal::Domain(function) => OwnedEvaluationReturnFrame::DomainArg {
                 wrapper: wrapper.clone(),
                 function: function.clone(),
@@ -1954,6 +2122,36 @@ where
                             receiver,
                         )
                     },
+                );
+            }
+            OwnedEvaluationReturnFrame::FunctionArg {
+                wrapper,
+                function,
+                record_heap,
+                index: argument_index,
+                terms,
+                debug_args,
+            } => {
+                let mut terms = terms.clone();
+                terms.push(term);
+                let mut debug_args = debug_args.clone();
+                debug_args.push(debug);
+                let terminal = OwnedArgumentsTerminal::Function {
+                    function: function.clone(),
+                    record_heap: *record_heap,
+                };
+                return evaluate_owned_arguments(
+                    context,
+                    state,
+                    wrapper,
+                    &terminal,
+                    argument_index + 1,
+                    terms,
+                    debug_args,
+                    &frames[..index],
+                    error,
+                    receiver,
+                    None,
                 );
             }
             OwnedEvaluationReturnFrame::DomainArg {
@@ -3225,76 +3423,16 @@ where
             args,
             &|_| error.clone(),
             &mut |context, state, terms, debug_args| {
-                let state = if record_heap {
-                    context
-                        .record_intermediate_heap(state, expression)
-                        .map_err(EvaluationError::Context)?
-                } else {
-                    state
-                };
-                let label = context
-                    .debug_old_label(&state, &expression.metadata().position)
-                    .map_err(EvaluationError::Context)?;
-                let application_debug = debug_args.as_ref().map(|args| {
-                    Exp::with_extra(
-                        ExpKind::FuncApp(name.clone(), args.clone()),
-                        expression.metadata().clone(),
-                        expression.0.extra.clone(),
-                    )
-                });
-                let join_debug = if context.debugging() {
-                    let app = application_debug
-                        .clone()
-                        .ok_or(EvaluationError::MissingDebugExpression)?;
-                    if state.is_eval_in_old || function.pres.iter().all(Exp::is_pure) {
-                        Some(app)
-                    } else {
-                        Some(Exp::new(
-                            ExpKind::DebugLabelledOld(app, label.clone()),
-                            expression.metadata().clone(),
-                        ))
-                    }
-                } else {
-                    None
-                };
-                context.join_function_application_with_owned(state,&function,&terms,join_debug.as_ref(),&mut |context,base,done,owned_join| {
-                let mut pres = Vec::new();
-                for pre in &function.pres {
-                    let transformed = ferrum_silver::ast::utility::rewriter::strategy::rewrite_expression_bottom_up(pre,&mut |e| Ok::<_, &'static str>(match e.kind() { ExpKind::Forall(vars,_,body) => Exp::new(ExpKind::Forall(vars.clone(),vec![],body.clone()),e.metadata().clone()), _ => e.clone() }),&|_,_| Err(ferrum_silver::ast::utility::rewriter::strategy::ExpressionRewriteError::Callback("extension reconstruction unsupported"))).map_err(EvaluationError::PreconditionRewrite)?;
-                    pres.push(transformed);
-                }
-                let mut bindings = Vec::new();
-                for (index,(decl,term)) in function.formal_args.iter().zip(&terms).enumerate() {
-                    let debug = if context.debugging() { Some(debug_args.as_ref().and_then(|es| es.get(index)).cloned().ok_or(EvaluationError::MissingDebugExpression)?) } else { None };
-                    bindings.push((AbstractLocalVar::new(Exp::new(ExpKind::LocalVar(decl.local_var()),decl.meta.clone())),(term.clone(),debug)));
-                }
-                let mut pre_state = base.clone();
-                pre_state.g = Arc::new(crate::state::store::MapBackedStore::from_bindings(bindings));
-                pre_state.record_visited = true; pre_state.function_recorder = pre_state.function_recorder.change_depth_by(1);
-                pre_state.sm_domain_needed = true; pre_state.more_joins = context.join_off();
-                if !context.respect_function_pre_permission_amounts() { pre_state.assert_read_access_only = true; }
-                let pre_state_for_snapshot = pre_state.clone();
-                if let Some(join) = owned_join {
-                    let frame = OwnedFunctionPre { join: join.clone(), base: base.clone(), pre_state: pre_state.clone(), function: function.clone(), expression: expression.clone(), argument_expressions: args.to_vec(), arguments: terms.clone(), debug_arguments: debug_args.clone(), application_debug: application_debug.clone(), label: label.clone(), preconditions: pres.clone() };
-                    if let Some(result) = context.try_consume_owned_function_preconditions(&pre_state, &frame) { return result; }
-                }
-                context.consume_function_preconditions(pre_state,&base.g,&function,expression,args,&pres,&mut |context,mut state,snapshot| {
-                    let snapshot = snapshot.ok_or(EvaluationError::MissingFunctionSnapshot)?;
-                    let (state_args,snapshot_to_record) = context.function_snapshot_args(&pre_state_for_snapshot,&function,&terms,&snapshot).map_err(EvaluationError::Context)?;
-                    let symbol = context.heap_function(&function,&base.program).map_err(EvaluationError::Context)?;
-                    let pre = crate::rules::function_supporter::precondition_version(&factory,&symbol);
-                    let mut all_args = state_args; all_args.extend(terms.iter().cloned());
-                    context.assume_function_precondition(&factory.app(pre,all_args.clone()),&function,debug_args.as_deref()).map_err(EvaluationError::Context)?;
-                    let opaque = matches!(function.meta.info.find(&|info| matches!(info,ferrum_silver::ast::ast::Info::Annotation(_))),Some(ferrum_silver::ast::ast::Info::Annotation(a)) if a.contains_key("opaque"));
-                    let revealed = matches!(expression.metadata().info.find(&|info| matches!(info,ferrum_silver::ast::ast::Info::Annotation(_))),Some(ferrum_silver::ast::ast::Info::Annotation(a)) if a.contains_key("reveal"));
-                    let symbol = if opaque && !revealed { crate::rules::function_supporter::limited_version(&factory,&symbol) } else { symbol };
-                    let term = factory.app(symbol,all_args);
-                    state.function_recorder = state.function_recorder.change_depth_by(-1).record_function_snapshot(expression.clone(),context.branch_conditions(),snapshot_to_record);
-                    state.g = base.g.clone(); state.h = base.h.clone(); state.record_visited = base.record_visited; state.sm_domain_needed = base.sm_domain_needed; state.more_joins = base.more_joins.clone(); state.assert_read_access_only = base.assert_read_access_only;
-                    let debug = if context.debugging() { let app = application_debug.clone().ok_or(EvaluationError::MissingDebugExpression)?; if state.is_eval_in_old || pres.iter().all(Exp::is_pure) { Some(app) } else { Some(Exp::new(ExpKind::DebugLabelledOld(app,label.clone()),expression.metadata().clone())) } } else { None };
-                    done(context,state,term,debug)
-                })
-            },continuation)
+                complete_function_application(
+                    context,
+                    state,
+                    expression,
+                    &function,
+                    record_heap,
+                    terms,
+                    debug_args,
+                    continuation,
+                )
             },
         );
     }

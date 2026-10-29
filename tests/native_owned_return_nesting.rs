@@ -439,3 +439,42 @@ method pred_case(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: P
     }
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn function_argument_failure_precedes_precondition() {
+    let source = r#"field val: Int
+function f(a: Int, b: Int): Int requires a > 0 { a + b }
+method bad(x: Ref, y: Ref, b: Bool, c: Bool) returns (r: Int) requires x != y
+{ r := f((asserting (b ? acc(x.val) : acc(y.val)) in -1), (asserting (c ? false : false) in 2)); }
+"#;
+    for workers in ["1", "2"] {
+        let output = run(source, workers);
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("insufficient.permission"), "{stderr}");
+        assert!(!stderr.contains("assertion.false"), "{stderr}");
+        assert!(!stderr.contains("application.precondition"), "{stderr}");
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn function_precondition_failure_skips_caller_tail() {
+    let source = r#"field val: Int
+function f(a: Int, b: Int): Int requires a > 0 { a + b }
+method bad(x: Ref, y: Ref, z: Ref, w: Ref, b: Bool, c: Bool) returns (r: Int)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+{ r := f((asserting (b ? acc(x.val) : acc(y.val)) in -1), (asserting (c ? acc(z.val) : acc(w.val)) in 2)); assert false; }
+"#;
+    for workers in ["1", "2"] {
+        let output = run(source, workers);
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("application.precondition"), "{stderr}");
+        assert!(
+            !stderr.contains("[assert.failed:assertion.false]"),
+            "{stderr}"
+        );
+    }
+}
