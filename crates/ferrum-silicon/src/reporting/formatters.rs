@@ -667,6 +667,25 @@ pub fn native_state_formatter<'a>(
         trace_enabled,
     }
 }
+/// Diagnostic rendering for general logs. Native collections do not retain the
+/// concrete Scala collection class; their documented canonical notation is used.
+pub fn diagnostic_state_formatter<'a>(
+    factory: &'a crate::state::terms::TermFactory,
+    trace_enabled: bool,
+) -> DefaultStateFormatter<
+    NativeAstStateRenderer<
+        fn(&Term) -> Result<String, UnsupportedTermRendering>,
+        impl Fn(&Chunk) -> Result<String, UnsupportedTermRendering> + 'a,
+    >,
+> {
+    DefaultStateFormatter {
+        renderer: NativeAstStateRenderer {
+            render_term: render_diagnostic_term,
+            render_chunk: move |chunk: &Chunk| render_diagnostic_chunk_with_factory(chunk, factory),
+        },
+        trace_enabled,
+    }
+}
 /// Source hides built-in equalities involving a Combine, and `not(x == null)`
 /// when null is the right operand. Other equalities and reversed null are retained.
 pub fn visible_path_condition(term: &Term) -> bool {

@@ -739,14 +739,49 @@ fn make_stdio_prover(
         "cvc5" => "viper.silicon.decider.Cvc5ProverStdIO",
         _ => unreachable!(),
     };
+    let event_logger = general_logger.clone();
     let mut prover = ProverStdIo::new(id.into(), settings, profile, factory, move |event| {
-        if let ProverEvent::Warning(warning) = event {
-            warnings
-                .lock()
-                .expect("poisoned warning buffer")
-                .push(warning);
+        use silicon::logger::general::Level;
+        match event {
+            ProverEvent::Warning(warning) => {
+                if let Some(logger) = &event_logger {
+                    logger.emit(logger_name, Level::Warn, || warning.clone());
+                }
+                warnings
+                    .lock()
+                    .expect("poisoned warning buffer")
+                    .push(warning);
+            }
+            ProverEvent::QuantifierInstances { raw, .. } => {
+                if let Some(logger) = &event_logger {
+                    logger.emit(logger_name, Level::Info, || raw);
+                }
+            }
+            ProverEvent::Configuration(_) => {}
         }
     });
+    if let Some(reporter) = reporter.clone() {
+        prover.set_quantifier_observer(move |event| {
+            if let ProverEvent::QuantifierInstances {
+                id,
+                instances,
+                generation,
+                cost,
+                ..
+            } = event
+            {
+                reporter.report(
+                    silver::reporter::message::Message::QuantifierInstantiations {
+                        quantifier: id.clone(),
+                        instantiations: *instances,
+                        max_gen: *generation,
+                        max_cost: *cost,
+                    },
+                )?;
+            }
+            Ok(())
+        });
+    }
     if reporter.is_some() || general_logger.is_some() {
         prover.set_configuration_observer(move |message| {
             if let Some(reporter) = &reporter {

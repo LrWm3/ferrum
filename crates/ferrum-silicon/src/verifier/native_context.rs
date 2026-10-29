@@ -211,23 +211,6 @@ impl NativeOptions {
                 "requested verifier configuration is not connected",
             ));
         }
-        // Lower thresholds expose source DEBUG events that are not yet connected.
-        // Unknown Logback levels also resolve to DEBUG, so keep them gated.
-        let connected_level = |level: &str| {
-            ["INFO", "WARN", "ERROR", "OFF"]
-                .iter()
-                .any(|supported| level.eq_ignore_ascii_case(supported))
-        };
-        if config
-            .log_level
-            .as_deref()
-            .is_some_and(|level| !connected_level(level))
-            || config.logger.values().any(|level| !connected_level(level))
-        {
-            return Err(NativeError::Unsupported(
-                "requested timeout, logging, solver, worker, cache or encoding policy is not connected",
-            ));
-        }
         fn method_pattern(
             pattern: &str,
         ) -> Result<regex::Regex, NativeError<crate::decider::prover_std_io::ProverError>> {
@@ -577,7 +560,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         logger.emit(&self.general_logger_name, Level::Debug, || {
             format!("\n{label} {position}: {rendered}")
         });
-        let formatter = crate::reporting::formatters::native_state_formatter(
+        let formatter = crate::reporting::formatters::diagnostic_state_formatter(
             &self.factory,
             logger.enabled("SiliconFrontend", Level::Trace),
         );
@@ -636,7 +619,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         logger.emit(&self.general_logger_name, Level::Debug, || {
             format!("\nEXECUTE {position}: {rendered}")
         });
-        let formatter = crate::reporting::formatters::native_state_formatter(
+        let formatter = crate::reporting::formatters::diagnostic_state_formatter(
             &self.factory,
             logger.enabled("SiliconFrontend", Level::Trace),
         );
@@ -701,7 +684,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         logger.emit(&self.general_logger_name, Level::Debug, || {
             format!("\nEVAL {position}: {rendered}")
         });
-        let formatter = crate::reporting::formatters::native_state_formatter(
+        let formatter = crate::reporting::formatters::diagnostic_state_formatter(
             &self.factory,
             logger.enabled("SiliconFrontend", Level::Trace),
         );

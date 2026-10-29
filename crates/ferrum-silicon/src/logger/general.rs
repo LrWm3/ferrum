@@ -1,6 +1,6 @@
 //! Ferrum general logger assembly described in PLAN.md.
 //! Source: [Silicon.scala](https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/Silicon.scala) and the pinned Logback configuration.
-//! INFO and higher thresholds are publicly connected; verbose thresholds remain gated.
+//! Logback-compatible thresholds and named logger overrides.
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.

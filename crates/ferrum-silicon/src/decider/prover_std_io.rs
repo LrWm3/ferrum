@@ -110,6 +110,7 @@ pub enum ProverEvent {
     Configuration(String),
     Warning(String),
     QuantifierInstances {
+        raw: String,
         id: String,
         instances: i32,
         generation: i32,
@@ -119,6 +120,7 @@ pub enum ProverEvent {
 #[derive(Debug)]
 pub enum ProverError {
     Io(io::Error),
+    Report(ferrum_silver::reporter::reporter::ReportError),
     Conversion(ConversionError),
     Protocol { prover_id: String, message: String },
     Model(String),
@@ -130,6 +132,7 @@ impl std::fmt::Display for ProverError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(e) => e.fmt(f),
+            Self::Report(e) => write!(f, "Prover event reporter failed: {e:?}"),
             Self::Conversion(e) => write!(f, "{e:?}"),
             Self::Protocol { prover_id, message } => write!(
                 f,
@@ -196,6 +199,12 @@ pub struct ProverStdIo {
     factory: TermFactory,
     identifiers: DefaultIdentifierFactory,
     report: Box<dyn FnMut(ProverEvent) + Send>,
+    quantifier_observer: Option<
+        Box<
+            dyn FnMut(&ProverEvent) -> Result<(), ferrum_silver::reporter::reporter::ReportError>
+                + Send,
+        >,
+    >,
     configuration_observer: Option<Box<dyn FnMut(&str) -> Result<(), String> + Send>>,
     child: Arc<Mutex<Option<Child>>>,
     input: Option<BufReader<std::fs::File>>,
@@ -231,6 +240,15 @@ impl ProverStdIo {
         (self.report)(ProverEvent::Configuration(message));
         Ok(())
     }
+    /// Report parsed quantifier profiling events before forwarding them to logging.
+    pub fn set_quantifier_observer(
+        &mut self,
+        observer: impl FnMut(&ProverEvent) -> Result<(), ferrum_silver::reporter::reporter::ReportError>
+        + Send
+        + 'static,
+    ) {
+        self.quantifier_observer = Some(Box::new(observer));
+    }
     /// Share the source verifier's identifier stream with its prover.
     pub fn identifier_factory(&self) -> DefaultIdentifierFactory {
         self.identifiers.clone()
@@ -250,6 +268,7 @@ impl ProverStdIo {
             settings,
             profile,
             report: Box::new(report),
+            quantifier_observer: None,
             configuration_observer: None,
             child: Arc::new(Mutex::new(None)),
             input: None,
@@ -330,11 +349,15 @@ impl ProverStdIo {
                             .map_err(|_| self.protocol(format!("invalid quantifier count: {s}")))
                     };
                     let event = ProverEvent::QuantifierInstances {
+                        raw: line.clone(),
                         id: parts[0].into(),
                         instances: parse(parts[1])?,
                         generation: parse(parts[2])?,
                         cost: parse(parts[3])?,
                     };
+                    if let Some(observer) = &mut self.quantifier_observer {
+                        observer(&event).map_err(ProverError::Report)?;
+                    }
                     (self.report)(event);
                 }
                 continue;

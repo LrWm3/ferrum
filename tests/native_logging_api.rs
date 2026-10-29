@@ -245,10 +245,186 @@ fn public_levels_accept_supported_case_and_reject_unconnected_options() {
     }
     let mut config = Config::default();
     config.log_level = Some("DEBUG".into());
-    assert!(NativeOptions::from_config(&config).is_err());
+    assert!(NativeOptions::from_config(&config).is_ok());
     let mut config = Config::default();
     config.logger.insert("ROOT".into(), "OFF".into());
     assert!(NativeOptions::from_config(&config).is_ok());
     config.logger.insert("viper.silicon".into(), "DEBUG".into());
-    assert!(NativeOptions::from_config(&config).is_err());
+    assert!(NativeOptions::from_config(&config).is_ok());
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn verbose_levels_and_named_overrides_keep_verification_results() {
+    use std::process::Command;
+    let path = std::env::temp_dir().join(format!("ferrum-verbose-{}.vpr", std::process::id()));
+    let z3 = std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+    for (assertion, expected_code) in [("x + 1 > x", 0), ("x + 1 < x", 1)] {
+        std::fs::write(&path, format!("method m(x: Int) {{ assert {assertion}; }}")).unwrap();
+        for (options, debug) in [
+            (vec!["--logLevel", "ERROR"], false),
+            (vec!["--logLevel", "DEBUG"], true),
+            (vec!["--logLevel", "TRACE"], true),
+            (vec!["--logLevel", "ALL"], true),
+            (vec!["--logLevel", "nonsense"], true),
+            (
+                vec![
+                    "--logLevel",
+                    "ERROR",
+                    "-Lviper.silicon.verifier.DefaultMainVerifier-00=DEBUG",
+                ],
+                true,
+            ),
+            (
+                vec![
+                    "--logLevel",
+                    "DEBUG",
+                    "-Lviper.silicon.verifier.DefaultMainVerifier-00=OFF",
+                ],
+                false,
+            ),
+        ] {
+            let output = Command::new(env!("CARGO_BIN_EXE_ferrum"))
+                .args(["--z3Exe", &z3, "--numberOfParallelVerifiers", "1"])
+                .args(&options)
+                .arg(&path)
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(
+                output.status.code(),
+                Some(expected_code),
+                "{options:?}: {stdout}\n{stderr}"
+            );
+            assert_eq!(
+                stdout.contains("EXECUTE 1:"),
+                debug,
+                "{options:?}: {stdout}"
+            );
+            assert_eq!(
+                stdout.contains("CONSUME 1:"),
+                debug,
+                "{options:?}: {stdout}"
+            );
+            assert_eq!(stdout.contains("EVAL 1:"), debug, "{options:?}: {stdout}");
+        }
+    }
+    std::fs::remove_file(path).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn prover_warning_and_quantifier_profile_reach_general_logger() {
+    use std::{os::unix::fs::PermissionsExt, process::Command};
+    let base = std::env::temp_dir().join(format!("ferrum-logger-prover-{}", std::process::id()));
+    let wrapper = base.with_extension("sh");
+    let input = base.with_extension("vpr");
+    std::fs::write(&wrapper, "#!/bin/sh\nread first\nprintf ':version \"4.16.0\"\\nWARNING example\\n[quantifier_instances] q : 1 : 2 : 3\\n'\nexec \"$FERRUM_TEST_Z3\" \"$@\"\n").unwrap();
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::write(&input, "method m() { assert true; }").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_ferrum"))
+        .args([
+            "--z3Exe",
+            wrapper.to_str().unwrap(),
+            "--logLevel",
+            "INFO",
+            "--numberOfParallelVerifiers",
+            "1",
+        ])
+        .arg(&input)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("Prover warning: WARNING example"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("[quantifier_instances] q : 1 : 2 : 3"),
+        "{stdout}"
+    );
+    std::fs::remove_file(wrapper).unwrap();
+    std::fs::remove_file(input).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn quantifier_profile_reports_and_propagates_reporter_failure() {
+    use ferrum::silver::reporter::reporter::{ReportError, Reporter};
+    use std::{os::unix::fs::PermissionsExt, sync::Mutex};
+    struct Capture {
+        events: Mutex<Vec<(String, i32, i32, i32)>>,
+        reject: bool,
+    }
+    impl Reporter for Capture {
+        fn name(&self) -> &str {
+            "quantifier capture"
+        }
+        fn report(&self, message: Message) -> Result<(), ReportError> {
+            if let Message::QuantifierInstantiations {
+                quantifier,
+                instantiations,
+                max_gen,
+                max_cost,
+            } = message
+            {
+                if self.reject {
+                    return Err(ReportError::Unsupported("rejected quantifier"));
+                }
+                self.events
+                    .lock()
+                    .unwrap()
+                    .push((quantifier, instantiations, max_gen, max_cost));
+            }
+            Ok(())
+        }
+    }
+    let wrapper = std::env::temp_dir().join(format!("ferrum-quantifier-{}.sh", std::process::id()));
+    std::fs::write(&wrapper, "#!/bin/sh\nread first\nprintf ':version \"4.16.0\"\\n[quantifier_instances] q : 1 : 2 : 3\\n'\nexec \"$FERRUM_TEST_Z3\" \"$@\"\n").unwrap();
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let args = vec![
+        "--ignoreFile".into(),
+        "--z3Exe".into(),
+        wrapper.to_string_lossy().into_owned(),
+        "test.vpr".into(),
+    ];
+    let capture = Arc::new(Capture {
+        events: Mutex::new(vec![]),
+        reject: false,
+    });
+    let mut session =
+        Session::new_with_reporter(Config::parse(&args).unwrap(), capture.clone()).unwrap();
+    session.stop().unwrap();
+    assert!(
+        capture
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|e| e == &("q".into(), 1, 2, 3))
+    );
+    let reject = Arc::new(Capture {
+        events: Mutex::new(vec![]),
+        reject: true,
+    });
+    let error = match Session::new_with_reporter(Config::parse(&args).unwrap(), reject) {
+        Ok(mut session) => {
+            session.stop().unwrap();
+            panic!("reporter rejection was ignored")
+        }
+        Err(error) => error,
+    };
+    assert!(
+        format!("{error:?}").contains("rejected quantifier"),
+        "{error:?}"
+    );
+    std::fs::remove_file(wrapper).unwrap();
 }
