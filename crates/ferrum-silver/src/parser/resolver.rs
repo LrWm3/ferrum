@@ -2061,11 +2061,25 @@ fn check_supported_type(typ: &PTypeHandle) -> Result<(), TypeCheckError> {
             check_supported_type(element_type.inner())
         }
         super::parse_ast::PTypeKind::Map { types, .. } => {
-            check_supported_type(types.inner().first())?;
-            check_supported_type(types.inner().second())
+            let mut errors = Vec::new();
+            retain_type_mismatches(&mut errors, check_supported_type(types.inner().first()))?;
+            retain_type_mismatches(&mut errors, check_supported_type(types.inner().second()))?;
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                Err(TypeCheckError::Mismatches(errors))
+            }
         }
         super::parse_ast::PTypeKind::Domain { domain, args, kind } => {
             use super::parse_ast::{PDomainTypeKind, PIdnRef};
+            let arguments = args
+                .as_ref()
+                .map(|a| a.inner().to_seq())
+                .unwrap_or_default();
+            let mut errors = Vec::new();
+            for arg in &arguments {
+                retain_type_mismatches(&mut errors, check_supported_type(arg))?;
+            }
             let declarations = PIdnRef::decls(&domain, |node| {
                 if kind == PDomainTypeKind::Adt {
                     matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Member(PMember { kind: PMemberKind::Extension(extension), .. }) if extension.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdt>())
@@ -2097,17 +2111,11 @@ fn check_supported_type(typ: &PTypeHandle) -> Result<(), TypeCheckError> {
                 } else {
                     format!("ambiguous type `{name}`")
                 };
-                return Err(TypeCheckError::PositionedMessage {
+                errors.push(TypeCheckError::PositionedMessage {
                     node: typ.node().clone(),
                     message,
                 });
-            }
-            let arguments = args
-                .as_ref()
-                .map(|a| a.inner().to_seq())
-                .unwrap_or_default();
-            for arg in &arguments {
-                check_supported_type(arg)?;
+                return Err(TypeCheckError::Mismatches(errors));
             }
             let (resolved, arity) = match &declarations[0].read().expect("poisoned parse node").kind
             {
@@ -2142,7 +2150,11 @@ fn check_supported_type(typ: &PTypeHandle) -> Result<(), TypeCheckError> {
             {
                 *kind = resolved;
             }
-            Ok(())
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                Err(TypeCheckError::Mismatches(errors))
+            }
         }
         _ => Err(TypeCheckError::Unsupported(
             "domain, macro or internal declaration type",

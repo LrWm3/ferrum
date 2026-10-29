@@ -2646,6 +2646,26 @@ mod tests {
         );
     }
     #[test]
+    fn invalid_map_type_arguments_are_reported_independently() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("method m(x: Map[Missing, Other]) {}\n")
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "undeclared type `Missing` (test.vpr@1.17--1.24)",
+                "undeclared type `Other` (test.vpr@1.26--1.31)",
+            ]
+        );
+    }
+    #[test]
     fn forbidden_wands_report_each_source_expression() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
