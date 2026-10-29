@@ -33,6 +33,32 @@ already implements levels and ancestry internally, but public activation and
 event parity still need reconciliation. The historical ADT discriminator outcome
 mismatch in `silver/0236.vpr` is carried forward for semantic investigation.
 
+### Checked progress through `08ff634`
+
+Failure contexts now carry detached proof obligations, retained source scopes,
+declarations, assumptions and predicate/function registries. Owner-thread stream
+sessions provide input checking, presentation, replay, solver replacement and
+explicit cleanup. The integrated Silicon suite passes all 317 tests with real
+Z3 enabled, including 20 debugger tests. These cover quantified field reads and
+assignments, negative permissions, wildcard consumption, allocation and replay
+after the original verifier is dropped. A two-worker pool shutdown/replay test
+also passes; it does not assert which branch executed on which worker.
+
+Three public CLI/stream regressions pass in an isolated test build with the
+configuration gate bypassed. They cover successful programs, multiple failures,
+invalid input, EOF, independent sessions and solver reaping after an output error.
+The production gate remains closed while joined-value/heap-trigger metadata,
+linked-solver replay and remaining exception/reporting paths are completed.
+
+The integrated Silver suite passes 415 tests at this checkpoint. Diagnostic work
+now covers parser recovery, macro positions, sibling error collection, contextual
+identifiers and parser-only types. `tools/compare_diagnostics.py` verifies reference
+fixture/jar hashes, handles padded error indices and preserves raw evidence.
+Multiline messages, unsupported paths, crashes and timeouts require review; equal
+failure exits are not agreement. The final integrated diagnostic comparison is
+still pending. Later stages below remain pending, and no performance claim is
+made from these checks.
+
 ## 2. Advanced features and hardening — pending
 
 - Audit reachable unsupported extension/configuration paths against the source
