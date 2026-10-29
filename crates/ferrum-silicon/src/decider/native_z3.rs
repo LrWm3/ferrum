@@ -1848,10 +1848,11 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
             driver,
             self.factory.clone(),
         );
-        self.session = Some(super::z3_prover_api::Z3ApiSession::new(
-            converter,
-            self.options.timeout,
-        ));
+        let mut session = super::z3_prover_api::Z3ApiSession::new(converter, self.options.timeout);
+        if self.options.debug {
+            session.enable_debug_replay();
+        }
+        self.session = Some(session);
         self.identifiers.start();
         Ok(())
     }
@@ -1914,6 +1915,9 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
             .converter
             .convert_declaration(&declaration)
             .map_err(super::z3_prover_api::ApiProverError::from)?;
+        if self.options.debug {
+            self.active()?.record_fresh_declaration(declaration);
+        }
         Ok(target)
     }
     fn statistics(&mut self) -> Result<Vec<(String, String)>, Self::Error> {
@@ -1988,6 +1992,17 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
         self.session
             .as_ref()
             .map_or_else(Vec::new, |s| s.emissions().to_vec())
+    }
+    fn debug_replay_events(
+        &self,
+    ) -> Option<Vec<crate::interfaces::decider::prover::DebugReplayEvent>> {
+        if self.options.debug {
+            self.session
+                .as_ref()
+                .map(|s| s.debug_replay_events().to_vec())
+        } else {
+            None
+        }
     }
     fn debug_preamble_assumptions(&self) -> Option<Vec<crate::debugger::debug_exp::DebugAxiom>> {
         self.options.debug.then(|| self.debug_preamble.clone())

@@ -231,6 +231,7 @@ pub enum OwnedEvaluationReturnFrame {
     UnfoldPermission {
         wrapper: OwnedValueWrapper,
         args: Vec<Term>,
+        debug_args: Option<Vec<Exp>>,
         arps:
             crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<Term>,
     },
@@ -676,6 +677,7 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
         _state: State<P, D, J>,
         _expression: &Exp,
         _args: &[Term],
+        _debug_args: Option<&[Exp]>,
         _amount: &Term,
         _amount_debug: Option<&Exp>,
         _arps: &crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<
@@ -3187,6 +3189,7 @@ where
             next.push(OwnedEvaluationReturnFrame::UnfoldPermission {
                 wrapper: wrapper.clone(),
                 args: terms,
+                debug_args: debug,
                 arps,
             });
             let planned = match selected {
@@ -3916,6 +3919,7 @@ where
             OwnedEvaluationReturnFrame::UnfoldPermission {
                 wrapper,
                 args,
+                debug_args,
                 arps,
             } => {
                 let mut done = |context: &mut C, mut state, value, debug| {
@@ -3935,6 +3939,7 @@ where
                         state,
                         &wrapper.expression,
                         args,
+                        debug_args.as_deref(),
                         &term,
                         debug.as_ref(),
                         arps,

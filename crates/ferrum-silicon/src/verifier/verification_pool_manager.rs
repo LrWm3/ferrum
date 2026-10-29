@@ -1698,6 +1698,11 @@ impl<
     fn debug_preamble_assumptions(&self) -> Option<Vec<crate::debugger::debug_exp::DebugAxiom>> {
         self.main.debug_preamble_assumptions()
     }
+    fn debug_replay_events(
+        &self,
+    ) -> Option<Vec<crate::interfaces::decider::prover::DebugReplayEvent>> {
+        self.main.debug_replay_events()
+    }
 }
 
 fn set_verification_scope(

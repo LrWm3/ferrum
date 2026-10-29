@@ -178,7 +178,8 @@ and focused solver checks do not establish complete native API parity.
 Debug tokens retain the source ASCII grammar. `debug@` is lexically accepted
 upstream but its split-index construction fails; native construction reports a
 specific error. Debugger input/worker/solver services propagate typed failures;
-the interactive loop, complete printing and debug failure-context assembly are pending.
+native stream sessions now capture and replay detached failure contexts. Public
+activation remains gated while the final resource-metadata paths are checked.
 The dormant flyweight annotation has an explicit native pool rather than a new
 procedural macro. Concurrent creation returns the canonical stored handle.
 
@@ -406,3 +407,35 @@ Cycle diagnostics use the rooted probe order observed for Scala's small immutabl
 sets. For five or more cycle members, Scala uses its immutable hash-set iteration
 order; Ferrum reports the same membership in native rooted traversal order. This
 is a message-order adaptation, not a change to cycle detection.
+
+
+## Native debugger replay and presentation
+
+Detached failure records preserve source assumptions and proof goals, recorded
+heaps, declarations, and function/predicate registries without moving a live
+solver between threads. Joined unfolding/applying results retain guarded value
+equations, feasible branches, and the source StateMerge heap record. Quantified
+reads, assignments, current permissions, and resource triggers retain source
+debug descriptions and rewritten expressions. The assembled Silicon suite passed
+358 tests with real stdio and linked Z3, including multi-entry capture/replay and
+independent sessions. A source domain-log event also passes its DEBUG/INFO checks.
+Final snapshot-definition and packaged-wand follow-ups remain before activation.
+
+Scala collection implementation classes are erased by the Rust representation;
+debugger sequences use canonical `List(...)` presentation. End-of-input closes
+native debugger sessions and reaps solver processes; the source interactive
+`readLine` path can throw/retry on null. Programmatically built ASTs without a
+retained parser program cannot resolve scoped textual debugger expressions.
+
+Linked-Z3 capture additionally records the ordered preamble/declaration journal.
+Replay into a fresh stdio solver restores its static solver settings as well as
+print-success before replaying that journal. Omitting those settings changed
+proof outcomes during development; regression checks require FAIL/PASS/PASS/FAIL
+for prove/add-assumption/reset/replace and FAIL in an independent session. Reset
+retains the source's mutated initial-worker behavior. The pinned Java-API
+interactive replay stalled in the corresponding bounded source probe, so this
+working native transport path is an explicit extension, not claimed source
+transcript parity. Custom API prover options and randomized seeds are rejected
+for debugger replay until their effective values can be restored. Nonlinear
+arithmetic settings are restored; cvc5 replacement has not been exercised because
+that executable is unavailable in the validation environment.

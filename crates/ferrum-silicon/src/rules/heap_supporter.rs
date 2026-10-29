@@ -118,6 +118,7 @@ pub trait HeapExecutionContext<P, D, J, V>: ChunkExecutionContext<P, D, J, V> {
         state: State<P, D, J>,
         heap: &ListBackedHeap,
         resource: &ResourceKey,
+        access: &Exp,
         args: &[Term],
         debug_args: Option<&[Exp]>,
     ) -> Result<(State<P, D, J>, Term), Self::Error>;
@@ -144,10 +145,12 @@ pub trait HeapExecutionContext<P, D, J, V>: ChunkExecutionContext<P, D, J, V> {
         &mut self,
         state: State<P, D, J>,
         resource: &ResourceKey,
+        debug_access: Option<&Exp>,
         receiver: &Term,
         debug_receiver: Option<&Exp>,
         value: &Term,
         debug_value: Option<&Exp>,
+        debug_full_permission: Option<&Exp>,
         error: &Self::VerificationError,
         continuation: &mut dyn FnMut(
             &mut Self,
@@ -369,11 +372,13 @@ pub fn current_permission<P, D, J, V, C: HeapExecutionContext<P, D, J, V>>(
     state: State<P, D, J>,
     heap: &ListBackedHeap,
     resource: &ResourceKey,
+    access: &Exp,
     args: &[Term],
     debug_args: Option<&[Exp]>,
 ) -> Result<(State<P, D, J>, Term), C::Error> {
     if is_quantified(&state, resource) {
-        return context.quantified_current_permission(state, heap, resource, args, debug_args);
+        return context
+            .quantified_current_permission(state, heap, resource, access, args, debug_args);
     }
     let factory = context.factory().clone();
     let id = identifier(resource);
@@ -455,6 +460,7 @@ pub fn assign_field<P, D, J: Clone, V, C: HeapExecutionContext<P, D, J, V>>(
     context: &mut C,
     state: State<P, D, J>,
     field: &ferrum_silver::ast::program::Field,
+    debug_access: Option<&Exp>,
     receiver: &Term,
     debug_receiver: Option<&Exp>,
     value: &Term,
@@ -472,10 +478,12 @@ pub fn assign_field<P, D, J: Clone, V, C: HeapExecutionContext<P, D, J, V>>(
         return context.assign_quantified_field(
             state,
             &resource,
+            debug_access,
             receiver,
             debug_receiver,
             value,
             debug_value,
+            debug_full_permission,
             error,
             continuation,
         );

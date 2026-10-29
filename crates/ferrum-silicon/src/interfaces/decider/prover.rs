@@ -73,6 +73,13 @@ pub enum CommentError<E> {
     Prover(E),
 }
 
+/// API-only ordered transport journal required to replay declarations interleaved with SMT preamble text.
+#[derive(Clone, Debug)]
+pub enum DebugReplayEvent {
+    Emit(String),
+    Declare(Declaration),
+}
+
 /// Stateful solver operations. Concrete implementations own the process/API
 /// context; transport failures and solver unknown are separate outcomes.
 pub trait Prover: ProverLike {
@@ -116,6 +123,9 @@ pub trait Prover: ProverLike {
     fn pop(&mut self, n: usize) -> Result<(), Self::Error>;
     fn all_declarations(&self) -> Vec<Declaration>;
     fn all_emits(&self) -> Vec<String>;
+    fn debug_replay_events(&self) -> Option<Vec<DebugReplayEvent>> {
+        None
+    }
     /// Debug replay needs the actual recorded preamble, even when it is empty.
     fn debug_preamble_assumptions(&self) -> Option<Vec<crate::debugger::debug_exp::DebugAxiom>> {
         None

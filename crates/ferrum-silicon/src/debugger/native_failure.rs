@@ -27,6 +27,7 @@ use std::sync::{Arc, Mutex};
 pub struct NativeDebugVerifierSnapshot {
     pub worker_id: String,
     pub prover_name: String,
+    pub api_replay_events: Option<Vec<crate::interfaces::decider::prover::DebugReplayEvent>>,
     pub macro_declarations: Vec<Declaration>,
     pub function_declarations: Vec<Declaration>,
     pub debug_variable_types: crate::package::Map<String, PTypeHandle>,

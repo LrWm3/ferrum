@@ -64,6 +64,8 @@ pub struct Z3ApiSession<C: NativeZ3Solver> {
     preamble_over: bool,
     preamble_parsed: bool,
     preamble: Vec<String>,
+    debug_replay: Vec<crate::interfaces::decider::prover::DebugReplayEvent>,
+    debug_replay_enabled: bool,
     assumptions: Vec<C::Expr>,
     sorts: Vec<(String, C::Sort)>,
     functions: Vec<(String, C::Function)>,
@@ -79,6 +81,8 @@ impl<C: NativeZ3Solver> Z3ApiSession<C> {
             preamble_over: false,
             preamble_parsed: false,
             preamble: Vec::new(),
+            debug_replay: Vec::new(),
+            debug_replay_enabled: false,
             assumptions: Vec::new(),
             sorts: Vec::new(),
             functions: Vec::new(),
@@ -89,6 +93,12 @@ impl<C: NativeZ3Solver> Z3ApiSession<C> {
     pub fn emit(&mut self, command: String) -> ApiResult<C, ()> {
         if self.preamble_over || self.preamble_parsed {
             return Err(ApiProverError::PreambleEnded);
+        }
+        if self.debug_replay_enabled {
+            self.debug_replay
+                .push(crate::interfaces::decider::prover::DebugReplayEvent::Emit(
+                    command.clone(),
+                ));
         }
         self.preamble.push(command);
         Ok(())
@@ -109,6 +119,11 @@ impl<C: NativeZ3Solver> Z3ApiSession<C> {
                     self.functions.push((name, function));
                 }
             }
+        }
+        if self.debug_replay_enabled {
+            self.debug_replay.push(
+                crate::interfaces::decider::prover::DebugReplayEvent::Declare(declaration.clone()),
+            );
         }
         self.declarations.push(declaration.clone());
         Ok(())
@@ -233,6 +248,16 @@ impl<C: NativeZ3Solver> Z3ApiSession<C> {
     }
     pub fn declarations(&self) -> &[Declaration] {
         &self.declarations
+    }
+    pub fn enable_debug_replay(&mut self) {
+        self.debug_replay_enabled = true;
+    }
+    pub fn debug_replay_events(&self) -> &[crate::interfaces::decider::prover::DebugReplayEvent] {
+        &self.debug_replay
+    }
+    pub fn record_fresh_declaration(&mut self, declaration: Declaration) {
+        self.debug_replay
+            .push(crate::interfaces::decider::prover::DebugReplayEvent::Declare(declaration));
     }
     pub fn emissions(&self) -> &[String] {
         &self.preamble

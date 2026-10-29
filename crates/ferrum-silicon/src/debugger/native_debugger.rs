@@ -101,6 +101,7 @@ mod tests {
             verifier: NativeReplayVerifier::captured(NativeDebugVerifierSnapshot {
                 worker_id: "captured".into(),
                 prover_name: "Z3".into(),
+                api_replay_events: None,
                 macro_declarations: vec![],
                 function_declarations: vec![],
                 debug_variable_types: Default::default(),
@@ -318,6 +319,17 @@ where
         solver: &str,
         args: Option<&str>,
     ) -> Result<(), String> {
+        // The linked API applies these directly and does not include them in
+        // captured emits. Until we can replay accepted options and the actual
+        // seed, reject rather than change the proof configuration silently.
+        if verifier.snapshot.prover_name == "Z3-API"
+            && (!self.config.prover_config_args.is_empty() || self.config.prover_randomize_seeds)
+        {
+            return Err(
+                "Z3-API debugger replay does not support custom prover options or randomized seeds"
+                    .into(),
+            );
+        }
         let profile = match solver {
             "Z3" => crate::decider::z3_prover_std_io::profile(),
             "cvc5" => crate::decider::cvc5_prover_std_io::profile(),
@@ -350,6 +362,41 @@ where
         // Starting only the base avoids duplicating the captured preamble: the
         // generic debugger subsequently emits it in the recorded order.
         context.base.start(args).map_err(display)?;
+        // The linked API journal omits both solver defaults and stdio protocol
+        // setup. Restore the selected solver's static settings and print-success
+        // before replay; these settings affect the proof result, not just I/O.
+        if verifier.snapshot.prover_name == "Z3-API" {
+            use crate::interfaces::preamble::PreambleReader;
+            let setup = (|| -> Result<(), String> {
+                let path = if solver == "cvc5" {
+                    "/cvc5config.smt2"
+                } else {
+                    "/z3config.smt2"
+                };
+                let settings =
+                    crate::decider::smt_lib2_preamble_reader::SmtLib2PreambleReader::default()
+                        .read_preamble(path)
+                        .map_err(display)?;
+                context
+                    .base
+                    .decider
+                    .prover
+                    .write_line("(set-option :print-success true)")
+                    .and_then(|()| context.base.decider.prover.read_success())
+                    .and_then(|()| context.base.decider.prover.emit_settings(&settings))
+                    .map_err(display)
+            })();
+            if let Err(primary) = setup {
+                return match context.stop() {
+                    Ok(()) => Err(primary),
+                    Err(cleanup) => Err(format!(
+                        "{}; debugger cleanup: {}",
+                        primary,
+                        display(cleanup)
+                    )),
+                };
+            }
+        }
         let mut runtime = ReplayRuntime {
             context,
             assumed: HashSet::new(),
@@ -393,13 +440,34 @@ where
         verifier: &mut NativeReplayVerifier,
         commands: &[String],
     ) -> Result<(), String> {
+        let events = verifier.snapshot.api_replay_events.clone();
         verifier.with_runtime(|r| {
-            r.context
-                .base
-                .decider
-                .prover
-                .emit_all(commands)
-                .map_err(display)
+            if let Some(events) = events {
+                for event in events {
+                    match event {
+                        crate::interfaces::decider::prover::DebugReplayEvent::Emit(text) => {
+                            r.context.base.decider.prover.emit(&text).map_err(display)?
+                        }
+                        crate::interfaces::decider::prover::DebugReplayEvent::Declare(
+                            declaration,
+                        ) => r
+                            .context
+                            .base
+                            .decider
+                            .prover
+                            .declare(&declaration)
+                            .map_err(display)?,
+                    }
+                }
+                Ok(())
+            } else {
+                r.context
+                    .base
+                    .decider
+                    .prover
+                    .emit_all(commands)
+                    .map_err(display)
+            }
         })
     }
     fn assume_axioms(
