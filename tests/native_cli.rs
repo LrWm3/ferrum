@@ -429,6 +429,18 @@ fn quantified_wildcard_removal_preserves_permission_constraints() {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn user_sort_names_do_not_rewrite_snapshot_wrapper_templates() {
+    let domains = "domain $T$_ { function f(x: $T$_): Int }
+        domain $S$_ { function g(x: $S$_): Int }
+        domain $T0$_ { function h(x: $T0$_): Int }
+        domain $T1$_ { function i(x: $T1$_): Int }
+        domain $T$_$T0$_$T1$ { function j(x: $T$_$T0$_$T1$): Int }";
+    check(domains, 0);
+    check(&format!("{domains} method bad() {{ assert false; }}"), 1);
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn final_report_groups_duplicate_branch_failures() {
     let output = run(
         "method test(b: Bool) { if (b) { } else { } assert false; }",

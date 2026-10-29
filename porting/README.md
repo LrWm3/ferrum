@@ -953,3 +953,8 @@ pure producer/consumer and snapshot-split payloads, and quantified-precondition
 join paths. Join replay moves owned states instead of cloning them. The paired
 term/expression path remains internal until broader debugger integration is
 complete; ordinary verification and public logging keep their existing profiles.
+
+Snapshot sort-wrapper emission now uses the source temporary-key substitution
+when user sort names contain preamble placeholders. This fixes upstream
+silicon/0559 without changing the shared sequential preamble reader. A real
+solver regression covers conflicting names and retains an assertion failure.

@@ -12523,7 +12523,22 @@ where
                 .term_converter
                 .convert_sort(&sort)
                 .map_err(|e| NativeError::Preamble(format!("{e:?}")))?;
-            let substitutions = vec![("$S$".into(), sanitized), ("$T$".into(), rendered)];
+            // Source DefaultMainVerifier.emitSortWrappers protects template keys
+            // embedded in user sort names from the later literal replacement.
+            let substitutions = if sanitized.contains("$T$") {
+                let mut index = 0;
+                while sanitized.contains(&format!("$T{index}$")) {
+                    index += 1;
+                }
+                let temporary = format!("$T{index}$");
+                vec![
+                    ("$T$".into(), temporary.clone()),
+                    ("$S$".into(), sanitized),
+                    (temporary, rendered),
+                ]
+            } else {
+                vec![("$S$".into(), sanitized), ("$T$".into(), rendered)]
+            };
             let commands = reader
                 .read_parametric_preamble("/sortwrappers.smt2", &substitutions)
                 .map_err(NativeError::Resource)?;
