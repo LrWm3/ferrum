@@ -2070,6 +2070,25 @@ mod tests {
         assert!(message.contains("@2."), "{message}");
     }
     #[test]
+    fn forbidden_wands_report_each_source_expression() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let source = "function f(): Int\n  requires true --* true\n{ 0 }\npredicate p() { false --* true }\n";
+        let parsed = phases.parse(source).unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "magic wands are not supported in function preconditions or predicates (test.vpr@2.12--2.25)",
+                "magic wands are not supported in function preconditions or predicates (test.vpr@4.17--4.31)",
+            ]
+        );
+    }
+    #[test]
     fn mixed_type_and_unsupported_errors_are_both_retained() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));

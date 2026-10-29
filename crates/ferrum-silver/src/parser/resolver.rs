@@ -1978,6 +1978,7 @@ fn check_expression_context(
         forbid_spec_perm: bool,
         ban_all_perm: bool,
         forbid_wand: bool,
+        errors: &mut Vec<TypeCheckError>,
     ) -> Result<(), TypeCheckError> {
         let kind = node.read().expect("poisoned parse node").kind.clone();
         let mut inside_inex = inside_inex;
@@ -2002,6 +2003,7 @@ fn check_expression_context(
                         forbid_spec_perm,
                         true,
                         forbid_wand,
+                        errors,
                     )?;
                     visit(
                         trigger.node(),
@@ -2009,13 +2011,16 @@ fn check_expression_context(
                         forbid_spec_perm,
                         ban_all_perm,
                         forbid_wand,
+                        errors,
                     )?;
                     return Ok(());
                 }
                 PExpressionKind::MagicWandExp { .. } if forbid_wand => {
-                    return Err(TypeCheckError::Unsupported(
-                        "magic wands are not supported in function preconditions or predicates",
-                    ));
+                    errors.push(TypeCheckError::Positioned {
+                        node: node.clone(),
+                        message: "magic wands are not supported in function preconditions or predicates",
+                    });
+                    return Ok(());
                 }
                 PExpressionKind::InhaleExhale { .. } => inside_inex = true,
                 _ => {}
@@ -2030,17 +2035,25 @@ fn check_expression_context(
                 forbid_spec_perm,
                 ban_all_perm,
                 forbid_wand,
+                errors,
             )?;
         }
         Ok(())
     }
+    let mut errors = Vec::new();
     visit(
         input.node(),
         false,
         forbid_spec_perm,
         ban_all_perm,
         forbid_wand,
-    )
+        &mut errors,
+    )?;
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(TypeCheckError::Mismatches(errors))
+    }
 }
 /// Check core program signatures before bodies, as upstream requires. The first unsupported
 /// or erroneous construct is returned; full diagnostic accumulation and extensions remain pending.
@@ -2344,8 +2357,18 @@ pub fn check_program_core(
                 }
                 PMemberKind::Predicate { body, .. } => {
                     if let Some(body) = body {
-                        check_expression_context(body.exp().inner(), false, false, true)?;
-                        check_program_expression(body.exp().inner(), Some(&impure), &mut *warn)?;
+                        let mut errors = Vec::new();
+                        retain_type_mismatches(
+                            &mut errors,
+                            check_expression_context(body.exp().inner(), false, false, true),
+                        )?;
+                        retain_type_mismatches(
+                            &mut errors,
+                            check_program_expression(body.exp().inner(), Some(&impure), &mut *warn),
+                        )?;
+                        if !errors.is_empty() {
+                            return Err(TypeCheckError::Mismatches(errors));
+                        }
                     }
                 }
                 PMemberKind::Method {
