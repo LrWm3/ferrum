@@ -529,6 +529,17 @@ impl ProverLike for ProverStdIo {
 }
 impl Prover for ProverStdIo {
     type Version = Version;
+    fn comment_fallible(
+        &mut self,
+        content: &mut dyn FnMut() -> Result<String, String>,
+    ) -> Result<(), crate::interfaces::decider::prover::CommentError<Self::Error>> {
+        use crate::interfaces::decider::prover::CommentError;
+        if self.log.is_some() {
+            let text = content().map_err(CommentError::Render)?;
+            self.log_comment(&text).map_err(CommentError::Prover)?;
+        }
+        Ok(())
+    }
     fn start(&mut self, user_args: Option<&str>) -> Result<(), Self::Error> {
         if self
             .child
@@ -895,5 +906,40 @@ mod cancellation_tests {
         stopped.unwrap();
         assert!(!handle.cancel().unwrap());
         std::fs::remove_file(script).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod fallible_comment_tests {
+    use super::*;
+    use crate::interfaces::decider::prover::CommentError;
+    use crate::state::terms::TermOptions;
+
+    #[test]
+    fn comments_are_lazy_and_render_failure_writes_nothing() {
+        let mut prover = ProverStdIo::new(
+            "test".into(),
+            ProverSettings::new("unused".into(), 10000),
+            crate::decider::z3_prover_std_io::profile(),
+            TermFactory::new(TermOptions {
+                use_flyweight: false,
+                use_old_axiomatization: false,
+                mask_heap_mode: false,
+            }),
+            |_| {},
+        );
+        prover
+            .comment_fallible(&mut || panic!("disabled comment was rendered"))
+            .unwrap();
+        let path =
+            std::env::temp_dir().join(format!("ferrum-fallible-comment-{}", std::process::id()));
+        prover.log = Some(print_writer(&path, true, false).unwrap());
+        let result = prover.comment_fallible(&mut || Err("cannot render".into()));
+        assert!(matches!(result, Err(CommentError::Render(message)) if message == "cannot render"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"");
+        prover.comment_fallible(&mut || Ok("hello".into())).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "; hello\n");
+        drop(prover);
+        std::fs::remove_file(path).unwrap();
     }
 }

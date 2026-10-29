@@ -1581,6 +1581,21 @@ impl<
 > crate::interfaces::decider::prover::Prover for BroadcastingProver<P, W>
 {
     type Version = P::Version;
+    fn comment_fallible(
+        &mut self,
+        content: &mut dyn FnMut() -> Result<String, String>,
+    ) -> Result<(), crate::interfaces::decider::prover::CommentError<Self::Error>> {
+        use crate::interfaces::decider::prover::CommentError;
+        self.require_main_only().map_err(CommentError::Prover)?;
+        self.main
+            .comment_fallible(content)
+            .map_err(|error| match error {
+                CommentError::Render(error) => CommentError::Render(error),
+                CommentError::Prover(error) => {
+                    CommentError::Prover(BroadcastingProverError::Main(error))
+                }
+            })
+    }
     fn start(&mut self, args: Option<&str>) -> Result<(), Self::Error> {
         self.require_main_only()?;
         self.main.start(args).map_err(BroadcastingProverError::Main)

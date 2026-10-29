@@ -1771,6 +1771,12 @@ impl crate::interfaces::decider::prover::ProverLike for LinkedZ3Prover {
 }
 impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
     type Version = crate::common::config::package::Version;
+    fn comment_fallible(
+        &mut self,
+        _: &mut dyn FnMut() -> Result<String, String>,
+    ) -> Result<(), crate::interfaces::decider::prover::CommentError<Self::Error>> {
+        Ok(())
+    }
     fn start(&mut self, user_args: Option<&str>) -> Result<(), Self::Error> {
         if self.session.is_some() {
             return Err(LinkedProverError::AlreadyStarted);

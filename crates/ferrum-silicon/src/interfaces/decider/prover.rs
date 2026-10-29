@@ -66,10 +66,24 @@ pub trait ProverLike: TextEmitter {
     }
 }
 
+/// Failure while rendering a lazy prover comment, or while writing it.
+#[derive(Debug)]
+pub enum CommentError<E> {
+    Render(String),
+    Prover(E),
+}
+
 /// Stateful solver operations. Concrete implementations own the process/API
 /// context; transport failures and solver unknown are separate outcomes.
 pub trait Prover: ProverLike {
     type Version;
+
+    /// Render only when the concrete prover needs the comment. A render error
+    /// must not write any comment text.
+    fn comment_fallible(
+        &mut self,
+        content: &mut dyn FnMut() -> Result<String, String>,
+    ) -> Result<(), CommentError<Self::Error>>;
 
     fn start(&mut self, user_args: Option<&str>) -> Result<(), Self::Error>;
     fn reset(&mut self) -> Result<(), Self::Error>;

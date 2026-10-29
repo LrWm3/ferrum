@@ -2650,3 +2650,8 @@ role = "assembly"
 destination = "tests/native_owned_return_nesting.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "tests/native_prover_comments.rs"
+status = "wired"
+role = "assembly"

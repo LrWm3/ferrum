@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 417 mapped and assembly modules. `described` files
+The Cargo workspace now has 418 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
@@ -1099,3 +1099,9 @@ a successful solver pop. Quantified single and
 general retry callback controls now preserve exact errors through both retry
 layers. Reviewed summary, merge, ordering/removal, consolidation and mask/wand
 bridges also retain nested typed errors; pure transform formatting is unchanged.
+
+Evaluator and executor prover comments are emitted independently of the general
+logger threshold. Stdio renders them only with an open prover log; linked Z3
+skips rendering entirely. Formatting failures remain errors. These rule calls
+run after preamble broadcasting ends; the fallible-comment API still rejects
+broadcast mode and does not implement general comment-broadcast parity.

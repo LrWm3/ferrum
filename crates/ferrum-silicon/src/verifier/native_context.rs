@@ -555,14 +555,9 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         }
         Ok(())
     }
-    fn log_evaluation_state(
-        &self,
-        state: &State<PD, FD, JoinMode>,
-        expression: &Exp,
-    ) -> Result<(), NativeError<S::Error>> {
-        use crate::logger::general::Level;
+    fn logs_evaluation(expression: &Exp) -> bool {
         use ferrum_silver::ast::expression::ExpKind;
-        if matches!(
+        !matches!(
             expression.kind(),
             ExpKind::TrueLit
                 | ExpKind::FalseLit
@@ -576,7 +571,15 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
                 | ExpKind::FractionalPerm(..)
                 | ExpKind::Result(_)
                 | ExpKind::FieldAccess(_)
-        ) {
+        )
+    }
+    fn log_evaluation_state(
+        &self,
+        state: &State<PD, FD, JoinMode>,
+        expression: &Exp,
+    ) -> Result<(), NativeError<S::Error>> {
+        use crate::logger::general::Level;
+        if !Self::logs_evaluation(expression) {
             return Ok(());
         }
         let Some((logger, _)) = &self.general_logging else {
@@ -1738,7 +1741,26 @@ where
         state: &State<PD, FD, JoinMode>,
         expression: &Exp,
     ) -> Result<(), Self::Error> {
-        self.log_evaluation_state(state, expression)
+        self.log_evaluation_state(state, expression)?;
+        if Self::logs_evaluation(expression) {
+            self.base
+                .decider
+                .prover
+                .comment_fallible(&mut || {
+                    ferrum_silver::ast::pretty::pretty_printer::expression_to_string(expression)
+                        .map(|text| format!("[eval] {text}"))
+                        .map_err(|e| format!("evaluation comment: {e:?}"))
+                })
+                .map_err(|error| match error {
+                    crate::interfaces::decider::prover::CommentError::Render(error) => {
+                        NativeError::Diagnostic(error)
+                    }
+                    crate::interfaces::decider::prover::CommentError::Prover(error) => {
+                        NativeError::Decider(DeciderError::Prover(error))
+                    }
+                })?;
+        }
+        Ok(())
     }
     fn factory(&self) -> &TermFactory {
         &self.factory
@@ -8859,7 +8881,35 @@ where
         state: &State<PD, FD, JoinMode>,
         statement: &Stmt,
     ) -> Result<(), Self::Error> {
-        self.log_execution_state(state, statement)
+        self.log_execution_state(state, statement)?;
+        if !matches!(
+            statement.kind(),
+            ferrum_silver::ast::statement::StmtKind::Seqn { .. }
+        ) {
+            self.base
+                .decider
+                .prover
+                .comment(&mut || "[exec]".into())
+                .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+            self.base
+                .decider
+                .prover
+                .comment_fallible(&mut || {
+                    ferrum_silver::ast::pretty::pretty_printer::pretty_node(
+                        &ferrum_silver::ast::utility::nodes::Node::Stmt(statement.clone()),
+                    )
+                    .map_err(|e| format!("execution comment: {e:?}"))
+                })
+                .map_err(|error| match error {
+                    crate::interfaces::decider::prover::CommentError::Render(error) => {
+                        NativeError::Diagnostic(error)
+                    }
+                    crate::interfaces::decider::prover::CommentError::Prover(error) => {
+                        NativeError::Decider(DeciderError::Prover(error))
+                    }
+                })?;
+        }
+        Ok(())
     }
     fn open_statement(
         &mut self,
