@@ -124,6 +124,9 @@ The current matrix contains 602 client binaries across eight stdlib suites,
 plus spec-library, Rust/runtime and trigger controls. Explicit harness backend
 selection is required because inherited `PRUSTI_*` variables are cleared.
 Verification results remain pending; the earlier eight-case matrix is not reused.
+The [fresh Prusti validation record](prusti-validation.md) documents the frozen
+builds, 602-client inventory, effective settings and reproduced source-version
+differences while the full matrix runs.
 
 ## 4. Broader compatibility testing — pending
 

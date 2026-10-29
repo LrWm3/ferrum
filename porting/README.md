@@ -17,6 +17,8 @@ settings are unchanged; no performance improvement is claimed.
 [completion.md](completion.md) tracks the requested sequence through fresh Prusti
 verification and broader pinned-source compatibility testing. Historical Rust
 matrix results must not be treated as runs of this code checkpoint.
+The [fresh Prusti checkpoint](prusti-validation.md) records the current builds,
+matrix settings and individually reproduced findings; the full run is pending.
 
 The entries below are historical checkpoints; later work may supersede their
 statements about remaining work.
