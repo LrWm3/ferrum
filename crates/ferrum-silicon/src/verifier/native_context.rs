@@ -17419,7 +17419,8 @@ where
                 }
             })
         })();
-        if outcome.is_err() {
+        // Source creates the initial state before its member exception handler.
+        if outcome.is_err() && started.is_some() {
             if let Some((logger, _)) = &self.general_logging {
                 logger.entity_exception("method", Some(&method.name));
             }
