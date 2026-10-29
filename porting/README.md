@@ -833,3 +833,9 @@ frames. Consumption returns snapshots with source conjunct/finalization ordering
 fold rebuilds the predicate chunk before resuming its statement tail. Real Z3
 checks with one and two workers verify caller stores, fold/unfold field values
 and missing permissions, matching existing synchronous and pinned JVM outcomes.
+
+Cached and uncached statement unfold now execute owned predicate/producer jobs,
+restore their caller fields and continue the statement tail. Actual Z3 tests
+separately exercise both profiles with one and two workers and match the pinned
+JVM for field permissions, values and an expected bad assertion. Expression
+Unfolding has a distinct term-returning continuation and remains separate work.

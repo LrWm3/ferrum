@@ -422,7 +422,7 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
         )
             -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
     ) -> Result<VerificationResult<V>, ExecutionError<Self::Error>>;
-    fn try_execute_owned_fold(
+    fn try_execute_owned_predicate(
         &mut self,
         _state: State<P, D, J>,
         _statement: &Stmt,
@@ -864,13 +864,16 @@ where
             }
         }
         _ => {
-            if matches!(statement.kind(), StmtKind::Fold(_)) {
+            if matches!(statement.kind(), StmtKind::Fold(_) | StmtKind::Unfold(_)) {
                 if let Some(tail) = owned_tail
                     .filter(|_| !state.exhale_ext && context.statement_scope_transferable(scope))
                 {
-                    if let Some(result) =
-                        context.try_execute_owned_fold(state.clone(), statement, tail, &mut finish)
-                    {
+                    if let Some(result) = context.try_execute_owned_predicate(
+                        state.clone(),
+                        statement,
+                        tail,
+                        &mut finish,
+                    ) {
                         return result;
                     }
                 }

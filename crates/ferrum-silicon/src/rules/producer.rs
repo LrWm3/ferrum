@@ -97,6 +97,7 @@ pub enum OwnedProductionTerminal {
     MethodPre(crate::supporters::method_supporter::MethodPreContinuation),
     MethodWellformed,
     CallPost(crate::rules::executor::MethodCallPreFrame),
+    Unfold(crate::rules::predicate_supporter::OwnedUnfoldFinish),
 }
 
 /// Complete non-joined producer branch and the explicitly owned statement tail.

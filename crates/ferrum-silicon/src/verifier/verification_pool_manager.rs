@@ -1792,6 +1792,10 @@ pub struct NativeEvaluationBranchOutput {
 pub enum NativeJoinAction {
     Cfg(crate::rules::executor::CfgJoinBranch),
     Predicate(crate::rules::predicate_supporter::PredicateContentsAction),
+    PredicateContinuation {
+        action: crate::rules::predicate_supporter::PredicateContentsAction,
+        finish: crate::rules::predicate_supporter::OwnedUnfoldFinish,
+    },
     Continuation(crate::rules::executor::CfgContinuationAction),
     Production(
         crate::rules::producer::OwnedProductionAction<
@@ -1843,6 +1847,12 @@ pub(crate) static CONTINUATION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize 
 pub(crate) static CONTINUATION_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static UNFOLD_TREE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static UNFOLD_TREE_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
 pub(crate) static FOLD_BODY_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -1865,6 +1875,12 @@ pub(crate) static RULE_CONSUMPTION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUs
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static RULE_CONSUMPTION_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static UNFOLD_PRODUCTION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static UNFOLD_PRODUCTION_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static RULE_PRODUCTION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
@@ -1994,6 +2010,9 @@ where
             NativeJoinAction::Predicate(_) => {
                 PREDICATE_JOIN_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
+            NativeJoinAction::PredicateContinuation { .. } => {
+                UNFOLD_TREE_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
             NativeJoinAction::Continuation(_) => {
                 CONTINUATION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
@@ -2003,6 +2022,13 @@ where
                     crate::rules::producer::OwnedProductionTerminal::CallPost(_)
                 ) {
                     CALL_POST_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                if matches!(
+                    &action.tail,
+                    crate::rules::producer::OwnedProductionTerminal::Unfold(_)
+                ) {
+                    UNFOLD_PRODUCTION_TEST_SUBMISSIONS
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
                 RULE_PRODUCTION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
@@ -3710,6 +3736,37 @@ mod thread_pool_tests {
             + Sync
             + 'static,
     {
+        run_parallel_source_with_profile(
+            source,
+            workers,
+            make,
+            standalone_cfg,
+            cfg_scheduler,
+            nonjoined,
+            true,
+        )
+    }
+    fn run_parallel_source_with_profile<P, F>(
+        source: &str,
+        workers: usize,
+        make: F,
+        standalone_cfg: bool,
+        cfg_scheduler: bool,
+        nonjoined: bool,
+        simplified_unfolds: bool,
+    ) -> (Vec<bool>, Vec<String>)
+    where
+        P: crate::interfaces::decider::prover::Prover + 'static,
+        P::Error: Send + std::fmt::Debug + 'static,
+        F: Fn(
+                String,
+                crate::state::terms::TermFactory,
+            ) -> (P, crate::state::identifiers::DefaultIdentifierFactory)
+            + Clone
+            + Send
+            + Sync
+            + 'static,
+    {
         use crate::{
             config::Config,
             decider::decider::DefaultDecider,
@@ -3735,7 +3792,7 @@ mod thread_pool_tests {
             } else {
                 crate::config::JoinMode::All
             };
-            config.enable_simplified_unfolds = true;
+            config.enable_simplified_unfolds = simplified_unfolds;
         }
         let native_options = NativeOptions::from_config(&config).unwrap();
         let factory = TermFactory::new(TermOptions {
@@ -4945,6 +5002,119 @@ method bad(b: Bool, c: Bool, x: Ref, y: Ref)
             assert!(CALL_POST_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > pe);
             assert!(CALL_PRE_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > cs);
             assert!(CALL_PRE_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > ce);
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_cached_unfold_tree() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+field g: Int
+predicate P(x: Ref, b: Bool) { b ? (acc(x.f) && x.f == 7) : (acc(x.g) && x.g == 8) }
+method good(x: Ref, b: Bool)
+  requires acc(P(x, b))
+{
+  unfold acc(P(x, b));
+  assert b ? (acc(x.f) && x.f == 7) : (acc(x.g) && x.g == 8);
+}
+method bad(x: Ref, b: Bool)
+  requires acc(P(x, b))
+{
+  unfold acc(P(x, b));
+  assert b ? (acc(x.f) && x.f == 9) : (acc(x.g) && x.g == 8);
+}
+"#;
+        for workers in [1, 2] {
+            let submitted = UNFOLD_TREE_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed = UNFOLD_TREE_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1);
+            assert!(
+                UNFOLD_TREE_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > submitted
+            );
+            assert!(
+                UNFOLD_TREE_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_uncached_unfold_production() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+field g: Int
+predicate P(x: Ref, b: Bool) { b ? (acc(x.f) && x.f == 7) : (acc(x.g) && x.g == 8) }
+method good(x: Ref, b: Bool)
+  requires acc(P(x, b))
+{
+  unfold acc(P(x, b));
+  assert b ? (acc(x.f) && x.f == 7) : (acc(x.g) && x.g == 8);
+}
+method bad(x: Ref, b: Bool)
+  requires acc(P(x, b))
+{
+  unfold acc(P(x, b));
+  assert b ? (acc(x.f) && x.f == 9) : (acc(x.g) && x.g == 8);
+}
+"#;
+        for workers in [1, 2] {
+            let submitted =
+                UNFOLD_PRODUCTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed =
+                UNFOLD_PRODUCTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_profile(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+                false,
+            );
+            assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1);
+            assert!(
+                UNFOLD_PRODUCTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > submitted
+            );
+            assert!(
+                UNFOLD_PRODUCTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > executed
+            );
         }
     }
 

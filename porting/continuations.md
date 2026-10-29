@@ -75,6 +75,12 @@ bodies use that snapshot to rebuild the predicate chunk, restore permission
 scaling and resume their statement tail. Real Z3 checks assert actual call and
 fold jobs, caller value restoration and an else-only missing-permission failure.
 
+Ordinary unfold statements now retain an explicit finish frame through cached
+predicate trees or uncached body production. Both paths restore the caller store
+and permission scaling after saturation and trigger emission, then execute the
+statement tail. Separate actual-job tests exercise both profiles with real Z3,
+checking field values, permissions and an expected invalid value assertion.
+
 ## Solver ownership and restoration
 
 Each solver remains on its owning thread. Jobs carry symbolic state and immutable

@@ -1730,7 +1730,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/PredicateSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/predicate_supporter.rs"
 status = "skeleton"
-remaining = ["Owned fold-body snapshots restore caller fields and continue statements. Owned unfold continuations and broader parallel compatibility remain."]
+remaining = ["Owned fold and cached/uncached statement unfold retain caller continuations. Expression Unfolding, logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"

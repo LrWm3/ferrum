@@ -3002,6 +3002,19 @@ where
                     })
                 })
             }
+            crate::rules::producer::OwnedProductionTerminal::Unfold(finish) => {
+                use crate::rules::predicate_supporter::PredicateExecutionServices;
+                self.finish_owned_unfold(state, finish)
+                    .ok_or(ProductionError::OwnedSchedulerUnavailable)?
+                    .map_err(|e| match e {
+                        crate::rules::predicate_supporter::PredicateExecutionError::Service(
+                            error,
+                        ) => ProductionError::Context(error),
+                        other => ProductionError::Context(NativeError::Execution(format!(
+                            "owned unfold: {other:?}"
+                        ))),
+                    })
+            }
             crate::rules::producer::OwnedProductionTerminal::CallPost(frame) => {
                 crate::rules::executor::execute_owned_call_post(self, state, frame).map_err(|e| {
                     match e {
@@ -8192,7 +8205,7 @@ where
         }
         result.map_err(|e| ExecutionError::Context(NativeError::Production(format!("{e:?}"))))
     }
-    fn try_execute_owned_fold(
+    fn try_execute_owned_predicate(
         &mut self,
         state: State<PD, FD, JoinMode>,
         statement: &Stmt,
@@ -8647,7 +8660,8 @@ where
         >,
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<NativeError<S::Error>>> {
         use crate::rules::predicate_supporter::{
-            PredicateExecutionError, fold_predicate_with_owned_tail, unfold_predicate,
+            PredicateExecutionError, fold_predicate_with_owned_tail,
+            unfold_predicate_with_owned_tail,
         };
         use ferrum_silver::ast::statement::StmtKind;
         let (access, folding) = match statement.kind() {
@@ -8767,7 +8781,7 @@ where
                                     &mut next,
                                 )
                             } else {
-                                unfold_predicate(
+                                unfold_predicate_with_owned_tail(
                                     &factory,
                                     ctx,
                                     state,
@@ -8779,6 +8793,7 @@ where
                                     amount_exp.as_ref(),
                                     &wildcards,
                                     &partial,
+                                    owned_tail,
                                     &mut next,
                                 )
                             };
@@ -10460,6 +10475,14 @@ where
             }
         }
         #[cfg(test)]
+        if matches!(
+            &branch.action,
+            super::verification_pool_manager::NativeJoinAction::PredicateContinuation { .. }
+        ) {
+            super::verification_pool_manager::UNFOLD_TREE_TEST_EXECUTIONS
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        #[cfg(test)]
         match &branch.action {
             super::verification_pool_manager::NativeJoinAction::Consumption(action)
                 if action.frames.iter().any(|frame| {
@@ -10483,6 +10506,15 @@ where
                 ) =>
             {
                 super::verification_pool_manager::CALL_POST_TEST_EXECUTIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            super::verification_pool_manager::NativeJoinAction::Production(action)
+                if matches!(
+                    &action.tail,
+                    crate::rules::producer::OwnedProductionTerminal::Unfold(_)
+                ) =>
+            {
+                super::verification_pool_manager::UNFOLD_PRODUCTION_TEST_EXECUTIONS
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
             _ => {}
@@ -10635,15 +10667,7 @@ where
                     Err(NativeError::Cancelled)
                 }
                 (Err(ExecutionError::Context(error)), Ok(()))
-                    if matches!(
-                        &branch.action,
-                        super::verification_pool_manager::NativeJoinAction::Continuation(_)
-                            | super::verification_pool_manager::NativeJoinAction::Production(_)
-                            | super::verification_pool_manager::NativeJoinAction::Consumption(_)
-                    ) =>
-                {
-                    Err(error)
-                }
+                    if matches!(&branch.action, super::verification_pool_manager::NativeJoinAction::Continuation(_) | super::verification_pool_manager::NativeJoinAction::Production(_) | super::verification_pool_manager::NativeJoinAction::Consumption(_) | super::verification_pool_manager::NativeJoinAction::PredicateContinuation { .. }) => Err(error),
                 (Err(e), Ok(())) => Err(NativeError::Execution(format!("joined branch: {e:?}"))),
                 (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
                     "joined branch: {primary:?}; scope cleanup: {cleanup:?}"
@@ -11868,6 +11892,69 @@ where
             }),
         )
     }
+    fn try_produce_owned_cached_predicate(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        tree: &crate::supporters::predicate_verification_unit::PredicateContentsTree,
+        replacements: &std::collections::HashMap<Term, Term>,
+        finish: &crate::rules::predicate_supporter::OwnedUnfoldFinish,
+    ) -> Option<
+        Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+    > {
+        use crate::rules::consumer::ConsumptionContext;
+        if !self.supports_owned_consumption(state) {
+            return None;
+        }
+        let factory = self.factory.clone();
+        Some(
+            crate::rules::predicate_supporter::produce_predicate_contents_with_owned_finish(
+                &factory,
+                self,
+                state.clone(),
+                tree,
+                replacements,
+                false,
+                Some(finish),
+                &mut |ctx, state| {
+                    ctx.finish_owned_unfold(state, finish).ok_or(crate::rules::predicate_supporter::PredicateExecutionError::OwnedSchedulerUnavailable)?
+                },
+            ),
+        )
+    }
+    fn finish_owned_unfold(
+        &mut self,
+        mut state: State<PD, FD, JoinMode>,
+        finish: &crate::rules::predicate_supporter::OwnedUnfoldFinish,
+    ) -> Option<
+        Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+    > {
+        use crate::rules::predicate_supporter::PredicateExecutionError as PE;
+        Some((|| {
+            self.saturate_after_unfold().map_err(PE::Service)?;
+            if self.predicate_unfold_triggers_enabled() {
+                self.assume_unfold_trigger(
+                    &state,
+                    &finish.predicate,
+                    &finish.snapshot,
+                    &finish.pre_heap,
+                    &finish.args,
+                    finish.arg_exps.as_deref(),
+                )
+                .map_err(PE::Service)?;
+            }
+            state.g = finish.outer_store.clone();
+            state.permission_scaling_factor = finish.outer_scaling.clone();
+            state.permission_scaling_factor_exp = finish.outer_scaling_exp.clone();
+            self.finish_owned_fold(state, &finish.tail)
+                .ok_or(PE::OwnedSchedulerUnavailable)?
+        })())
+    }
     fn finish_owned_fold(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -12173,6 +12260,71 @@ where
             false,
             continuation,
         )
+    }
+    fn try_produce_owned_unfolded_body(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        body: &Exp,
+        error: &Self::VerificationError,
+        finish: &crate::rules::predicate_supporter::OwnedUnfoldFinish,
+    ) -> Option<
+        Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+    > {
+        use crate::rules::consumer::ConsumptionContext;
+        use crate::rules::predicate_supporter::PredicateExecutionError as PE;
+        use crate::rules::producer::ProductionContext;
+        if !self.supports_owned_consumption(state) {
+            return None;
+        }
+        let projection = if self.options.mask_heap_mode {
+            let mut eval_state = state.clone();
+            eval_state.h = finish.pre_heap.clone();
+            let heap = match crate::rules::magic_wand_supporter::evaluation_heap(self, &eval_state)
+            {
+                Ok(heap) => heap,
+                Err(e) => {
+                    return Some(Err(PE::Service(NativeError::Snapshot(format!(
+                        "mask predicate evaluation heap: {e:?}"
+                    )))));
+                }
+            };
+            let resource = ResourceKey::Predicate(Arc::new(finish.predicate.clone()));
+            let factory = self.factory.clone();
+            match crate::rules::mask_heap_supporter::unfolded_predicate_snapshot(
+                &factory,
+                &resource,
+                &finish.args,
+                finish.snapshot.clone(),
+                &heap,
+                |term| self.mask_term_alias(state, term),
+            ) {
+                Ok(snapshot) => snapshot,
+                Err(e) => {
+                    return Some(Err(PE::Service(NativeError::Snapshot(format!(
+                        "mask unfolded predicate: {e:?}"
+                    )))));
+                }
+            }
+        } else {
+            finish.snapshot.clone()
+        };
+        let terminal = crate::rules::producer::OwnedProductionTerminal::Unfold(finish.clone());
+        let result = crate::rules::producer::produce_all_owned(
+            self,
+            state.clone(),
+            NativeSnapshot::Projection(projection),
+            std::slice::from_ref(body),
+            &|_| error.clone(),
+            &terminal,
+            &mut |ctx, state| ctx.finish_owned_production(state, &terminal),
+        );
+        Some(result.map_err(|e| match e {
+            ProductionError::Context(error) => PE::Service(error),
+            other => PE::Service(NativeError::Production(format!("{other:?}"))),
+        }))
     }
     fn produce_unfolded_body(
         &mut self,
@@ -13631,6 +13783,18 @@ where
                         }
                     })
             }
+            super::verification_pool_manager::NativeJoinAction::PredicateContinuation {
+                action,
+                finish,
+            } => crate::rules::predicate_supporter::execute_owned_predicate_contents_action(
+                self, state, action, finish,
+            )
+            .map_err(|e| match e {
+                PE::Service(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Production(format!(
+                    "predicate continuation: {other:?}"
+                ))),
+            }),
             super::verification_pool_manager::NativeJoinAction::Predicate(action) => {
                 let result = crate::rules::predicate_supporter::execute_predicate_contents_action(
                     self,
@@ -19142,6 +19306,55 @@ impl<S: Prover, PD, FD: Clone>
 where
     S::Error: std::fmt::Debug,
 {
+    fn try_branch_owned_predicate_contents(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        condition: &Term,
+        condition_exp: &(Exp, Option<Exp>),
+        yes: crate::rules::predicate_supporter::PredicateContentsAction,
+        no: crate::rules::predicate_supporter::PredicateContentsAction,
+        finish: &crate::rules::predicate_supporter::OwnedUnfoldFinish,
+    ) -> Option<
+        Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+    > {
+        use super::verification_pool_manager::NativeJoinAction;
+        use crate::rules::predicate_supporter::PredicateExecutionError as PE;
+        if !self.joined_branch_scheduler_enabled
+            || self.joined_branch_scheduler.is_none()
+            || self.member_log.is_some()
+            || !state.parallelize_branches
+            || state.under_join
+            || state.is_in_package
+            || state.exhale_ext
+        {
+            return None;
+        }
+        Some(
+            self.branch_owned_actions(
+                state.clone(),
+                condition.clone(),
+                &condition_exp.0,
+                condition_exp.1.as_ref(),
+                NativeJoinAction::PredicateContinuation {
+                    action: yes,
+                    finish: finish.clone(),
+                },
+                NativeJoinAction::PredicateContinuation {
+                    action: no,
+                    finish: finish.clone(),
+                },
+            )
+            .map_err(|e| match e {
+                ExecutionError::Context(error) => PE::Service(error),
+                other => PE::Service(NativeError::Execution(format!(
+                    "predicate continuation branch: {other:?}"
+                ))),
+            }),
+        )
+    }
     fn assume_predicate_contents(&mut self, assumptions: &[Term]) -> Result<(), Self::Error> {
         self.base
             .decider
