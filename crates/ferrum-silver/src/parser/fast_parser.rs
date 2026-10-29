@@ -577,9 +577,19 @@ impl ExpressionParser<'_> {
         (self.position(start), self.position(end))
     }
     fn error(&self, message: impl Into<String>) -> SyntaxError {
+        let position = match self.position(self.cursor) {
+            Position::LineColumn(LineColumn::File(start)) => {
+                Position::LineColumn(LineColumn::Source(Box::new(SourcePosition {
+                    file: Some(start.file.clone()),
+                    start: Box::new(LineColumn::File(start.clone())),
+                    end: Some(Box::new(LineColumn::File(start))),
+                })))
+            }
+            other => other,
+        };
         SyntaxError {
             message: message.into(),
-            position: self.position(self.cursor),
+            position,
         }
     }
     fn trivia(&mut self) -> Result<(), SyntaxError> {
@@ -823,6 +833,7 @@ impl ExpressionParser<'_> {
         self.cursor = self.identifier_end(start);
         let name = &self.source[start..self.cursor];
         if self.is_keyword(name) {
+            self.cursor = start;
             return Err(self.error("expected identifier"));
         }
         Ok(PNode::new(
@@ -1441,7 +1452,10 @@ impl ExpressionParser<'_> {
                     }
                 }
                 PKw::Package | PKw::Apply => {
-                    let exp = self.expression(0)?;
+                    // Source parses magicWandExp here: implication, iff and
+                    // conditionals need parentheses on the wand's left side.
+                    // A wand's right side still parses as a full expression.
+                    let exp = self.expression(4)?;
                     if keyword == PKw::Package {
                         let proof_script = self.statement_block()?;
                         PStatementKind::PackageWand {
@@ -1551,6 +1565,7 @@ impl ExpressionParser<'_> {
                     ..
                 })
             ) {
+                self.cursor = start;
                 return Err(self.error("expected assignment target or call"));
             }
             let list_start = first
@@ -2315,12 +2330,44 @@ impl ExpressionParser<'_> {
                 }
             }
             _ => {
+                self.cursor = keyword_start;
                 return Err(self.error(format!("declaration form '{name}' is not yet implemented")));
             }
         };
         // Parsing an expression may look through trailing trivia while searching
         // for an operator; the source Define position ends at its body itself.
         let end = match &kind {
+            PMemberKind::Function {
+                result_type,
+                pres,
+                posts,
+                body,
+                ..
+            } => {
+                if let Some(body) = body {
+                    body.position().1.clone()
+                } else {
+                    let spec_end = |specs: &PSpecs| {
+                        let list = specs.specs();
+                        if let Some(ND(Some(semi))) = list.end() {
+                            Some(semi.position().1.clone())
+                        } else {
+                            list.to_seq().last().map(|spec| spec.position().1.clone())
+                        }
+                    };
+                    spec_end(posts)
+                        .or_else(|| spec_end(pres))
+                        .unwrap_or_else(|| {
+                            result_type
+                                .node()
+                                .read()
+                                .expect("poisoned type node")
+                                .pos
+                                .1
+                                .clone()
+                        })
+                }
+            }
             PMemberKind::Define { body, .. } => match body.body() {
                 super::parse_ast::PDefineBody::Expression(exp) => exp
                     .node()
@@ -4198,5 +4245,77 @@ mod debugger_parser_tests {
             )
             .is_ok()
         );
+    }
+}
+
+#[cfg(test)]
+mod wand_statement_precedence_tests {
+    use super::*;
+    #[test]
+    fn abstract_function_member_ends_at_last_specification() {
+        let text = "function f(x: Int): Bool\n  requires x > 0 ==> f(x-1)\n\nfunction g(): Bool\n";
+        let program = parse_program(text, "source.vpr").unwrap();
+        let members = program.all_members();
+        let first = members[0].node().read().unwrap().pos.1.clone();
+        let second = members[1].node().read().unwrap().pos.1.clone();
+        assert_eq!(first.to_string(), "source.vpr@2.28");
+        assert_eq!(second.to_string(), "source.vpr@4.19");
+        let with_semi = parse_program(
+            "function f(): Bool\n requires true;\nfunction g(): Bool",
+            "source.vpr",
+        )
+        .unwrap();
+        let end = with_semi.all_members()[0]
+            .node()
+            .read()
+            .unwrap()
+            .pos
+            .1
+            .to_string();
+        assert_eq!(end, "source.vpr@2.16");
+    }
+    #[test]
+    fn rejected_token_positions_point_to_start() {
+        for (input, column) in [
+            ("method m() { 0 }", 14),
+            ("method m() { label lhs }", 20),
+            ("field a : Intmethod b () { }", 21),
+        ] {
+            let error = parse_program(input, "point.vpr").unwrap_err();
+            let Position::LineColumn(position) = error.position else {
+                panic!("expected positioned error")
+            };
+            assert_eq!((position.line(), position.column()), (1, column), "{input}");
+        }
+    }
+    #[test]
+    fn syntax_error_has_source_zero_length_span() {
+        let error = parse_program("method m() { assert ( }", "point.vpr").unwrap_err();
+        let Position::LineColumn(LineColumn::Source(position)) = error.position else {
+            panic!("expected source span")
+        };
+        assert_eq!(position.start.line(), position.end.as_ref().unwrap().line());
+        assert_eq!(
+            position.start.column(),
+            position.end.as_ref().unwrap().column()
+        );
+        assert!(position.to_string().contains("--"));
+    }
+    #[test]
+    fn package_and_apply_use_wand_precedence() {
+        for keyword in ["apply", "package"] {
+            let invalid = format!("method m() {{ {keyword} true ==> true --* true }}");
+            assert!(
+                parse_program(&invalid, "precedence.vpr").is_err(),
+                "{invalid}"
+            );
+            let grouped = format!("method m() {{ {keyword} (true ==> true) --* true }}");
+            assert!(
+                parse_program(&grouped, "precedence.vpr").is_ok(),
+                "{grouped}"
+            );
+            let rhs = format!("method m() {{ {keyword} true --* true ==> true }}");
+            assert!(parse_program(&rhs, "precedence.vpr").is_ok(), "{rhs}");
+        }
     }
 }
