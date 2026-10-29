@@ -1118,12 +1118,16 @@ pub fn check_expression(
             super::parse_ast::PIdnRef::filter_decls(&idnref, predicate, |_| true);
             let candidates = super::parse_ast::PIdnRef::decls(&idnref, |_| true);
             if candidates.is_empty() {
-                return Err(TypeCheckError::Unsupported(
-                    "call is not a function or predicate",
-                ));
+                return Err(TypeCheckError::Mismatches(vec![
+                    TypeCheckError::Positioned { node: idnref.clone(), message: "expected function or predicate" },
+                    TypeCheckError::PositionedMessage { node: idnref, message: format!("undeclared call `{name}`, expected function or predicate") },
+                ]));
             }
             if candidates.len() != 1 {
-                return Err(TypeCheckError::PositionedMessage { node: idnref, message: format!("ambiguous call `{name}`") });
+                return Err(TypeCheckError::Mismatches(vec![
+                    TypeCheckError::Positioned { node: idnref.clone(), message: "ambiguous function or predicate" },
+                    TypeCheckError::PositionedMessage { node: idnref, message: format!("ambiguous call `{name}`") },
+                ]));
             }
             let declaration = candidates[0]
                 .read()

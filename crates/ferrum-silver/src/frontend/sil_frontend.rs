@@ -2585,6 +2585,26 @@ mod tests {
         );
     }
     #[test]
+    fn method_call_in_expression_reports_contextual_errors() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("method f(n: Int) returns (r: Int) {\n  r := f(f(n))\n}\n")
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "expected function or predicate (test.vpr@2.10--2.11)",
+                "undeclared call `f`, expected function or predicate (test.vpr@2.10--2.11)",
+            ]
+        );
+    }
+    #[test]
     fn forbidden_wands_report_each_source_expression() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
