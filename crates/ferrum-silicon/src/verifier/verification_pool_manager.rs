@@ -2653,12 +2653,31 @@ where
     S::Error: std::fmt::Debug,
 {
     let outer_warnings = std::mem::take(&mut context.warnings);
+    let outer_internal = std::mem::take(&mut context.reported_internal_warnings);
+    let warning_sink = task.warning_sink.clone();
+    let has_reporter = task.reporter.is_some();
     let previous_reporter = context.replace_preprocessing_reporter(task.reporter.clone());
     let result = execute_native_worker_task_inner(context, task);
     context.replace_preprocessing_reporter(previous_reporter);
     let inner_warnings = std::mem::replace(&mut context.warnings, outer_warnings);
     context.warnings.extend(inner_warnings);
-    result
+    let internal = std::mem::replace(&mut context.reported_internal_warnings, outer_internal);
+    if let Some(sink) = warning_sink {
+        sink.lock()
+            .expect("poisoned native warning sink")
+            .extend(internal);
+        result
+    } else if internal.is_empty() || has_reporter {
+        result
+    } else {
+        finish_worker_warning_delivery(
+            result,
+            internal,
+            Err(super::native_context::NativeError::Unsupported(
+                "worker warnings require reporter or warning sink",
+            )),
+        )
+    }
 }
 fn finish_worker_warning_delivery<T, E: std::fmt::Debug>(
     outcome: Result<T, super::native_context::NativeError<E>>,

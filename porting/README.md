@@ -1166,3 +1166,11 @@ evaluator, preserving heap/debug actions and caller restoration. Actual
 one/two-worker and CLI regressions cover mixed old/current values, resources and
 receiver/read/tail failure order. Sequential pinned Silicon agrees; its parallel
 positive run has a solver declaration failure and is inconclusive.
+
+Unresolved function expressions now emit the source InternalWarning reporter
+category at occurrence, then a named WARN log when enabled. A separate buffer
+preserves the public warning sink without duplicate generic warnings; worker
+tasks isolate and drain it. Reporter errors retain their structural native type
+before the existing formatted public API boundary. Real-Z3 main/worker warning
+and rejection tests, repeated runs and INFO/ERROR checks pass. Captured-branch
+replay remains a separate check; trigger positions and broader parity are open.

@@ -317,6 +317,7 @@ pub enum NativeError<E> {
     Sort(crate::state::symbol_converter::SymbolConversionError),
     HeapDependency(String),
     Diagnostic(String),
+    Reporter(ferrum_silver::reporter::reporter::ReportError),
     Evaluation(String),
     Consumption(String),
     Production(String),
@@ -374,6 +375,9 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub factory: TermFactory,
     pub options: NativeOptions,
     pub warnings: Vec<String>,
+    // Internal warnings are already reported in their source category; retain
+    // them separately for the public warning sink without reporting twice.
+    pub reported_internal_warnings: Vec<String>,
     debug_heap_recorder: crate::verifier::verifier::DebugHeapRecorder,
     #[cfg(test)]
     evaluator_debug_for_test: bool,
@@ -747,6 +751,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             factory,
             options,
             warnings: Vec::new(),
+            reported_internal_warnings: Vec::new(),
             debug_heap_recorder: Default::default(),
             #[cfg(test)]
             evaluator_debug_for_test: false,
@@ -5042,10 +5047,20 @@ where
     fn warn_unresolved(&mut self, expression: &Exp, function: &ferrum_silver::ast::program::Function) -> Result<(), Self::Error> {
         let rendered = ferrum_silver::ast::pretty::pretty_printer::expression_to_string(expression)
             .map_err(|error| NativeError::Diagnostic(format!("unresolved expression warning: {error:?}")))?;
-        self.warnings.push(format!(
+        let message = format!(
             "Could not resolve expression {rendered} ({}) during the axiomatisation of function {}. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
             expression.metadata().position, function.name,
-        ));
+        );
+        self.reported_internal_warnings.push(message.clone());
+        if let Some(reporter) = &self.preprocessing_reporter {
+            reporter.report(ferrum_silver::reporter::message::Message::Simple {
+                kind: ferrum_silver::reporter::message::SimpleMessageKind::InternalWarning,
+                text: message.clone(),
+            }).map_err(NativeError::Reporter)?;
+        }
+        if let Some((logger, _)) = &self.general_logging {
+            logger.emit("viper.silicon.supporters.functions.HeapAccessReplacingExpressionTranslator", crate::logger::general::Level::Warn, || message);
+        }
         Ok(())
     }
 

@@ -2665,3 +2665,8 @@ role = "assembly"
 destination = "tests/native_trigger_warning.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "tests/native_internal_warning.rs"
+status = "wired"
+role = "assembly"
