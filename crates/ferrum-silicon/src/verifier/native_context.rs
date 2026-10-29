@@ -2576,6 +2576,331 @@ where
             }
         }
     }
+    fn finish_owned_predicate_argument(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        frame: &crate::rules::executor::OwnedPredicateArgument,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        Some(
+            self.resume_owned_predicate_argument(state, (term, debug), frame)
+                .map_err(|e| match e {
+                    ExecutionError::Context(e) => EvaluationError::Context(e),
+                    other => EvaluationError::Context(NativeError::Execution(format!(
+                        "owned predicate argument: {other:?}"
+                    ))),
+                }),
+        )
+    }
+    fn finish_owned_production_let(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        frame: &crate::rules::producer::OwnedProductionLet<PD, FD>,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        Some(
+            self.resume_owned_production_let(state, (term, debug), frame)
+                .map_err(|e| match e {
+                    ProductionError::Context(e) => EvaluationError::Context(e),
+                    other => EvaluationError::Context(NativeError::Production(format!(
+                        "owned production let: {other:?}"
+                    ))),
+                }),
+        )
+    }
+    fn finish_owned_production_access(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        frame: &crate::rules::producer::OwnedProductionAccess<PD, FD>,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        Some(
+            self.resume_owned_production_access(state, (term, debug), frame)
+                .map_err(|e| match e {
+                    ProductionError::Context(e) => EvaluationError::Context(e),
+                    other => EvaluationError::Context(NativeError::Production(format!(
+                        "owned production access: {other:?}"
+                    ))),
+                }),
+        )
+    }
+    fn finish_owned_production_pure(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        frame: &crate::rules::producer::OwnedPureProduction<PD, FD>,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        use crate::rules::producer::{ProductionContext, ProductionError};
+        let result = ProductionContext::assume(self, &term, &frame.assertion, debug.as_ref())
+            .map_err(ProductionError::Context)
+            .and_then(|()| {
+                crate::rules::producer::resume_owned_production(
+                    self,
+                    state,
+                    &frame.remaining,
+                    &frame.tail,
+                    &mut |ctx, state| ctx.finish_owned_production(state, &frame.tail),
+                )
+            });
+        Some(result.map_err(|e| match e {
+            ProductionError::Context(e) => EvaluationError::Context(e),
+            other => EvaluationError::Context(NativeError::Production(format!(
+                "owned production pure: {other:?}"
+            ))),
+        }))
+    }
+    fn finish_owned_production_guard(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        frame: &crate::rules::producer::OwnedProductionGuard<PD, FD>,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        use crate::rules::producer::{OwnedProductionAction, ProductionContext, ProductionError};
+        let result = if self.supports_owned_production_terminal(&state, &frame.tail)
+            && !self.join_impure(&state)
+        {
+            let action = |body| OwnedProductionAction {
+                snapshot: frame.snapshot.clone(),
+                body,
+                error: frame.error.clone(),
+                remaining: frame.remaining.clone(),
+                tail: frame.tail.clone(),
+            };
+            self.try_branch_owned_production(
+                &state,
+                &term,
+                &frame.condition,
+                debug.as_ref(),
+                action(Some(frame.yes.clone())),
+                action(frame.no.clone()),
+            )
+            .unwrap_or(Err(ProductionError::OwnedSchedulerUnavailable))
+        } else {
+            let join = self.join_impure(&state);
+            self.branch_production(
+                state,
+                term,
+                &frame.condition,
+                debug.as_ref(),
+                join,
+                frame.no.is_some(),
+                &mut |ctx, state, done| {
+                    crate::rules::producer::produce_recursive(
+                        ctx,
+                        state,
+                        frame.snapshot.clone(),
+                        &frame.yes,
+                        &frame.error,
+                        done,
+                    )
+                },
+                &mut |ctx, state, done| match &frame.no {
+                    Some(no) => crate::rules::producer::produce_recursive(
+                        ctx,
+                        state,
+                        frame.snapshot.clone(),
+                        no,
+                        &frame.error,
+                        done,
+                    ),
+                    None => {
+                        ctx.assume_empty_snapshot(&state, &frame.snapshot)
+                            .map_err(ProductionError::Context)?;
+                        done(ctx, state)
+                    }
+                },
+                &mut |ctx, state| {
+                    crate::rules::producer::resume_owned_production(
+                        ctx,
+                        state,
+                        &frame.remaining,
+                        &frame.tail,
+                        &mut |ctx, state| ctx.finish_owned_production(state, &frame.tail),
+                    )
+                },
+            )
+        };
+        Some(result.map_err(|e| match e {
+            ProductionError::Context(e) => EvaluationError::Context(e),
+            other => EvaluationError::Context(NativeError::Production(format!(
+                "owned production guard: {other:?}"
+            ))),
+        }))
+    }
+    fn finish_owned_consumption_let(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        frame: &crate::rules::consumer::OwnedConsumptionLet<PD, FD, JoinMode>,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        Some(
+            self.resume_owned_consumption_let(state, (term, debug), frame)
+                .map_err(|e| match e {
+                    ConsumptionError::Context(e) => EvaluationError::Context(e),
+                    other => EvaluationError::Context(NativeError::Consumption(format!(
+                        "owned consumption let: {other:?}"
+                    ))),
+                }),
+        )
+    }
+    fn finish_owned_consumption_access(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        frame: &crate::rules::consumer::OwnedAccessConsumption<PD, FD, JoinMode>,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        Some(
+            self.resume_owned_access_value(state, (term, debug), frame)
+                .map_err(|e| match e {
+                    ConsumptionError::Context(e) => EvaluationError::Context(e),
+                    other => EvaluationError::Context(NativeError::Consumption(format!(
+                        "owned access: {other:?}"
+                    ))),
+                }),
+        )
+    }
+    fn finish_owned_consumption_pure(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        frame: &crate::rules::consumer::OwnedPureConsumption<PD, FD, JoinMode>,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        use crate::rules::consumer::{ConsumptionContext, ConsumptionError};
+        let result = crate::rules::consumer::finish_assert_pure_value(
+            self,
+            state,
+            &frame.assertion,
+            &frame.error,
+            term,
+            debug,
+            &mut |ctx, state| {
+                let mut state = frame
+                    .attempt
+                    .resume(ctx, state)
+                    .map_err(ConsumptionError::Context)?;
+                state.h = frame.old_heap.clone();
+                state.reserve_heaps = frame.old_reserve.clone();
+                state.exhale_ext = frame.old_exhale;
+                ctx.close_consumption_scope(None)
+                    .map_err(ConsumptionError::Context)?;
+                let snapshot = frame.return_snapshot.then(|| ctx.unit_snapshot());
+                crate::rules::consumer::resume_owned_consumption(
+                    ctx,
+                    state,
+                    frame.heap.clone(),
+                    snapshot,
+                    &frame.frames,
+                )
+            },
+        );
+        Some(result.map_err(|e| match e {
+            ConsumptionError::Context(e) => EvaluationError::Context(e),
+            other => EvaluationError::Context(NativeError::Consumption(format!(
+                "owned pure assertion: {other:?}"
+            ))),
+        }))
+    }
+    fn finish_owned_consumption_guard(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        frame: &crate::rules::consumer::OwnedConsumptionGuard<PD, FD, JoinMode>,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        use crate::rules::consumer::{
+            ConsumptionContext, ConsumptionError, OwnedConsumptionAction,
+        };
+        #[cfg(test)]
+        if let Some(id) = owned_consumption_quantified_id(&frame.frames) {
+            if self
+                .quantified_evaluation_collector
+                .as_ref()
+                .is_some_and(|(active, _)| Arc::ptr_eq(active, &id))
+            {
+                super::verification_pool_manager::NESTED_QUANT_GUARD_ACTIVE
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        let result = if self.supports_owned_consumption_frames(&state, &frame.frames)
+            && !self.join_impure(&state)
+        {
+            let action = |body| OwnedConsumptionAction {
+                body,
+                heap: frame.heap.clone(),
+                error: frame.error.clone(),
+                return_snapshot: frame.return_snapshot,
+                frames: frame.frames.clone(),
+            };
+            self.try_branch_owned_consumption(
+                &state,
+                &term,
+                &frame.condition,
+                debug.as_ref(),
+                action(Some(frame.yes.clone())),
+                action(frame.no.clone()),
+            )
+            .unwrap_or(Err(ConsumptionError::OwnedSchedulerUnavailable))
+        } else {
+            let join = self.join_impure(&state);
+            self.branch_consumption(
+                state,
+                term,
+                &frame.condition,
+                debug.as_ref(),
+                join,
+                frame.return_snapshot,
+                &mut |ctx, state, done| {
+                    crate::rules::consumer::consume_recursive(
+                        ctx,
+                        state,
+                        frame.heap.clone(),
+                        &frame.yes,
+                        frame.return_snapshot,
+                        &frame.error,
+                        done,
+                    )
+                },
+                &mut |ctx, state, done| match &frame.no {
+                    Some(no) => crate::rules::consumer::consume_recursive(
+                        ctx,
+                        state,
+                        frame.heap.clone(),
+                        no,
+                        frame.return_snapshot,
+                        &frame.error,
+                        done,
+                    ),
+                    None => {
+                        let snapshot = frame.return_snapshot.then(|| ctx.unit_snapshot());
+                        done(ctx, state, frame.heap.clone(), snapshot)
+                    }
+                },
+                &mut |ctx, state, heap, snapshot| {
+                    crate::rules::consumer::resume_owned_consumption(
+                        ctx,
+                        state,
+                        heap,
+                        snapshot,
+                        &frame.frames,
+                    )
+                },
+            )
+        };
+        Some(result.map_err(|e| match e {
+            ConsumptionError::Context(error) => EvaluationError::Context(error),
+            other => EvaluationError::Context(NativeError::Consumption(format!(
+                "owned guard: {other:?}"
+            ))),
+        }))
+    }
     fn finish_owned_call_argument(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -2620,8 +2945,24 @@ where
             }),
         )
     }
-    fn finish_owned_cfg_single_guard(&mut self, state: State<PD, FD, JoinMode>, term: Term, debug: Option<Exp>, receiver: &crate::rules::executor::OwnedCfgSingleGuard) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
-        Some(crate::rules::executor::execute_owned_cfg_single_guard(self, state, term, debug, receiver).map_err(|e| match e { ExecutionError::Context(error) => EvaluationError::Context(error), other => EvaluationError::Context(NativeError::Execution(format!("owned CFG single guard: {other:?}"))) }))
+    fn finish_owned_cfg_single_guard(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        receiver: &crate::rules::executor::OwnedCfgSingleGuard,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        Some(
+            crate::rules::executor::execute_owned_cfg_single_guard(
+                self, state, term, debug, receiver,
+            )
+            .map_err(|e| match e {
+                ExecutionError::Context(error) => EvaluationError::Context(error),
+                other => EvaluationError::Context(NativeError::Execution(format!(
+                    "owned CFG single guard: {other:?}"
+                ))),
+            }),
+        )
     }
     fn finish_owned_cfg_guard(
         &mut self,
@@ -3606,7 +3947,7 @@ where
     #[cfg(test)]
     fn test_owned_right_resume(
         &mut self,
-        frame: &crate::rules::evaluator::OwnedAsserting<Self::PartialError>,
+        frame: &crate::rules::evaluator::OwnedAsserting<Self::PartialError, PD, FD, JoinMode>,
     ) {
         let cancel_unfold = if self.test_cancel_unfold_permission {
             self.test_in_unfold_permission_worker
@@ -3740,13 +4081,51 @@ where
     fn can_transfer_owned_receiver(
         &self,
         state: &State<PD, FD, JoinMode>,
-        receiver: &crate::rules::evaluator::OwnedEvaluationReceiver,
+        receiver: &crate::rules::evaluator::OwnedEvaluationReceiver<PD, FD, JoinMode>,
     ) -> bool {
         use crate::rules::evaluator::OwnedEvaluationReceiver;
         match receiver {
-            OwnedEvaluationReceiver::Assignment(_) | OwnedEvaluationReceiver::CfgGuard(_) | OwnedEvaluationReceiver::CfgSingleGuard(_) | OwnedEvaluationReceiver::LoopGuardCheck
+            OwnedEvaluationReceiver::Assignment(_)
+            | OwnedEvaluationReceiver::CfgGuard(_)
+            | OwnedEvaluationReceiver::CfgSingleGuard(_)
+            | OwnedEvaluationReceiver::LoopGuardCheck
             | OwnedEvaluationReceiver::FieldAssignment(_)
-            | OwnedEvaluationReceiver::CallArgument(_) => self.can_transfer_owned_asserting(state),
+            | OwnedEvaluationReceiver::CallArgument(_)
+            | OwnedEvaluationReceiver::PredicateArgument(_) => {
+                self.can_transfer_owned_asserting(state)
+            }
+            OwnedEvaluationReceiver::ProductionLet(frame) => {
+                use crate::rules::producer::ProductionContext;
+                self.supports_owned_production_terminal(state, &frame.tail)
+            }
+            OwnedEvaluationReceiver::ProductionAccess(frame) => {
+                use crate::rules::producer::ProductionContext;
+                self.supports_owned_production_terminal(state, &frame.tail)
+            }
+            OwnedEvaluationReceiver::ProductionPure(frame) => {
+                use crate::rules::producer::ProductionContext;
+                self.supports_owned_production_terminal(state, &frame.tail)
+            }
+            OwnedEvaluationReceiver::ProductionGuard(frame) => {
+                use crate::rules::producer::ProductionContext;
+                self.supports_owned_production_terminal(state, &frame.tail)
+            }
+            OwnedEvaluationReceiver::ConsumptionLet(frame) => {
+                use crate::rules::consumer::ConsumptionContext;
+                self.supports_owned_consumption_frames(state, &frame.frames)
+            }
+            OwnedEvaluationReceiver::ConsumptionAccess(frame) => {
+                use crate::rules::consumer::ConsumptionContext;
+                self.supports_owned_consumption_frames(state, &frame.frames)
+            }
+            OwnedEvaluationReceiver::ConsumptionPure(frame) => {
+                use crate::rules::consumer::ConsumptionContext;
+                self.supports_owned_consumption_frames(state, &frame.frames)
+            }
+            OwnedEvaluationReceiver::ConsumptionGuard(frame) => {
+                use crate::rules::consumer::ConsumptionContext;
+                self.supports_owned_consumption_frames(state, &frame.frames)
+            }
             OwnedEvaluationReceiver::Quantified(quant) => {
                 self.joined_branch_scheduler_enabled
                     && self.joined_branch_scheduler.is_some()
@@ -4019,7 +4398,7 @@ where
         &mut self,
         state: &State<PD, FD, JoinMode>,
         assertion: &Exp,
-        frame: &crate::rules::evaluator::OwnedAsserting<Self::PartialError>,
+        frame: &crate::rules::evaluator::OwnedAsserting<Self::PartialError, PD, FD, JoinMode>,
     ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
         if !self.can_transfer_owned_receiver(state, &frame.receiver) {
             return None;
@@ -4502,12 +4881,93 @@ where
     }
 }
 
-/// Source snapshot function: projects a snapshot to the requested sort.
-#[derive(Clone, Debug)]
-pub enum NativeSnapshot {
-    Fresh,
-    Projection(Term),
+#[derive(Clone)]
+enum OwnedCollectorDestination {
+    Evaluation(Arc<()>),
+    Quantified(Arc<()>),
+    LoopPhase(Arc<()>),
 }
+fn owned_production_destination<P, D>(
+    tail: &crate::rules::producer::OwnedProductionTerminal<P, D>,
+) -> Option<OwnedCollectorDestination> {
+    use crate::rules::producer::OwnedProductionTerminal;
+    match tail {
+        OwnedProductionTerminal::UnfoldEvaluation(frame) => Some(
+            OwnedCollectorDestination::Evaluation(frame.collector_id.clone()),
+        ),
+        OwnedProductionTerminal::LoopPhaseCollect { id, .. } => {
+            Some(OwnedCollectorDestination::LoopPhase(id.clone()))
+        }
+        _ => None,
+    }
+}
+fn owned_receiver_destination<P, D, J>(
+    receiver: &crate::rules::evaluator::OwnedEvaluationReceiver<P, D, J>,
+) -> Option<OwnedCollectorDestination> {
+    use crate::rules::evaluator::OwnedEvaluationReceiver;
+    match receiver {
+        OwnedEvaluationReceiver::Join(join) => Some(OwnedCollectorDestination::Evaluation(
+            join.collector_id.clone(),
+        )),
+        OwnedEvaluationReceiver::Quantified(q) => Some(OwnedCollectorDestination::Quantified(
+            q.collector_id.clone(),
+        )),
+        OwnedEvaluationReceiver::ConsumptionGuard(f) => owned_consumption_destination(&f.frames),
+        OwnedEvaluationReceiver::ConsumptionPure(f) => owned_consumption_destination(&f.frames),
+        OwnedEvaluationReceiver::ConsumptionAccess(f) => owned_consumption_destination(&f.frames),
+        OwnedEvaluationReceiver::ConsumptionLet(f) => owned_consumption_destination(&f.frames),
+        OwnedEvaluationReceiver::ProductionGuard(f) => owned_production_destination(&f.tail),
+        OwnedEvaluationReceiver::ProductionPure(f) => owned_production_destination(&f.tail),
+        OwnedEvaluationReceiver::ProductionAccess(f) => owned_production_destination(&f.tail),
+        OwnedEvaluationReceiver::ProductionLet(f) => owned_production_destination(&f.tail),
+        _ => None,
+    }
+}
+fn owned_consumption_destination<P, D, J>(
+    frames: &[crate::rules::consumer::OwnedConsumptionFrame<PartialVerificationError, P, D, J>],
+) -> Option<OwnedCollectorDestination> {
+    use crate::rules::consumer::{OwnedConsumptionFrame, OwnedConsumptionTerminal};
+    frames.iter().find_map(|f| match f {
+        OwnedConsumptionFrame::Finish {
+            terminal: OwnedConsumptionTerminal::FunctionPre(frame),
+            ..
+        } => Some(OwnedCollectorDestination::Evaluation(
+            frame.join.collector_id.clone(),
+        )),
+        OwnedConsumptionFrame::Finish {
+            terminal: OwnedConsumptionTerminal::Asserting(frame),
+            ..
+        } => owned_receiver_destination(&frame.receiver),
+        _ => None,
+    })
+}
+fn owned_consumption_collector_id<P, D, J>(
+    f: &[crate::rules::consumer::OwnedConsumptionFrame<PartialVerificationError, P, D, J>],
+) -> Option<Arc<()>> {
+    match owned_consumption_destination(f) {
+        Some(OwnedCollectorDestination::Evaluation(id)) => Some(id),
+        _ => None,
+    }
+}
+fn owned_consumption_phase_id<P, D, J>(
+    f: &[crate::rules::consumer::OwnedConsumptionFrame<PartialVerificationError, P, D, J>],
+) -> Option<Arc<()>> {
+    match owned_consumption_destination(f) {
+        Some(OwnedCollectorDestination::LoopPhase(id)) => Some(id),
+        _ => None,
+    }
+}
+pub(super) fn owned_consumption_quantified_id<P, D, J>(
+    f: &[crate::rules::consumer::OwnedConsumptionFrame<PartialVerificationError, P, D, J>],
+) -> Option<Arc<()>> {
+    match owned_consumption_destination(f) {
+        Some(OwnedCollectorDestination::Quantified(id)) => Some(id),
+        _ => None,
+    }
+}
+
+/// Source snapshot function: projects a snapshot to the requested sort.
+pub use crate::rules::producer::OwnedSnapshotRecipe as NativeSnapshot;
 #[allow(unused_variables)]
 impl<S: Prover, PD, FD: Clone>
     crate::rules::producer::ProductionContext<PD, FD, JoinMode, VerificationError>
@@ -4546,6 +5006,220 @@ where
         } else {
             self.supports_owned_production(state)
         }
+    }
+    fn try_produce_owned_let(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        snapshot: &Self::Snapshot,
+        assertion: &Exp,
+        error: &Self::PartialError,
+        remaining: &[crate::rules::producer::OwnedProductionRemainder<
+            Self::Snapshot,
+            Self::PartialError,
+        >],
+        tail: &crate::rules::producer::OwnedProductionTerminal<PD, FD>,
+    ) -> Option<Result<VerificationResult<VerificationError>, ProductionError<Self::Error>>> {
+        if !self.supports_owned_production_terminal(state, tail) {
+            return None;
+        }
+        let mut current = assertion;
+        let mut found = false;
+        while let ExpKind::Let(_, value, body) = current.kind() {
+            found |= crate::rules::evaluator::has_owned_asserting_path(value);
+            current = body;
+        }
+        if !found {
+            return None;
+        }
+        let frame = crate::rules::producer::OwnedProductionLet {
+            expression: assertion.clone(),
+            bindings: crate::state::store::MapBackedStore::default(),
+            snapshot: snapshot.clone(),
+            error: error.clone(),
+            remaining: remaining.to_vec(),
+            tail: tail.clone(),
+            depth: 0,
+        };
+        Some(self.run_owned_production_let(state.clone(), &frame))
+    }
+    fn try_produce_owned_access(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        snapshot: &Self::Snapshot,
+        assertion: &Exp,
+        error: &Self::PartialError,
+        remaining: &[crate::rules::producer::OwnedProductionRemainder<
+            Self::Snapshot,
+            Self::PartialError,
+        >],
+        tail: &crate::rules::producer::OwnedProductionTerminal<PD, FD>,
+    ) -> Option<Result<VerificationResult<VerificationError>, ProductionError<Self::Error>>> {
+        if !self.supports_owned_production_terminal(state, tail) {
+            return None;
+        }
+        let (resource, arguments) = match assertion.kind() {
+            ExpKind::FieldAccessPredicate(field, _) => (
+                crate::state::terms::ResourceKey::Field(Arc::new(field.field.clone())),
+                vec![field.receiver.clone()],
+            ),
+            ExpKind::PredicateAccessPredicate(predicate) => {
+                let name = &predicate.location.predicate_name;
+                let decl = match state.program.predicates.iter().find(|p| &p.name == name) {
+                    Some(decl) => decl,
+                    None => return None,
+                };
+                (
+                    crate::state::terms::ResourceKey::Predicate(Arc::new(decl.clone())),
+                    predicate.location.args.clone(),
+                )
+            }
+            ExpKind::MagicWand(..) => {
+                let wand = match crate::state::chunks::MagicWandIdentifier::new(
+                    assertion.clone(),
+                    &state.program,
+                ) {
+                    Ok(wand) => wand,
+                    Err(_) => return None,
+                };
+                let arguments = match assertion.magic_wand_subexpressions(&state.program) {
+                    Ok(arguments) => arguments,
+                    Err(_) => return None,
+                };
+                (crate::state::terms::ResourceKey::Wand(wand), arguments)
+            }
+            _ => return None,
+        };
+        let permission = assertion.permission_or_full().expect("access predicate");
+        if !arguments
+            .iter()
+            .chain(std::iter::once(&permission))
+            .any(crate::rules::evaluator::has_owned_asserting_path)
+        {
+            return None;
+        }
+        let scope = match self.open_produce_scope(state, assertion) {
+            Ok(scope) => scope,
+            Err(e) => return Some(Err(ProductionError::Context(e))),
+        };
+        if scope.is_some() {
+            return Some(Err(ProductionError::OwnedSchedulerUnavailable));
+        }
+        let mut next =
+            vec![crate::rules::producer::OwnedProductionRemainder::Finish { conditional: false }];
+        next.extend_from_slice(remaining);
+        let frame = crate::rules::producer::OwnedProductionAccess {
+            resource,
+            arguments,
+            permission,
+            original_arps: state.constrainable_arps.clone(),
+            snapshot: snapshot.clone(),
+            error: error.clone(),
+            remaining: next,
+            tail: tail.clone(),
+            values: vec![],
+            argument_debug: None,
+        };
+        Some(self.run_owned_production_access(state.clone(), &frame))
+    }
+    fn try_produce_owned_pure(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        snapshot: &Self::Snapshot,
+        assertion: &Exp,
+        error: &Self::PartialError,
+        remaining: &[crate::rules::producer::OwnedProductionRemainder<
+            Self::Snapshot,
+            Self::PartialError,
+        >],
+        tail: &crate::rules::producer::OwnedProductionTerminal<PD, FD>,
+    ) -> Option<Result<VerificationResult<VerificationError>, ProductionError<Self::Error>>> {
+        if !self.supports_owned_production_terminal(state, tail) {
+            return None;
+        }
+        let scope = match self.open_produce_scope(state, assertion) {
+            Ok(scope) => scope,
+            Err(e) => return Some(Err(ProductionError::Context(e))),
+        };
+        if scope.is_some() {
+            return Some(Err(ProductionError::OwnedSchedulerUnavailable));
+        }
+        if let Err(error) = self.assume_empty_snapshot(state, snapshot) {
+            return Some(Err(ProductionError::Context(error)));
+        }
+        let mut next =
+            vec![crate::rules::producer::OwnedProductionRemainder::Finish { conditional: false }];
+        next.extend_from_slice(remaining);
+        let frame = crate::rules::producer::OwnedPureProduction {
+            assertion: assertion.clone(),
+            error: error.clone(),
+            remaining: next,
+            tail: tail.clone(),
+        };
+        let receiver =
+            crate::rules::evaluator::OwnedEvaluationReceiver::ProductionPure(Arc::new(frame));
+        Some(
+            crate::rules::evaluator::evaluate_owned_received(
+                self,
+                state.clone(),
+                assertion,
+                error,
+                &receiver,
+                vec![],
+            )
+            .map_err(|e| match e {
+                EvaluationError::Context(e) => ProductionError::Context(e),
+                other => ProductionError::Context(NativeError::Evaluation(format!(
+                    "owned production pure: {other:?}"
+                ))),
+            }),
+        )
+    }
+    fn try_evaluate_owned_production_guard(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        snapshot: &Self::Snapshot,
+        condition: &Exp,
+        yes: &Exp,
+        no: Option<&Exp>,
+        error: &Self::PartialError,
+        remaining: &[crate::rules::producer::OwnedProductionRemainder<
+            Self::Snapshot,
+            Self::PartialError,
+        >],
+        tail: &crate::rules::producer::OwnedProductionTerminal<PD, FD>,
+    ) -> Option<Result<VerificationResult<VerificationError>, ProductionError<Self::Error>>> {
+        if !self.supports_owned_production_terminal(state, tail)
+            || !crate::rules::evaluator::has_owned_asserting_path(condition)
+        {
+            return None;
+        }
+        let frame = crate::rules::producer::OwnedProductionGuard {
+            snapshot: snapshot.clone(),
+            condition: condition.clone(),
+            yes: yes.clone(),
+            no: no.cloned(),
+            error: error.clone(),
+            remaining: remaining.to_vec(),
+            tail: tail.clone(),
+        };
+        let receiver =
+            crate::rules::evaluator::OwnedEvaluationReceiver::ProductionGuard(Arc::new(frame));
+        Some(
+            crate::rules::evaluator::evaluate_owned_received(
+                self,
+                state.clone(),
+                condition,
+                error,
+                &receiver,
+                vec![],
+            )
+            .map_err(|e| match e {
+                EvaluationError::Context(e) => ProductionError::Context(e),
+                other => ProductionError::Context(NativeError::Evaluation(format!(
+                    "owned production guard: {other:?}"
+                ))),
+            }),
+        )
     }
     fn try_branch_owned_production(
         &mut self,
@@ -5761,8 +6435,7 @@ where
         let joined_asserting = frames.iter().any(|frame| match frame {
             crate::rules::consumer::OwnedConsumptionFrame::Finish {
                 terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), ..
-            } => matches!(&frame.receiver, crate::rules::evaluator::OwnedEvaluationReceiver::Join(_) | crate::rules::evaluator::OwnedEvaluationReceiver::Quantified(_))
-                && <Self as EvaluationContext<PD, FD, JoinMode, VerificationError>>::can_transfer_owned_receiver(self, state, &frame.receiver),
+            } => <Self as EvaluationContext<PD, FD, JoinMode, VerificationError>>::can_transfer_owned_receiver(self, state, &frame.receiver),
             _ => false,
         });
         if joined_asserting {
@@ -5779,6 +6452,221 @@ where
         } else {
             self.supports_owned_consumption(state)
         }
+    }
+    fn try_consume_owned_let(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        assertion: &Exp,
+        heap: &Arc<ListBackedHeap>,
+        return_snapshot: bool,
+        error: &Self::PartialError,
+        frames: &[crate::rules::consumer::OwnedConsumptionFrame<
+            Self::PartialError,
+            PD,
+            FD,
+            JoinMode,
+        >],
+    ) -> Option<Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>>> {
+        if !self.supports_owned_consumption_frames(state, frames) {
+            return None;
+        }
+        let mut current = assertion;
+        let mut found = false;
+        while let ExpKind::Let(_, value, body) = current.kind() {
+            found |= crate::rules::evaluator::has_owned_asserting_path(value);
+            current = body;
+        }
+        if !found {
+            return None;
+        }
+        let frame = crate::rules::consumer::OwnedConsumptionLet {
+            expression: assertion.clone(),
+            bindings: crate::state::store::MapBackedStore::default(),
+            heap: heap.clone(),
+            error: error.clone(),
+            return_snapshot,
+            frames: frames.to_vec(),
+            depth: 0,
+        };
+        Some(self.run_owned_consumption_let(state.clone(), &frame))
+    }
+    fn try_consume_owned_access(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        heap: &Arc<ListBackedHeap>,
+        assertion: &Exp,
+        return_snapshot: bool,
+        error: &Self::PartialError,
+        frames: &[crate::rules::consumer::OwnedConsumptionFrame<
+            Self::PartialError,
+            PD,
+            FD,
+            JoinMode,
+        >],
+    ) -> Option<Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>>> {
+        if !self.supports_owned_consumption_frames(state, frames) {
+            return None;
+        }
+        let (resource, arguments) = match assertion.kind() {
+            ExpKind::FieldAccessPredicate(field, _) => (
+                crate::state::terms::ResourceKey::Field(Arc::new(field.field.clone())),
+                vec![field.receiver.clone()],
+            ),
+            ExpKind::PredicateAccessPredicate(predicate) => {
+                let name = &predicate.location.predicate_name;
+                let decl = match state.program.predicates.iter().find(|p| &p.name == name) {
+                    Some(decl) => decl,
+                    None => return None,
+                };
+                (
+                    crate::state::terms::ResourceKey::Predicate(Arc::new(decl.clone())),
+                    predicate.location.args.clone(),
+                )
+            }
+            _ => return None,
+        };
+        let permission = assertion.permission_or_full().expect("access predicate");
+        if !arguments
+            .iter()
+            .chain(std::iter::once(&permission))
+            .any(crate::rules::evaluator::has_owned_asserting_path)
+        {
+            return None;
+        }
+        let scope = match self.open_consumption_scope(state, assertion) {
+            Ok(scope) => scope,
+            Err(e) => return Some(Err(ConsumptionError::Context(e))),
+        };
+        if let Err(e) = self.log_consumption(state, heap, assertion) {
+            return Some(Err(ConsumptionError::Context(e)));
+        }
+        if scope.is_some() {
+            return Some(Err(ConsumptionError::OwnedSchedulerUnavailable));
+        }
+        let mut next =
+            vec![crate::rules::consumer::OwnedConsumptionFrame::FinishScope { conditional: false }];
+        next.extend_from_slice(frames);
+        let frame = crate::rules::consumer::OwnedAccessConsumption {
+            assertion: assertion.clone(),
+            resource,
+            arguments,
+            permission,
+            original_arps: state.constrainable_arps.clone(),
+            heap: heap.clone(),
+            error: error.clone(),
+            return_snapshot,
+            frames: next,
+            values: vec![],
+            argument_debug: None,
+        };
+        Some(self.run_owned_access(state.clone(), &frame))
+    }
+    fn try_consume_owned_pure(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        heap: &Arc<ListBackedHeap>,
+        assertion: &Exp,
+        return_snapshot: bool,
+        error: &Self::PartialError,
+        frames: &[crate::rules::consumer::OwnedConsumptionFrame<
+            Self::PartialError,
+            PD,
+            FD,
+            JoinMode,
+        >],
+    ) -> Option<Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>>> {
+        if !self.supports_owned_consumption_frames(state, frames) {
+            return None;
+        }
+        let result = (|| {
+            use crate::rules::consumer::ConsumptionContext;
+            let scope = self
+                .open_consumption_scope(state, assertion)
+                .map_err(ConsumptionError::Context)?;
+            self.log_consumption(state, heap, assertion)
+                .map_err(ConsumptionError::Context)?;
+            if scope.is_some() {
+                return Err(ConsumptionError::OwnedSchedulerUnavailable);
+            }
+            let mut evaluation_state = state.clone();
+            evaluation_state.h = ConsumptionContext::eval_heap(self, &evaluation_state)
+                .map_err(ConsumptionError::Context)?;
+            evaluation_state.reserve_heaps.clear();
+            evaluation_state.exhale_ext = false;
+            let mut action = OwnedPureRetryAction {
+                assertion,
+                error,
+                heap,
+                old_heap: &state.h,
+                old_reserve: &state.reserve_heaps,
+                old_exhale: state.exhale_ext,
+                return_snapshot,
+                frames,
+                attempt: None,
+            };
+            crate::rules::execution_flow_controller::try_or_fail_with_success(
+                self,
+                evaluation_state,
+                &mut action,
+                crate::rules::execution_flow_controller::RetrySuccess::default(),
+                &mut |_, _, ()| {
+                    Err(NativeError::Unsupported(
+                        "owned pure retry requires a frame continuation",
+                    ))
+                },
+            )
+            .map_err(ConsumptionError::Context)
+        })();
+        Some(result)
+    }
+    fn try_evaluate_owned_consumption_guard(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        condition: &Exp,
+        yes: &Exp,
+        no: Option<&Exp>,
+        heap: &Arc<ListBackedHeap>,
+        error: &Self::PartialError,
+        return_snapshot: bool,
+        frames: &[crate::rules::consumer::OwnedConsumptionFrame<
+            Self::PartialError,
+            PD,
+            FD,
+            JoinMode,
+        >],
+    ) -> Option<Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>>> {
+        if !self.supports_owned_consumption_frames(state, frames)
+            || !crate::rules::evaluator::has_owned_asserting_path(condition)
+        {
+            return None;
+        }
+        let frame = crate::rules::consumer::OwnedConsumptionGuard {
+            condition: condition.clone(),
+            yes: yes.clone(),
+            no: no.cloned(),
+            heap: heap.clone(),
+            error: error.clone(),
+            return_snapshot,
+            frames: frames.to_vec(),
+        };
+        let receiver =
+            crate::rules::evaluator::OwnedEvaluationReceiver::ConsumptionGuard(Arc::new(frame));
+        Some(
+            crate::rules::evaluator::evaluate_owned_received(
+                self,
+                state.clone(),
+                condition,
+                error,
+                &receiver,
+                vec![],
+            )
+            .map_err(|e| match e {
+                EvaluationError::Context(error) => ConsumptionError::Context(error),
+                other => ConsumptionError::Context(NativeError::Evaluation(format!(
+                    "owned consumption guard: {other:?}"
+                ))),
+            }),
+        )
     }
     fn consume_owned_retry(
         &mut self,
@@ -7230,6 +8118,86 @@ where
 }
 
 /// Adapt the consumer's fallible continuation to the shared source retry algorithm.
+struct OwnedPureRetryAction<'a, PD, FD> {
+    assertion: &'a Exp,
+    error: &'a PartialVerificationError,
+    heap: &'a Arc<ListBackedHeap>,
+    old_heap: &'a Arc<ListBackedHeap>,
+    old_reserve: &'a Vec<Arc<ListBackedHeap>>,
+    old_exhale: bool,
+    return_snapshot: bool,
+    frames: &'a [crate::rules::consumer::OwnedConsumptionFrame<
+        PartialVerificationError,
+        PD,
+        FD,
+        JoinMode,
+    >],
+    attempt: Option<crate::rules::execution_flow_controller::RetryAttempt>,
+}
+impl<S: Prover, PD, FD: Clone>
+    crate::rules::execution_flow_controller::RetryAction<
+        NativeVerifierContext<S, PD, FD>,
+        PD,
+        FD,
+        JoinMode,
+        (),
+        VerificationError,
+    > for OwnedPureRetryAction<'_, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn set_owned_attempt(
+        &mut self,
+        attempt: crate::rules::execution_flow_controller::RetryAttempt,
+    ) {
+        self.attempt = Some(attempt);
+    }
+    fn run(
+        &mut self,
+        context: &mut NativeVerifierContext<S, PD, FD>,
+        state: State<PD, FD, JoinMode>,
+        _: &mut dyn FnMut(
+            &mut NativeVerifierContext<S, PD, FD>,
+            State<PD, FD, JoinMode>,
+            (),
+        )
+            -> Result<VerificationResult<VerificationError>, NativeError<S::Error>>,
+    ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
+        #[cfg(test)]
+        if matches!(
+            self.attempt,
+            Some(crate::rules::execution_flow_controller::RetryAttempt::Retry { .. })
+        ) {
+            super::verification_pool_manager::PURE_CONSUMPTION_RETRIES
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        let frame = crate::rules::consumer::OwnedPureConsumption {
+            assertion: self.assertion.clone(),
+            error: self.error.clone(),
+            heap: self.heap.clone(),
+            old_heap: self.old_heap.clone(),
+            old_reserve: self.old_reserve.clone(),
+            old_exhale: self.old_exhale,
+            return_snapshot: self.return_snapshot,
+            attempt: self.attempt.clone().expect("pure retry attempt"),
+            frames: self.frames.to_vec(),
+        };
+        let receiver =
+            crate::rules::evaluator::OwnedEvaluationReceiver::ConsumptionPure(Arc::new(frame));
+        crate::rules::evaluator::evaluate_owned_received(
+            context,
+            state,
+            self.assertion,
+            self.error,
+            &receiver,
+            vec![],
+        )
+        .map_err(|e| match e {
+            EvaluationError::Context(e) => e,
+            other => NativeError::Evaluation(format!("owned pure assertion: {other:?}")),
+        })
+    }
+}
 struct OwnedConsumerRetryAction<'a, E, PD, FD> {
     original_heap: Arc<ListBackedHeap>,
     assertion: &'a Exp,
@@ -7520,6 +8488,353 @@ impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
 where
     S::Error: std::fmt::Debug,
 {
+    fn run_owned_production_let(
+        &mut self,
+        mut state: State<PD, FD, JoinMode>,
+        frame: &crate::rules::producer::OwnedProductionLet<PD, FD>,
+    ) -> Result<VerificationResult<VerificationError>, ProductionError<NativeError<S::Error>>> {
+        use crate::rules::producer::ProductionContext;
+        if let ExpKind::Let(_, value, _) = frame.expression.kind() {
+            let receiver = crate::rules::evaluator::OwnedEvaluationReceiver::ProductionLet(
+                Arc::new(frame.clone()),
+            );
+            if crate::rules::evaluator::has_owned_asserting_path(value)
+                && self.can_transfer_owned_receiver(&state, &receiver)
+            {
+                return crate::rules::evaluator::evaluate_owned_received(
+                    self,
+                    state,
+                    value,
+                    &frame.error,
+                    &receiver,
+                    vec![],
+                )
+                .map_err(|e| match e {
+                    EvaluationError::Context(e) => ProductionError::Context(e),
+                    other => ProductionError::Context(NativeError::Evaluation(format!(
+                        "owned production let: {other:?}"
+                    ))),
+                });
+            }
+            return ProductionContext::evaluate(
+                self,
+                state,
+                value,
+                &frame.error,
+                &mut |ctx, state, term, debug| {
+                    ctx.resume_owned_production_let(state, (term, debug), frame)
+                },
+            );
+        }
+        state.g = Arc::new(state.g.with_store(&frame.bindings));
+        let assertions = frame.expression.top_level_conjuncts();
+        let errors = vec![frame.error.clone(); assertions.len()];
+        crate::rules::producer::produce_owned_conjuncts(
+            self,
+            state,
+            frame.snapshot.clone(),
+            &assertions,
+            &errors,
+            &frame.remaining,
+            &frame.tail,
+            &mut |ctx, state| ctx.finish_owned_production(state, &frame.tail),
+        )
+    }
+    fn resume_owned_production_let(
+        &mut self,
+        mut state: State<PD, FD, JoinMode>,
+        value: StoreValue,
+        frame: &crate::rules::producer::OwnedProductionLet<PD, FD>,
+    ) -> Result<VerificationResult<VerificationError>, ProductionError<NativeError<S::Error>>> {
+        let ExpKind::Let(variable, _, body) = frame.expression.kind() else {
+            unreachable!()
+        };
+        let key = crate::state::store::AbstractLocalVar::new(Exp::new(
+            ExpKind::LocalVar(variable.local_var()),
+            variable.meta.clone(),
+        ));
+        let mut next = frame.clone();
+        next.bindings = next.bindings.with_binding(key.clone(), value.clone());
+        state.g = Arc::new(state.g.with_binding(key, value));
+        next.expression = body.clone();
+        next.depth += 1;
+        self.run_owned_production_let(state, &next)
+    }
+    fn run_owned_production_access(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        frame: &crate::rules::producer::OwnedProductionAccess<PD, FD>,
+    ) -> Result<VerificationResult<VerificationError>, ProductionError<NativeError<S::Error>>> {
+        use crate::rules::producer::ProductionContext;
+        let mut frame = frame.clone();
+        if frame.values.len() == frame.arguments.len() && frame.argument_debug.is_none() {
+            let mut debug = ProductionContext::debugging(self).then(Vec::new);
+            for (_, exp) in frame.values.iter().rev() {
+                debug = if let Some(exp) = exp {
+                    let mut tail = debug.ok_or(ProductionError::MissingDebugExpression)?;
+                    tail.insert(0, exp.clone());
+                    Some(tail)
+                } else {
+                    None
+                };
+            }
+            frame.argument_debug = Some(debug);
+        }
+        let expression = frame
+            .arguments
+            .get(frame.values.len())
+            .unwrap_or(&frame.permission);
+        let receiver = crate::rules::evaluator::OwnedEvaluationReceiver::ProductionAccess(
+            Arc::new(frame.clone()),
+        );
+        if crate::rules::evaluator::has_owned_asserting_path(expression)
+            && self.can_transfer_owned_receiver(&state, &receiver)
+        {
+            return crate::rules::evaluator::evaluate_owned_received(
+                self,
+                state,
+                expression,
+                &frame.error,
+                &receiver,
+                vec![],
+            )
+            .map_err(|e| match e {
+                EvaluationError::Context(e) => ProductionError::Context(e),
+                other => ProductionError::Context(NativeError::Evaluation(format!(
+                    "owned production access: {other:?}"
+                ))),
+            });
+        }
+        ProductionContext::evaluate(
+            self,
+            state,
+            expression,
+            &frame.error,
+            &mut |ctx, state, term, debug| {
+                ctx.resume_owned_production_access(state, (term, debug), &frame)
+            },
+        )
+    }
+    fn resume_owned_production_access(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        value: StoreValue,
+        frame: &crate::rules::producer::OwnedProductionAccess<PD, FD>,
+    ) -> Result<VerificationResult<VerificationError>, ProductionError<NativeError<S::Error>>> {
+        use crate::rules::producer::ProductionContext;
+        if frame.values.len() < frame.arguments.len() {
+            let mut next = frame.clone();
+            next.values.push(value);
+            return self.run_owned_production_access(state, &next);
+        }
+        let debug = frame
+            .argument_debug
+            .as_ref()
+            .expect("argument debug fixed before permission");
+        let terms = frame
+            .values
+            .iter()
+            .map(|(term, _)| term.clone())
+            .collect::<Vec<_>>();
+        crate::rules::producer::finish_produce_access(
+            self,
+            state,
+            &frame.snapshot,
+            &frame.error,
+            &frame.resource,
+            &frame.permission,
+            &frame.original_arps,
+            &terms,
+            debug.as_deref(),
+            value.0,
+            value.1,
+            &mut |ctx, state| {
+                crate::rules::producer::resume_owned_production(
+                    ctx,
+                    state,
+                    &frame.remaining,
+                    &frame.tail,
+                    &mut |ctx, state| ctx.finish_owned_production(state, &frame.tail),
+                )
+            },
+        )
+    }
+    fn run_owned_consumption_let(
+        &mut self,
+        mut state: State<PD, FD, JoinMode>,
+        frame: &crate::rules::consumer::OwnedConsumptionLet<PD, FD, JoinMode>,
+    ) -> Result<VerificationResult<VerificationError>, ConsumptionError<NativeError<S::Error>>>
+    {
+        use crate::rules::consumer::ConsumptionContext;
+        if let ExpKind::Let(_, value, _) = frame.expression.kind() {
+            let receiver = crate::rules::evaluator::OwnedEvaluationReceiver::ConsumptionLet(
+                Arc::new(frame.clone()),
+            );
+            if crate::rules::evaluator::has_owned_asserting_path(value)
+                && self.can_transfer_owned_receiver(&state, &receiver)
+            {
+                return crate::rules::evaluator::evaluate_owned_received(
+                    self,
+                    state,
+                    value,
+                    &frame.error,
+                    &receiver,
+                    vec![],
+                )
+                .map_err(|e| match e {
+                    EvaluationError::Context(e) => ConsumptionError::Context(e),
+                    other => ConsumptionError::Context(NativeError::Evaluation(format!(
+                        "owned consumption let: {other:?}"
+                    ))),
+                });
+            }
+            return ConsumptionContext::evaluate(
+                self,
+                state,
+                value,
+                &frame.error,
+                &mut |ctx, state, term, debug| {
+                    ctx.resume_owned_consumption_let(state, (term, debug), frame)
+                },
+            );
+        }
+        state.g = Arc::new(state.g.with_store(&frame.bindings));
+        let assertions = frame.expression.top_level_conjuncts();
+        let errors = vec![frame.error.clone(); assertions.len()];
+        crate::rules::consumer::consume_owned_conjuncts(
+            self,
+            state,
+            frame.heap.clone(),
+            &assertions,
+            &errors,
+            frame.return_snapshot,
+            &frame.frames,
+        )
+    }
+    fn resume_owned_consumption_let(
+        &mut self,
+        mut state: State<PD, FD, JoinMode>,
+        value: StoreValue,
+        frame: &crate::rules::consumer::OwnedConsumptionLet<PD, FD, JoinMode>,
+    ) -> Result<VerificationResult<VerificationError>, ConsumptionError<NativeError<S::Error>>>
+    {
+        let ExpKind::Let(variable, _, body) = frame.expression.kind() else {
+            unreachable!()
+        };
+        let key = crate::state::store::AbstractLocalVar::new(Exp::new(
+            ExpKind::LocalVar(variable.local_var()),
+            variable.meta.clone(),
+        ));
+        let mut next = frame.clone();
+        next.bindings = next.bindings.with_binding(key.clone(), value.clone());
+        state.g = Arc::new(state.g.with_binding(key, value));
+        next.expression = body.clone();
+        next.depth += 1;
+        self.run_owned_consumption_let(state, &next)
+    }
+    fn run_owned_access(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        frame: &crate::rules::consumer::OwnedAccessConsumption<PD, FD, JoinMode>,
+    ) -> Result<VerificationResult<VerificationError>, ConsumptionError<NativeError<S::Error>>>
+    {
+        use crate::rules::consumer::ConsumptionContext;
+        let mut frame = frame.clone();
+        if frame.values.len() == frame.arguments.len() && frame.argument_debug.is_none() {
+            let mut debug = ConsumptionContext::debugging(self).then(Vec::new);
+            for (_, exp) in frame.values.iter().rev() {
+                debug = if let Some(exp) = exp {
+                    let mut tail = debug.ok_or(ConsumptionError::MissingDebugExpression)?;
+                    tail.insert(0, exp.clone());
+                    Some(tail)
+                } else {
+                    None
+                };
+            }
+            frame.argument_debug = Some(debug);
+        }
+        let expression = frame
+            .arguments
+            .get(frame.values.len())
+            .unwrap_or(&frame.permission);
+        let receiver = crate::rules::evaluator::OwnedEvaluationReceiver::ConsumptionAccess(
+            Arc::new(frame.clone()),
+        );
+        if crate::rules::evaluator::has_owned_asserting_path(expression)
+            && self.can_transfer_owned_receiver(&state, &receiver)
+        {
+            return crate::rules::evaluator::evaluate_owned_received(
+                self,
+                state,
+                expression,
+                &frame.error,
+                &receiver,
+                vec![],
+            )
+            .map_err(|e| match e {
+                EvaluationError::Context(e) => ConsumptionError::Context(e),
+                other => ConsumptionError::Context(NativeError::Evaluation(format!(
+                    "owned access: {other:?}"
+                ))),
+            });
+        }
+        ConsumptionContext::evaluate(
+            self,
+            state,
+            expression,
+            &frame.error,
+            &mut |ctx, state, term, debug| {
+                ctx.resume_owned_access_value(state, (term, debug), &frame)
+            },
+        )
+    }
+    fn resume_owned_access_value(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        value: StoreValue,
+        frame: &crate::rules::consumer::OwnedAccessConsumption<PD, FD, JoinMode>,
+    ) -> Result<VerificationResult<VerificationError>, ConsumptionError<NativeError<S::Error>>>
+    {
+        if frame.values.len() < frame.arguments.len() {
+            let mut next = frame.clone();
+            next.values.push(value);
+            return self.run_owned_access(state, &next);
+        }
+        let debug = frame
+            .argument_debug
+            .as_ref()
+            .expect("argument debug fixed before permission");
+        let terms = frame
+            .values
+            .iter()
+            .map(|(term, _)| term.clone())
+            .collect::<Vec<_>>();
+        crate::rules::consumer::finish_consume_access(
+            self,
+            state,
+            frame.heap.clone(),
+            &frame.assertion,
+            frame.return_snapshot,
+            &frame.error,
+            &frame.resource,
+            &frame.permission,
+            &frame.original_arps,
+            &terms,
+            debug.as_deref(),
+            value.0,
+            value.1,
+            &mut |ctx, state, heap, snapshot| {
+                crate::rules::consumer::resume_owned_consumption(
+                    ctx,
+                    state,
+                    heap,
+                    snapshot,
+                    &frame.frames,
+                )
+            },
+        )
+    }
+
     fn mask_function_frame(
         &mut self,
         data: &crate::supporters::functions::function_data::FunctionData<FD>,
@@ -11305,10 +12620,142 @@ impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
 where
     S::Error: std::fmt::Debug,
 {
-    fn execute_native_predicate_statement(
+    fn run_owned_predicate_arguments(
         &mut self,
         state: State<PD, FD, JoinMode>,
-        statement: &Stmt,
+        frame: &crate::rules::executor::OwnedPredicateArgument,
+    ) -> Result<VerificationResult<VerificationError>, ExecutionError<NativeError<S::Error>>> {
+        use crate::rules::evaluator::EvaluationContext;
+        let mut frame = frame.clone();
+        if frame.values.len() == frame.arguments.len() && frame.argument_debug.is_none() {
+            let mut debug = EvaluationContext::debugging(self).then(Vec::new);
+            for (_, exp) in frame.values.iter().rev() {
+                debug = if let Some(exp) = exp {
+                    let mut tail = debug.ok_or(ExecutionError::MissingDebugExpression)?;
+                    tail.insert(0, exp.clone());
+                    Some(tail)
+                } else {
+                    None
+                };
+            }
+            frame.argument_debug = Some(debug);
+            frame.original_arps = Some(state.constrainable_arps.clone());
+        }
+        let expression = frame
+            .arguments
+            .get(frame.values.len())
+            .unwrap_or(&frame.permission);
+        let receiver =
+            crate::rules::evaluator::OwnedEvaluationReceiver::PredicateArgument(frame.clone());
+        if crate::rules::evaluator::has_owned_asserting_path(expression)
+            && self.can_transfer_owned_receiver(&state, &receiver)
+        {
+            return crate::rules::evaluator::evaluate_owned_received(
+                self,
+                state,
+                expression,
+                &frame.error,
+                &receiver,
+                vec![],
+            )
+            .map_err(|e| match e {
+                EvaluationError::Context(e) => ExecutionError::Context(e),
+                other => ExecutionError::Context(NativeError::Evaluation(format!(
+                    "owned predicate argument: {other:?}"
+                ))),
+            });
+        }
+        let mut callback_error = None;
+        let result = crate::rules::evaluator::evaluate(
+            self,
+            state,
+            expression,
+            &frame.error,
+            &mut |ctx, state, term, debug| match ctx.resume_owned_predicate_argument(
+                state,
+                (term, debug),
+                &frame,
+            ) {
+                Ok(result) => Ok(result),
+                Err(error) => {
+                    callback_error = Some(error);
+                    Err(EvaluationError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        recover_callback_error!(
+            callback_error,
+            result,
+            EvaluationError,
+            ExecutionError,
+            Context
+        );
+        result.map_err(|e| match e {
+            EvaluationError::Context(e) => ExecutionError::Context(e),
+            other => ExecutionError::Context(NativeError::Evaluation(format!("{other:?}"))),
+        })
+    }
+    fn resume_owned_predicate_argument(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        value: StoreValue,
+        frame: &crate::rules::executor::OwnedPredicateArgument,
+    ) -> Result<VerificationResult<VerificationError>, ExecutionError<NativeError<S::Error>>> {
+        use crate::rules::executor::ExecutionContext;
+        if frame.values.len() < frame.arguments.len() {
+            let mut next = frame.clone();
+            next.values.push(value);
+            return self.run_owned_predicate_arguments(state, &next);
+        }
+        let debug = frame
+            .argument_debug
+            .as_ref()
+            .expect("argument debug fixed before permission");
+        let terms = frame
+            .values
+            .iter()
+            .map(|(term, _)| term.clone())
+            .collect::<Vec<_>>();
+        self.finish_native_predicate_operation(
+            state,
+            frame.folding,
+            &frame.predicate,
+            &frame.location,
+            &frame.permission,
+            &frame.error,
+            &terms,
+            debug.as_deref(),
+            &value.0,
+            value.1.as_ref(),
+            frame
+                .original_arps
+                .as_ref()
+                .expect("ARPs fixed before permission"),
+            Some(&frame.tail),
+            &mut |ctx, state| {
+                let state = ctx
+                    .move_to_reserve_heap(state)
+                    .map_err(ExecutionError::Context)?;
+                ctx.close_statement_scope(None)
+                    .map_err(ExecutionError::Context)?;
+                crate::rules::executor::execute_cfg_statement_tail(ctx, state, &frame.tail)
+            },
+        )
+    }
+
+    fn finish_native_predicate_operation(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        folding: bool,
+        predicate: &ferrum_silver::ast::program::Predicate,
+        location: &Exp,
+        permission: &Exp,
+        partial: &PartialVerificationError,
+        args: &[Term],
+        arg_exps: Option<&[Exp]>,
+        amount: &Term,
+        amount_exp: Option<&Exp>,
+        original_arps: &crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<Term>,
         owned_tail: Option<&crate::rules::executor::CfgStatementTail>,
         continuation: &mut dyn FnMut(
             &mut Self,
@@ -11322,6 +12769,95 @@ where
             PredicateExecutionError, fold_predicate_with_owned_tail,
             unfold_predicate_with_owned_tail,
         };
+        let ctx = self;
+        let state = if folding {
+            state
+        } else {
+            crate::rules::consumer::ConsumptionContext::trigger_resource(
+                ctx, state, location, args, arg_exps,
+            )
+            .map_err(ExecutionError::Context)?
+        };
+        let valid = crate::rules::permission_supporter::assert_permission(
+            &ctx.factory,
+            amount,
+            permission,
+            amount_exp,
+            state.constrainable_arps.iter().cloned(),
+            true,
+            |term| {
+                ctx.base
+                    .decider
+                    .check(term, ctx.base.decider.assert_timeout)
+                    .map_err(NativeError::Decider)
+            },
+            || true,
+            |_, _, _, _| false,
+        )
+        .map_err(ExecutionError::Context)?;
+        if !valid {
+            return ctx
+                .failure(
+                    partial,
+                    ErrorReason::NonPositivePermission(permission.clone()),
+                    &state,
+                )
+                .map_err(ExecutionError::Context);
+        }
+        let wildcards: Vec<_> = state
+            .constrainable_arps
+            .iter()
+            .filter(|v| !original_arps.contains(*v))
+            .cloned()
+            .collect();
+        let factory = ctx.factory.clone();
+        let mut continuation_error = None;
+        let mut next = |ctx: &mut Self, state| match continuation(ctx, state) {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                continuation_error = Some(e);
+                Err(PredicateExecutionError::Service(
+                    NativeError::ContinuationAbort,
+                ))
+            }
+        };
+        let result = if folding {
+            fold_predicate_with_owned_tail(
+                &factory, ctx, state, predicate, location, args, arg_exps, amount, amount_exp,
+                &wildcards, partial, owned_tail, &mut next,
+            )
+        } else {
+            unfold_predicate_with_owned_tail(
+                &factory, ctx, state, predicate, location, args, arg_exps, amount, amount_exp,
+                &wildcards, partial, owned_tail, &mut next,
+            )
+        };
+        recover_service_callback_error!(
+            continuation_error,
+            result,
+            PredicateExecutionError,
+            ExecutionError,
+            Context
+        );
+        result.map_err(|e| match e {
+            PredicateExecutionError::Service(error) => ExecutionError::Context(error),
+            other => ExecutionError::Context(NativeError::Execution(format!("{other:?}"))),
+        })
+    }
+
+    fn execute_native_predicate_statement(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        statement: &Stmt,
+        owned_tail: Option<&crate::rules::executor::CfgStatementTail>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ExecutionError<NativeError<S::Error>>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, ExecutionError<NativeError<S::Error>>> {
         use ferrum_silver::ast::statement::StmtKind;
         let (access, folding) = match statement.kind() {
             StmtKind::Fold(access) => (access, true),
@@ -11352,6 +12888,30 @@ where
         } else {
             VerificationErrorKind::UnfoldFailed(statement.clone())
         });
+        if let Some(tail) = owned_tail {
+            if access
+                .location
+                .args
+                .iter()
+                .chain(std::iter::once(&permission))
+                .any(crate::rules::evaluator::has_owned_asserting_path)
+            {
+                let frame = crate::rules::executor::OwnedPredicateArgument {
+                    statement: statement.clone(),
+                    predicate: predicate.clone(),
+                    location: location.clone(),
+                    permission: permission.clone(),
+                    error: partial.clone(),
+                    arguments: access.location.args.clone(),
+                    values: vec![],
+                    argument_debug: None,
+                    original_arps: None,
+                    tail: tail.clone(),
+                    folding,
+                };
+                return self.run_owned_predicate_arguments(state, &frame);
+            }
+        }
         let mut outer_error = None;
         let result = crate::rules::evaluator::evaluate_all(
             self,
@@ -11367,111 +12927,20 @@ where
                     &permission,
                     &partial,
                     &mut |ctx, state, amount, amount_exp| {
-                        let result: Result<_, ExecutionError<NativeError<S::Error>>> = (|| {
-                            let state = if folding {
-                                state
-                            } else {
-                                crate::rules::consumer::ConsumptionContext::trigger_resource(
-                                    ctx,
-                                    state,
-                                    &location,
-                                    &args,
-                                    arg_exps.as_deref(),
-                                )
-                                .map_err(ExecutionError::Context)?
-                            };
-                            let valid = crate::rules::permission_supporter::assert_permission(
-                                &ctx.factory,
-                                &amount,
-                                &permission,
-                                amount_exp.as_ref(),
-                                state.constrainable_arps.iter().cloned(),
-                                true,
-                                |term| {
-                                    ctx.base
-                                        .decider
-                                        .check(term, ctx.base.decider.assert_timeout)
-                                        .map_err(NativeError::Decider)
-                                },
-                                || true,
-                                |_, _, _, _| false,
-                            )
-                            .map_err(ExecutionError::Context)?;
-                            if !valid {
-                                return ctx
-                                    .failure(
-                                        &partial,
-                                        ErrorReason::NonPositivePermission(permission.clone()),
-                                        &state,
-                                    )
-                                    .map_err(ExecutionError::Context);
-                            }
-                            let wildcards: Vec<_> = state
-                                .constrainable_arps
-                                .iter()
-                                .filter(|v| !original_arps.contains(*v))
-                                .cloned()
-                                .collect();
-                            let factory = ctx.factory.clone();
-                            let mut continuation_error = None;
-                            let mut next = |ctx: &mut Self, state| match continuation(ctx, state) {
-                                Ok(v) => Ok(v),
-                                Err(e) => {
-                                    continuation_error = Some(e);
-                                    Err(PredicateExecutionError::Service(
-                                        NativeError::ContinuationAbort,
-                                    ))
-                                }
-                            };
-                            let result = if folding {
-                                fold_predicate_with_owned_tail(
-                                    &factory,
-                                    ctx,
-                                    state,
-                                    &predicate,
-                                    &location,
-                                    &args,
-                                    arg_exps.as_deref(),
-                                    &amount,
-                                    amount_exp.as_ref(),
-                                    &wildcards,
-                                    &partial,
-                                    owned_tail,
-                                    &mut next,
-                                )
-                            } else {
-                                unfold_predicate_with_owned_tail(
-                                    &factory,
-                                    ctx,
-                                    state,
-                                    &predicate,
-                                    &location,
-                                    &args,
-                                    arg_exps.as_deref(),
-                                    &amount,
-                                    amount_exp.as_ref(),
-                                    &wildcards,
-                                    &partial,
-                                    owned_tail,
-                                    &mut next,
-                                )
-                            };
-                            recover_service_callback_error!(
-                                continuation_error,
-                                result,
-                                PredicateExecutionError,
-                                ExecutionError,
-                                Context
-                            );
-                            result.map_err(|e| match e {
-                                PredicateExecutionError::Service(error) => {
-                                    ExecutionError::Context(error)
-                                }
-                                other => ExecutionError::Context(NativeError::Execution(format!(
-                                    "{other:?}"
-                                ))),
-                            })
-                        })(
+                        let result = ctx.finish_native_predicate_operation(
+                            state,
+                            folding,
+                            &predicate,
+                            &location,
+                            &permission,
+                            &partial,
+                            &args,
+                            arg_exps.as_deref(),
+                            &amount,
+                            amount_exp.as_ref(),
+                            &original_arps,
+                            owned_tail,
+                            continuation,
                         );
                         match result {
                             Ok(value) => Ok(value),
@@ -11782,12 +13251,40 @@ where
             }),
         )
     }
-    fn try_evaluate_owned_cfg_single_guard(&mut self, state: &State<PD, FD, JoinMode>, guard: &crate::rules::executor::OwnedCfgSingleGuard) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+    fn try_evaluate_owned_cfg_single_guard(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        guard: &crate::rules::executor::OwnedCfgSingleGuard,
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
         use crate::rules::consumer::ConsumptionContext;
-        if !crate::rules::evaluator::has_owned_asserting_path(&guard.condition) || !self.supports_owned_consumption(state) { return None; }
-        let partial = PartialVerificationError::for_kind(if guard.is_loop_guard { VerificationErrorKind::WhileFailed(guard.condition.clone()) } else { VerificationErrorKind::IfFailed(guard.condition.clone()) });
-        let receiver = crate::rules::evaluator::OwnedEvaluationReceiver::CfgSingleGuard(guard.clone());
-        Some(crate::rules::evaluator::evaluate_owned_received(self, state.clone(), &guard.condition, &partial, &receiver, vec![]).map_err(|e| match e { EvaluationError::Context(error) => ExecutionError::Context(error), other => ExecutionError::Context(NativeError::Evaluation(format!("owned CFG single guard: {other:?}"))) }))
+        if !crate::rules::evaluator::has_owned_asserting_path(&guard.condition)
+            || !self.supports_owned_consumption(state)
+        {
+            return None;
+        }
+        let partial = PartialVerificationError::for_kind(if guard.is_loop_guard {
+            VerificationErrorKind::WhileFailed(guard.condition.clone())
+        } else {
+            VerificationErrorKind::IfFailed(guard.condition.clone())
+        });
+        let receiver =
+            crate::rules::evaluator::OwnedEvaluationReceiver::CfgSingleGuard(guard.clone());
+        Some(
+            crate::rules::evaluator::evaluate_owned_received(
+                self,
+                state.clone(),
+                &guard.condition,
+                &partial,
+                &receiver,
+                vec![],
+            )
+            .map_err(|e| match e {
+                EvaluationError::Context(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Evaluation(format!(
+                    "owned CFG single guard: {other:?}"
+                ))),
+            }),
+        )
     }
     fn try_evaluate_owned_cfg_guard(
         &mut self,
@@ -13628,8 +15125,12 @@ where
                         super::verification_pool_manager::LOOP_GUARD_EXECUTIONS
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
-                    if matches!(&frame.receiver, crate::rules::evaluator::OwnedEvaluationReceiver::CfgSingleGuard(_)) {
-                        super::verification_pool_manager::CFG_SINGLE_EXECUTIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if matches!(
+                        &frame.receiver,
+                        crate::rules::evaluator::OwnedEvaluationReceiver::CfgSingleGuard(_)
+                    ) {
+                        super::verification_pool_manager::CFG_SINGLE_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
                     if matches!(
                         &frame.receiver,
@@ -13700,6 +15201,110 @@ where
                     }) {
                         super::verification_pool_manager::LET_BODY_EXECUTIONS
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if let crate::rules::evaluator::OwnedEvaluationReceiver::PredicateArgument(
+                        frame,
+                    ) = &frame.receiver
+                    {
+                        super::verification_pool_manager::PREDICATE_ARGUMENT_EXECUTIONS
+                            [super::verification_pool_manager::predicate_argument_counter_index(
+                                frame,
+                            )]
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if let crate::rules::evaluator::OwnedEvaluationReceiver::ProductionLet(frame) =
+                        &frame.receiver
+                    {
+                        super::verification_pool_manager::PRODUCTION_LET_EXECUTIONS
+                            [usize::from(frame.depth != 0)]
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if let crate::rules::evaluator::OwnedEvaluationReceiver::ProductionAccess(
+                        frame,
+                    ) = &frame.receiver
+                    {
+                        super::verification_pool_manager::PRODUCTION_ACCESS_EXECUTIONS
+                            [super::verification_pool_manager::production_access_counter_index(
+                                frame,
+                            )]
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        if matches!(frame.resource, crate::state::terms::ResourceKey::Wand(_)) {
+                            super::verification_pool_manager::PRODUCTION_WAND_EXECUTIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                    }
+                    if let crate::rules::evaluator::OwnedEvaluationReceiver::ProductionPure(pure) =
+                        &frame.receiver
+                    {
+                        super::verification_pool_manager::PRODUCTION_PURE_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        if matches!(
+                            pure.tail,
+                            crate::rules::producer::OwnedProductionTerminal::LoopPhaseCollect { .. }
+                        ) {
+                            super::verification_pool_manager::PRODUCTION_PURE_PHASE_EXECUTIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if matches!(
+                            pure.tail,
+                            crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(_)
+                        ) {
+                            super::verification_pool_manager::PRODUCTION_PURE_UNFOLD_EXECUTIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                    }
+                    if let crate::rules::evaluator::OwnedEvaluationReceiver::ProductionGuard(
+                        guard,
+                    ) = &frame.receiver
+                    {
+                        super::verification_pool_manager::PRODUCTION_GUARD_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        if matches!(
+                            guard.tail,
+                            crate::rules::producer::OwnedProductionTerminal::LoopPhaseCollect { .. }
+                        ) {
+                            super::verification_pool_manager::PRODUCTION_PHASE_GUARD_EXECUTIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if matches!(
+                            guard.tail,
+                            crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(_)
+                        ) {
+                            super::verification_pool_manager::PRODUCTION_UNFOLD_GUARD_EXECUTIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                    }
+                    if let crate::rules::evaluator::OwnedEvaluationReceiver::ConsumptionLet(frame) =
+                        &frame.receiver
+                    {
+                        super::verification_pool_manager::CONSUMPTION_LET_EXECUTIONS
+                            [usize::from(frame.depth != 0)]
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if let crate::rules::evaluator::OwnedEvaluationReceiver::ConsumptionAccess(
+                        frame,
+                    ) = &frame.receiver
+                    {
+                        super::verification_pool_manager::ACCESS_EXECUTIONS
+                            [super::verification_pool_manager::access_counter_index(frame)]
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if matches!(
+                        &frame.receiver,
+                        crate::rules::evaluator::OwnedEvaluationReceiver::ConsumptionPure(_)
+                    ) {
+                        super::verification_pool_manager::PURE_CONSUMPTION_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if let crate::rules::evaluator::OwnedEvaluationReceiver::ConsumptionGuard(
+                        guard,
+                    ) = &frame.receiver
+                    {
+                        super::verification_pool_manager::CONSUMPTION_GUARD_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        if guard.frames.iter().any(|f| matches!(f, crate::rules::consumer::OwnedConsumptionFrame::Finish { terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(inner), .. } if matches!(&inner.receiver, crate::rules::evaluator::OwnedEvaluationReceiver::Join(_)))) {
+                            super::verification_pool_manager::CONSUMPTION_JOIN_GUARD_EXECUTIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
                     }
                     if let crate::rules::evaluator::OwnedEvaluationReceiver::CallArgument(frame) =
                         &frame.receiver
@@ -14107,6 +15712,9 @@ where
                 } => Some(id.clone()),
                 _ => None,
             },
+            super::verification_pool_manager::NativeJoinAction::Consumption(action) => {
+                owned_consumption_phase_id(&action.frames)
+            }
             _ => None,
         };
         let evaluation_id = match &branch.action {
@@ -14123,42 +15731,16 @@ where
                 }
             }
             super::verification_pool_manager::NativeJoinAction::Consumption(action) => {
-                action.frames.iter().find_map(|f| match f {
-                    crate::rules::consumer::OwnedConsumptionFrame::Finish {
-                        terminal:
-                            crate::rules::consumer::OwnedConsumptionTerminal::FunctionPre(frame),
-                        ..
-                    } => Some(frame.join.collector_id.clone()),
-                    crate::rules::consumer::OwnedConsumptionFrame::Finish {
-                        terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), ..
-                    } => match &frame.receiver {
-                        crate::rules::evaluator::OwnedEvaluationReceiver::Join(join) => Some(join.collector_id.clone()),
-                        _ => None,
-                    },
-                    _ => None,
-                })
+                owned_consumption_collector_id(&action.frames)
             }
             _ => None,
         };
-        let quantified_id =
-            match &branch.action {
-                super::verification_pool_manager::NativeJoinAction::Consumption(action) => {
-                    action.frames.iter().find_map(|f| match f {
-                        crate::rules::consumer::OwnedConsumptionFrame::Finish {
-                            terminal:
-                                crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame),
-                            ..
-                        } => match &frame.receiver {
-                            crate::rules::evaluator::OwnedEvaluationReceiver::Quantified(q) => {
-                                Some(q.collector_id.clone())
-                            }
-                            _ => None,
-                        },
-                        _ => None,
-                    })
-                }
-                _ => None,
-            };
+        let quantified_id = match &branch.action {
+            super::verification_pool_manager::NativeJoinAction::Consumption(action) => {
+                owned_consumption_quantified_id(&action.frames)
+            }
+            _ => None,
+        };
         #[cfg(test)]
         if quantified_id.is_some() {
             super::verification_pool_manager::QUANTIFIED_BODY_TEST_EXECUTIONS
@@ -18322,49 +19904,53 @@ where
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<NativeError<S::Error>>> {
         use super::verification_pool_manager::{NativeJoinJob, ThreadPoolError};
         use crate::rules::brancher::{self, BranchTransferSnapshot};
-        let is_evaluation =
+        let destination =
             |action: &super::verification_pool_manager::NativeJoinAction<PD, FD>| match action {
                 super::verification_pool_manager::NativeJoinAction::PredicateEvaluation {
+                    frame,
                     ..
-                } => true,
-                super::verification_pool_manager::NativeJoinAction::Production(action) => matches!(
-                    &action.tail,
-                    crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(_)
-                ),
-                super::verification_pool_manager::NativeJoinAction::Consumption(action) => {
-                    action.frames.iter().any(|f| match f {
-                        crate::rules::consumer::OwnedConsumptionFrame::Finish {
-                            terminal:
-                                crate::rules::consumer::OwnedConsumptionTerminal::FunctionPre(_),
-                            ..
-                        } => true,
-                        crate::rules::consumer::OwnedConsumptionFrame::Finish {
-                            terminal:
-                                crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame),
-                            ..
-                        } => matches!(
-                            frame.receiver,
-                            crate::rules::evaluator::OwnedEvaluationReceiver::Join(_)
-                        ),
-                        _ => false,
-                    })
+                } => Some(OwnedCollectorDestination::Evaluation(
+                    frame.collector_id.clone(),
+                )),
+                super::verification_pool_manager::NativeJoinAction::Production(action) => {
+                    owned_production_destination(&action.tail)
                 }
-                _ => false,
+                super::verification_pool_manager::NativeJoinAction::Consumption(action) => {
+                    owned_consumption_destination(&action.frames)
+                }
+                _ => None,
             };
-        let is_quantified = |action: &super::verification_pool_manager::NativeJoinAction<
-            PD,
-            FD,
-        >| {
-            match action {
-            super::verification_pool_manager::NativeJoinAction::Consumption(action) => action.frames.iter().any(|f| matches!(f,
-                crate::rules::consumer::OwnedConsumptionFrame::Finish {
-                    terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), ..
-                } if matches!(frame.receiver, crate::rules::evaluator::OwnedEvaluationReceiver::Quantified(_)))),
+        let yes_destination = destination(&yes);
+        let no_destination = destination(&no);
+        let same_destination = match (&yes_destination, &no_destination) {
+            (None, None) => true,
+            (
+                Some(OwnedCollectorDestination::Evaluation(a)),
+                Some(OwnedCollectorDestination::Evaluation(b)),
+            )
+            | (
+                Some(OwnedCollectorDestination::Quantified(a)),
+                Some(OwnedCollectorDestination::Quantified(b)),
+            )
+            | (
+                Some(OwnedCollectorDestination::LoopPhase(a)),
+                Some(OwnedCollectorDestination::LoopPhase(b)),
+            ) => Arc::ptr_eq(a, b),
             _ => false,
-        }
         };
-        let quantified = is_quantified(&yes) && is_quantified(&no);
-        let evaluation = is_evaluation(&yes) && is_evaluation(&no);
+        if !same_destination {
+            return Err(ExecutionError::Context(NativeError::Unsupported(
+                "owned continuation collector mismatch",
+            )));
+        }
+        let quantified = matches!(
+            yes_destination,
+            Some(OwnedCollectorDestination::Quantified(_))
+        );
+        let evaluation = matches!(
+            yes_destination,
+            Some(OwnedCollectorDestination::Evaluation(_))
+        );
         if !quantified && state.under_join != evaluation {
             return Err(ExecutionError::Context(NativeError::Unsupported(
                 "owned continuation join mode",

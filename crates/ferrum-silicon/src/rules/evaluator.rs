@@ -313,16 +313,47 @@ pub struct OwnedForPermData {
 
 /// Exact destination for an owned expression value. A joined value returns to
 /// its identified collector; assignment values resume their statement suffix.
-#[derive(Clone)]
-pub enum OwnedEvaluationReceiver {
+pub enum OwnedEvaluationReceiver<P, D, J> {
     Assignment(crate::rules::executor::OwnedAssignmentValue),
     CfgGuard(crate::rules::executor::OwnedCfgGuard),
     CfgSingleGuard(crate::rules::executor::OwnedCfgSingleGuard),
     LoopGuardCheck,
     FieldAssignment(crate::rules::executor::OwnedFieldAssignment),
     CallArgument(crate::rules::executor::OwnedCallArgument),
+    PredicateArgument(crate::rules::executor::OwnedPredicateArgument),
     Join(OwnedJoinedValue),
     Quantified(OwnedQuantifiedValue),
+    ConsumptionGuard(Arc<crate::rules::consumer::OwnedConsumptionGuard<P, D, J>>),
+    ConsumptionPure(Arc<crate::rules::consumer::OwnedPureConsumption<P, D, J>>),
+    ConsumptionAccess(Arc<crate::rules::consumer::OwnedAccessConsumption<P, D, J>>),
+    ConsumptionLet(Arc<crate::rules::consumer::OwnedConsumptionLet<P, D, J>>),
+    ProductionGuard(Arc<crate::rules::producer::OwnedProductionGuard<P, D>>),
+    ProductionPure(Arc<crate::rules::producer::OwnedPureProduction<P, D>>),
+    ProductionAccess(Arc<crate::rules::producer::OwnedProductionAccess<P, D>>),
+    ProductionLet(Arc<crate::rules::producer::OwnedProductionLet<P, D>>),
+}
+impl<P, D, J> Clone for OwnedEvaluationReceiver<P, D, J> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Assignment(x) => Self::Assignment(x.clone()),
+            Self::CfgGuard(x) => Self::CfgGuard(x.clone()),
+            Self::CfgSingleGuard(x) => Self::CfgSingleGuard(x.clone()),
+            Self::LoopGuardCheck => Self::LoopGuardCheck,
+            Self::FieldAssignment(x) => Self::FieldAssignment(x.clone()),
+            Self::CallArgument(x) => Self::CallArgument(x.clone()),
+            Self::PredicateArgument(x) => Self::PredicateArgument(x.clone()),
+            Self::Join(x) => Self::Join(x.clone()),
+            Self::Quantified(x) => Self::Quantified(x.clone()),
+            Self::ConsumptionGuard(x) => Self::ConsumptionGuard(x.clone()),
+            Self::ConsumptionPure(x) => Self::ConsumptionPure(x.clone()),
+            Self::ConsumptionAccess(x) => Self::ConsumptionAccess(x.clone()),
+            Self::ConsumptionLet(x) => Self::ConsumptionLet(x.clone()),
+            Self::ProductionGuard(x) => Self::ProductionGuard(x.clone()),
+            Self::ProductionPure(x) => Self::ProductionPure(x.clone()),
+            Self::ProductionAccess(x) => Self::ProductionAccess(x.clone()),
+            Self::ProductionLet(x) => Self::ProductionLet(x.clone()),
+        }
+    }
 }
 #[derive(Clone)]
 pub struct OwnedJoinedValue {
@@ -350,8 +381,7 @@ pub struct OwnedQuantifiedValue {
 }
 
 /// State and value receiver for a direct assignment of an asserting expression.
-#[derive(Clone)]
-pub struct OwnedAsserting<E> {
+pub struct OwnedAsserting<E, P, D, J> {
     pub original_store: Arc<crate::state::store::MapBackedStore>,
     pub evaluation_heap: Arc<crate::state::heap::ListBackedHeap>,
     pub outer_heap: Arc<crate::state::heap::ListBackedHeap>,
@@ -360,8 +390,25 @@ pub struct OwnedAsserting<E> {
     pub expression: Exp,
     pub body: Exp,
     pub error: E,
-    pub receiver: OwnedEvaluationReceiver,
+    pub receiver: OwnedEvaluationReceiver<P, D, J>,
     pub return_frames: Vec<OwnedEvaluationReturnFrame>,
+}
+
+impl<E: Clone, P, D, J> Clone for OwnedAsserting<E, P, D, J> {
+    fn clone(&self) -> Self {
+        Self {
+            original_store: self.original_store.clone(),
+            evaluation_heap: self.evaluation_heap.clone(),
+            outer_heap: self.outer_heap.clone(),
+            outer_reserve: self.outer_reserve.clone(),
+            outer_exhale: self.outer_exhale,
+            expression: self.expression.clone(),
+            body: self.body.clone(),
+            error: self.error.clone(),
+            receiver: self.receiver.clone(),
+            return_frames: self.return_frames.clone(),
+        }
+    }
 }
 
 /// Explicit ownership token for a value-producing outer join.
@@ -589,7 +636,7 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
         backend: bool,
     ) -> Result<crate::state::terms::Applicable, Self::Error>;
     #[cfg(test)]
-    fn test_owned_right_resume(&mut self, _frame: &OwnedAsserting<Self::PartialError>) {}
+    fn test_owned_right_resume(&mut self, _frame: &OwnedAsserting<Self::PartialError, P, D, J>) {}
     /// Whether a continuation can transfer another assertion in this state.
     fn can_transfer_owned_asserting(&self, _state: &State<P, D, J>) -> bool {
         false
@@ -597,7 +644,7 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
     fn can_transfer_owned_receiver(
         &self,
         state: &State<P, D, J>,
-        receiver: &OwnedEvaluationReceiver,
+        receiver: &OwnedEvaluationReceiver<P, D, J>,
     ) -> bool {
         match receiver {
             OwnedEvaluationReceiver::Assignment(_)
@@ -605,8 +652,20 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
             | OwnedEvaluationReceiver::CfgSingleGuard(_)
             | OwnedEvaluationReceiver::LoopGuardCheck
             | OwnedEvaluationReceiver::FieldAssignment(_)
-            | OwnedEvaluationReceiver::CallArgument(_) => self.can_transfer_owned_asserting(state),
-            OwnedEvaluationReceiver::Join(_) | OwnedEvaluationReceiver::Quantified(_) => false,
+            | OwnedEvaluationReceiver::CallArgument(_)
+            | OwnedEvaluationReceiver::PredicateArgument(_) => {
+                self.can_transfer_owned_asserting(state)
+            }
+            OwnedEvaluationReceiver::Quantified(_)
+            | OwnedEvaluationReceiver::Join(_)
+            | OwnedEvaluationReceiver::ConsumptionGuard(_)
+            | OwnedEvaluationReceiver::ConsumptionPure(_)
+            | OwnedEvaluationReceiver::ConsumptionAccess(_)
+            | OwnedEvaluationReceiver::ConsumptionLet(_)
+            | OwnedEvaluationReceiver::ProductionGuard(_)
+            | OwnedEvaluationReceiver::ProductionPure(_)
+            | OwnedEvaluationReceiver::ProductionAccess(_)
+            | OwnedEvaluationReceiver::ProductionLet(_) => false,
         }
     }
     fn can_transfer_owned_unfold_input(&self, _state: &State<P, D, J>, _expression: &Exp) -> bool {
@@ -656,7 +715,7 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
         &mut self,
         _state: &State<P, D, J>,
         _assertion: &Exp,
-        _frame: &OwnedAsserting<Self::PartialError>,
+        _frame: &OwnedAsserting<Self::PartialError, P, D, J>,
     ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
         None
     }
@@ -675,6 +734,87 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
         _term: Term,
         _debug: Option<Exp>,
         _receiver: &crate::rules::executor::OwnedCfgGuard,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_predicate_argument(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _frame: &crate::rules::executor::OwnedPredicateArgument,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_production_let(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _frame: &crate::rules::producer::OwnedProductionLet<P, D>,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_production_access(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _frame: &crate::rules::producer::OwnedProductionAccess<P, D>,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_production_pure(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _frame: &crate::rules::producer::OwnedPureProduction<P, D>,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_production_guard(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _frame: &crate::rules::producer::OwnedProductionGuard<P, D>,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_consumption_let(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _frame: &crate::rules::consumer::OwnedConsumptionLet<P, D, J>,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_consumption_access(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _frame: &crate::rules::consumer::OwnedAccessConsumption<P, D, J>,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_consumption_pure(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _frame: &crate::rules::consumer::OwnedPureConsumption<P, D, J>,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_consumption_guard(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _frame: &crate::rules::consumer::OwnedConsumptionGuard<P, D, J>,
     ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
         None
     }
@@ -1138,7 +1278,7 @@ pub(crate) fn evaluate_owned_asserting<C, P, D, J: Clone, V>(
     state: State<P, D, J>,
     expression: &Exp,
     error: &C::PartialError,
-    receiver: &OwnedEvaluationReceiver,
+    receiver: &OwnedEvaluationReceiver<P, D, J>,
     return_frames: Vec<OwnedEvaluationReturnFrame>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
@@ -1613,7 +1753,7 @@ pub(crate) fn evaluate_owned_received<C, P, D, J: Clone, V>(
     state: State<P, D, J>,
     expression: &Exp,
     error: &C::PartialError,
-    receiver: &OwnedEvaluationReceiver,
+    receiver: &OwnedEvaluationReceiver<P, D, J>,
     frames: Vec<OwnedEvaluationReturnFrame>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
@@ -1650,7 +1790,7 @@ fn evaluate_owned_planned<C, P, D, J: Clone, V>(
     state: State<P, D, J>,
     expression: &Exp,
     error: &C::PartialError,
-    receiver: &OwnedEvaluationReceiver,
+    receiver: &OwnedEvaluationReceiver<P, D, J>,
     path: &[OwnedPathStep],
     mut frames: Vec<OwnedEvaluationReturnFrame>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
@@ -2326,7 +2466,7 @@ pub(crate) fn set_owned_asserting_resume_hook(hook: impl FnOnce() + 'static) {
 pub(crate) fn complete_owned_asserting<C, P, D, J: Clone, V>(
     context: &mut C,
     mut state: State<P, D, J>,
-    frame: &OwnedAsserting<C::PartialError>,
+    frame: &OwnedAsserting<C::PartialError, P, D, J>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
     C: EvaluationContext<P, D, J, V>,
@@ -3012,7 +3152,7 @@ fn evaluate_owned_arguments<C, P, D, J: Clone, V>(
     debug_args: Vec<Option<Exp>>,
     frames: &[OwnedEvaluationReturnFrame],
     error: &C::PartialError,
-    receiver: &OwnedEvaluationReceiver,
+    receiver: &OwnedEvaluationReceiver<P, D, J>,
     selected: Option<(usize, &[OwnedPathStep])>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
@@ -3328,7 +3468,7 @@ fn resume_owned_let_value<C, P, D, J: Clone, V>(
     wrapper: &OwnedValueWrapper,
     frames: &[OwnedEvaluationReturnFrame],
     error: &C::PartialError,
-    receiver: &OwnedEvaluationReceiver,
+    receiver: &OwnedEvaluationReceiver<P, D, J>,
     body_path: Option<&[OwnedPathStep]>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
@@ -3393,7 +3533,7 @@ fn resume_owned_return_frames<C, P, D, J: Clone, V>(
     mut debug: Option<Exp>,
     frames: &[OwnedEvaluationReturnFrame],
     error: &C::PartialError,
-    receiver: &OwnedEvaluationReceiver,
+    receiver: &OwnedEvaluationReceiver<P, D, J>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
     C: EvaluationContext<P, D, J, V>,
@@ -4253,6 +4393,33 @@ where
         OwnedEvaluationReceiver::Assignment(receiver) => {
             context.finish_owned_assignment_value(state, term, debug, receiver)
         }
+        OwnedEvaluationReceiver::PredicateArgument(receiver) => {
+            context.finish_owned_predicate_argument(state, term, debug, receiver)
+        }
+        OwnedEvaluationReceiver::ProductionLet(receiver) => {
+            context.finish_owned_production_let(state, term, debug, receiver)
+        }
+        OwnedEvaluationReceiver::ProductionAccess(receiver) => {
+            context.finish_owned_production_access(state, term, debug, receiver)
+        }
+        OwnedEvaluationReceiver::ProductionPure(receiver) => {
+            context.finish_owned_production_pure(state, term, debug, receiver)
+        }
+        OwnedEvaluationReceiver::ProductionGuard(receiver) => {
+            context.finish_owned_production_guard(state, term, debug, receiver)
+        }
+        OwnedEvaluationReceiver::ConsumptionLet(receiver) => {
+            context.finish_owned_consumption_let(state, term, debug, receiver)
+        }
+        OwnedEvaluationReceiver::ConsumptionAccess(receiver) => {
+            context.finish_owned_consumption_access(state, term, debug, receiver)
+        }
+        OwnedEvaluationReceiver::ConsumptionPure(receiver) => {
+            context.finish_owned_consumption_pure(state, term, debug, receiver)
+        }
+        OwnedEvaluationReceiver::ConsumptionGuard(receiver) => {
+            context.finish_owned_consumption_guard(state, term, debug, receiver)
+        }
         OwnedEvaluationReceiver::CallArgument(receiver) => {
             context.finish_owned_call_argument(state, term, debug, receiver)
         }
@@ -4287,7 +4454,7 @@ fn finish_owned_checked_division<C, P, D, J: Clone, V>(
     right_debug: Option<Exp>,
     frames: &[OwnedEvaluationReturnFrame],
     error: &C::PartialError,
-    receiver: &OwnedEvaluationReceiver,
+    receiver: &OwnedEvaluationReceiver<P, D, J>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
     C: EvaluationContext<P, D, J, V>,
@@ -6149,7 +6316,7 @@ pub(crate) fn evaluate_owned_short_circuit_tail<C, P, D, J: Clone, V>(
     expressions: &[Exp],
     disjunction: bool,
     error: &C::PartialError,
-    receiver: &OwnedEvaluationReceiver,
+    receiver: &OwnedEvaluationReceiver<P, D, J>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
     C: EvaluationContext<P, D, J, V>,

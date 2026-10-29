@@ -1932,14 +1932,17 @@ pub(crate) static LOOP_PHASE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static LOOP_PHASE_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
-pub(crate) static CFG_SINGLE_SUBMISSIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub(crate) static CFG_SINGLE_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
-pub(crate) static CFG_SINGLE_EXECUTIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub(crate) static CFG_SINGLE_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static CFG_GUARD_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
-pub(crate) static LOOP_GUARD_CANCEL_HOOKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub(crate) static LOOP_GUARD_CANCEL_HOOKS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static LOOP_GUARD_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
@@ -1993,6 +1996,124 @@ pub(crate) static NESTED_RETURN_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static NESTED_RETURN_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static CONSUMPTION_JOIN_GUARD_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static PURE_CONSUMPTION_RETRIES: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static PRODUCTION_UNFOLD_GUARD_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static PRODUCTION_PHASE_GUARD_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static PRODUCTION_PURE_PHASE_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static PRODUCTION_PURE_UNFOLD_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static PREDICATE_ARGUMENT_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 6] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 6];
+#[cfg(test)]
+pub(crate) static PREDICATE_ARGUMENT_EXECUTIONS: [std::sync::atomic::AtomicUsize; 6] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 6];
+#[cfg(test)]
+pub(crate) fn predicate_argument_counter_index(
+    frame: &crate::rules::executor::OwnedPredicateArgument,
+) -> usize {
+    usize::from(!frame.folding) * 3 + frame.values.len().min(2)
+}
+#[cfg(test)]
+pub(crate) static PRODUCTION_LET_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 2] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
+#[cfg(test)]
+pub(crate) static PRODUCTION_LET_EXECUTIONS: [std::sync::atomic::AtomicUsize; 2] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
+#[cfg(test)]
+pub(crate) static PRODUCTION_WAND_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static PRODUCTION_WAND_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static PRODUCTION_ACCESS_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 4] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 4];
+#[cfg(test)]
+pub(crate) static PRODUCTION_ACCESS_EXECUTIONS: [std::sync::atomic::AtomicUsize; 4] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 4];
+#[cfg(test)]
+pub(crate) fn production_access_counter_index<P, D>(
+    frame: &crate::rules::producer::OwnedProductionAccess<P, D>,
+) -> usize {
+    if frame.values.len() == frame.arguments.len() {
+        3
+    } else if matches!(frame.resource, crate::state::terms::ResourceKey::Field(_)) {
+        0
+    } else if frame.values.is_empty() {
+        1
+    } else {
+        2
+    }
+}
+#[cfg(test)]
+pub(crate) static PRODUCTION_PURE_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static PRODUCTION_PURE_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static PRODUCTION_GUARD_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static PRODUCTION_GUARD_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static CONSUMPTION_LET_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 2] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
+#[cfg(test)]
+pub(crate) static CONSUMPTION_LET_EXECUTIONS: [std::sync::atomic::AtomicUsize; 2] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
+#[cfg(test)]
+pub(crate) static ACCESS_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 4] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 4];
+#[cfg(test)]
+pub(crate) static ACCESS_EXECUTIONS: [std::sync::atomic::AtomicUsize; 4] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 4];
+#[cfg(test)]
+pub(crate) fn access_counter_index<P, D, J>(
+    frame: &crate::rules::consumer::OwnedAccessConsumption<P, D, J>,
+) -> usize {
+    if frame.values.len() == frame.arguments.len() {
+        3
+    } else if matches!(frame.resource, crate::state::terms::ResourceKey::Field(_)) {
+        0
+    } else if frame.values.is_empty() {
+        1
+    } else {
+        2
+    }
+}
+#[cfg(test)]
+pub(crate) static PURE_CONSUMPTION_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static PURE_CONSUMPTION_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static NESTED_QUANT_GUARD_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static NESTED_QUANT_GUARD_ACTIVE: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static CONSUMPTION_GUARD_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static CONSUMPTION_GUARD_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static CALL_ARG_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 2] =
@@ -2412,8 +2533,12 @@ where
                             LOOP_GUARD_SUBMISSIONS
                                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         }
-                        if matches!(&frame.receiver, crate::rules::evaluator::OwnedEvaluationReceiver::CfgSingleGuard(_)) {
-                            CFG_SINGLE_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        if matches!(
+                            &frame.receiver,
+                            crate::rules::evaluator::OwnedEvaluationReceiver::CfgSingleGuard(_)
+                        ) {
+                            CFG_SINGLE_SUBMISSIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         }
                         if matches!(
                             &frame.receiver,
@@ -2469,6 +2594,79 @@ where
                             )
                         }) {
                             LET_BODY_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if let crate::rules::evaluator::OwnedEvaluationReceiver::PredicateArgument(
+                            frame,
+                        ) = &frame.receiver
+                        {
+                            PREDICATE_ARGUMENT_SUBMISSIONS[predicate_argument_counter_index(frame)]
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if let crate::rules::evaluator::OwnedEvaluationReceiver::ProductionLet(
+                            frame,
+                        ) = &frame.receiver
+                        {
+                            PRODUCTION_LET_SUBMISSIONS[usize::from(frame.depth != 0)]
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if let crate::rules::evaluator::OwnedEvaluationReceiver::ProductionAccess(
+                            frame,
+                        ) = &frame.receiver
+                        {
+                            PRODUCTION_ACCESS_SUBMISSIONS[production_access_counter_index(frame)]
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            if matches!(frame.resource, crate::state::terms::ResourceKey::Wand(_)) {
+                                PRODUCTION_WAND_SUBMISSIONS
+                                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            }
+                        }
+                        if matches!(
+                            &frame.receiver,
+                            crate::rules::evaluator::OwnedEvaluationReceiver::ProductionPure(_)
+                        ) {
+                            PRODUCTION_PURE_SUBMISSIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if matches!(
+                            &frame.receiver,
+                            crate::rules::evaluator::OwnedEvaluationReceiver::ProductionGuard(_)
+                        ) {
+                            PRODUCTION_GUARD_SUBMISSIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if let crate::rules::evaluator::OwnedEvaluationReceiver::ConsumptionLet(
+                            frame,
+                        ) = &frame.receiver
+                        {
+                            CONSUMPTION_LET_SUBMISSIONS[usize::from(frame.depth != 0)]
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if let crate::rules::evaluator::OwnedEvaluationReceiver::ConsumptionAccess(
+                            frame,
+                        ) = &frame.receiver
+                        {
+                            ACCESS_SUBMISSIONS[access_counter_index(frame)]
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if matches!(
+                            &frame.receiver,
+                            crate::rules::evaluator::OwnedEvaluationReceiver::ConsumptionPure(_)
+                        ) {
+                            PURE_CONSUMPTION_SUBMISSIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if let crate::rules::evaluator::OwnedEvaluationReceiver::ConsumptionGuard(
+                            guard,
+                        ) = &frame.receiver
+                        {
+                            CONSUMPTION_GUARD_SUBMISSIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            if super::native_context::owned_consumption_quantified_id(&guard.frames)
+                                .is_some()
+                            {
+                                NESTED_QUANT_GUARD_SUBMISSIONS
+                                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            }
                         }
                         if let crate::rules::evaluator::OwnedEvaluationReceiver::CallArgument(
                             frame,
@@ -7399,9 +7597,13 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
     }
 
     #[test]
-    fn real_stdio_cancel_after_cfg_guard_receiver_starts() { cancel_after_owned_receiver_starts(9); }
+    fn real_stdio_cancel_after_cfg_guard_receiver_starts() {
+        cancel_after_owned_receiver_starts(9);
+    }
     #[test]
-    fn real_stdio_cancel_after_loop_guard_check_receiver_starts() { cancel_after_owned_receiver_starts(11); }
+    fn real_stdio_cancel_after_loop_guard_check_receiver_starts() {
+        cancel_after_owned_receiver_starts(11);
+    }
 
     fn cancel_after_owned_receiver_starts(kind: u8) {
         let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
@@ -7683,6 +7885,919 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
             drop(context);
             let pool = std::rc::Rc::try_unwrap(pool).ok().unwrap().into_inner();
             assert!(pool.cancel_and_join().is_empty());
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_production_wand_arguments() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(a: Ref, b: Ref, c: Bool)
+ requires a != b && acc(a.f) && acc(b.f)
+ ensures acc(a.f) && acc(b.f)
+{
+ inhale (acc(old(asserting (c ? acc(a.f) : acc(b.f)) in a).f) --* acc(a.f));
+ assert acc(a.f) && acc(b.f);
+}
+method bad() { assert false; }
+"#;
+        let no_hole = r#"field f: Int
+method good(a: Ref, b: Ref, c: Bool) requires a != b && acc(a.f) ensures acc(a.f)
+{
+ inhale (acc((asserting (c ? acc(a.f) : acc(b.f)) in a).f) --* acc(a.f));
+ assert acc(a.f);
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let submitted = PRODUCTION_WAND_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed = PRODUCTION_WAND_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            assert!(
+                PRODUCTION_WAND_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > submitted
+            );
+            assert!(
+                PRODUCTION_WAND_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed
+            );
+            let before = PRODUCTION_WAND_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                no_hole,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "non-hole workers={workers}: {fatal:?}"
+            );
+            assert_eq!(
+                PRODUCTION_WAND_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                before,
+                "wand non-hole transferred"
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_predicate_statement_arguments() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+predicate P(a: Ref, d: Ref) { acc(a.f) }
+method fold_case(b: Bool, c: Bool, d: Bool, x: Ref, y: Ref, z: Ref)
+ requires acc(x.f) && acc(y.f) && acc(z.f)
+ ensures acc(x.f) && acc(y.f) && acc(P(z,x))
+{
+ fold acc(P((asserting (b ? acc(x.f) : acc(y.f)) in z), (asserting (c ? acc(x.f) : acc(y.f)) in x)), (asserting (d ? acc(x.f) : acc(y.f)) in write));
+ assert acc(P(z,x));
+}
+method unfold_case(b: Bool, c: Bool, d: Bool, x: Ref, y: Ref, z: Ref)
+ requires acc(x.f) && acc(y.f) && acc(P(z,x))
+ ensures acc(x.f) && acc(y.f) && acc(z.f)
+{
+ unfold acc(P((asserting (b ? acc(x.f) : acc(y.f)) in z), (asserting (c ? acc(x.f) : acc(y.f)) in x)), (asserting (d ? acc(x.f) : acc(y.f)) in write));
+ assert acc(z.f);
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before_s = PREDICATE_ARGUMENT_SUBMISSIONS
+                .each_ref()
+                .map(|v| v.load(std::sync::atomic::Ordering::SeqCst));
+            let before_e = PREDICATE_ARGUMENT_EXECUTIONS
+                .each_ref()
+                .map(|v| v.load(std::sync::atomic::Ordering::SeqCst));
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            for i in 0..6 {
+                assert!(
+                    PREDICATE_ARGUMENT_SUBMISSIONS[i].load(std::sync::atomic::Ordering::SeqCst)
+                        > before_s[i],
+                    "missing submission {i}"
+                );
+                assert!(
+                    PREDICATE_ARGUMENT_EXECUTIONS[i].load(std::sync::atomic::Ordering::SeqCst)
+                        > before_e[i],
+                    "missing execution {i}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_production_let_bindings() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref)
+ requires acc(x.f) && acc(y.f) && z != x && z != y && w != x && w != y
+ ensures acc(x.f) && acc(y.f) && (c ? acc(w.f) : acc(z.f))
+{
+ inhale (let a == (asserting (b ? acc(x.f) : acc(y.f)) in z) in (let q == (asserting (c ? acc(x.f) : acc(y.f)) in (c ? w : a)) in acc(q.f)));
+ assert acc(x.f) && acc(y.f) && (c ? acc(w.f) : acc(z.f));
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before_s = PRODUCTION_LET_SUBMISSIONS
+                .each_ref()
+                .map(|v| v.load(std::sync::atomic::Ordering::SeqCst));
+            let before_e = PRODUCTION_LET_EXECUTIONS
+                .each_ref()
+                .map(|v| v.load(std::sync::atomic::Ordering::SeqCst));
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            for i in 0..2 {
+                assert!(
+                    PRODUCTION_LET_SUBMISSIONS[i].load(std::sync::atomic::Ordering::SeqCst)
+                        > before_s[i]
+                );
+                assert!(
+                    PRODUCTION_LET_EXECUTIONS[i].load(std::sync::atomic::Ordering::SeqCst)
+                        > before_e[i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_production_access_arguments() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+predicate P(a: Ref, b: Ref) { true }
+method field_case(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref)
+ requires acc(x.f) && acc(y.f) && z != x && z != y
+ ensures acc(x.f) && acc(y.f) && acc(z.f)
+{
+ inhale acc((asserting (b ? acc(x.f) : acc(y.f)) in z).f, (asserting (c ? acc(x.f) : acc(y.f)) in write));
+ assert acc(z.f);
+}
+method pred_case(b: Bool, c: Bool, d: Bool, x: Ref, y: Ref, z: Ref)
+ requires acc(x.f) && acc(y.f)
+ ensures acc(x.f) && acc(y.f) && acc(P(x,z))
+{
+ inhale acc(P((asserting (b ? acc(x.f) : acc(y.f)) in x), (asserting (c ? acc(x.f) : acc(y.f)) in z)), (asserting (d ? acc(x.f) : acc(y.f)) in write));
+ assert acc(P(x,z));
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before_s = PRODUCTION_ACCESS_SUBMISSIONS
+                .each_ref()
+                .map(|v| v.load(std::sync::atomic::Ordering::SeqCst));
+            let before_e = PRODUCTION_ACCESS_EXECUTIONS
+                .each_ref()
+                .map(|v| v.load(std::sync::atomic::Ordering::SeqCst));
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            for i in 0..4 {
+                assert!(
+                    PRODUCTION_ACCESS_SUBMISSIONS[i].load(std::sync::atomic::Ordering::SeqCst)
+                        > before_s[i],
+                    "missing submission {i}"
+                );
+                assert!(
+                    PRODUCTION_ACCESS_EXECUTIONS[i].load(std::sync::atomic::Ordering::SeqCst)
+                        > before_e[i],
+                    "missing execution {i}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_production_pure_collectors() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let phase = r#"field f: Int
+method good(b: Bool, x: Ref, y: Ref) requires acc(x.f) && acc(y.f) && x.f == 3 {
+ var i: Int := 0;
+ while (i < 1)
+   invariant 0 <= i && i <= 1
+   invariant acc(x.f) && acc(y.f)
+   invariant (asserting (b ? acc(x.f) : acc(y.f)) in x.f == 3)
+ { i := i + 1; }
+}
+method bad() { assert false; }
+"#;
+        let unfold = r#"field f: Int
+predicate P(x: Ref, y: Ref, b: Bool) { acc(x.f) && acc(y.f) && (asserting (b ? acc(x.f) : acc(y.f)) in x.f == 3) }
+method good(x: Ref, y: Ref, b: Bool) returns (r: Int) requires acc(P(x,y,b)) ensures acc(P(x,y,b)) && r == 3
+{ r := unfolding acc(P(x,y,b)) in x.f; }
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before = PRODUCTION_PURE_PHASE_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                phase,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "phase workers={workers}: {fatal:?}"
+            );
+            assert!(
+                PRODUCTION_PURE_PHASE_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > before
+            );
+            let before =
+                PRODUCTION_PURE_UNFOLD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_profile(
+                unfold,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+                false,
+                false,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "unfold workers={workers}: {fatal:?}"
+            );
+            assert!(
+                PRODUCTION_PURE_UNFOLD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > before
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_production_pure() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(b: Bool, x: Ref, y: Ref)
+ requires acc(x.f) && acc(y.f)
+ ensures acc(x.f) && acc(y.f) && x.f == 3
+{
+ inhale (asserting (b ? acc(x.f) : acc(y.f)) in x.f == 3);
+ assert x.f == 3;
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let submitted = PRODUCTION_PURE_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed = PRODUCTION_PURE_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            assert!(
+                PRODUCTION_PURE_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > submitted
+            );
+            assert!(
+                PRODUCTION_PURE_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_production_unfold_guard() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+predicate P(x: Ref, y: Ref, z: Ref, w: Ref, b: Bool, c: Bool) {
+ acc(x.f) && acc(y.f) && ((asserting (b ? acc(x.f) : acc(y.f)) in c) ? acc(z.f) : acc(w.f))
+}
+method good(x: Ref, y: Ref, z: Ref, w: Ref, b: Bool, c: Bool) returns (r: Int)
+ requires acc(P(x,y,z,w,b,c)) ensures acc(P(x,y,z,w,b,c)) && r == 1
+{ r := unfolding acc(P(x,y,z,w,b,c)) in 1; }
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before =
+                PRODUCTION_UNFOLD_GUARD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_profile(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+                false,
+                false,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            assert!(
+                PRODUCTION_UNFOLD_GUARD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > before
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_production_phase_guard() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref)
+ requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+{
+ var i: Int := 0;
+ while (i < 1)
+   invariant 0 <= i && i <= 1
+   invariant acc(x.f) && acc(y.f)
+   invariant (asserting (b ? acc(x.f) : acc(y.f)) in c) ? acc(z.f) : acc(w.f)
+ { i := i + 1; }
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before =
+                PRODUCTION_PHASE_GUARD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            assert!(
+                PRODUCTION_PHASE_GUARD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > before
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_production_guard() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref)
+ requires acc(x.f) && acc(y.f) && z != x && z != y && w != x && w != y
+ ensures acc(x.f) && acc(y.f) && (c ? acc(z.f) : acc(w.f))
+{
+ inhale (asserting (b ? acc(x.f) : acc(y.f)) in c) ? acc(z.f) : acc(w.f);
+ assert acc(x.f) && acc(y.f) && (c ? acc(z.f) : acc(w.f));
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let submitted = PRODUCTION_GUARD_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed = PRODUCTION_GUARD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            assert!(
+                PRODUCTION_GUARD_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > submitted
+            );
+            assert!(
+                PRODUCTION_GUARD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_consumption_let_bindings() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref)
+ requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+ ensures acc(x.f) && acc(y.f) && (c ? acc(z.f) : acc(w.f))
+{
+ exhale (let a == (asserting (b ? acc(x.f) : acc(y.f)) in z) in (let q == (asserting (c ? acc(x.f) : acc(y.f)) in (c ? w : a)) in acc(q.f)));
+ assert acc(x.f) && acc(y.f) && (c ? acc(z.f) : acc(w.f));
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before_s = CONSUMPTION_LET_SUBMISSIONS
+                .each_ref()
+                .map(|v| v.load(std::sync::atomic::Ordering::SeqCst));
+            let before_e = CONSUMPTION_LET_EXECUTIONS
+                .each_ref()
+                .map(|v| v.load(std::sync::atomic::Ordering::SeqCst));
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            for i in 0..2 {
+                assert!(
+                    CONSUMPTION_LET_SUBMISSIONS[i].load(std::sync::atomic::Ordering::SeqCst)
+                        > before_s[i]
+                );
+                assert!(
+                    CONSUMPTION_LET_EXECUTIONS[i].load(std::sync::atomic::Ordering::SeqCst)
+                        > before_e[i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_consumption_access_arguments() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+predicate P(a: Ref, b: Ref) { true }
+method field_case(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref)
+ requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+ ensures acc(y.f) && acc(z.f) && acc(w.f)
+{
+ exhale acc((asserting (b ? acc(x.f) : acc(y.f)) in x).f, (asserting (c ? acc(z.f) : acc(w.f)) in write));
+ assert acc(y.f) && acc(z.f) && acc(w.f);
+}
+method pred_case(b: Bool, c: Bool, d: Bool, x: Ref, y: Ref, z: Ref, w: Ref)
+ requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f) && acc(P(x,z))
+ ensures acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+{
+ exhale acc(P((asserting (b ? acc(x.f) : acc(y.f)) in x), (asserting (c ? acc(z.f) : acc(w.f)) in z)), (asserting (d ? acc(x.f) : acc(y.f)) in write));
+ assert acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f);
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before_s = ACCESS_SUBMISSIONS
+                .each_ref()
+                .map(|v| v.load(std::sync::atomic::Ordering::SeqCst));
+            let before_e = ACCESS_EXECUTIONS
+                .each_ref()
+                .map(|v| v.load(std::sync::atomic::Ordering::SeqCst));
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            for i in 0..4 {
+                assert!(
+                    ACCESS_SUBMISSIONS[i].load(std::sync::atomic::Ordering::SeqCst) > before_s[i],
+                    "missing submission {i}"
+                );
+                assert!(
+                    ACCESS_EXECUTIONS[i].load(std::sync::atomic::Ordering::SeqCst) > before_e[i],
+                    "missing execution {i}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_pure_consumption() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(b: Bool, x: Ref, y: Ref)
+ requires acc(x.f) && acc(y.f) && x.f == 3
+ ensures acc(x.f) && acc(y.f) && x.f == 3
+{
+ assert (asserting (b ? acc(x.f) : acc(y.f)) in x.f == 3);
+ x.f := 4; x.f := 3; assert x.f == 3;
+}
+method bad(b: Bool, x: Ref, y: Ref) requires acc(x.f) && acc(y.f) { assert (asserting (b ? acc(x.f) : acc(y.f)) in false); }
+"#;
+        for workers in [1, 2] {
+            let submitted = PURE_CONSUMPTION_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed = PURE_CONSUMPTION_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let retries = PURE_CONSUMPTION_RETRIES.load(std::sync::atomic::Ordering::SeqCst);
+            let (good, bad) = source.split_once("method bad(").unwrap();
+            let good = format!("{good}\nmethod bad() {{ assert false; }}");
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                &good,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}, good: {fatal:?}"
+            );
+            let bad = format!("// owned_return_tail_check\nfield f: Int\nmethod bad({bad}");
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                &bad,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert!(
+                fatal.iter().any(|v| *v),
+                "workers={workers}, bad: {fatal:?}"
+            );
+            assert!(
+                PURE_CONSUMPTION_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > submitted
+            );
+            assert!(
+                PURE_CONSUMPTION_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed
+            );
+            assert!(PURE_CONSUMPTION_RETRIES.load(std::sync::atomic::Ordering::SeqCst) > retries);
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_joined_consumption_guard() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method joined(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires c && acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+ ensures acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f) && r == 1
+{
+ r := c ? (asserting ((asserting (b ? acc(x.f) : acc(y.f)) in c) ? acc(z.f) : acc(w.f)) in 1) : 2;
+ assert r == 1;
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before =
+                CONSUMPTION_JOIN_GUARD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            assert!(
+                CONSUMPTION_JOIN_GUARD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > before
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_nested_quantified_consumption_guard() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(a: Ref, b: Ref, c: Bool, d: Bool)
+ requires a != b && acc(a.f) && acc(b.f)
+{
+ assert exists i: Int :: (asserting ((asserting (d ? acc(a.f) : acc(b.f)) in c) ? acc(a.f) : acc(b.f)) in true);
+ assert acc(a.f) && acc(b.f);
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before_s = NESTED_QUANT_GUARD_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let before_a = NESTED_QUANT_GUARD_ACTIVE.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            assert!(
+                NESTED_QUANT_GUARD_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > before_s,
+                "no nested guard submission"
+            );
+            assert!(
+                NESTED_QUANT_GUARD_ACTIVE.load(std::sync::atomic::Ordering::SeqCst) > before_a,
+                "no active quantified collector"
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_consumption_guard() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref)
+ requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+ ensures acc(x.f) && acc(y.f) && (c ? acc(w.f) : acc(z.f))
+{
+ exhale (asserting (b ? acc(x.f) : acc(y.f)) in c) ? acc(z.f) : acc(w.f);
+ assert acc(x.f) && acc(y.f);
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let submitted = CONSUMPTION_GUARD_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed = CONSUMPTION_GUARD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            assert!(
+                CONSUMPTION_GUARD_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > submitted
+            );
+            assert!(
+                CONSUMPTION_GUARD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed
+            );
         }
     }
 

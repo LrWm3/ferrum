@@ -79,6 +79,9 @@ pub enum OwnedConsumptionTerminal<P, D, J> {
     Asserting(
         crate::rules::evaluator::OwnedAsserting<
             ferrum_silver::verifier::verification_error::PartialVerificationError,
+            P,
+            D,
+            J,
         >,
     ),
     FunctionPre(Arc<crate::rules::evaluator::OwnedFunctionPre<P, D, J>>),
@@ -181,6 +184,111 @@ impl<E: Clone, P, D, J> Clone for OwnedConsumptionFrame<E, P, D, J> {
             },
         }
     }
+}
+/// Consecutive impure let bindings and their owned consumption continuation.
+pub struct OwnedConsumptionLet<P, D, J> {
+    pub expression: Exp,
+    pub bindings: crate::state::store::MapBackedStore,
+    pub heap: Arc<ListBackedHeap>,
+    pub error: ferrum_silver::verifier::verification_error::PartialVerificationError,
+    pub return_snapshot: bool,
+    pub frames: Vec<
+        OwnedConsumptionFrame<
+            ferrum_silver::verifier::verification_error::PartialVerificationError,
+            P,
+            D,
+            J,
+        >,
+    >,
+    pub depth: usize,
+}
+impl<P, D, J> Clone for OwnedConsumptionLet<P, D, J> {
+    fn clone(&self) -> Self {
+        Self {
+            expression: self.expression.clone(),
+            bindings: self.bindings.clone(),
+            heap: self.heap.clone(),
+            error: self.error.clone(),
+            return_snapshot: self.return_snapshot,
+            frames: self.frames.clone(),
+            depth: self.depth,
+        }
+    }
+}
+/// Exact resource access evaluation prefix and enclosing consumption continuation.
+pub struct OwnedAccessConsumption<P, D, J> {
+    pub assertion: Exp,
+    pub resource: crate::state::terms::ResourceKey,
+    pub arguments: Vec<Exp>,
+    pub permission: Exp,
+    pub original_arps:
+        crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<Term>,
+    pub heap: Arc<ListBackedHeap>,
+    pub error: ferrum_silver::verifier::verification_error::PartialVerificationError,
+    pub return_snapshot: bool,
+    pub frames: Vec<
+        OwnedConsumptionFrame<
+            ferrum_silver::verifier::verification_error::PartialVerificationError,
+            P,
+            D,
+            J,
+        >,
+    >,
+    pub values: Vec<(Term, Option<Exp>)>,
+    pub argument_debug: Option<Option<Vec<Exp>>>,
+}
+impl<P, D, J> Clone for OwnedAccessConsumption<P, D, J> {
+    fn clone(&self) -> Self {
+        Self {
+            assertion: self.assertion.clone(),
+            resource: self.resource.clone(),
+            arguments: self.arguments.clone(),
+            permission: self.permission.clone(),
+            original_arps: self.original_arps.clone(),
+            heap: self.heap.clone(),
+            error: self.error.clone(),
+            return_snapshot: self.return_snapshot,
+            frames: self.frames.clone(),
+            values: self.values.clone(),
+            argument_debug: self.argument_debug.clone(),
+        }
+    }
+}
+/// A pure assertion's inner retry and exact outer consumption continuation.
+pub struct OwnedPureConsumption<P, D, J> {
+    pub assertion: Exp,
+    pub error: ferrum_silver::verifier::verification_error::PartialVerificationError,
+    pub heap: Arc<ListBackedHeap>,
+    pub old_heap: Arc<ListBackedHeap>,
+    pub old_reserve: Vec<Arc<ListBackedHeap>>,
+    pub old_exhale: bool,
+    pub return_snapshot: bool,
+    pub attempt: crate::rules::execution_flow_controller::RetryAttempt,
+    pub frames: Vec<
+        OwnedConsumptionFrame<
+            ferrum_silver::verifier::verification_error::PartialVerificationError,
+            P,
+            D,
+            J,
+        >,
+    >,
+}
+/// Exact continuation after evaluating an owned impure consumption guard.
+pub struct OwnedConsumptionGuard<P, D, J> {
+    pub condition: Exp,
+    pub yes: Exp,
+    pub no: Option<Exp>,
+    pub heap: Arc<ListBackedHeap>,
+    pub error: ferrum_silver::verifier::verification_error::PartialVerificationError,
+    pub return_snapshot: bool,
+    pub frames: Vec<
+        OwnedConsumptionFrame<
+            ferrum_silver::verifier::verification_error::PartialVerificationError,
+            P,
+            D,
+            J,
+        >,
+    >,
 }
 pub struct OwnedConsumptionAction<E, P, D, J> {
     pub body: Option<Exp>,
@@ -327,6 +435,52 @@ pub trait ConsumptionContext<P, D, J, V>: Sized {
     fn factory(&self) -> &crate::state::terms::TermFactory;
     fn debugging(&self) -> bool;
     fn unsafe_wildcard_optimization(&self) -> bool;
+    fn try_consume_owned_let(
+        &mut self,
+        _state: &State<P, D, J>,
+        _assertion: &Exp,
+        _heap: &Arc<ListBackedHeap>,
+        _return_snapshot: bool,
+        _error: &Self::PartialError,
+        _frames: &[OwnedConsumptionFrame<Self::PartialError, P, D, J>],
+    ) -> Option<Result<VerificationResult<V>, ConsumptionError<Self::Error>>> {
+        None
+    }
+    fn try_consume_owned_access(
+        &mut self,
+        _state: &State<P, D, J>,
+        _heap: &Arc<ListBackedHeap>,
+        _assertion: &Exp,
+        _return_snapshot: bool,
+        _error: &Self::PartialError,
+        _frames: &[OwnedConsumptionFrame<Self::PartialError, P, D, J>],
+    ) -> Option<Result<VerificationResult<V>, ConsumptionError<Self::Error>>> {
+        None
+    }
+    fn try_consume_owned_pure(
+        &mut self,
+        _state: &State<P, D, J>,
+        _heap: &Arc<ListBackedHeap>,
+        _assertion: &Exp,
+        _return_snapshot: bool,
+        _error: &Self::PartialError,
+        _frames: &[OwnedConsumptionFrame<Self::PartialError, P, D, J>],
+    ) -> Option<Result<VerificationResult<V>, ConsumptionError<Self::Error>>> {
+        None
+    }
+    fn try_evaluate_owned_consumption_guard(
+        &mut self,
+        _state: &State<P, D, J>,
+        _condition: &Exp,
+        _yes: &Exp,
+        _no: Option<&Exp>,
+        _heap: &Arc<ListBackedHeap>,
+        _error: &Self::PartialError,
+        _return_snapshot: bool,
+        _frames: &[OwnedConsumptionFrame<Self::PartialError, P, D, J>],
+    ) -> Option<Result<VerificationResult<V>, ConsumptionError<Self::Error>>> {
+        None
+    }
     fn evaluate(
         &mut self,
         state: State<P, D, J>,
@@ -658,7 +812,7 @@ where
         &frames,
     )
 }
-fn consume_owned_conjuncts<C, P, D, J: Clone, V>(
+pub(crate) fn consume_owned_conjuncts<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
     heap: Arc<ListBackedHeap>,
@@ -686,7 +840,7 @@ where
     next.extend_from_slice(frames);
     context.consume_owned_retry(state, heap, first, return_snapshot, &errors[0], &next)
 }
-fn resume_owned_consumption<C, P, D, J: Clone, V>(
+pub(crate) fn resume_owned_consumption<C, P, D, J: Clone, V>(
     context: &mut C,
     mut state: State<P, D, J>,
     heap: Arc<ListBackedHeap>,
@@ -796,6 +950,33 @@ where
         .map_err(ConsumptionError::Context)?;
     let mut next = vec![OwnedConsumptionFrame::Retry(attempt)];
     next.extend_from_slice(frames);
+    if matches!(
+        assertion.kind(),
+        ExpKind::FieldAccessPredicate(..) | ExpKind::PredicateAccessPredicate(..)
+    ) && context.supports_owned_consumption_frames(&state, frames)
+    {
+        if let Some(result) = context.try_consume_owned_access(
+            &state,
+            &heap,
+            assertion,
+            return_snapshot,
+            error,
+            &next,
+        ) {
+            return result;
+        }
+    }
+    if assertion.is_pure()
+        && !matches!(assertion.kind(), ExpKind::InhaleExhaleExp(..))
+        && context.supports_owned_consumption_frames(&state, frames)
+        && crate::rules::evaluator::has_owned_asserting_path(assertion)
+    {
+        if let Some(result) =
+            context.try_consume_owned_pure(&state, &heap, assertion, return_snapshot, error, &next)
+        {
+            return result;
+        }
+    }
     if !assertion.is_pure()
         && context.supports_owned_consumption_frames(&state, frames)
         && !context.join_impure(&state)
@@ -819,6 +1000,18 @@ where
                 return Err(ConsumptionError::OwnedSchedulerUnavailable);
             }
             next.insert(0, OwnedConsumptionFrame::FinishScope { conditional: true });
+            if let Some(result) = context.try_evaluate_owned_consumption_guard(
+                &state,
+                condition,
+                yes,
+                no,
+                &heap,
+                error,
+                return_snapshot,
+                &next,
+            ) {
+                return result;
+            }
             return context.evaluate(
                 state,
                 condition,
@@ -859,6 +1052,11 @@ where
             return Err(ConsumptionError::OwnedSchedulerUnavailable);
         }
         next.insert(0, OwnedConsumptionFrame::FinishScope { conditional: false });
+        if let Some(result) =
+            context.try_consume_owned_let(&state, assertion, &heap, return_snapshot, error, &next)
+        {
+            return result;
+        }
         return context.handle_let(
             state,
             assertion,
@@ -1227,6 +1425,88 @@ where
     }
 }
 
+pub(crate) fn finish_consume_access<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    heap: Arc<ListBackedHeap>,
+    assertion: &Exp,
+    return_snapshot: bool,
+    error: &C::PartialError,
+    resource: &crate::state::terms::ResourceKey,
+    permission: &Exp,
+    original_arps: &crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<Term>,
+    terms: &[Term],
+    debug_args: Option<&[Exp]>,
+    permission_term: Term,
+    permission_exp: Option<Exp>,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Arc<ListBackedHeap>,
+        Option<Term>,
+    ) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>,
+) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
+where
+    C: ConsumptionContext<P, D, J, V>,
+{
+    context.assert_not_negative(
+        state,
+        &permission_term,
+        permission,
+        permission_exp.as_ref(),
+        error,
+        &mut |context, state| {
+            let factory = context.factory();
+            let strict = !context.unsafe_wildcard_optimization()
+                || (!matches!(resource, crate::state::terms::ResourceKey::Wand(_))
+                    && state.perm_locations.contains(&resource));
+            let loss = if strict {
+                factory.perm_times(
+                    permission_term.clone(),
+                    state.permission_scaling_factor.clone(),
+                )
+            } else {
+                factory.wildcard_simplifying_perm_times(
+                    permission_term.clone(),
+                    state.permission_scaling_factor.clone(),
+                )
+            };
+            let loss_exp = if let Some(p) = &permission_exp {
+                let scale = state
+                    .permission_scaling_factor_exp
+                    .clone()
+                    .ok_or(ConsumptionError::MissingDebugExpression)?;
+                Some(Exp::new(
+                    ExpKind::PermMul(p.clone(), scale),
+                    p.metadata().clone(),
+                ))
+            } else {
+                None
+            };
+            let state = context
+                .trigger_resource(state, assertion, terms, debug_args)
+                .map_err(ConsumptionError::Context)?;
+            context.consume_single(
+                state,
+                heap.clone(),
+                resource,
+                assertion,
+                terms,
+                debug_args,
+                loss,
+                loss_exp,
+                return_snapshot,
+                error,
+                &mut |context, mut state, heap, snapshot| {
+                    state.constrainable_arps = original_arps.clone();
+                    state.partially_consumed_heap = Some(heap.clone());
+                    continuation(context, state, heap, snapshot)
+                },
+            )
+        },
+    )
+}
+
 fn consume_access<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
@@ -1286,61 +1566,21 @@ where
                 &permission,
                 error,
                 &mut |context, state, permission_term, permission_exp| {
-                    context.assert_not_negative(
+                    finish_consume_access(
+                        context,
                         state,
-                        &permission_term,
-                        &permission,
-                        permission_exp.as_ref(),
+                        heap.clone(),
+                        assertion,
+                        return_snapshot,
                         error,
-                        &mut |context, state| {
-                            let factory = context.factory();
-                            let strict = !context.unsafe_wildcard_optimization()
-                                || (!matches!(resource, ResourceKey::Wand(_))
-                                    && state.perm_locations.contains(&resource));
-                            let loss = if strict {
-                                factory.perm_times(
-                                    permission_term.clone(),
-                                    state.permission_scaling_factor.clone(),
-                                )
-                            } else {
-                                factory.wildcard_simplifying_perm_times(
-                                    permission_term.clone(),
-                                    state.permission_scaling_factor.clone(),
-                                )
-                            };
-                            let loss_exp = if let Some(p) = &permission_exp {
-                                let scale = state
-                                    .permission_scaling_factor_exp
-                                    .clone()
-                                    .ok_or(ConsumptionError::MissingDebugExpression)?;
-                                Some(Exp::new(
-                                    ExpKind::PermMul(p.clone(), scale),
-                                    p.metadata().clone(),
-                                ))
-                            } else {
-                                None
-                            };
-                            let state = context
-                                .trigger_resource(state, assertion, &terms, debug_args.as_deref())
-                                .map_err(ConsumptionError::Context)?;
-                            context.consume_single(
-                                state,
-                                heap.clone(),
-                                &resource,
-                                assertion,
-                                &terms,
-                                debug_args.as_deref(),
-                                loss,
-                                loss_exp,
-                                return_snapshot,
-                                error,
-                                &mut |context, mut state, heap, snapshot| {
-                                    state.constrainable_arps = original_arps.clone();
-                                    state.partially_consumed_heap = Some(heap.clone());
-                                    continuation(context, state, heap, snapshot)
-                                },
-                            )
-                        },
+                        &resource,
+                        &permission,
+                        &original_arps,
+                        &terms,
+                        debug_args.as_deref(),
+                        permission_term,
+                        permission_exp,
+                        continuation,
                     )
                 },
             )
@@ -1395,6 +1635,90 @@ where
     })
 }
 
+pub(crate) fn finish_assert_pure_value<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    assertion: &Exp,
+    error: &C::PartialError,
+    term: Term,
+    rewritten: Option<Exp>,
+    done: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>,
+) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
+where
+    C: ConsumptionContext<P, D, J, V>,
+{
+    let factory = context.factory().clone();
+    let goal = if let crate::state::terms::TermKind::Quantification {
+        quantifier,
+        vars,
+        body,
+        triggers,
+        name,
+        is_global,
+        weight,
+    } = term.kind()
+    {
+        let transformed = crate::state::function_precondition_transformer::transform(
+            &factory,
+            body,
+            &mut |function| context.precondition_function(function),
+        )
+        .map_err(ConsumptionError::Precondition)?;
+        let precondition = factory
+            .quantification(
+                *quantifier,
+                vars.clone(),
+                transformed.clone(),
+                triggers.clone(),
+                format!("{name}_precondition"),
+                *is_global,
+                *weight,
+            )
+            .map_err(ConsumptionError::Trigger)?;
+        context
+            .assume_quantifier_precondition(&precondition, rewritten.as_ref())
+            .map_err(ConsumptionError::Context)?;
+        factory
+            .quantification(
+                *quantifier,
+                vars.clone(),
+                factory.implies(transformed, body.clone()),
+                triggers.clone(),
+                name.clone(),
+                *is_global,
+                *weight,
+            )
+            .map_err(ConsumptionError::Trigger)?
+    } else {
+        term.clone()
+    };
+    if context
+        .assert_goal(&goal)
+        .map_err(ConsumptionError::Context)?
+    {
+        context
+            .assume_assertion(&term, assertion, rewritten.as_ref())
+            .map_err(ConsumptionError::Context)?;
+        return done(context, state);
+    }
+    let failure = context
+        .assertion_failure(&state, error, assertion, &goal, rewritten.as_ref())
+        .map_err(ConsumptionError::Context)?;
+    if state.retry_level == 0 && context.report_further_errors() {
+        context
+            .assume_assertion(&term, assertion, rewritten.as_ref())
+            .map_err(ConsumptionError::Context)?;
+        if failure.continue_verification() {
+            let next = done(context, state)?;
+            return Ok(failure.combine(|| next, false));
+        }
+    }
+    Ok(failure)
+}
+
 fn assert_pure<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
@@ -1429,74 +1753,9 @@ where
                 assertion,
                 error,
                 &mut |context, state, term, rewritten| {
-                    let factory = context.factory().clone();
-                    let goal = if let crate::state::terms::TermKind::Quantification {
-                        quantifier,
-                        vars,
-                        body,
-                        triggers,
-                        name,
-                        is_global,
-                        weight,
-                    } = term.kind()
-                    {
-                        let transformed =
-                            crate::state::function_precondition_transformer::transform(
-                                &factory,
-                                body,
-                                &mut |function| context.precondition_function(function),
-                            )
-                            .map_err(ConsumptionError::Precondition)?;
-                        let precondition = factory
-                            .quantification(
-                                *quantifier,
-                                vars.clone(),
-                                transformed.clone(),
-                                triggers.clone(),
-                                format!("{name}_precondition"),
-                                *is_global,
-                                *weight,
-                            )
-                            .map_err(ConsumptionError::Trigger)?;
-                        context
-                            .assume_quantifier_precondition(&precondition, rewritten.as_ref())
-                            .map_err(ConsumptionError::Context)?;
-                        factory
-                            .quantification(
-                                *quantifier,
-                                vars.clone(),
-                                factory.implies(transformed, body.clone()),
-                                triggers.clone(),
-                                name.clone(),
-                                *is_global,
-                                *weight,
-                            )
-                            .map_err(ConsumptionError::Trigger)?
-                    } else {
-                        term.clone()
-                    };
-                    if context
-                        .assert_goal(&goal)
-                        .map_err(ConsumptionError::Context)?
-                    {
-                        context
-                            .assume_assertion(&term, assertion, rewritten.as_ref())
-                            .map_err(ConsumptionError::Context)?;
-                        return done(context, state);
-                    }
-                    let failure = context
-                        .assertion_failure(&state, error, assertion, &goal, rewritten.as_ref())
-                        .map_err(ConsumptionError::Context)?;
-                    if state.retry_level == 0 && context.report_further_errors() {
-                        context
-                            .assume_assertion(&term, assertion, rewritten.as_ref())
-                            .map_err(ConsumptionError::Context)?;
-                        if failure.continue_verification() {
-                            let next = done(context, state)?;
-                            return Ok(failure.combine(|| next, false));
-                        }
-                    }
-                    Ok(failure)
+                    finish_assert_pure_value(
+                        context, state, assertion, error, term, rewritten, done,
+                    )
                 },
             )
         },

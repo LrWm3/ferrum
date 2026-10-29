@@ -112,6 +112,26 @@ pub struct OwnedAssignmentValue {
     pub tail: CfgStatementTail,
 }
 
+/// Exact argument/permission continuation for a Fold or Unfold statement.
+#[derive(Clone)]
+pub struct OwnedPredicateArgument {
+    pub statement: Stmt,
+    pub predicate: ferrum_silver::ast::program::Predicate,
+    pub location: Exp,
+    pub permission: Exp,
+    pub error: ferrum_silver::verifier::verification_error::PartialVerificationError,
+    pub arguments: Vec<Exp>,
+    pub values: Vec<StoreValue>,
+    pub argument_debug: Option<Option<Vec<Exp>>>,
+    pub original_arps: Option<
+        crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<
+            TermValue,
+        >,
+    >,
+    pub tail: CfgStatementTail,
+    pub folding: bool,
+}
+
 /// The two expression returns in a field assignment, including its exact CFG suffix.
 #[derive(Clone)]
 pub enum OwnedFieldAssignment {

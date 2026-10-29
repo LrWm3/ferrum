@@ -78,6 +78,103 @@ pub struct QuantifiedProductionData {
         >,
     )>,
 }
+/// Owned recipe for producing a source snapshot.
+#[derive(Clone, Debug)]
+pub enum OwnedSnapshotRecipe {
+    Fresh,
+    Projection(Term),
+}
+
+/// Consecutive producer Let bindings and exact projected continuation.
+pub struct OwnedProductionLet<P, D> {
+    pub expression: Exp,
+    pub bindings: crate::state::store::MapBackedStore,
+    pub snapshot: OwnedSnapshotRecipe,
+    pub error: ferrum_silver::verifier::verification_error::PartialVerificationError,
+    pub remaining: Vec<
+        OwnedProductionRemainder<
+            OwnedSnapshotRecipe,
+            ferrum_silver::verifier::verification_error::PartialVerificationError,
+        >,
+    >,
+    pub tail: OwnedProductionTerminal<P, D>,
+    pub depth: usize,
+}
+impl<P, D> Clone for OwnedProductionLet<P, D> {
+    fn clone(&self) -> Self {
+        Self {
+            expression: self.expression.clone(),
+            bindings: self.bindings.clone(),
+            snapshot: self.snapshot.clone(),
+            error: self.error.clone(),
+            remaining: self.remaining.clone(),
+            tail: self.tail.clone(),
+            depth: self.depth,
+        }
+    }
+}
+/// Producer access argument/permission prefix with its exact terminal.
+pub struct OwnedProductionAccess<P, D> {
+    pub resource: crate::state::terms::ResourceKey,
+    pub arguments: Vec<Exp>,
+    pub permission: Exp,
+    pub original_arps:
+        crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<Term>,
+    pub snapshot: OwnedSnapshotRecipe,
+    pub error: ferrum_silver::verifier::verification_error::PartialVerificationError,
+    pub remaining: Vec<
+        OwnedProductionRemainder<
+            OwnedSnapshotRecipe,
+            ferrum_silver::verifier::verification_error::PartialVerificationError,
+        >,
+    >,
+    pub tail: OwnedProductionTerminal<P, D>,
+    pub values: Vec<(Term, Option<Exp>)>,
+    pub argument_debug: Option<Option<Vec<Exp>>>,
+}
+impl<P, D> Clone for OwnedProductionAccess<P, D> {
+    fn clone(&self) -> Self {
+        Self {
+            resource: self.resource.clone(),
+            arguments: self.arguments.clone(),
+            permission: self.permission.clone(),
+            original_arps: self.original_arps.clone(),
+            snapshot: self.snapshot.clone(),
+            error: self.error.clone(),
+            remaining: self.remaining.clone(),
+            tail: self.tail.clone(),
+            values: self.values.clone(),
+            argument_debug: self.argument_debug.clone(),
+        }
+    }
+}
+/// Pure producer value and its exact projected suffix.
+pub struct OwnedPureProduction<P, D> {
+    pub assertion: Exp,
+    pub error: ferrum_silver::verifier::verification_error::PartialVerificationError,
+    pub remaining: Vec<
+        OwnedProductionRemainder<
+            OwnedSnapshotRecipe,
+            ferrum_silver::verifier::verification_error::PartialVerificationError,
+        >,
+    >,
+    pub tail: OwnedProductionTerminal<P, D>,
+}
+/// The exact producer branch and suffix after an impure guard value.
+pub struct OwnedProductionGuard<P, D> {
+    pub snapshot: OwnedSnapshotRecipe,
+    pub condition: Exp,
+    pub yes: Exp,
+    pub no: Option<Exp>,
+    pub error: ferrum_silver::verifier::verification_error::PartialVerificationError,
+    pub remaining: Vec<
+        OwnedProductionRemainder<
+            OwnedSnapshotRecipe,
+            ferrum_silver::verifier::verification_error::PartialVerificationError,
+        >,
+    >,
+    pub tail: OwnedProductionTerminal<P, D>,
+}
 /// A projected assertion suffix and its snapshot, retained across branch jobs.
 #[derive(Clone)]
 pub enum OwnedProductionRemainder<S, E> {
@@ -220,6 +317,52 @@ pub trait ProductionContext<P, D, J, V>: Sized {
         state: &State<P, D, J>,
         snapshot: &Self::Snapshot,
     ) -> Result<(), Self::Error>;
+    fn try_produce_owned_let(
+        &mut self,
+        _state: &State<P, D, J>,
+        _snapshot: &Self::Snapshot,
+        _assertion: &Exp,
+        _error: &Self::PartialError,
+        _remaining: &[OwnedProductionRemainder<Self::Snapshot, Self::PartialError>],
+        _tail: &OwnedProductionTerminal<P, D>,
+    ) -> Option<Result<VerificationResult<V>, ProductionError<Self::Error>>> {
+        None
+    }
+    fn try_produce_owned_access(
+        &mut self,
+        _state: &State<P, D, J>,
+        _snapshot: &Self::Snapshot,
+        _assertion: &Exp,
+        _error: &Self::PartialError,
+        _remaining: &[OwnedProductionRemainder<Self::Snapshot, Self::PartialError>],
+        _tail: &OwnedProductionTerminal<P, D>,
+    ) -> Option<Result<VerificationResult<V>, ProductionError<Self::Error>>> {
+        None
+    }
+    fn try_produce_owned_pure(
+        &mut self,
+        _state: &State<P, D, J>,
+        _snapshot: &Self::Snapshot,
+        _assertion: &Exp,
+        _error: &Self::PartialError,
+        _remaining: &[OwnedProductionRemainder<Self::Snapshot, Self::PartialError>],
+        _tail: &OwnedProductionTerminal<P, D>,
+    ) -> Option<Result<VerificationResult<V>, ProductionError<Self::Error>>> {
+        None
+    }
+    fn try_evaluate_owned_production_guard(
+        &mut self,
+        _state: &State<P, D, J>,
+        _snapshot: &Self::Snapshot,
+        _condition: &Exp,
+        _yes: &Exp,
+        _no: Option<&Exp>,
+        _error: &Self::PartialError,
+        _remaining: &[OwnedProductionRemainder<Self::Snapshot, Self::PartialError>],
+        _tail: &OwnedProductionTerminal<P, D>,
+    ) -> Option<Result<VerificationResult<V>, ProductionError<Self::Error>>> {
+        None
+    }
     fn evaluate(
         &mut self,
         state: State<P, D, J>,
@@ -443,7 +586,7 @@ where
     )
 }
 
-fn produce_owned_conjuncts<C, P, D, J: Clone, V>(
+pub(crate) fn produce_owned_conjuncts<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
     snapshot: C::Snapshot,
@@ -484,6 +627,30 @@ where
         pending.extend_from_slice(remaining);
         (left, pending)
     };
+    if matches!(
+        first.kind(),
+        ExpKind::FieldAccessPredicate(..)
+            | ExpKind::PredicateAccessPredicate(..)
+            | ExpKind::MagicWand(..)
+    ) && context.supports_owned_production_terminal(&state, tail)
+    {
+        if let Some(result) =
+            context.try_produce_owned_access(&state, &left, &first, &errors[0], &pending, tail)
+        {
+            return result;
+        }
+    }
+    if first.is_pure()
+        && !matches!(first.kind(), ExpKind::InhaleExhaleExp(..))
+        && context.supports_owned_production_terminal(&state, tail)
+        && crate::rules::evaluator::has_owned_asserting_path(&first)
+    {
+        if let Some(result) =
+            context.try_produce_owned_pure(&state, &left, &first, &errors[0], &pending, tail)
+        {
+            return result;
+        }
+    }
     let conditional = if !first.is_pure() {
         match first.kind() {
             ExpKind::Implies(condition, yes) => Some((condition, yes, None)),
@@ -504,6 +671,13 @@ where
                 .map_err(ProductionError::Context)?;
             if scope.is_some() || conditional_scope.is_some() {
                 return Err(ProductionError::OwnedSchedulerUnavailable);
+            }
+            let mut next = vec![OwnedProductionRemainder::Finish { conditional: true }];
+            next.extend_from_slice(&pending);
+            if let Some(result) = context.try_evaluate_owned_production_guard(
+                &state, &left, condition, yes, no, &errors[0], &next, tail,
+            ) {
+                return result;
             }
             return context.evaluate(
                 state,
@@ -546,6 +720,13 @@ where
         if scope.is_some() {
             return Err(ProductionError::OwnedSchedulerUnavailable);
         }
+        let mut next = vec![OwnedProductionRemainder::Finish { conditional: false }];
+        next.extend_from_slice(&pending);
+        if let Some(result) =
+            context.try_produce_owned_let(&state, &left, &first, &errors[0], &next, tail)
+        {
+            return result;
+        }
         return context.handle_let(
             state,
             &first,
@@ -579,7 +760,7 @@ where
     )
 }
 
-fn resume_owned_production<C, P, D, J: Clone, V>(
+pub(crate) fn resume_owned_production<C, P, D, J: Clone, V>(
     context: &mut C,
     mut state: State<P, D, J>,
     remaining: &[OwnedProductionRemainder<C::Snapshot, C::PartialError>],
@@ -904,6 +1085,79 @@ where
 }
 
 /// Ordinary access production follows source argument evaluation and permission scaling.
+pub(crate) fn finish_produce_access<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    snapshot: &C::Snapshot,
+    error: &C::PartialError,
+    resource: &crate::state::terms::ResourceKey,
+    permission: &Exp,
+    original_arps: &crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<Term>,
+    terms: &[Term],
+    arg_exps: Option<&[Exp]>,
+    permission_term: Term,
+    permission_exp: Option<Exp>,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ProductionError<C::Error>>,
+) -> Result<VerificationResult<V>, ProductionError<C::Error>>
+where
+    C: ProductionContext<P, D, J, V>,
+{
+    context.assert_not_negative(
+        state,
+        &permission_term,
+        permission,
+        permission_exp.as_ref(),
+        error,
+        &mut |context, mut state| {
+            state.constrainable_arps = original_arps.clone();
+            let snap = context
+                .snapshot_for_resource(&state, snapshot, resource)
+                .map_err(ProductionError::Context)?;
+            let factory = context.factory();
+            let strict = !context.unsafe_wildcard_optimization()
+                || (!matches!(resource, crate::state::terms::ResourceKey::Wand(_))
+                    && state.perm_locations.contains(&resource));
+            let gain = if strict {
+                factory.perm_times(
+                    permission_term.clone(),
+                    state.permission_scaling_factor.clone(),
+                )
+            } else {
+                factory.wildcard_simplifying_perm_times(
+                    permission_term.clone(),
+                    state.permission_scaling_factor.clone(),
+                )
+            };
+            let gain_exp = if let Some(p) = &permission_exp {
+                let scale = state
+                    .permission_scaling_factor_exp
+                    .clone()
+                    .ok_or(ProductionError::MissingDebugExpression)?;
+                Some(Exp::new(
+                    ExpKind::PermMul(p.clone(), scale),
+                    p.metadata().clone(),
+                ))
+            } else {
+                None
+            };
+            context.produce_single(
+                state,
+                resource,
+                terms,
+                arg_exps,
+                snap,
+                gain,
+                gain_exp,
+                error,
+                continuation,
+            )
+        },
+    )
+}
+
 fn produce_access<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
@@ -962,56 +1216,19 @@ where
                 &permission,
                 error,
                 &mut |context, state, permission_term, permission_exp| {
-                    context.assert_not_negative(
+                    finish_produce_access(
+                        context,
                         state,
-                        &permission_term,
-                        &permission,
-                        permission_exp.as_ref(),
+                        snapshot,
                         error,
-                        &mut |context, mut state| {
-                            state.constrainable_arps = original_arps.clone();
-                            let snap = context
-                                .snapshot_for_resource(&state, snapshot, &resource)
-                                .map_err(ProductionError::Context)?;
-                            let factory = context.factory();
-                            let strict = !context.unsafe_wildcard_optimization()
-                                || (!matches!(resource, ResourceKey::Wand(_))
-                                    && state.perm_locations.contains(&resource));
-                            let gain = if strict {
-                                factory.perm_times(
-                                    permission_term.clone(),
-                                    state.permission_scaling_factor.clone(),
-                                )
-                            } else {
-                                factory.wildcard_simplifying_perm_times(
-                                    permission_term.clone(),
-                                    state.permission_scaling_factor.clone(),
-                                )
-                            };
-                            let gain_exp = if let Some(p) = &permission_exp {
-                                let scale = state
-                                    .permission_scaling_factor_exp
-                                    .clone()
-                                    .ok_or(ProductionError::MissingDebugExpression)?;
-                                Some(Exp::new(
-                                    ExpKind::PermMul(p.clone(), scale),
-                                    p.metadata().clone(),
-                                ))
-                            } else {
-                                None
-                            };
-                            context.produce_single(
-                                state,
-                                &resource,
-                                &terms,
-                                arg_exps.as_deref(),
-                                snap,
-                                gain,
-                                gain_exp,
-                                error,
-                                continuation,
-                            )
-                        },
+                        &resource,
+                        &permission,
+                        &original_arps,
+                        &terms,
+                        arg_exps.as_deref(),
+                        permission_term,
+                        permission_exp,
+                        continuation,
                     )
                 },
             )
