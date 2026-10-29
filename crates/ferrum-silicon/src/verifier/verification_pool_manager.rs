@@ -3742,20 +3742,104 @@ mod thread_pool_tests {
             program
                 .methods
                 .iter()
+                .filter(|method| !source.contains("// manual_") || method.name != "scaffold")
                 .map(|method| {
-                    ferrum_silver::cfg::silver::cfg_generator::statement_to_cfg(
-                        method.body.as_ref().unwrap(),
-                        true,
-                        true,
-                    )
-                    .unwrap()
+                    if source.contains("// manual_") {
+                        use ferrum_silver::ast::statement::{Stmt, StmtKind};
+                        fn transform(body: &Stmt, depth: usize, wrap_try: bool) -> Stmt {
+                            let StmtKind::Seqn {
+                                statements,
+                                declarations,
+                            } = body.kind()
+                            else {
+                                return body.clone();
+                            };
+                            let locals = declarations.iter().filter_map(|d| match d {
+                                ferrum_silver::ast::program::Declaration::Local(local) => {
+                                    Some(Stmt::new(
+                                        StmtKind::LocalVarDeclStmt(local.clone()),
+                                        body.metadata().clone(),
+                                    ))
+                                }
+                                _ => None,
+                            });
+                            let statements = locals
+                                .chain(
+                                    statements
+                                        .iter()
+                                        .map(|stmt| transform(stmt, depth + 1, wrap_try)),
+                                )
+                                .collect();
+                            let seq = Stmt::new(
+                                StmtKind::Seqn {
+                                    statements,
+                                    declarations: declarations.clone(),
+                                },
+                                body.metadata().clone(),
+                            );
+                            if depth >= 2 && wrap_try {
+                                crate::extensions::try_block_stmt::TryBlock {
+                                    body: seq,
+                                    meta: body.metadata().clone(),
+                                }
+                                .statement()
+                            } else {
+                                seq
+                            }
+                        }
+                        let body = transform(
+                            method.body.as_ref().unwrap(),
+                            0,
+                            source.contains("// manual_try_cfg"),
+                        );
+                        if source.contains("// manual_loop_cfg") {
+                            use ferrum_silver::cfg::{
+                                block::Block,
+                                edge::{Edge, Kind},
+                            };
+                            let entry = Block::statement(vec![]);
+                            let head = Block::loop_head(vec![], vec![body], None);
+                            let exit = Block::statement(vec![]);
+                            let edges = vec![
+                                Edge::unconditional(entry.clone(), head.clone(), Kind::In),
+                                Edge::unconditional(head.clone(), exit.clone(), Kind::Out),
+                            ];
+                            ferrum_silver::cfg::silver::silver_cfg::SilverCfg::new(
+                                vec![entry.clone(), head, exit.clone()],
+                                edges,
+                                entry,
+                                Some(exit),
+                            )
+                        } else {
+                            let block = ferrum_silver::cfg::block::Block::statement(vec![body]);
+                            ferrum_silver::cfg::silver::silver_cfg::SilverCfg::new(
+                                vec![block.clone()],
+                                vec![],
+                                block.clone(),
+                                Some(block),
+                            )
+                        }
+                    } else {
+                        ferrum_silver::cfg::silver::cfg_generator::statement_to_cfg(
+                            method.body.as_ref().unwrap(),
+                            true,
+                            true,
+                        )
+                        .unwrap()
+                    }
                 })
                 .collect::<Vec<_>>()
         } else {
             Vec::new()
         };
         let program = if standalone_cfg {
-            program.copy_with(|data| data.methods.clear())
+            program.copy_with(|data| {
+                if source.contains("// manual_") {
+                    data.methods.retain(|method| method.name == "scaffold");
+                } else {
+                    data.methods.clear();
+                }
+            })
         } else {
             program
         };
@@ -4414,6 +4498,210 @@ method bad(b: Bool, x: Ref, y: Ref)
                 RULE_CONSUMPTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
                     > executed
             );
+        }
+    }
+
+    #[test]
+    fn real_stdio_nested_sequence_try_cfg_continuations() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = "// manual_try_cfg\nfield f: Int method scaffold() requires forall z: Ref :: acc(z.f) {} method good() { var b: Bool; var x: Ref; var y: Ref; { inhale b ? acc(x.f) : acc(y.f); } assert b ? acc(x.f) : acc(y.f); } method bad() { assert false; }";
+        let try_failure = source.replace(
+            "inhale b ? acc(x.f) : acc(y.f); } assert b ? acc(x.f) : acc(y.f);",
+            "inhale b ? acc(x.f) : acc(y.f); assert false; } assert perm(x.f) == none && perm(y.f) == none;",
+        );
+        for source in [source, try_failure.as_str()] {
+            for workers in [1, 2] {
+                let submitted =
+                    RULE_PRODUCTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let executed =
+                    RULE_PRODUCTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    true,
+                    true,
+                    true,
+                );
+                assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1);
+                assert!(
+                    RULE_PRODUCTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > submitted
+                );
+                assert!(
+                    RULE_PRODUCTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > executed
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_loop_head_statement_continuations() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = "// manual_loop_cfg\nfield f: Int method scaffold() requires forall z: Ref :: acc(z.f) {} method good() { var b: Bool; var x: Ref; var y: Ref; { inhale b ? acc(x.f) : acc(y.f); } assert b ? acc(x.f) : acc(y.f); } method bad() { assert false; }";
+        for workers in [1, 2] {
+            let submitted =
+                RULE_PRODUCTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed =
+                RULE_PRODUCTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                true,
+                true,
+                true,
+            );
+            assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1);
+            assert!(
+                RULE_PRODUCTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > submitted
+            );
+            assert!(
+                RULE_PRODUCTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > executed
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_producer_conditional_inside_let_executes_on_owned_worker() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = "field f: Int method good(b: Bool, x: Ref, y: Ref) requires x != y ensures b ? acc(x.f) : acc(y.f) { inhale let a == (x) in (b ? acc(a.f) : acc(y.f)); } method bad() { assert false; }";
+        for workers in [1, 2] {
+            let submitted =
+                RULE_PRODUCTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed =
+                RULE_PRODUCTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert!(fatal.iter().any(|fatal| *fatal));
+            assert!(
+                RULE_PRODUCTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > submitted
+            );
+            assert!(
+                RULE_PRODUCTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > executed
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_consumer_let_continuations() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let cases = [
+            r#"field f: Int
+method good(b: Bool, x: Ref, y: Ref)
+  requires acc(x.f) && acc(y.f)
+  ensures b ? acc(y.f) : acc(x.f)
+{
+  exhale let a == (x) in (b ? acc(a.f) : acc(y.f));
+}
+method bad(b: Bool, x: Ref, y: Ref)
+  requires x != y && acc(x.f)
+{
+  exhale let a == (x) in (b ? acc(a.f) : acc(y.f));
+}
+"#,
+            r#"field f: Int
+method good(b: Bool, x: Ref, y: Ref)
+  requires acc(x.f) && acc(y.f)
+  ensures let a == (x) in (b ? acc(a.f) : acc(y.f))
+{}
+method bad(b: Bool, x: Ref, y: Ref)
+  requires x != y && acc(x.f)
+  ensures let a == (x) in (b ? acc(a.f) : acc(y.f))
+{}
+"#,
+        ];
+        for source in cases {
+            for workers in [1, 2] {
+                let submitted =
+                    RULE_CONSUMPTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let executed =
+                    RULE_CONSUMPTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1);
+                assert!(
+                    RULE_CONSUMPTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > submitted
+                );
+                assert!(
+                    RULE_CONSUMPTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > executed
+                );
+            }
         }
     }
 

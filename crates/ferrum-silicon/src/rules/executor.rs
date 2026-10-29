@@ -220,6 +220,33 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
     fn statement_scope_transferable(&self, _scope: Option<i32>) -> bool {
         false
     }
+    fn execute_owned_nested_sequence(
+        &mut self,
+        _state: State<P, D, J>,
+        _statements: &[Stmt],
+        _tail: &CfgStatementTail,
+        _continuation: &mut dyn FnMut(
+            &mut Self,
+            State<P, D, J>,
+        )
+            -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
+    }
+    fn execute_owned_try_body(
+        &mut self,
+        _state: State<P, D, J>,
+        _body: &Stmt,
+        _tail: &CfgStatementTail,
+        _success: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        _continuation: &mut dyn FnMut(
+            &mut Self,
+            State<P, D, J>,
+        )
+            -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
+    }
     fn consume_with_owned_tail(
         &mut self,
         state: State<P, D, J>,
@@ -423,7 +450,21 @@ where
         continuation(context, state)
     };
     match statement.kind() {
-        StmtKind::Seqn { statements, .. } => execute_all(context, state, statements, &mut finish),
+        StmtKind::Seqn { statements, .. } => {
+            if let Some(tail) = owned_tail
+                .filter(|_| !state.exhale_ext && context.statement_scope_transferable(scope))
+            {
+                if let Some(result) = context.execute_owned_nested_sequence(
+                    state.clone(),
+                    statements,
+                    tail,
+                    &mut finish,
+                ) {
+                    return result;
+                }
+            }
+            execute_all(context, state, statements, &mut finish)
+        }
         StmtKind::Label(label) => {
             let name = &label.name;
             let heap = context
@@ -740,6 +781,29 @@ where
                 .expect("checked extension type")
                 .body;
             let original = state.clone();
+            if let Some(tail) = owned_tail
+                .filter(|_| !state.exhale_ext && context.statement_scope_transferable(scope))
+            {
+                let success = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let marker = success.clone();
+                if let Some(result) = context.execute_owned_try_body(
+                    state.clone(),
+                    body,
+                    tail,
+                    marker.clone(),
+                    &mut |context, state| {
+                        marker.store(true, std::sync::atomic::Ordering::SeqCst);
+                        finish(context, state)
+                    },
+                ) {
+                    let result = result?;
+                    return if success.load(std::sync::atomic::Ordering::SeqCst) {
+                        Ok(result)
+                    } else {
+                        finish(context, original)
+                    };
+                }
+            }
             let mut body_succeeded = false;
             let body_result = execute(context, state, body, &mut |context, state| {
                 body_succeeded = true;
@@ -1197,11 +1261,33 @@ pub struct CfgSuccessorFrame {
     path_id: i32,
 }
 
-/// Complete caller tail for a statement directly inside an owned CFG block.
+#[derive(Clone)]
+enum OwnedStatementSuccessor {
+    Block(CfgSuccessorFrame),
+    Loop(LoopHeadSuccessorFrame),
+}
+impl OwnedStatementSuccessor {
+    fn join_point(&self) -> Option<&SilverBlock> {
+        match self {
+            Self::Block(frame) => frame.join_point.as_ref(),
+            Self::Loop(frame) => frame.join_point.as_ref(),
+        }
+    }
+}
+
+#[derive(Clone)]
+enum OwnedStatementFrame {
+    Sequence(StatementSequenceFrame),
+    FinishSequence,
+    TrySuccess(std::sync::Arc<std::sync::atomic::AtomicBool>),
+}
+
+/// Complete caller tail for a statement inside an owned CFG block.
 #[derive(Clone)]
 pub struct CfgStatementTail {
     remaining: StatementSequenceFrame,
-    successor: CfgSuccessorFrame,
+    enclosing: Vec<OwnedStatementFrame>,
+    successor: OwnedStatementSuccessor,
     terminal: CfgContinuationTerminal,
 }
 
@@ -1236,7 +1322,8 @@ fn execute_cfg_statements<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
     sequence: StatementSequenceFrame,
-    successor: &CfgSuccessorFrame,
+    enclosing: &[OwnedStatementFrame],
+    successor: &OwnedStatementSuccessor,
     owned: Option<&CfgContinuationTerminal>,
     continuation: &mut dyn FnMut(
         &mut C,
@@ -1252,9 +1339,17 @@ where
             next: sequence.next + 1,
         };
         let tail = owned
-            .filter(|_| successor.join_point.is_none())
+            .filter(|_| {
+                successor.join_point().is_none()
+                    && context.supports_owned_cfg_branch()
+                    && state.parallelize_branches
+                    && !state.under_join
+                    && !state.is_in_package
+                    && !state.exhale_ext
+            })
             .map(|terminal| CfgStatementTail {
                 remaining: next.clone(),
+                enclosing: enclosing.to_vec(),
                 successor: successor.clone(),
                 terminal: terminal.clone(),
             });
@@ -1264,15 +1359,80 @@ where
             statement,
             tail.as_ref(),
             &mut |context, state| {
-                execute_cfg_statements(context, state, next.clone(), successor, owned, continuation)
+                execute_cfg_statements(
+                    context,
+                    state,
+                    next.clone(),
+                    enclosing,
+                    successor,
+                    owned,
+                    continuation,
+                )
             },
         )
     } else {
-        execute_cfg_successor_frame(context, state, successor, owned, continuation)
+        continuation(context, state)
     }
 }
 
-/// Resume a transferred direct-CFG statement tail with verifier-local callbacks.
+fn resume_cfg_statement_frames<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    frames: &[OwnedStatementFrame],
+    successor: &OwnedStatementSuccessor,
+    terminal: &CfgContinuationTerminal,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    if let Some((first, rest)) = frames.split_first() {
+        match first {
+            OwnedStatementFrame::Sequence(sequence) => execute_cfg_statements(
+                context,
+                state,
+                sequence.clone(),
+                rest,
+                successor,
+                Some(terminal),
+                &mut |context, state| {
+                    resume_cfg_statement_frames(context, state, rest, successor, terminal)
+                },
+            ),
+            OwnedStatementFrame::FinishSequence => {
+                let state = context
+                    .move_to_reserve_heap(state)
+                    .map_err(ExecutionError::Context)?;
+                context
+                    .close_statement_scope(None)
+                    .map_err(ExecutionError::Context)?;
+                resume_cfg_statement_frames(context, state, rest, successor, terminal)
+            }
+            OwnedStatementFrame::TrySuccess(success) => {
+                success.store(true, std::sync::atomic::Ordering::SeqCst);
+                resume_cfg_statement_frames(context, state, rest, successor, terminal)
+            }
+        }
+    } else {
+        match successor {
+            OwnedStatementSuccessor::Block(frame) => execute_cfg_successor_frame(
+                context,
+                state,
+                frame,
+                Some(terminal),
+                &mut |context, state| context.resume_owned_cfg_terminal(state, terminal),
+            ),
+            OwnedStatementSuccessor::Loop(frame) => execute_loop_head_successors(
+                context,
+                state,
+                frame,
+                Some(terminal),
+                &mut |context, state| context.resume_owned_cfg_terminal(state, terminal),
+            ),
+        }
+    }
+}
+
+/// Resume a transferred CFG statement tail with verifier-local callbacks.
 pub(crate) fn execute_cfg_statement_tail<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
@@ -1281,14 +1441,67 @@ pub(crate) fn execute_cfg_statement_tail<C, P, D, J: Clone, V>(
 where
     C: CfgContext<P, D, J, V>,
 {
+    let mut frames = vec![OwnedStatementFrame::Sequence(tail.remaining.clone())];
+    frames.extend_from_slice(&tail.enclosing);
+    resume_cfg_statement_frames(context, state, &frames, &tail.successor, &tail.terminal)
+}
+
+pub(crate) fn execute_cfg_nested_sequence<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    statements: &[Stmt],
+    tail: &CfgStatementTail,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    let mut enclosing = vec![
+        OwnedStatementFrame::FinishSequence,
+        OwnedStatementFrame::Sequence(tail.remaining.clone()),
+    ];
+    enclosing.extend_from_slice(&tail.enclosing);
     execute_cfg_statements(
         context,
         state,
-        tail.remaining.clone(),
+        StatementSequenceFrame::new(statements),
+        &enclosing,
         &tail.successor,
         Some(&tail.terminal),
-        &mut |context, state| context.resume_owned_cfg_terminal(state, &tail.terminal),
+        continuation,
     )
+}
+
+pub(crate) fn execute_cfg_try_body<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    body: &Stmt,
+    tail: &CfgStatementTail,
+    success: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    let mut enclosing = vec![
+        OwnedStatementFrame::TrySuccess(success),
+        OwnedStatementFrame::FinishSequence,
+        OwnedStatementFrame::Sequence(tail.remaining.clone()),
+    ];
+    enclosing.extend_from_slice(&tail.enclosing);
+    let inner = CfgStatementTail {
+        remaining: StatementSequenceFrame::new(&[]),
+        enclosing,
+        successor: tail.successor.clone(),
+        terminal: tail.terminal.clone(),
+    };
+    execute_with_owned_tail(context, state, body, Some(&inner), continuation)
 }
 
 pub fn execute_block<C, P, D, J: Clone, V>(
@@ -1345,13 +1558,17 @@ where
                 join_point: join_point.cloned(),
                 path_id,
             };
+            let successor = OwnedStatementSuccessor::Block(frame.clone());
             execute_cfg_statements(
                 context,
                 state,
                 StatementSequenceFrame::new(statements),
-                &frame,
+                &[],
+                &successor,
                 owned,
-                continuation,
+                &mut |context, state| {
+                    execute_cfg_successor_frame(context, state, &frame, owned, continuation)
+                },
             )?
         }
         BlockKind::LoopHead {
@@ -1862,6 +2079,7 @@ where
 }
 
 /// Continuation after loop-head statements: check conditions, then follow edges.
+#[derive(Clone)]
 struct LoopHeadSuccessorFrame {
     conditions: Arc<[Exp]>,
     edges: Arc<[SilverEdge]>,
@@ -1959,9 +2177,24 @@ where
             if context.loop_smoke().map_err(ExecutionError::Context)? {
                 return Ok(VerificationResult::success());
             }
-            execute_all(context, state, &frame.statements, &mut |context, state| {
-                execute_loop_head_successors(context, state, &frame.successors, owned, continuation)
-            })
+            let successor = OwnedStatementSuccessor::Loop(frame.successors.clone());
+            execute_cfg_statements(
+                context,
+                state,
+                StatementSequenceFrame::new(&frame.statements),
+                &[],
+                &successor,
+                owned,
+                &mut |context, state| {
+                    execute_loop_head_successors(
+                        context,
+                        state,
+                        &frame.successors,
+                        owned,
+                        continuation,
+                    )
+                },
+            )
         })?;
         accumulated = accumulated.combine(|| result, false);
     }

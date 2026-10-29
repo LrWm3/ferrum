@@ -1634,7 +1634,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Consumer.scala"
 destination = "crates/ferrum-silicon/src/rules/consumer.rs"
 status = "skeleton"
-remaining = ["Owned direct exhale/assert and method-post consumption carry heap, conjunct and retry frames to explicit terminals. Further callers, returned snapshots, active logging and broader compatibility remain."]
+remaining = ["Owned exhale/assert/method-post and Let consumption carry heap, conjunct, scope and retry frames. Further callers, returned snapshots, active logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1661,7 +1661,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Executor.scala"
 destination = "crates/ferrum-silicon/src/rules/executor.rs"
 status = "skeleton"
-remaining = ["Owned CFG/loop and direct inhale/exhale/assert statement tails reach method completion. Nested/other caller frames, public scheduling and broader compatibility remain."]
+remaining = ["Owned CFG/loop, nested sequence/TryBlock and loop-head statement tails connect rule jobs to method completion. Invariant-phase ownership, further caller frames, public scheduling and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1737,7 +1737,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Producer.scala"
 destination = "crates/ferrum-silicon/src/rules/producer.rs"
 status = "skeleton"
-remaining = ["Owned conditional/implication production from direct CFG inhale statements carries snapshot/assertion and caller tails across worker jobs. Additional callers, impure Let ownership, active logging and broad source compatibility remain."]
+remaining = ["Owned conditional/implication/Let production carries assertion, snapshot, scope and statement tails across worker jobs. Method/predicate and further callers, active logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"

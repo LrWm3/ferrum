@@ -53,6 +53,15 @@ It preserves per-postcondition error attribution and heap completion without
 running statement cleanup. A fixture whose only conditional is in its ensures
 clause checks real consumer job execution and an else-only permission failure.
 
+Nested statement sequences and TryBlock bodies have explicit enclosing finish
+frames. TryBlock records success before running its caller, so downstream failure
+cannot incorrectly trigger fallback; unsuccessful bodies resume from the original
+state. Loop-head statements carry their own successor checks before following
+edges. Producer and consumer lets retain the source store extension and remaining
+assertion/retry frames. Success-only scope closes are represented explicitly;
+active logger transfer is still disabled. Ordinary execution without an eligible
+scheduler does not construct these statement tails.
+
 ## Solver ownership and restoration
 
 Each solver remains on its owning thread. Jobs carry symbolic state and immutable
@@ -84,9 +93,9 @@ assertion using the suspended inner branch's assumptions.
 
 Additional producer/consumer callers, snapshot-returning consumption, predicate
 contents, active logger scope migration and general borrowed callback entry
-points still need owned caller frames. Direct inhale conditional/implication jobs are executable;
-production nested inside a generic let remains local, as do nested statement
-sequences, TryBlock and loop-head statement callbacks. They retain synchronous execution. Joined CFG/predicate dispatch
+points still need owned caller frames. Conditional/implication rules and nested lets, statement sequences, TryBlock
+and loop-head statements have executable owned caller frames. Loop invariant
+collection/establishment and additional method/predicate callers remain pending. They retain synchronous execution. Joined CFG/predicate dispatch
 also falls back synchronously when member logging, packaging or extended exhale
 is active. Broad parallel compatibility remains incomplete. Conditional scope
 closures may be bypassed only when the native context proves them to be no-ops;

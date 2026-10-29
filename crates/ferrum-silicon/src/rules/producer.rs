@@ -80,10 +80,15 @@ pub struct QuantifiedProductionData {
 }
 /// A projected assertion suffix and its snapshot, retained across branch jobs.
 #[derive(Clone)]
-pub struct OwnedProductionRemainder<S, E> {
-    pub snapshot: S,
-    pub assertions: Vec<Exp>,
-    pub errors: Vec<E>,
+pub enum OwnedProductionRemainder<S, E> {
+    Assertions {
+        snapshot: S,
+        assertions: Vec<Exp>,
+        errors: Vec<E>,
+    },
+    Finish {
+        conditional: bool,
+    },
 }
 
 /// Complete non-joined producer branch and the explicitly owned statement tail.
@@ -402,19 +407,7 @@ where
     C: ProductionContext<P, D, J, V>,
 {
     let Some((first, rest)) = assertions.split_first() else {
-        if let Some((next, later)) = remaining.split_first() {
-            return produce_owned_conjuncts(
-                context,
-                state,
-                next.snapshot.clone(),
-                &next.assertions,
-                &next.errors,
-                later,
-                tail,
-                continuation,
-            );
-        }
-        return continuation(context, state);
+        return resume_owned_production(context, state, remaining, tail, continuation);
     };
     let first = when_inhaling(first).map_err(ProductionError::Projection)?;
     let (left, pending) = if rest.is_empty() {
@@ -430,7 +423,7 @@ where
                 Err(ProductionError::InvalidSnapshotSplit)
             };
         };
-        let mut pending = vec![OwnedProductionRemainder {
+        let mut pending = vec![OwnedProductionRemainder::Assertions {
             snapshot: right,
             assertions: rest.to_vec(),
             errors: errors[1..].to_vec(),
@@ -463,12 +456,17 @@ where
                 condition,
                 &errors[0],
                 &mut |context, state, term, rewritten| {
-                    let mk = |body| OwnedProductionAction {
-                        snapshot: left.clone(),
-                        body,
-                        error: errors[0].clone(),
-                        remaining: pending.clone(),
-                        tail: tail.clone(),
+                    let mk = |body| {
+                        let mut remaining =
+                            vec![OwnedProductionRemainder::Finish { conditional: true }];
+                        remaining.extend_from_slice(&pending);
+                        OwnedProductionAction {
+                            snapshot: left.clone(),
+                            body,
+                            error: errors[0].clone(),
+                            remaining,
+                            tail: tail.clone(),
+                        }
                     };
                     context
                         .try_branch_owned_production(
@@ -484,29 +482,99 @@ where
             );
         }
     }
+    if !first.is_pure()
+        && matches!(first.kind(), ExpKind::Let(..))
+        && context.supports_owned_production(&state)
+    {
+        let scope = context
+            .open_produce_scope(&state, &first)
+            .map_err(ProductionError::Context)?;
+        if scope.is_some() {
+            return Err(ProductionError::OwnedSchedulerUnavailable);
+        }
+        return context.handle_let(
+            state,
+            &first,
+            &errors[0],
+            &mut |context, mut state, bindings, body| {
+                state.g = std::sync::Arc::new(state.g.with_store(&bindings));
+                let assertions = body.top_level_conjuncts();
+                let body_errors = vec![errors[0].clone(); assertions.len()];
+                let mut next = vec![OwnedProductionRemainder::Finish { conditional: false }];
+                next.extend_from_slice(&pending);
+                produce_owned_conjuncts(
+                    context,
+                    state,
+                    left.clone(),
+                    &assertions,
+                    &body_errors,
+                    &next,
+                    tail,
+                    continuation,
+                )
+            },
+        );
+    }
     produce_one(
         context,
         state,
         &left,
         &first,
         &errors[0],
-        &mut |context, state| {
-            if let Some((next, later)) = pending.split_first() {
-                produce_owned_conjuncts(
-                    context,
-                    state,
-                    next.snapshot.clone(),
-                    &next.assertions,
-                    &next.errors,
-                    later,
-                    tail,
-                    continuation,
-                )
-            } else {
-                continuation(context, state)
-            }
-        },
+        &mut |context, state| resume_owned_production(context, state, &pending, tail, continuation),
     )
+}
+
+fn resume_owned_production<C, P, D, J: Clone, V>(
+    context: &mut C,
+    mut state: State<P, D, J>,
+    remaining: &[OwnedProductionRemainder<C::Snapshot, C::PartialError>],
+    tail: &crate::rules::executor::CfgStatementTail,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ProductionError<C::Error>>,
+) -> Result<VerificationResult<V>, ProductionError<C::Error>>
+where
+    C: ProductionContext<P, D, J, V>,
+{
+    let Some((first, later)) = remaining.split_first() else {
+        return continuation(context, state);
+    };
+    match first {
+        OwnedProductionRemainder::Assertions {
+            snapshot,
+            assertions,
+            errors,
+        } => produce_owned_conjuncts(
+            context,
+            state,
+            snapshot.clone(),
+            assertions,
+            errors,
+            later,
+            tail,
+            continuation,
+        ),
+        OwnedProductionRemainder::Finish { conditional } => {
+            if *conditional {
+                context
+                    .close_production_conditional_scope(None)
+                    .map_err(ProductionError::Context)?;
+            }
+            if state.exhale_ext {
+                if state.reserve_heaps.is_empty() {
+                    state.reserve_heaps.push(state.h.clone());
+                } else {
+                    state.reserve_heaps[0] = state.h.clone();
+                }
+            }
+            context
+                .close_produce_scope(None)
+                .map_err(ProductionError::Context)?;
+            resume_owned_production(context, state, later, tail, continuation)
+        }
+    }
 }
 
 /// Execute a transferred producer branch, including all owned assertion and statement tails.
@@ -518,8 +586,7 @@ pub(crate) fn execute_owned_production_action<C, P, D, J: Clone, V>(
 where
     C: ProductionContext<P, D, J, V>,
 {
-    // The dispatch contract requires both producer scopes to be no-ops. Their
-    // success-only closes therefore need no worker-side state or identifier.
+    // The captured frames retain the success-only source scope closes.
     if let Some(body) = &action.body {
         let assertions = body.top_level_conjuncts();
         let errors = vec![action.error.clone(); assertions.len()];
@@ -537,20 +604,13 @@ where
         context
             .assume_empty_snapshot(&state, &action.snapshot)
             .map_err(ProductionError::Context)?;
-        if let Some((next, later)) = action.remaining.split_first() {
-            produce_owned_conjuncts(
-                context,
-                state,
-                next.snapshot.clone(),
-                &next.assertions,
-                &next.errors,
-                later,
-                &action.tail,
-                &mut |context, state| context.finish_owned_inhale(state, &action.tail),
-            )
-        } else {
-            context.finish_owned_inhale(state, &action.tail)
-        }
+        resume_owned_production(
+            context,
+            state,
+            &action.remaining,
+            &action.tail,
+            &mut |context, state| context.finish_owned_inhale(state, &action.tail),
+        )
     }
 }
 

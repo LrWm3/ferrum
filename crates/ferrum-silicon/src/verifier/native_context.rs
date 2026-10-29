@@ -7427,6 +7427,51 @@ where
     fn statement_scope_transferable(&self, scope: Option<i32>) -> bool {
         scope.is_none() && self.member_log.is_none()
     }
+    fn execute_owned_nested_sequence(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        statements: &[Stmt],
+        tail: &crate::rules::executor::CfgStatementTail,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ExecutionError<Self::Error>,
+        >,
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+        Some(crate::rules::executor::execute_cfg_nested_sequence(
+            self,
+            state,
+            statements,
+            tail,
+            continuation,
+        ))
+    }
+    fn execute_owned_try_body(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        body: &Stmt,
+        tail: &crate::rules::executor::CfgStatementTail,
+        success: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ExecutionError<Self::Error>,
+        >,
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+        Some(crate::rules::executor::execute_cfg_try_body(
+            self,
+            state,
+            body,
+            tail,
+            success,
+            continuation,
+        ))
+    }
+
     fn produce_with_owned_tail(
         &mut self,
         state: State<PD, FD, JoinMode>,

@@ -80,6 +80,9 @@ pub enum OwnedConsumptionTerminal {
 #[derive(Clone)]
 pub enum OwnedConsumptionFrame<E> {
     Retry(crate::rules::execution_flow_controller::RetryAttempt),
+    FinishScope {
+        conditional: bool,
+    },
     More {
         assertions: Vec<Exp>,
         errors: Vec<E>,
@@ -561,6 +564,17 @@ where
         .split_first()
         .ok_or(ConsumptionError::UnexpectedSnapshot)?;
     match first {
+        OwnedConsumptionFrame::FinishScope { conditional } => {
+            if *conditional {
+                context
+                    .close_consumption_conditional_scope(None)
+                    .map_err(ConsumptionError::Context)?;
+            }
+            context
+                .close_consumption_scope(None)
+                .map_err(ConsumptionError::Context)?;
+            resume_owned_consumption(context, state, heap, rest)
+        }
         OwnedConsumptionFrame::Retry(attempt) => {
             state = context
                 .resume_owned_retry(state, attempt)
@@ -614,6 +628,7 @@ where
             if scope.is_some() || inner.is_some() {
                 return Err(ConsumptionError::OwnedSchedulerUnavailable);
             }
+            next.insert(0, OwnedConsumptionFrame::FinishScope { conditional: true });
             return context.evaluate(
                 state,
                 condition,
@@ -638,6 +653,29 @@ where
                 },
             );
         }
+    }
+    if !assertion.is_pure()
+        && matches!(assertion.kind(), ExpKind::Let(..))
+        && context.supports_owned_consumption(&state)
+    {
+        let scope = context
+            .open_consumption_scope(&state, assertion)
+            .map_err(ConsumptionError::Context)?;
+        if scope.is_some() {
+            return Err(ConsumptionError::OwnedSchedulerUnavailable);
+        }
+        next.insert(0, OwnedConsumptionFrame::FinishScope { conditional: false });
+        return context.handle_let(
+            state,
+            assertion,
+            error,
+            &mut |context, mut state, bindings, body| {
+                state.g = Arc::new(state.g.with_store(&bindings));
+                let assertions = body.top_level_conjuncts();
+                let errors = vec![error.clone(); assertions.len()];
+                consume_owned_conjuncts(context, state, heap.clone(), &assertions, &errors, &next)
+            },
+        );
     }
     consume_one_logged(
         context,

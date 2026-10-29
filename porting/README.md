@@ -813,3 +813,11 @@ statement cleanup. The owned entry is selected only by complete_method_cfg and
 preserves per-postcondition error attribution. Actual Z3 checks with one and two
 workers prove conditional ensures jobs execute even with empty bodies and retain
 an else-only missing-permission error, matching the pinned JVM.
+
+Nested Seqn/TryBlock and loop-head statement continuations now own their enclosing
+finish and successor frames. TryBlock success is recorded before downstream work;
+failure fallback retains the original heap. Producer/consumer Let bodies and
+success-only rule closes are explicit frames. Real Z3 constructed CFG tests cover
+these paths and fallback heap restoration with one and two workers; a retained
+resource scaffold supplies the existing QP preamble requirements. Rule-only Let
+tests confirm actual jobs, and disabled scheduling avoids statement-tail clones.
