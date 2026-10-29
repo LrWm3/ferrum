@@ -478,3 +478,63 @@ method bad(x: Ref, y: Ref, z: Ref, w: Ref, b: Bool, c: Bool) returns (r: Int)
         );
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn permission_division_zero_and_left_failure_order() {
+    for (left, zero) in [("1", "0"), ("write", "0"), ("write", "none")] {
+        let source = format!(
+            r#"field f: Int
+method bad(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Perm)
+ requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+{{ r := (asserting (b ? acc(x.f) : acc(y.f)) in {left}) / (asserting (c ? acc(z.f) : acc(w.f)) in {zero}); assert false; }}
+"#
+        );
+        for workers in ["1", "2"] {
+            let output = run(&source, workers);
+            assert!(!output.status.success());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("division.by.zero") && stderr.contains("Divisor (asserting"),
+                "{stderr}"
+            );
+            assert!(!stderr.contains("assertion.false"), "{stderr}");
+        }
+    }
+    let source = r#"field f: Int
+method bad(x: Ref, y: Ref, b: Bool) returns (r: Perm)
+ requires x != y
+{ r := (asserting (b ? acc(x.f) : acc(y.f)) in write) / 0; }
+"#;
+    for workers in ["1", "2"] {
+        let output = run(source, workers);
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("insufficient.permission"), "{stderr}");
+        assert!(!stderr.contains("division.by.zero"), "{stderr}");
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn permission_division_report_further_errors_keeps_tail() {
+    for (left, typ) in [("1", "Int"), ("write", "Int"), ("write", "Perm")] {
+        let source = format!(
+            r#"field f: Int
+method bad(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref, d: {typ}) returns (r: Perm)
+ requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+{{ r := (asserting (b ? acc(x.f) : acc(y.f)) in {left}) / (asserting (c ? acc(z.f) : acc(w.f)) in d); assert false; }}
+"#
+        );
+        for workers in ["1", "2"] {
+            let output = run_with_limit(&source, workers, Some("0"));
+            assert!(!output.status.success());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("division.by.zero") && stderr.contains("Divisor (asserting"),
+                "{stderr}"
+            );
+            assert!(stderr.contains("assertion.false"), "{stderr}");
+        }
+    }
+}

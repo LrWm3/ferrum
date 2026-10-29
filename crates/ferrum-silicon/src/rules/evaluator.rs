@@ -197,6 +197,7 @@ pub enum OwnedEvaluationReturnFrame {
         value_debug: Option<Exp>,
     },
     Minus(OwnedValueWrapper),
+    PermMinus(OwnedValueWrapper),
     Not(OwnedValueWrapper),
     StrictLeft {
         wrapper: OwnedValueWrapper,
@@ -975,6 +976,18 @@ fn owned_strict_binary(expression: &Exp) -> Option<(Binary, &Exp, &Exp)> {
         ExpKind::Mod(a, b) => Some((Binary::Mod, a, b)),
         ExpKind::EqCmp(a, b) => Some((Binary::Eq, a, b)),
         ExpKind::NeCmp(a, b) => Some((Binary::Ne, a, b)),
+        ExpKind::FractionalPerm(a, b) => Some((Binary::Fraction, a, b)),
+        ExpKind::PermDiv(a, b) => Some((Binary::PermDiv, a, b)),
+        ExpKind::PermPermDiv(a, b) => Some((Binary::PermPermDiv, a, b)),
+        ExpKind::PermAdd(a, b) => Some((Binary::PermAdd, a, b)),
+        ExpKind::PermSub(a, b) => Some((Binary::PermSub, a, b)),
+        ExpKind::PermMul(a, b) => Some((Binary::PermMul, a, b)),
+        ExpKind::DebugPermMin(a, b) => Some((Binary::PermMin, a, b)),
+        ExpKind::IntPermMul(a, b) => Some((Binary::IntPermMul, a, b)),
+        ExpKind::PermLeCmp(a, b) => Some((Binary::PermLe, a, b)),
+        ExpKind::PermLtCmp(a, b) => Some((Binary::PermLt, a, b)),
+        ExpKind::PermGeCmp(a, b) => Some((Binary::PermGe, a, b)),
+        ExpKind::PermGtCmp(a, b) => Some((Binary::PermGt, a, b)),
         ExpKind::LeCmp(a, b) => Some((Binary::Le, a, b)),
         ExpKind::LtCmp(a, b) => Some((Binary::Lt, a, b)),
         ExpKind::GeCmp(a, b) => Some((Binary::Ge, a, b)),
@@ -987,6 +1000,7 @@ fn owned_strict_binary(expression: &Exp) -> Option<(Binary, &Exp, &Exp)> {
 enum OwnedPathStep {
     Old,
     Minus,
+    PermMinus,
     Not,
     FieldReceiver,
     LetValue,
@@ -1031,6 +1045,9 @@ fn owned_asserting_path(expression: &Exp) -> Option<Vec<OwnedPathStep>> {
                     }
                     ExpKind::Minus(body) => {
                         work.push(Work::Visit(body, Some(OwnedPathStep::Minus)))
+                    }
+                    ExpKind::PermMinus(body) => {
+                        work.push(Work::Visit(body, Some(OwnedPathStep::PermMinus)))
                     }
                     ExpKind::Not(body) => work.push(Work::Visit(body, Some(OwnedPathStep::Not))),
                     ExpKind::FieldAccess(access) => work.push(Work::Visit(
@@ -1089,6 +1106,7 @@ pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
         | ExpKind::LabelledOld(body, _)
         | ExpKind::DebugLabelledOld(body, _)
         | ExpKind::Minus(body)
+        | ExpKind::PermMinus(body)
         | ExpKind::Not(body) => has_owned_asserting_path(body),
         ExpKind::FieldAccess(access) => has_owned_asserting_path(&access.receiver),
         ExpKind::CurrentPerm(access) => match access.kind() {
@@ -1281,6 +1299,10 @@ where
         }
         (ExpKind::Minus(body), OwnedPathStep::Minus) => {
             frames.push(OwnedEvaluationReturnFrame::Minus(wrapper));
+            evaluate_owned_planned(context, state, body, error, receiver, rest, frames)
+        }
+        (ExpKind::PermMinus(body), OwnedPathStep::PermMinus) => {
+            frames.push(OwnedEvaluationReturnFrame::PermMinus(wrapper));
             evaluate_owned_planned(context, state, body, error, receiver, rest, frames)
         }
         (ExpKind::Not(body), OwnedPathStep::Not) => {
@@ -2275,6 +2297,17 @@ where
                 });
                 finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
             }
+            OwnedEvaluationReturnFrame::PermMinus(wrapper) => {
+                let factory = context.factory().clone();
+                term = factory.perm_minus(factory.no_perm(), term);
+                debug = debug.map(|value| {
+                    Exp::new(
+                        ExpKind::PermMinus(value),
+                        wrapper.expression.metadata().clone(),
+                    )
+                });
+                finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+            }
             OwnedEvaluationReturnFrame::Not(wrapper) => {
                 term = context.factory().not(term);
                 debug = debug.map(|value| {
@@ -2290,8 +2323,15 @@ where
                 let operator = owned_strict_binary(&wrapper.expression)
                     .expect("strict operator frame")
                     .0;
-                if matches!(operator, Binary::Div | Binary::Mod) {
-                    return finish_owned_divmod(
+                if matches!(
+                    operator,
+                    Binary::Div
+                        | Binary::Mod
+                        | Binary::Fraction
+                        | Binary::PermDiv
+                        | Binary::PermPermDiv
+                ) {
+                    return finish_owned_checked_division(
                         context,
                         state,
                         operator,
@@ -2335,8 +2375,15 @@ where
                     right,
                     error,
                     &mut |context, mut state, right_term, right_debug| {
-                        if matches!(operator, Binary::Div | Binary::Mod) {
-                            return finish_owned_divmod(
+                        if matches!(
+                            operator,
+                            Binary::Div
+                                | Binary::Mod
+                                | Binary::Fraction
+                                | Binary::PermDiv
+                                | Binary::PermPermDiv
+                        ) {
+                            return finish_owned_checked_division(
                                 context,
                                 state,
                                 operator,
@@ -2455,7 +2502,7 @@ where
         .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
 }
 
-fn finish_owned_divmod<C, P, D, J: Clone, V>(
+fn finish_owned_checked_division<C, P, D, J: Clone, V>(
     context: &mut C,
     mut state: State<P, D, J>,
     operator: Binary,
@@ -2483,7 +2530,12 @@ where
         (Some(_), None) => return Err(EvaluationError::MissingDebugExpression),
     };
     let (_, _, original_right) = owned_strict_binary(&wrapper.expression).expect("divisor frame");
-    let nonzero = factory.not(factory.equals(right, factory.int_literal(0)));
+    let zero = if matches!(operator, Binary::PermPermDiv) {
+        factory.no_perm()
+    } else {
+        factory.int_literal(0)
+    };
+    let nonzero = factory.not(factory.equals(right, zero));
     if !context
         .assert_goal(&nonzero)
         .map_err(EvaluationError::Context)?
