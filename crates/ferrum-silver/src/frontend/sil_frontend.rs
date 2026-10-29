@@ -493,10 +493,115 @@ impl FrontendPhases for SilFrontendPhases {
             ));
         })
         .map_err(|e| {
-            Self::failure(
-                format!("type checking: {e:?}"),
-                Self::program_position(&input),
-            )
+            let errors = match &e {
+                resolver::TypeCheckError::Mismatches(errors) => errors.as_slice(),
+                _ => std::slice::from_ref(&e),
+            };
+            let mut messages = Vec::new();
+            let mut fallback_errors = Vec::new();
+            for error in errors {
+                if matches!(
+                    error,
+                    resolver::TypeCheckError::Unsupported(
+                        "abstract predicates cannot be folded"
+                            | "abstract predicates cannot be unfolded"
+                    )
+                ) {
+                    if let Ok(found) = resolver::abstract_predicate_access_messages(&input) {
+                        if !found.is_empty() {
+                            messages.extend(found);
+                            continue;
+                        }
+                    }
+                }
+                if let resolver::TypeCheckError::Positioned { node, message } = error {
+                    match crate::parser::fast_message::message_for_node(node, *message, true, true)
+                    {
+                        Ok(found) => messages.extend(found),
+                        Err(_) => fallback_errors.extend(Self::failure(
+                            format!("type checking: {error:?}"),
+                            Self::program_position(&input),
+                        )),
+                    }
+                    continue;
+                }
+                if let resolver::TypeCheckError::FunctionPreconditionInDomainAxiom {
+                    name,
+                    identifier,
+                } = error
+                {
+                    match crate::parser::fast_message::message_for_node(
+                        identifier,
+                        format!(
+                            "Cannot use function {name}, which has preconditions, inside axiom"
+                        ),
+                        true,
+                        true,
+                    ) {
+                        Ok(found) => messages.extend(found),
+                        Err(_) => fallback_errors.extend(Self::failure(
+                            format!("type checking: {error:?}"),
+                            Self::program_position(&input),
+                        )),
+                    }
+                    continue;
+                }
+                let (expression, actual, expected) = match error {
+                    resolver::TypeCheckError::Incompatible {
+                        expression,
+                        actual,
+                        expected,
+                    }
+                    | resolver::TypeCheckError::Unification(
+                        resolver::UnificationError::Mismatch {
+                            expression,
+                            actual,
+                            expected,
+                        },
+                    ) => (expression, actual, expected),
+                    _ => {
+                        fallback_errors.extend(Self::failure(
+                            format!("type checking: {error:?}"),
+                            Self::program_position(&input),
+                        ));
+                        continue;
+                    }
+                };
+                let render = |typ| {
+                    crate::parser::translator::translate_type(typ)
+                        .ok()
+                        .and_then(|t| crate::ast::pretty::pretty_printer::show_type(&t).ok())
+                };
+                let (Some(actual), Some(expected)) = (render(actual), render(expected)) else {
+                    return Self::failure(
+                        format!("type checking: {e:?}"),
+                        Self::program_position(&input),
+                    );
+                };
+                let Ok(found) = crate::parser::fast_message::message_for_node(
+                    expression,
+                    format!("found incompatible type `{actual}`, expected `{expected}`"),
+                    true,
+                    true,
+                ) else {
+                    return Self::failure(
+                        format!("type checking: {e:?}"),
+                        Self::program_position(&input),
+                    );
+                };
+                messages.extend(found);
+            }
+            let mut diagnostics: Vec<_> = crate::parser::fast_message::sortmessages(messages)
+                .into_iter()
+                .map(|message| {
+                    AbstractError::Frontend(FrontendError::new(
+                        FrontendErrorKind::TypecheckerError(message.label),
+                        Position::LineColumn(LineColumn::Source(Box::new(message.pos))),
+                    ))
+                })
+                .collect();
+            diagnostics.extend(fallback_errors);
+            diagnostics
         });
         if !self.report_typechecking_warnings() {
             return Err(vec![]);
@@ -1867,6 +1972,203 @@ mod tests {
         let program = phases.check_consistency(program).unwrap();
         let program = phases.prepare_verification(program).unwrap();
         assert!(program.domains.iter().any(|d| d.name == "List"));
+    }
+    #[test]
+    fn multiple_assignment_reports_independent_errors() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("method f() returns (x: Int)\nmethod m() { var a: Int, b: Int := 1; a, b := 2; a, b := f(); }").unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(messages.len(), 3, "{messages:?}");
+        assert_eq!(
+            messages
+                .iter()
+                .filter(|m| m.contains("expected a method call when assigning to multiple targets"))
+                .count(),
+            2
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("wrong number of targets"))
+        );
+    }
+    #[test]
+    fn domain_axiom_function_precondition_is_positioned_at_call() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("function f(x: Int): Int requires x > 0 { x }\ndomain D { function g(x: Int): Int axiom { forall x: Int :: {g(x)} g(x) == f(x) } }").unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        let message = errors[0].readable_message().unwrap();
+        assert!(
+            message.contains("Cannot use function f, which has preconditions, inside axiom"),
+            "{message}"
+        );
+        assert!(message.contains("@2."), "{message}");
+    }
+    #[test]
+    fn mixed_type_and_unsupported_errors_are_both_retained() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("predicate p()\nmethod m(x: Int, y: Ref) { assert x < y; fold acc(p()); }")
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("found incompatible type")),
+            "{messages:?}"
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains("abstract predicates cannot be folded")),
+            "{messages:?}"
+        );
+    }
+    #[test]
+    fn mismatch_diagnostics_continue_through_function_specs_and_body() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("function f(x: Int, y: Ref): Int\n requires x < y\n requires y < x\n ensures x < y\n { y }").unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        assert_eq!(errors.len(), 4, "{errors:?}");
+    }
+    #[test]
+    fn mismatch_diagnostics_continue_through_method_specs_and_statements() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("method m(x: Int, y: Ref)\n requires x < y\n requires y < x\n { assert x < y; assert y < x; }").unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        assert_eq!(errors.len(), 4, "{errors:?}");
+        for error in errors {
+            assert!(
+                error
+                    .readable_message()
+                    .unwrap()
+                    .contains("found incompatible type")
+            );
+        }
+    }
+    #[test]
+    fn comparison_fixture_collects_all_source_mismatches() {
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("comparisons_fail.vpr"),
+            SilverPluginManager::new(vec![]),
+        );
+        let parsed = phases.parse(r#"// Any copyright is dedicated to the Public Domain.
+// http://creativecommons.org/publicdomain/zero/1.0/
+
+method chain(i1: Int, i2: Ref, i3: Int, i4: Int)
+    //:: ExpectedOutput(typechecker.error)
+    requires i1 < i2 <= i3 > i4
+{
+}
+
+method chain1In(s1: Seq[Int], s2: Seq[Seq[Int]], s3: Seq[Seq[Seq[Ref]]], s4: Set[Seq[Seq[Seq[Int]]]])
+    //:: ExpectedOutput(typechecker.error)
+    requires s1 in s2 in s3 in s4
+{
+}
+
+method chainParen(i1: Int, i2: Int, i3: Int, i4: Int)
+    //:: ExpectedOutput(typechecker.error)
+    requires (i1 < i2) <= i3 > i4
+{
+}
+
+method chainParen2(i1: Int, i2: Int, i3: Int, i4: Int)
+    //:: ExpectedOutput(typechecker.error)
+    requires i1 < i2 <= (i3 > i4)
+{
+}
+"#).unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(messages.len(), 6);
+        for (message, expected) in messages.iter().zip([
+            "found incompatible type `Ref`, expected `Int` (comparisons_fail.vpr@6.19--6.21)",
+            "found incompatible type `Ref`, expected `Perm` (comparisons_fail.vpr@6.19--6.21)",
+            "",
+            "found incompatible type `Seq[Seq[Seq[Ref]]]`, expected `Seq[Seq[Seq[Int]]]` (comparisons_fail.vpr@12.32--12.34)",
+            "found incompatible type `Bool`, expected `Perm` (comparisons_fail.vpr@18.15--18.22)",
+            "found incompatible type `Bool`, expected `Int` (comparisons_fail.vpr@24.26--24.33)",
+        ]) { if !expected.is_empty() { assert_eq!(message, expected); } }
+        assert!(
+            messages[2]
+                .starts_with("found incompatible type `Seq[Seq[Seq[Ref]]]`, expected `Set[#T0#")
+        );
+        assert!(messages[2].ends_with("]` (comparisons_fail.vpr@12.26--12.28)"));
+    }
+    #[test]
+    fn incompatible_operator_type_has_source_message_and_operand_position() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("method m(x: Int, y: Ref)\n  requires x < y\n{}")
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        let message = errors[0].readable_message().unwrap();
+        assert!(
+            message.contains("found incompatible type `Ref`, expected `Int`"),
+            "{message}"
+        );
+        assert!(
+            errors[0].position().to_string().contains("@2.16"),
+            "{:?}",
+            errors[0].position()
+        );
+    }
+    #[test]
+    fn abstract_predicate_diagnostics_are_aggregated_at_identifier_positions() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let source = "predicate foo()\nmethod m() {\n  fold acc(foo())\n  unfold acc(foo())\n  assert unfolding acc(foo()) in true\n}\nfunction f(): Bool { unfolding acc(foo()) in true }\npredicate p() { acc(foo()) && unfolding acc(foo()) in true }";
+        let parsed = phases.parse(source).unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        assert_eq!(errors.len(), 5);
+        let labels = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            labels
+                .iter()
+                .filter(|s| s.contains("cannot be folded"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            labels
+                .iter()
+                .filter(|s| s.contains("cannot be unfolded"))
+                .count(),
+            4
+        );
+        let positions = errors
+            .iter()
+            .map(|e| e.position().to_string())
+            .collect::<Vec<_>>();
+        assert!(positions[0].contains("@3.12"), "{positions:?}");
+        assert!(positions[1].contains("@4.14"), "{positions:?}");
+        assert!(positions[2].contains("@5.24"), "{positions:?}");
+        assert!(positions[3].contains("@7.36"), "{positions:?}");
+        assert!(positions[4].contains("@8.45"), "{positions:?}");
     }
     #[test]
     fn adt_invalid_type_arguments_and_discriminator_clashes_are_rejected() {

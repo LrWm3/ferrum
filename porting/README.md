@@ -958,3 +958,11 @@ Snapshot sort-wrapper emission now uses the source temporary-key substitution
 when user sort names contain preamble placeholders. This fixes upstream
 silicon/0559 without changing the shared sequential preamble reader. A real
 solver regression covers conflicting names and retains an assertion failure.
+
+Frontend diagnostics now retain independent type mismatches across operator
+arguments, specifications and member bodies, with source type names and spans.
+Mixed unsupported errors remain failures; abstract fold/unfold and domain-axiom
+call diagnostics retain identifier positions. Method-assignment arity diagnostics
+are partially reconstructed. ADT constructors are accepted in domain axioms as
+in the source; ordinary functions with preconditions remain rejected. CLI
+consistency selects the SMTLIB backend interpretation before starting a solver.

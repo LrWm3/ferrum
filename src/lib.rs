@@ -1467,6 +1467,7 @@ fn run_file_on_current_thread(config: Config) -> Result<RunReport, FerrumError> 
     .map_err(|e| FerrumError::Configuration(e.to_string()))?;
     let mut phases = SilFrontendPhases::new(file.into(), plugins);
     phases.configure_consistency(&config.frontend);
+    phases.backend_type_format = Some("SMTLIB".into());
     let parsed = phases.parse(&source).map_err(FerrumError::Diagnostics)?;
     let mut warnings = phases
         .parsing_warnings

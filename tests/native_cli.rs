@@ -775,3 +775,30 @@ fn public_parallel_branches_verify_terminal_paths() {
         }
     }
 }
+
+#[test]
+fn backend_type_interpretation_is_checked_before_solver_start() {
+    let path = std::env::temp_dir().join(format!(
+        "ferrum-interpretation-{}-{}.vpr",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let input = Input(path);
+    std::fs::write(&input.0, "domain myBV interpretation (FantasyBackend: \"bv32\") { function f(x: Int): myBV interpretation \"f\" }").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_ferrum"))
+        .arg(&input.0)
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Domain myBV has no interpretation for backend SMTLIB."),
+        "{stderr}"
+    );
+    assert!(stderr.contains("@1.1"), "{stderr}");
+}
