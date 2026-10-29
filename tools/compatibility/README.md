@@ -63,3 +63,51 @@ an external process manager remain outside this guarantee. Session reuse stops
 on exceptions; these are not verification results. `process_error` also covers
 malformed protocol records and unknown or unrenderable outcomes. On non-Linux
 ancestry tracking is unavailable; the group timeout remains Unix-specific.
+
+## Corpus selection and execution
+
+`corpus.py` selects the original 1,190 `.vpr` cases plus SIF, ARP, ADT,
+quasihavoc, greedy/complete exhale, conditional permissions, old permissions,
+old axioms, simplified unfolds, parallel examples and mask-heap configurations.
+The complete selection has 1,512 fixture/configuration combinations. The named
+upstream test classes supply directories and flags. `.sil` files are excluded;
+annotations, including ignores and missing outputs, are retained as metadata
+without suppressing cases or pretending to implement ScalaTest's evaluator.
+
+```
+python3 tools/compatibility/corpus.py --silver SILVER_ROOT --silicon SILICON_ROOT --output selection.json
+```
+
+Freeze executable, jar, Java, Z3 and source resource hashes with
+`compatibility_evidence.py freeze`. Use repeated `--artifact` arguments for both
+compiled Java classes, linked solver libraries and any external imports. Build
+and run from immutable snapshots. A settings JSON file supplies `source` and
+`native` command-prefix arrays, each ending with the Z3 path, `shared_options`
+(for example `["--timeout", "30"]`), optional `environment` overrides, and
+`command_artifacts` with explicit `source` and `native` path lists. The latter
+must name dynamic libraries and external imports that command-file discovery
+cannot infer. A typical source prefix is the Java executable, `-Xss128m`, `-cp`,
+the class-directory/JAR classpath, `SourceSession`, and the Z3 executable; the
+native prefix is the built example and the same Z3 executable.
+
+```
+python3 tools/compatibility/run_corpus.py --selection selection.json --settings settings.json --evidence evidence.json --tools tools --output RESULTS --jobs 2 --batch-size 8
+```
+
+The runner checks artifact hashes, repository revisions/status and the complete
+resource inventory before execution. Every session retains raw output and
+structured results. Missing, duplicate or out-of-order case records invalidate
+the session. Failed batches receive isolated retries while preserving the
+original failure. Pair records distinguish completed batches, isolated retries
+and incomplete batches; successful retries do not establish successful reuse.
+Messages, warnings and phase comparisons remain separate from outcome/error-ID
+comparison. Unexpected worker exceptions become incomplete observations and
+retain their tracebacks, rather than aborting the remaining corpus silently.
+
+A separate supervisor bounds each session runner, adopts its descendants on
+Linux and records its own cleanup evidence. If that supervisor itself fails to
+respond, an emergency process-group kill records a runner error; detached
+descendants may survive this exceptional path. Six orchestration checks exercise
+record coverage, malformed envelopes, retry accounting, reporting differences,
+artifact binding and addition of an ignored source resource. The corpus itself
+has not yet been run at this checkpoint.
