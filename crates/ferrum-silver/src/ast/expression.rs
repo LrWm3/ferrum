@@ -204,8 +204,8 @@ pub trait ExtensionExp: Debug + Send + Sync {
     fn equals(&self, other: &dyn ExtensionExp) -> bool;
     fn typ(&self) -> Type;
     fn is_pure(&self) -> bool;
-    fn is_valid_trigger(&self) -> bool {
-        false
+    fn is_valid_trigger(&self) -> Result<bool, super::utility::nodes::TraversalError> {
+        Ok(false)
     }
     fn is_forbidden_in_trigger(&self) -> bool {
         true

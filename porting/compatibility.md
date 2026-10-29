@@ -43,3 +43,8 @@ Diagnostic agreement among the 659 cases that failed on both sides remains a
 separate review. Fourteen reference timeouts/inconclusive outcomes cannot establish
 acceptance compatibility. Later targeted fixes need their own recorded validation;
 this checkpoint is not silently updated to claim a new full corpus run.
+
+The subsequent ADT trigger-hook fix passed a targeted native and pinned-source
+check of `0715_2.vpr`, plus positive constructor/destructor and negative arithmetic/
+discriminator regressions. This closes the last of the original 19 native-only
+rejections in targeted checks; the full-corpus checkpoint above remains unchanged.

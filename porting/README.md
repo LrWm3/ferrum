@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 415 mapped and assembly modules. `described` files
+The Cargo workspace now has 416 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
@@ -1058,3 +1058,8 @@ and label/permission failures; injected service errors and cancellation after
 submission check draining and solver restoration. Other nested expression shapes
 continue synchronously. The internal DebugLabelledOld path has no direct real-job
 fixture, and public interactive debugging remains gated.
+
+ADT constructor and destructor expressions now expose their source trigger hooks
+through the extension interface. Validation rejects forbidden descendants and
+propagates traversal errors; ADT discriminators remain forbidden. The previously
+rejected upstream `0715_2.vpr` now verifies in a targeted native/source comparison.

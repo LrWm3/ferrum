@@ -833,7 +833,7 @@ impl From<super::expressions::MagicWandError> for TriggerCheckError {
 pub fn valid_trigger(e: &Exp, program: &Program) -> Result<bool, TriggerCheckError> {
     match e.kind() {
         ExpKind::Old(inner) | ExpKind::LabelledOld(inner, _) => valid_trigger(inner, program),
-        ExpKind::Extension(extension) => Ok(extension.0.is_valid_trigger()),
+        ExpKind::Extension(extension) => Ok(extension.0.is_valid_trigger()?),
         ExpKind::MagicWand(..) => {
             for hole in e.magic_wand_subexpressions(program)? {
                 if exists(

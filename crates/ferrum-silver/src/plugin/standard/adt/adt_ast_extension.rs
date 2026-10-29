@@ -45,6 +45,23 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+/// Source Node.exists visits the whole argument subtree and propagates traversal
+/// failures; a nested forbidden expression invalidates an ADT trigger.
+fn contains_forbidden_trigger(
+    node: &Node,
+    forbidden: &impl Fn(&Exp) -> bool,
+) -> Result<bool, TraversalError> {
+    if matches!(node, Node::Exp(exp) if forbidden(exp)) {
+        return Ok(true);
+    }
+    for child in crate::ast::utility::nodes::subnodes(node)? {
+        if contains_forbidden_trigger(&child, forbidden)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn adt_scala_type_map_hash(
     map: &TypeSubstitution,
 ) -> Result<i32, crate::ast::utility::expressions::ScalaHashError> {
@@ -670,8 +687,16 @@ impl AdtConstructorApp {
         let meta = self.meta.clone();
         Exp::new(ExpKind::Extension(ExtensionExpHandle(Arc::new(self))), meta)
     }
-    pub fn is_valid_trigger(&self, forbidden: impl Fn(&Exp) -> bool) -> bool {
-        self.args.iter().all(|e| !forbidden(e))
+    pub fn is_valid_trigger(
+        &self,
+        forbidden: impl Fn(&Exp) -> bool,
+    ) -> Result<bool, TraversalError> {
+        for arg in &self.args {
+            if contains_forbidden_trigger(&Node::Exp(arg.clone()), &forbidden)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
     pub fn verify_unlowered(&self) -> Result<(), &'static str> {
         Err("AdtConstructorApp: verifyExtExp has not been implemented.")
@@ -698,6 +723,15 @@ impl AdtConstructorApp {
     }
 }
 impl ExtensionExp for AdtConstructorApp {
+    fn is_valid_trigger(&self) -> Result<bool, TraversalError> {
+        AdtConstructorApp::is_valid_trigger(
+            self,
+            crate::ast::utility::consistency::is_forbidden_in_trigger,
+        )
+    }
+    fn is_forbidden_in_trigger(&self) -> bool {
+        false
+    }
     fn pretty_doc(
         &self,
     ) -> Result<
@@ -853,8 +887,14 @@ impl AdtDestructorApp {
         let meta = self.meta.clone();
         Exp::new(ExpKind::Extension(ExtensionExpHandle(Arc::new(self))), meta)
     }
-    pub fn is_valid_trigger(&self, forbidden: impl Fn(&Exp) -> bool) -> bool {
-        !forbidden(&self.receiver)
+    pub fn is_valid_trigger(
+        &self,
+        forbidden: impl Fn(&Exp) -> bool,
+    ) -> Result<bool, TraversalError> {
+        Ok(!contains_forbidden_trigger(
+            &Node::Exp(self.receiver.clone()),
+            &forbidden,
+        )?)
     }
     pub fn verify_unlowered(&self) -> Result<(), &'static str> {
         Err("AdtDestructorApp: verifyExtExp has not been implemented.")
@@ -864,6 +904,15 @@ impl AdtDestructorApp {
     }
 }
 impl ExtensionExp for AdtDestructorApp {
+    fn is_valid_trigger(&self) -> Result<bool, TraversalError> {
+        AdtDestructorApp::is_valid_trigger(
+            self,
+            crate::ast::utility::consistency::is_forbidden_in_trigger,
+        )
+    }
+    fn is_forbidden_in_trigger(&self) -> bool {
+        false
+    }
     fn pretty_doc(
         &self,
     ) -> Result<
@@ -1087,5 +1136,166 @@ impl ExtensionExp for AdtDiscriminatorApp {
         );
         nodes.extend(self.type_vars.values().cloned().map(Node::Type));
         Ok(nodes)
+    }
+}
+
+#[cfg(test)]
+mod trigger_hook_tests {
+    use super::*;
+    use crate::ast::program::Program;
+    use crate::ast::utility::{
+        consistency::{self, TriggerCheckError},
+        generic_trigger_generator::TriggerAdapter,
+        triggers::{TriggerGeneration, TriggerGenerationError},
+    };
+
+    fn constructor(argument: Exp) -> Exp {
+        AdtConstructorApp {
+            name: "C".into(),
+            args: vec![argument],
+            type_vars: TypeSubstitution::new(),
+            typ: Type::Int,
+            adt_name: "A".into(),
+            meta: Metadata::default(),
+        }
+        .expression()
+    }
+    fn destructor(receiver: Exp) -> Exp {
+        AdtDestructorApp {
+            name: "value".into(),
+            receiver,
+            type_vars: TypeSubstitution::new(),
+            typ: Type::Int,
+            adt_name: "A".into(),
+            meta: Metadata::default(),
+        }
+        .expression()
+    }
+    fn discriminator(receiver: Exp) -> Exp {
+        AdtDiscriminatorApp {
+            name: "C".into(),
+            receiver,
+            type_vars: TypeSubstitution::new(),
+            adt_name: "A".into(),
+            meta: Metadata::default(),
+        }
+        .expression()
+    }
+    fn wrap(child: Exp) -> Exp {
+        Exp::with_extra(
+            ExpKind::FuncApp("f".into(), vec![child]),
+            Metadata::default(),
+            crate::ast::expression::ExpExtra {
+                typ: Some(Type::Int),
+                ..Default::default()
+            },
+        )
+    }
+    fn program() -> Program {
+        Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Metadata::default(),
+        )
+    }
+    #[test]
+    fn constructors_and_destructors_follow_deep_forbidden_rule() {
+        let m = Metadata::default();
+        let one = Exp::new(ExpKind::IntLit(1.into()), m.clone());
+        let arithmetic = Exp::new(ExpKind::Add(one.clone(), one.clone()), m);
+        for trigger in [
+            constructor(wrap(one.clone())),
+            destructor(wrap(one.clone())),
+            constructor(destructor(one.clone())),
+        ] {
+            assert!(!consistency::is_forbidden_in_trigger(&trigger));
+            assert!(consistency::valid_trigger(&trigger, &program()).unwrap());
+            assert!(
+                TriggerGeneration::default()
+                    .possible_trigger(&trigger)
+                    .unwrap()
+            );
+        }
+        for trigger in [
+            constructor(wrap(arithmetic.clone())),
+            destructor(wrap(arithmetic)),
+            constructor(wrap(discriminator(one.clone()))),
+            destructor(wrap(discriminator(one.clone()))),
+            discriminator(one),
+        ] {
+            assert!(!consistency::valid_trigger(&trigger, &program()).unwrap());
+            assert!(
+                !TriggerGeneration::default()
+                    .possible_trigger(&trigger)
+                    .unwrap()
+            );
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct Broken(Metadata);
+    impl ExtensionExp for Broken {
+        fn metadata(&self) -> &Metadata {
+            &self.0
+        }
+        fn with_metadata(&self, meta: Metadata) -> ExtensionExpHandle {
+            ExtensionExpHandle(Arc::new(Self(meta)))
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+        fn equals(&self, other: &dyn ExtensionExp) -> bool {
+            other.as_any().is::<Self>()
+        }
+        fn typ(&self) -> Type {
+            Type::Int
+        }
+        fn is_pure(&self) -> bool {
+            true
+        }
+        fn is_forbidden_in_trigger(&self) -> bool {
+            false
+        }
+        fn subnodes(&self) -> Result<Vec<Node>, TraversalError> {
+            Err(TraversalError::Extension("broken trigger traversal"))
+        }
+    }
+    #[test]
+    fn trigger_checks_propagate_nested_traversal_failures() {
+        let meta = Metadata::default();
+        let broken = Exp::new(
+            ExpKind::Extension(ExtensionExpHandle(Arc::new(Broken(meta.clone())))),
+            meta,
+        );
+        for trigger in [constructor(broken.clone()), destructor(broken.clone())] {
+            assert!(matches!(
+                consistency::valid_trigger(&trigger, &program()),
+                Err(TriggerCheckError::Traversal(TraversalError::Extension(
+                    "broken trigger traversal"
+                )))
+            ));
+            assert!(matches!(
+                TriggerGeneration::default().possible_trigger(&trigger),
+                Err(TriggerGenerationError::Traversal(
+                    TraversalError::Extension("broken trigger traversal")
+                ))
+            ));
+        }
+        let one = Exp::new(ExpKind::IntLit(1.into()), Metadata::default());
+        let forbidden = Exp::new(ExpKind::Add(one.clone(), one), Metadata::default());
+        let trigger = AdtConstructorApp {
+            name: "C".into(),
+            args: vec![forbidden, broken],
+            type_vars: TypeSubstitution::new(),
+            typ: Type::Int,
+            adt_name: "A".into(),
+            meta: Metadata::default(),
+        }
+        .expression();
+        assert!(!consistency::valid_trigger(&trigger, &program()).unwrap());
     }
 }

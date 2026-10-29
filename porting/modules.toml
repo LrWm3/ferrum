@@ -2640,3 +2640,8 @@ role = "assembly"
 destination = "tests/native_block_events.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "tests/native_adt_triggers.rs"
+status = "wired"
+role = "assembly"

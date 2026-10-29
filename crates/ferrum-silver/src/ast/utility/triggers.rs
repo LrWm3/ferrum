@@ -386,9 +386,9 @@ impl Default for TriggerGeneration {
         Self::new(false)
     }
 }
-fn trigger_possible(e: &Exp) -> bool {
+fn trigger_possible(e: &Exp) -> Result<bool, TraversalError> {
     use ExpKind::*;
-    match e.kind() {
+    Ok(match e.kind() {
         FuncApp(..)
         | DomainFuncApp(..)
         | EmptySeq(..)
@@ -420,15 +420,15 @@ fn trigger_possible(e: &Exp) -> bool {
         | MapCardinality(..)
         | MapDomain(..)
         | MapRange(..) => true,
-        Extension(ext) => ext.0.is_valid_trigger(),
+        Extension(ext) => ext.0.is_valid_trigger()?,
         Old(inner) | LabelledOld(inner, _) => {
             !matches!(
                 inner.kind(),
                 Extension(_) | FieldAccess(_) | PredicateAccess(_) | Old(_) | LabelledOld(_, _)
-            ) && trigger_possible(inner)
+            ) && trigger_possible(inner)?
         }
         _ => false,
-    }
+    })
 }
 fn trigger_contains(
     root: &Node,
@@ -492,7 +492,7 @@ impl super::generic_trigger_generator::TriggerAdapter for TriggerGeneration {
         }
     }
     fn possible_trigger(&self, e: &Exp) -> Result<bool, Self::Error> {
-        Ok(trigger_possible(e))
+        trigger_possible(e).map_err(TriggerGenerationError::Traversal)
     }
     fn arguments(&self, e: &Exp) -> Result<Vec<Exp>, Self::Error> {
         match e.kind() {
