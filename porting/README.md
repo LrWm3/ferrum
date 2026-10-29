@@ -1044,3 +1044,10 @@ Silicon uses a process-global set. Both retain the source callback order.
 Disable-subsumption assertion probes now use an owned success terminal, then resume
 the saved caller state exactly once. Actual worker-job checks with one/two Z3
 workers retain original permissions and reject a downstream false assertion.
+
+The dev profile compiles the Ferrum facade, Silicon and Silver at optimization
+level 1 to reduce stack use in recursive verification. Debug assertions and
+unwinding remain enabled. Two Prusti mutable-iterator programs overflowed the
+128 MiB verifier stack at optimization level 0 and passed with these overrides
+on the same source revision. This mitigates those cases; it does not establish
+a general stack bound.
