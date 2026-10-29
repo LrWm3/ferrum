@@ -54,6 +54,116 @@ use crate::verifier::verification_result::{
 
 pub const WELL_FOUNDED_ORDER_DOMAIN_NAME: &str = "WellFoundedOrder";
 
+fn recursive_postcondition_errors(
+    program: &Program,
+) -> Result<Vec<(String, Exp)>, PluginHookError> {
+    use super::transformation::call_graph::{DirectedGraph, mutually_recursive_vertices};
+    fn calls(node: &Node, out: &mut Vec<Exp>) -> Result<(), PluginHookError> {
+        if let Node::Exp(exp) = node {
+            if matches!(exp.kind(), ExpKind::FuncApp(..)) {
+                out.push(exp.clone());
+            }
+        }
+        for child in nodes::subnodes(node)
+            .map_err(|e| PluginHookError(format!("termination call traversal: {e:?}")))?
+        {
+            calls(&child, out)?;
+        }
+        Ok(())
+    }
+    fn problematic_calls(
+        node: &Node,
+        name: &str,
+        component: &[String],
+        out: &mut Vec<Exp>,
+    ) -> Result<(), PluginHookError> {
+        if let Node::Exp(exp) = node {
+            if let ExpKind::FuncApp(called, _) = exp.kind() {
+                if called == name || component.len() > 1 && component.contains(called) {
+                    if !out.contains(exp) {
+                        out.push(exp.clone());
+                    }
+                    return Ok(());
+                }
+            }
+        }
+        for child in nodes::subnodes(node)
+            .map_err(|e| PluginHookError(format!("termination call traversal: {e:?}")))?
+        {
+            problematic_calls(&child, name, component, out)?;
+        }
+        Ok(())
+    }
+    let mut graph = DirectedGraph::new();
+    for function in &program.functions {
+        graph.add_vertex(function.name.clone());
+    }
+    for function in &program.functions {
+        if let Some(body) = &function.body {
+            let mut apps = Vec::new();
+            calls(&Node::Exp(body.clone()), &mut apps)?;
+            for app in apps {
+                if let ExpKind::FuncApp(name, _) = app.kind() {
+                    if program.find_function_optionally(name).is_none() {
+                        return Err(PluginHookError(format!("unknown function {name}")));
+                    }
+                    graph.add_edge(function.name.clone(), name.clone());
+                }
+            }
+        }
+    }
+    let components = mutually_recursive_vertices(&graph);
+    let mut errors = Vec::new();
+    for function in &program.functions {
+        let spec = DecreasesSpecification::from_info(&function.meta.info)
+            .map_err(|e| PluginHookError(e.into()))?;
+        if spec.tuple.is_some() || spec.wildcard.is_some() || spec.star.is_some() {
+            continue;
+        }
+        let component = components
+            .iter()
+            .find(|c| c.contains(&function.name))
+            .ok_or_else(|| PluginHookError("function missing from termination graph".into()))?;
+        let mut apps = Vec::new();
+        for post in &function.posts {
+            problematic_calls(
+                &Node::Exp(post.clone()),
+                &function.name,
+                component,
+                &mut apps,
+            )?;
+        }
+        for app in apps {
+            let ExpKind::FuncApp(name, args) = app.kind() else {
+                continue;
+            };
+            let message = if name == &function.name {
+                let same_args = args.len() == function.formal_args.len() && args.iter().zip(&function.formal_args).all(|(arg, formal)| matches!(arg.kind(), ExpKind::LocalVar(local) if local.name == formal.name && local.typ == formal.typ));
+                if same_args {
+                    format!(
+                        "Function {} has a self-reference in its postcondition and must be proven to be well-founded. Use \"result\" instead to refer to the result of the function.",
+                        function.name
+                    )
+                } else {
+                    format!(
+                        "Function {} has a self-reference in its postcondition and must be proven to be well-founded. Add a \"decreases\" clause to prove well-foundedness.",
+                        function.name
+                    )
+                }
+            } else if component.len() > 1 && component.contains(name) {
+                format!(
+                    "Function {} has a call to mutually-recursive function {} in its postcondition and must be proven to be well-founded. Add a \"decreases\" clause to prove well-foundedness.",
+                    function.name, name
+                )
+            } else {
+                continue;
+            };
+            errors.push((message, app));
+        }
+    }
+    Ok(errors)
+}
+
 fn rewrite_predicate_instances(
     input: &crate::parser::parse_ast::PProgramHandle,
 ) -> Result<(), PluginHookError> {
@@ -617,6 +727,12 @@ impl SilverPlugin for TerminationPlugin {
         if self.disabled || !self.errors.errors().is_empty() {
             return Ok(extracted);
         }
+        for (message, exp) in recursive_postcondition_errors(&extracted)? {
+            self.issue(&message, &exp);
+        }
+        if !self.errors.errors().is_empty() {
+            return Ok(extracted);
+        }
         let transformer = self.transformer.as_mut().ok_or_else(|| {
             PluginHookError("termination validator and transformer are not configured".into())
         })?;
@@ -703,8 +819,10 @@ impl TerminationTransformer for NativeTerminationTransformer {
         program: Program,
         respect: bool,
     ) -> Result<Program, PluginHookError> {
+        if let Some((message, _)) = recursive_postcondition_errors(&program)?.into_iter().next() {
+            return Err(PluginHookError(message));
+        }
         use super::transformation::{
-            call_graph::{DirectedGraph, mutually_recursive_vertices},
             function_check::{ConcreteFunctionProofEngine, FunctionProofGenerator},
             method_check::MethodCheck,
             program_manager::ProgramManager,
@@ -712,59 +830,6 @@ impl TerminationTransformer for NativeTerminationTransformer {
         };
         use crate::ast::utility::consistency::transitive_scoped_names;
         use std::sync::{Arc, Mutex};
-        fn calls(node: &Node, out: &mut Vec<String>) -> Result<(), PluginHookError> {
-            if let Node::Exp(exp) = node {
-                if let ExpKind::FuncApp(name, _) = exp.kind() {
-                    out.push(name.clone());
-                }
-            }
-            for child in nodes::subnodes(node)
-                .map_err(|e| PluginHookError(format!("termination call traversal: {e:?}")))?
-            {
-                calls(&child, out)?;
-            }
-            Ok(())
-        }
-        let mut graph = DirectedGraph::new();
-        for f in &program.functions {
-            graph.add_vertex(f.name.clone());
-        }
-        for f in &program.functions {
-            if let Some(body) = &f.body {
-                let mut names = Vec::new();
-                calls(&Node::Exp(body.clone()), &mut names)?;
-                for name in names {
-                    if program.find_function_optionally(&name).is_none() {
-                        return Err(PluginHookError(format!("unknown function {name}")));
-                    }
-                    graph.add_edge(f.name.clone(), name);
-                }
-            }
-        }
-        let components = mutually_recursive_vertices(&graph);
-        for function in &program.functions {
-            let spec = DecreasesSpecification::from_info(&function.meta.info)
-                .map_err(|e| PluginHookError(e.into()))?;
-            if spec.tuple.is_some() || spec.wildcard.is_some() || spec.star.is_some() {
-                continue;
-            }
-            let component = components
-                .iter()
-                .find(|c| c.contains(&function.name))
-                .ok_or_else(|| PluginHookError("function missing from termination graph".into()))?;
-            for post in &function.posts {
-                let mut names = Vec::new();
-                calls(&Node::Exp(post.clone()), &mut names)?;
-                if names.iter().any(|name| {
-                    name == &function.name || component.len() > 1 && component.contains(name)
-                }) {
-                    return Err(PluginHookError(format!(
-                        "Function {} has a recursive call in its postcondition and must be proven well-founded.",
-                        function.name
-                    )));
-                }
-            }
-        }
         fn instrument(
             program: &Program,
             names: &Mutex<std::collections::HashSet<String>>,

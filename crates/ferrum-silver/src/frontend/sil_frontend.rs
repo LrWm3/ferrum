@@ -1904,6 +1904,31 @@ mod tests {
         );
     }
     #[test]
+    fn recursive_function_postconditions_report_each_call() {
+        let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("test.vpr"),
+            standard_plugin_manager(&config).unwrap(),
+        );
+        let source = "function f(i: Int): Int\n  ensures f(i) > 0\n{ i }\nfunction g(i: Int): Int\n  ensures g(i + 1) > 0\n{ i }\nfunction a(i: Int): Int\n  ensures b(i) > 0\n{ b(i) }\nfunction b(i: Int): Int\n{ a(i) }\n";
+        let parsed = phases.parse(source).unwrap();
+        let checked = phases.analyze(parsed).unwrap();
+        let program = phases.translate(checked).unwrap();
+        let errors = phases.prepare_verification(program).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "Consistency error: Function f has a self-reference in its postcondition and must be proven to be well-founded. Use \"result\" instead to refer to the result of the function. (test.vpr@2.11--2.15)",
+                "Consistency error: Function g has a self-reference in its postcondition and must be proven to be well-founded. Add a \"decreases\" clause to prove well-foundedness. (test.vpr@5.11--5.19)",
+                "Consistency error: Function a has a call to mutually-recursive function b in its postcondition and must be proven to be well-founded. Add a \"decreases\" clause to prove well-foundedness. (test.vpr@8.11--8.15)",
+            ]
+        );
+    }
+    #[test]
     fn forperm_resource_and_binder_reach_verification_preparation() {
         let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
         let mut phases = SilFrontendPhases::new(
