@@ -39,3 +39,20 @@ with exact commands and output. The previous parse record is
 `/tmp/ferrum-axiom-context-composed-parse.json`; the exact input is
 `/tmp/ferrum-rust-matrix/shared-dumps/mut_direct_pass/native/viper_program/program-check.vpr`.
 These input and executable artifacts are local and are not checked into the repository.
+
+## Owned return-path selection
+
+The return-frame selector now walks a supported subtree once, records its path,
+and appends frames in outer-to-inner order. The receiver resumes that vector in
+reverse. This removes the earlier repeated suffix searches and front insertion.
+The initial Boolean eligibility probe retains its original allocation-free
+implementation; only actual owned descent constructs a path plan.
+
+An instrumented 128-negation chain visits 129 nodes in one path selection. A
+model of the previous per-wrapper scan visits 8,384 nodes on that same chain.
+This comparison excludes the initial dispatch scan, allocation, solver work and
+execution; it is an operation count, not elapsed-time or end-to-end evidence.
+Right callbacks and later transfer boundaries still clone frame vectors, so
+right-heavy or repeated-transfer cases can remain quadratic. Descent remains
+recursive. Worker and CLI regressions cover both operand order, nested old and
+asserting returns, guarded fallback and cancellation.

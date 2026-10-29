@@ -155,7 +155,7 @@ pub struct OwnedOldValueFrame {
     pub evaluation_reserve: Vec<Arc<crate::state::heap::ListBackedHeap>>,
     pub evaluation_exhale: bool,
 }
-/// Return operations are ordered from the innermost caller to the outermost.
+/// Return operations are stored outermost first and resumed from the end.
 #[derive(Clone)]
 pub enum OwnedEvaluationReturnFrame {
     Old(OwnedOldValueFrame),
@@ -944,6 +944,66 @@ fn owned_strict_binary(expression: &Exp) -> Option<(Binary, &Exp, &Exp)> {
     }
 }
 
+#[derive(Clone, Copy)]
+enum OwnedPathStep {
+    Old,
+    Minus,
+    Not,
+    AddLeft,
+    AddRight,
+    StrictLeft,
+    StrictRight,
+}
+
+#[cfg(test)]
+thread_local! { static OWNED_PATH_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+/// Select one leftmost supported path in a single traversal.
+fn owned_asserting_path(expression: &Exp) -> Option<Vec<OwnedPathStep>> {
+    enum Work<'a> {
+        Visit(&'a Exp, Option<OwnedPathStep>),
+        Leave,
+    }
+    let mut work = vec![Work::Visit(expression, None)];
+    let mut path = Vec::new();
+    while let Some(item) = work.pop() {
+        match item {
+            Work::Leave => {
+                path.pop();
+            }
+            Work::Visit(exp, step) => {
+                #[cfg(test)]
+                OWNED_PATH_VISITS.with(|count| count.set(count.get() + 1));
+                if let Some(step) = step {
+                    path.push(step);
+                    work.push(Work::Leave);
+                }
+                match exp.kind() {
+                    ExpKind::Asserting(..) => return Some(path),
+                    ExpKind::Old(body)
+                    | ExpKind::LabelledOld(body, _)
+                    | ExpKind::DebugLabelledOld(body, _) => {
+                        work.push(Work::Visit(body, Some(OwnedPathStep::Old)))
+                    }
+                    ExpKind::Minus(body) => {
+                        work.push(Work::Visit(body, Some(OwnedPathStep::Minus)))
+                    }
+                    ExpKind::Not(body) => work.push(Work::Visit(body, Some(OwnedPathStep::Not))),
+                    ExpKind::Add(left, right) => {
+                        work.push(Work::Visit(right, Some(OwnedPathStep::AddRight)));
+                        work.push(Work::Visit(left, Some(OwnedPathStep::AddLeft)));
+                    }
+                    _ => {
+                        if let Some((_, left, right)) = owned_strict_binary(exp) {
+                            work.push(Work::Visit(right, Some(OwnedPathStep::StrictRight)));
+                            work.push(Work::Visit(left, Some(OwnedPathStep::StrictLeft)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
 pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
     match expression.kind() {
         ExpKind::Asserting(..) => true,
@@ -997,14 +1057,42 @@ fn test_change_guard_after_left<P, D, J>(mut state: State<P, D, J>) -> State<P, 
     state
 }
 
-/// Descend one source expression at a time, saving each surrounding evaluator
-/// return action in inner-to-outer order. Add always evaluates its left first.
+/// Select the leftmost supported path and save each surrounding evaluator
+/// return action outermost first. Binary operators evaluate their left operand first.
 pub(crate) fn evaluate_owned_nested<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
     expression: &Exp,
     error: &C::PartialError,
     receiver: &crate::rules::executor::OwnedAssignmentValue,
+    frames: Vec<OwnedEvaluationReturnFrame>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    if !context.can_transfer_owned_asserting(&state) {
+        return evaluate(
+            context,
+            state,
+            expression,
+            error,
+            &mut |context, state, term, debug| {
+                resume_owned_return_frames(context, state, term, debug, &frames, error, receiver)
+            },
+        );
+    }
+    let path =
+        owned_asserting_path(expression).ok_or(EvaluationError::OwnedSchedulerUnavailable)?;
+    evaluate_owned_planned(context, state, expression, error, receiver, &path, frames)
+}
+
+fn evaluate_owned_planned<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    receiver: &crate::rules::executor::OwnedAssignmentValue,
+    path: &[OwnedPathStep],
     mut frames: Vec<OwnedEvaluationReturnFrame>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
@@ -1021,12 +1109,9 @@ where
             },
         );
     }
-    if matches!(expression.kind(), ExpKind::Asserting(..)) {
+    let Some((step, rest)) = path.split_first() else {
         return evaluate_owned_asserting(context, state, expression, error, receiver, frames);
-    }
-    if !has_owned_asserting_path(expression) {
-        return Err(EvaluationError::OwnedSchedulerUnavailable);
-    }
+    };
     let scope = context
         .open_evaluation_scope(&state, expression)
         .map_err(EvaluationError::Context)?;
@@ -1048,8 +1133,11 @@ where
         .map_err(EvaluationError::Context)?;
     state.reserve_heaps.clear();
     state.exhale_ext = false;
-    match expression.kind() {
-        ExpKind::Old(body) | ExpKind::LabelledOld(body, _) | ExpKind::DebugLabelledOld(body, _) => {
+    match (expression.kind(), step) {
+        (
+            ExpKind::Old(body) | ExpKind::LabelledOld(body, _) | ExpKind::DebugLabelledOld(body, _),
+            OwnedPathStep::Old,
+        ) => {
             let (label, kind) = match expression.kind() {
                 ExpKind::Old(_) => ("old".to_string(), 0),
                 ExpKind::LabelledOld(_, label) => (label.clone(), 1),
@@ -1095,62 +1183,55 @@ where
             let state = context
                 .consolidate_old(state)
                 .map_err(EvaluationError::Context)?;
-            frames.insert(0, OwnedEvaluationReturnFrame::Old(old));
-            evaluate_owned_nested(context, state, body, error, receiver, frames)
+            frames.push(OwnedEvaluationReturnFrame::Old(old));
+            evaluate_owned_planned(context, state, body, error, receiver, rest, frames)
         }
-        ExpKind::Minus(body) => {
-            frames.insert(0, OwnedEvaluationReturnFrame::Minus(wrapper));
-            evaluate_owned_nested(context, state, body, error, receiver, frames)
+        (ExpKind::Minus(body), OwnedPathStep::Minus) => {
+            frames.push(OwnedEvaluationReturnFrame::Minus(wrapper));
+            evaluate_owned_planned(context, state, body, error, receiver, rest, frames)
         }
-        ExpKind::Not(body) => {
-            frames.insert(0, OwnedEvaluationReturnFrame::Not(wrapper));
-            evaluate_owned_nested(context, state, body, error, receiver, frames)
+        (ExpKind::Not(body), OwnedPathStep::Not) => {
+            frames.push(OwnedEvaluationReturnFrame::Not(wrapper));
+            evaluate_owned_planned(context, state, body, error, receiver, rest, frames)
         }
-        _ if owned_strict_binary(expression).is_some() => {
-            let (_, left, right) = owned_strict_binary(expression).unwrap();
-            if has_owned_asserting_path(left) {
-                frames.insert(
-                    0,
-                    OwnedEvaluationReturnFrame::StrictLeft {
-                        wrapper,
-                        right: right.clone(),
-                    },
-                );
-                evaluate_owned_nested(context, state, left, error, receiver, frames)
-            } else {
-                evaluate(
-                    context,
-                    state,
-                    left,
-                    error,
-                    &mut |context, state, term, debug| {
-                        #[cfg(test)]
-                        let state = test_change_guard_after_left(state);
-                        let mut next = frames.clone();
-                        next.insert(
-                            0,
-                            OwnedEvaluationReturnFrame::StrictRight {
-                                wrapper: wrapper.clone(),
-                                left: term,
-                                left_debug: debug,
-                            },
-                        );
-                        evaluate_owned_nested(context, state, right, error, receiver, next)
-                    },
-                )
-            }
+        (_, OwnedPathStep::StrictLeft) => {
+            let (_, left, right) =
+                owned_strict_binary(expression).expect("planned strict operator");
+            frames.push(OwnedEvaluationReturnFrame::StrictLeft {
+                wrapper,
+                right: right.clone(),
+            });
+            evaluate_owned_planned(context, state, left, error, receiver, rest, frames)
         }
-        ExpKind::Add(left, right) if has_owned_asserting_path(left) => {
-            frames.insert(
-                0,
-                OwnedEvaluationReturnFrame::AddLeft {
-                    wrapper,
-                    right: right.clone(),
+        (_, OwnedPathStep::StrictRight) => {
+            let (_, left, right) =
+                owned_strict_binary(expression).expect("planned strict operator");
+            evaluate(
+                context,
+                state,
+                left,
+                error,
+                &mut |context, state, term, debug| {
+                    #[cfg(test)]
+                    let state = test_change_guard_after_left(state);
+                    let mut next = frames.clone();
+                    next.push(OwnedEvaluationReturnFrame::StrictRight {
+                        wrapper: wrapper.clone(),
+                        left: term,
+                        left_debug: debug,
+                    });
+                    evaluate_owned_planned(context, state, right, error, receiver, rest, next)
                 },
-            );
-            evaluate_owned_nested(context, state, left, error, receiver, frames)
+            )
         }
-        ExpKind::Add(left, right) => evaluate(
+        (ExpKind::Add(left, right), OwnedPathStep::AddLeft) => {
+            frames.push(OwnedEvaluationReturnFrame::AddLeft {
+                wrapper,
+                right: right.clone(),
+            });
+            evaluate_owned_planned(context, state, left, error, receiver, rest, frames)
+        }
+        (ExpKind::Add(left, right), OwnedPathStep::AddRight) => evaluate(
             context,
             state,
             left,
@@ -1159,15 +1240,12 @@ where
                 #[cfg(test)]
                 let state = test_change_guard_after_left(state);
                 let mut next = frames.clone();
-                next.insert(
-                    0,
-                    OwnedEvaluationReturnFrame::AddRight {
-                        wrapper: wrapper.clone(),
-                        left: term,
-                        left_debug: debug,
-                    },
-                );
-                evaluate_owned_nested(context, state, right, error, receiver, next)
+                next.push(OwnedEvaluationReturnFrame::AddRight {
+                    wrapper: wrapper.clone(),
+                    left: term,
+                    left_debug: debug,
+                });
+                evaluate_owned_planned(context, state, right, error, receiver, rest, next)
             },
         ),
         _ => Err(EvaluationError::OwnedSchedulerUnavailable),
@@ -1201,14 +1279,13 @@ where
     }
     state.g = frame.original_store.clone();
     state.h = frame.evaluation_heap.clone();
-    let mut frames = Vec::with_capacity(frame.return_frames.len() + 1);
+    let mut frames = frame.return_frames.clone();
     frames.push(OwnedEvaluationReturnFrame::Asserting(OwnedValueWrapper {
         expression: frame.expression.clone(),
         heap: frame.outer_heap.clone(),
         reserve: frame.outer_reserve.clone(),
         exhale: frame.outer_exhale,
     }));
-    frames.extend_from_slice(&frame.return_frames);
     if has_owned_asserting_path(&frame.body) && context.can_transfer_owned_asserting(&state) {
         evaluate_owned_nested(
             context,
@@ -1279,7 +1356,7 @@ fn resume_owned_return_frames<C, P, D, J: Clone, V>(
 where
     C: EvaluationContext<P, D, J, V>,
 {
-    for (index, frame) in frames.iter().enumerate() {
+    for (index, frame) in frames.iter().enumerate().rev() {
         match frame {
             OwnedEvaluationReturnFrame::Old(old) => {
                 let mut triggers = old.possible_triggers.clone();
@@ -1373,13 +1450,12 @@ where
                     .expect("strict operator frame")
                     .0;
                 if has_owned_asserting_path(right) && context.can_transfer_owned_asserting(&state) {
-                    let mut next = Vec::with_capacity(frames.len() - index);
+                    let mut next = frames[..index].to_vec();
                     next.push(OwnedEvaluationReturnFrame::StrictRight {
                         wrapper: wrapper.clone(),
                         left: term,
                         left_debug: debug,
                     });
-                    next.extend_from_slice(&frames[index + 1..]);
                     return evaluate_owned_nested(context, state, right, error, receiver, next);
                 }
                 return evaluate(
@@ -1405,7 +1481,7 @@ where
                             state,
                             value,
                             rebuilt,
-                            &frames[index + 1..],
+                            &frames[..index],
                             error,
                             receiver,
                         )
@@ -1430,13 +1506,12 @@ where
             }
             OwnedEvaluationReturnFrame::AddLeft { wrapper, right } => {
                 if has_owned_asserting_path(right) && context.can_transfer_owned_asserting(&state) {
-                    let mut next = Vec::with_capacity(frames.len() - index);
+                    let mut next = frames[..index].to_vec();
                     next.push(OwnedEvaluationReturnFrame::AddRight {
                         wrapper: wrapper.clone(),
                         left: term,
                         left_debug: debug,
                     });
-                    next.extend_from_slice(&frames[index + 1..]);
                     return evaluate_owned_nested(context, state, right, error, receiver, next);
                 }
                 return evaluate(
@@ -1462,7 +1537,7 @@ where
                             state,
                             value,
                             rebuilt,
-                            &frames[index + 1..],
+                            &frames[..index],
                             error,
                             receiver,
                         )
@@ -3905,6 +3980,38 @@ mod tests {
         ast::{Info, Metadata},
         position::{LineColumn, LineColumnPosition, Position, SourcePosition},
     };
+    #[test]
+    fn selected_path_visits_deep_wrappers_once() {
+        let yes = Exp::new(ExpKind::TrueLit, Default::default());
+        let mut exp = Exp::new(
+            ExpKind::Asserting(yes, Exp::new(ExpKind::IntLit(1.into()), Default::default())),
+            Default::default(),
+        );
+        let mut suffixes = Vec::new();
+        for _ in 0..128 {
+            exp = Exp::new(ExpKind::Minus(exp), Default::default());
+            suffixes.push(exp.clone());
+        }
+        // Count the nodes scanned by the prior per-wrapper suffix selection.
+        fn legacy_scan(exp: &Exp, visits: &mut usize) -> bool {
+            *visits += 1;
+            match exp.kind() {
+                ExpKind::Asserting(..) => true,
+                ExpKind::Minus(body) => legacy_scan(body, visits),
+                _ => false,
+            }
+        }
+        let mut legacy_visits = 0;
+        for suffix in &suffixes {
+            assert!(legacy_scan(suffix, &mut legacy_visits));
+        }
+        OWNED_PATH_VISITS.with(|count| count.set(0));
+        let path = owned_asserting_path(&exp).unwrap();
+        let visits = OWNED_PATH_VISITS.with(|count| count.get());
+        assert_eq!(path.len(), 128);
+        assert_eq!(visits, 129);
+        assert_eq!(legacy_visits, 8384);
+    }
     #[test]
     fn native_evaluation_branch_actions_are_send() {
         fn require_send<T: Send>() {}

@@ -214,7 +214,8 @@ at submission with and without a latched cancellation. These do not establish
 real simultaneous parent/child execution at every cancellation boundary.
 
 The assignment receiver now carries an immutable vector of typed return frames,
-ordered from inner to outer. Frames represent asserting-body returns, old/labelled-old, integer and Boolean negation, addition,
+stored outermost first and resumed from the end. Frames represent asserting-body
+returns, old/labelled-old, integer and Boolean negation, addition,
 subtraction, multiplication, equality and ordered comparisons. Supported
 wrapper chains can compose around Asserting while retaining each evaluator entry
 and return action. Addition evaluates its left operand first, then transfers an eligible right
@@ -287,3 +288,9 @@ tail. A separate inner-receiver test now cancels after an inner sibling is submi
 checks typed cancellation and drains the pool with one/two workers. It does not
 assert that sibling execution began or directly inspect parent solver state;
 the cooperative restoration regression covers parent depth/options separately.
+
+Owned descent selects a supported path once using an iterative traversal, then
+appends return frames and resumes them in reverse. This removes repeated suffix
+searches and front insertion. The evaluator still descends recursively, and
+right-operand callbacks and later transfers still clone outer frames; this is
+not a general linear-time or stack-safety guarantee.
