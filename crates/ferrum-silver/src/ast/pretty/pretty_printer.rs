@@ -245,6 +245,18 @@ fn operator(e: &Exp) -> Option<(u8, Fixity)> {
         PermGtCmp(..) => BuiltinOp::PermGt,
         PermGeCmp(..) => BuiltinOp::PermGe,
         SeqAppend(..) => return Some((8, Fixity::Infix(Associativity::Left))),
+        SeqContains(..) | MapContains(..) => {
+            return Some((7, Fixity::Infix(Associativity::Left)));
+        }
+        AnySetContains(..) => {
+            return Some((7, Fixity::Infix(Associativity::NonAssociative)));
+        }
+        AnySetUnion(..) | AnySetIntersection(..) => {
+            return Some((8, Fixity::Infix(Associativity::Left)));
+        }
+        AnySetSubset(..) | AnySetMinus(..) => {
+            return Some((8, Fixity::Infix(Associativity::NonAssociative)));
+        }
         SeqIndex(..) | SeqTake(..) | SeqDrop(..) => {
             return Some((10, Fixity::Infix(Associativity::Left)));
         }
@@ -1478,5 +1490,29 @@ mod tests {
         let inner = Exp::new(ExpKind::Add(two, three), m.clone());
         let root = Exp::new(ExpKind::Mul(one, inner), m);
         assert_eq!(pretty_expression(&root).unwrap(), "1 * (2 + 3)");
+    }
+    #[test]
+    fn collection_operators_keep_silver_parentheses_in_operands() {
+        use crate::ast::expression::LocalVar;
+        let m = Metadata::default();
+        let var = |name: &str, typ| {
+            Exp::new(
+                ExpKind::LocalVar(LocalVar::new(name.into(), typ, m.clone())),
+                m.clone(),
+            )
+        };
+        let key = var("x", Type::Int);
+        let map = var(
+            "map",
+            Type::Map(std::sync::Arc::new((Type::Int, Type::Int))),
+        );
+        let member = Exp::new(ExpKind::MapContains(key.clone(), map), m.clone());
+        let negated = Exp::new(ExpKind::Not(member), m.clone());
+        assert_eq!(pretty_expression(&negated).unwrap(), "!((x in map))");
+        let multiset = var("bag", Type::Multiset(std::sync::Arc::new(Type::Int)));
+        let count = Exp::new(ExpKind::AnySetContains(key, multiset), m.clone());
+        let zero = Exp::new(ExpKind::IntLit(0.into()), m.clone());
+        let comparison = Exp::new(ExpKind::GtCmp(count, zero), m);
+        assert_eq!(pretty_expression(&comparison).unwrap(), "((x in bag)) > 0");
     }
 }
