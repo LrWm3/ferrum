@@ -1661,7 +1661,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Executor.scala"
 destination = "crates/ferrum-silicon/src/rules/executor.rs"
 status = "skeleton"
-remaining = ["Owned CFG, statement, method-call and all loop invariant phases connect worker branches to exact terminals or collectors. Expression receivers, logging, public scheduling and broader compatibility remain."]
+remaining = ["Owned CFG, statement, method-call, loop and direct Asserting assignment frames connect worker branches to exact terminals. Further borrowed receivers, logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2036,7 +2036,7 @@ repository = "silicon"
 upstream = "src/main/scala/verifier/VerificationPoolManager.scala"
 destination = "crates/ferrum-silicon/src/verifier/verification_pool_manager.rs"
 status = "skeleton"
-remaining = ["Owner-thread cooperative execution carries joined, CFG, producer and consumer actions with shared restoration and error draining. Additional caller frames, public activation, active logger migration and broader compatibility remain."]
+remaining = ["Public owner-thread cooperative scheduling carries typed terminals and collectors with error draining and cancellation. Additional borrowed caller coverage, active logger migration and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2567,7 +2567,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Owned CFG/producer/consumer and method-post terminals share solver isolation and retry boundaries. Contract production/further caller frames, returned snapshots, public scheduling, debug/reporting and CFG-only contributor analysis remain."]
+remaining = ["Public branch scheduling connects typed CFG/rule/loop/predicate/value continuations with solver and collector isolation. Borrowed receiver fallbacks, active logging/debug reporting, CFG-only contributor analysis and broader compatibility remain."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"

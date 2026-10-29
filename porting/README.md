@@ -57,8 +57,10 @@ Methods and supported standalone CFGs are dispatched to workers and results are
 collected in source order. Warnings are drained before returning, including when
 a worker fails; each repeated Session run recreates its main solver and pool.
 Two-worker checks cover 68 function/domain/quantified-resource cases, real failing
-methods, warning delivery and repeated-run axiom isolation. Nested branch
-parallelism and advanced profiles remain incomplete;
+methods, warning delivery and repeated-run axiom isolation. The native
+`--parallelizeBranches` option now enables owned branch actions and cooperative
+waiting with one or more workers. Borrowed callbacks without explicit receivers
+retain synchronous fallback; advanced logging profiles remain incomplete;
 standalone CFG-only contributor analysis has upstream TODOs. No parallel speedup
 has been measured against upstream.
 Global `--timeout` now covers backend verification and result assembly, after
@@ -869,3 +871,13 @@ SSA assignment and the statement tail. Actual Z3 checks exercise one/two workers
 and the JVM-matching bad permission failure. Ordinary assignment RHSs avoid receiver
 cloning. A forced same-worker expression collector regression checks separate IDs,
 returned values and parent restoration, including an in-flight job cancellation.
+
+The public `--parallelizeBranches` gate is now connected to the native owned-action
+scheduler, including a cooperative one-worker pool. Defaults are unchanged.
+CLI and Session matrices pass for one, two and four workers, both flag settings
+and both Z3 transports, including expected failures, reuse and stop. Supported
+worker actions cover CFG/rules, method/call contracts, loop phases, predicate
+snapshots and expression result collectors. See [continuations.md](continuations.md)
+for exact coverage, safe synchronous fallbacks and cleanup behavior. Earlier
+progress entries describing a blanket public gate are superseded by this change.
+No comparative speedup has been measured; diagnostics work remains separate.

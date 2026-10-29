@@ -2331,8 +2331,10 @@ pub fn native_method_worker<S: crate::interfaces::decider::prover::Prover>(
         config.state_consolidation_mode,
         identifiers,
     );
+    let mut context = super::native_context::NativeVerifierContext::new(base, factory, options);
+    context.joined_branch_scheduler_enabled = config.parallelize_branches;
     NativeMethodWorker {
-        context: super::native_context::NativeVerifierContext::new(base, factory, options),
+        context,
         user_args: config.prover_args.clone(),
         config_options,
         preamble_frame_ready: false,

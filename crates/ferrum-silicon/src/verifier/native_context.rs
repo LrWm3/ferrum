@@ -123,7 +123,6 @@ impl NativeOptions {
         config: &crate::config::Config,
     ) -> Result<Self, NativeError<crate::decider::prover_std_io::ProverError>> {
         if config.enable_debugging
-            || config.parallelize_branches
             || config.frontend.ide_mode_advanced
             || config.generate_block_messages
         {

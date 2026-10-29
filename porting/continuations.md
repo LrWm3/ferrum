@@ -1,5 +1,11 @@
 # Native continuation ownership
 
+The native runtime now accepts `--parallelizeBranches`. Combine it with
+`--numberOfParallelVerifiers N` to select the worker count. Even `N = 1` uses the
+cooperative queue when branch parallelism is requested. The default remains off.
+Owned continuations remove the former blanket restriction on transferring
+nonjoined branches; callbacks without an explicit owned receiver remain local.
+
 Method and standalone CFG execution now carry an explicit owned terminal alongside
 local callbacks. A scheduled CFG action owns its edge, join context, lazy path ID
 and terminal. A worker executes the suffix through method postcondition checking
@@ -102,11 +108,9 @@ an in-flight evaluation job. Cancellation tests cover an in-flight terminal job 
 action after else submission, retaining typed cancellation and restoring parent
 solver depth and options before return.
 
-## Remaining scope
+## Loop and expression continuations
 
-The public parallel-branch option remains gated while expression result frames
-and final integration checks are completed. Loop invariant collection now uses
-explicit collector identities and owned phase outputs. Establishment resumes
+Loop invariant collection uses explicit collector identities and owned phase outputs. Establishment resumes
 phase replay inside its original consumption continuation, retaining retry and
 result-combination boundaries. Backedges have a distinct success terminal.
 Actual Z3 tests exercise all three phases, including nested invariants and entry
@@ -130,8 +134,8 @@ application while checking returned values. A direct local assignment with an
 Asserting RHS also owns its state/value receiver: it restores the assertion heap,
 evaluates the body, restores the outer evaluation heap/reserves and performs SSA
 assignment before resuming the statement tail. Nested arbitrary expression
-callbacks without an explicit receiver remain synchronous. Active member logging, packaging and
-extended exhale still disable owned dispatch. Generic borrowed callback entry
+callbacks without an explicit receiver remain synchronous. Active member logging,
+packaging and extended exhale still disable owned dispatch. Generic borrowed callback entry
 points remain local; parallelism is enabled only where an exact owned terminal
 or collector represents Q. Direct evaluator branches explicitly disable
 parallelism upstream and keep that behavior.
@@ -145,3 +149,31 @@ Moving captured fields into a struct alone is insufficient. New dispatch points
 must identify the exact executable continuation, preserve source result order,
 and demonstrate restoration on success, verification failure, service error and
 cancellation before removing their guard.
+
+## Coverage and compatibility boundaries
+
+| Caller or context | Current execution |
+| --- | --- |
+| Method/standalone CFG, sequences, TryBlock, loop heads and successors | Owned actions through exact method or standalone terminals |
+| Inhale/exhale/assert, method/call contracts, fold snapshots and statement unfold | Owned rule and caller frames |
+| Loop collection, establishment and backedges | Identified phase outputs and explicit consumption terminals |
+| Function preconditions and cached/uncached expression Unfolding | Owned snapshot/value receivers and identified join outputs |
+| Direct local assignment of an Asserting expression | Owned evaluation restoration and assignment receiver |
+| Disable-subsumption assertion probes, arbitrary nested value callbacks, old/labelled-old wrappers and custom borrowed entry points | Safe synchronous fallback; not complete parallel source coverage |
+| Active member logs, extended exhale and packaging | Owned dispatch disabled; logger migration remains unfinished |
+
+Upstream explicitly disables direct evaluator and joined producer/consumer forks.
+Nested rules can re-enable the original branch flag; some such nested callbacks
+still use synchronous fallback. Function/predicate verification begins with
+parallel branches disabled upstream; methods and standalone CFGs opt in in
+`DefaultMainVerifier.scala`. These source constraints differ from the incomplete
+owned-receiver coverage listed above.
+
+All submitted jobs are drained on normal error and cancellation paths. A panic
+instead aborts the verification run: the pool cancels pending work and stops the
+affected worker, which is not restored for reuse. Public CLI and Session checks
+cover one, two and four workers with the flag both off and on through stdio and
+linked Z3, including invalid programs, reuse and stop. Internal real-Z3 fixtures
+assert actual submissions/executions; deterministic tests force foreign and
+same-worker interleaving and cancellation. This establishes the tested ownership
+boundaries, not complete Viper compatibility or a measured speedup.

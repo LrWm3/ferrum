@@ -823,7 +823,7 @@ impl SiliconBackend for NativeBackend {
                     self.warnings.clone(),
                     self.cancellation.clone(),
                 )?;
-                self.context = Some(if count > 1 {
+                self.context = Some(if count > 1 || config.parallelize_branches {
                     OwnedContext::ParallelApi(Box::new(ParallelContext::start(
                         prover,
                         identifiers,
@@ -857,7 +857,7 @@ impl SiliconBackend for NativeBackend {
             self.warnings.clone(),
             self.cancellation.clone(),
         )?;
-        self.context = Some(if count > 1 {
+        self.context = Some(if count > 1 || config.parallelize_branches {
             OwnedContext::ParallelStdio(Box::new(ParallelContext::start(
                 prover,
                 identifiers,

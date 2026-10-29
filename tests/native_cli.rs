@@ -704,3 +704,26 @@ method test(r: Ref) requires acc(r.f) { assert !foo(r, 0) }
         }
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3 or FERRUM_TEST_PROVER=Z3-API"]
+fn public_parallel_branches_verify_terminal_paths() {
+    let source = "field f: Int method good(x: Ref, b: Bool) returns (r: Int) requires acc(x.f) ensures acc(x.f) && r > 0 { if (b) { x.f := 1; } else { x.f := 2; } r := x.f; } method bad(x: Ref, b: Bool) returns (r: Int) requires acc(x.f) ensures acc(x.f) && r > 0 { if (b) { x.f := 1; } else { x.f := 0; } r := x.f; }";
+    for workers in ["1", "2", "4"] {
+        for enabled in [false, true] {
+            let mut args = vec!["--numberOfParallelVerifiers", workers, "--no-timing"];
+            if enabled {
+                args.push("--parallelizeBranches");
+            }
+            let output = run(source, &args);
+            assert_eq!(
+                output.status.code(),
+                Some(1),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("postcondition"), "{stderr}");
+        }
+    }
+}

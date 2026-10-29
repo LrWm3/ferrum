@@ -322,3 +322,25 @@ fn injected_builtin_refute_maps_entity_and_final_results() {
         .join()
         .unwrap();
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3 or FERRUM_TEST_PROVER=Z3-API"]
+fn public_parallel_branches_session_reuses_worker_pool() {
+    std::thread::Builder::new().stack_size(VERIFICATION_STACK_SIZE).spawn(|| {
+        let prover = std::env::var("FERRUM_TEST_PROVER").unwrap_or_else(|_| "Z3".into());
+        for workers in ["1", "2", "4"] {
+        for enabled in [false, true] {
+            let mut args = vec!["--ignoreFile".into(), "--prover".into(), prover.clone(), "--numberOfParallelVerifiers".into(), workers.into()];
+            if enabled { args.push("--parallelizeBranches".into()); }
+            if prover == "Z3" { args.extend(["--z3Exe".into(), std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3")]); }
+            args.push("injected.vpr".into());
+            let config = ferrum::silicon::config::Config::parse(&args).unwrap();
+            let mut session = ferrum::Session::new(config).unwrap();
+            for (source, expected) in [("method m(b: Bool) returns (r: Int) ensures r > 0 { if (b) { r := 1; } else { r := 2; } }", true), ("method m(b: Bool) returns (r: Int) ensures r > 0 { if (b) { r := 1; } else { r := 0; } }", false), ("method m() { assert true; }", true)] {
+                assert_eq!(matches!(session.verify(&parsed_program(source), &[]).unwrap(), VerificationResult::Success), expected);
+            }
+            session.stop().unwrap();
+        }
+        }
+    }).unwrap().join().unwrap();
+}
