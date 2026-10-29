@@ -48,6 +48,8 @@ pub struct TermToSmtLib2Converter {
     factory: TermFactory,
     names: HashMap<String, String>,
     warnings: Vec<ConversionWarning>,
+    declared_macros: std::collections::HashSet<String>,
+    current_macro: Option<String>,
 }
 impl TermToSmtLib2Converter {
     pub fn new(factory: TermFactory) -> Self {
@@ -55,19 +57,27 @@ impl TermToSmtLib2Converter {
             factory,
             names: HashMap::new(),
             warnings: Vec::new(),
+            declared_macros: Default::default(),
+            current_macro: None,
         }
     }
     pub fn start(&mut self) {
         self.names.clear();
         self.warnings.clear();
+        self.declared_macros.clear();
+        self.current_macro = None;
     }
     pub fn reset(&mut self) {
         self.names.clear();
         self.warnings.clear();
+        self.declared_macros.clear();
+        self.current_macro = None;
     }
     pub fn stop(&mut self) {
         self.names.clear();
         self.warnings.clear();
+        self.declared_macros.clear();
+        self.current_macro = None;
     }
     pub fn warnings(&self) -> &[ConversionWarning] {
         &self.warnings
@@ -238,6 +248,7 @@ impl TermToSmtLib2Converter {
                 ))
             }
             DeclarationKind::Macro { id, args, body } => {
+                let macro_name = id.name();
                 let id = self.convert_identifier(id)?;
                 let mut vars = Vec::new();
                 for arg in args {
@@ -252,13 +263,27 @@ impl TermToSmtLib2Converter {
                         self.convert_sort(&v.sort)?
                     ));
                 }
+                let sort = self.convert_sort(body.sort())?;
+                // Shared terms can gain aliases after this definition was
+                // captured. Only aliases already declared in this converter are
+                // safe to use in a definition; otherwise expand structurally.
+                let previous = self.current_macro.replace(macro_name.clone());
+                let converted = self.convert_term(body);
+                self.current_macro = previous;
+                let converted = converted?;
+                self.declared_macros.insert(macro_name);
                 Ok(format!(
-                    "(define-fun {id} ({}) {}\n  {})",
+                    "(define-fun {id} ({}) {sort}\n  {converted})",
                     vars.join(" "),
-                    self.convert_sort(body.sort())?,
-                    self.convert_term(body)?
                 ))
             }
+        }
+    }
+    /// Forget a macro whose solver declaration failed. Removing a previously
+    /// declared name is conservative: subsequent rendering expands it instead.
+    pub(crate) fn forget_failed_declaration(&mut self, declaration: &Declaration) {
+        if let DeclarationKind::Macro { id, .. } = declaration.kind() {
+            self.declared_macros.remove(&id.name());
         }
     }
     fn function_declaration(
@@ -301,7 +326,17 @@ impl TermToSmtLib2Converter {
                 | MergeHeaps(..)
         ) {
             if let Some(repr) = term.var_repr() {
-                return self.convert_term(&repr);
+                let available = match repr.kind() {
+                    TermKind::App { applicable, .. } => {
+                        let name = applicable.id().name();
+                        self.current_macro.as_ref() != Some(&name)
+                            && self.declared_macros.contains(&name)
+                    }
+                    _ => false,
+                };
+                if available {
+                    return self.convert_term(&repr);
+                }
             }
         }
         match term.kind() {
@@ -708,6 +743,86 @@ mod tests {
             use_old_axiomatization: true,
             mask_heap_mode: false,
         })
+    }
+    #[test]
+    fn macro_body_replay_ignores_mutated_self_and_nested_aliases() {
+        let f = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: true,
+        });
+        let r = f.var(Identifier::new("r"), Sort::Ref, false);
+        let inner = f.mask_add(f.zero_mask(), r.clone(), f.full_perm());
+        let outer = f.mask_add(
+            inner.clone(),
+            f.var(Identifier::new("s"), Sort::Ref, false),
+            f.full_perm(),
+        );
+        let definition = f.macro_decl(Identifier::new("outer"), vec![], outer.clone());
+        let mut converter = TermToSmtLib2Converter::new(f.clone());
+        let before = converter.convert_declaration(&definition).unwrap();
+        let mk_alias = |name: &str, sort: Sort| {
+            f.app(
+                f.applicable(crate::state::terms::ApplicableData {
+                    kind: crate::state::terms::ApplicableKind::Macro,
+                    id: Identifier::new(name),
+                    arg_sorts: vec![],
+                    result_sort: sort,
+                }),
+                vec![],
+            )
+        };
+        outer.set_var_repr(Some(mk_alias("outer", outer.sort().clone())));
+        inner.set_var_repr(Some(mk_alias("late_inner", inner.sort().clone())));
+        let mut foreign = TermToSmtLib2Converter::new(f.clone());
+        let expanded = foreign.convert_term(&outer).unwrap();
+        assert!(
+            !expanded.contains("outer") && !expanded.contains("late_inner"),
+            "{expanded}"
+        );
+        assert_eq!(converter.convert_declaration(&definition).unwrap(), before);
+        assert!(converter.convert_term(&outer).unwrap().contains("outer"));
+        // When the nested alias has been declared first, retain it rather than
+        // expanding a potentially large shared DAG into each macro definition.
+        let mut compressed = TermToSmtLib2Converter::new(f.clone());
+        let inner_decl = f.macro_decl(Identifier::new("late_inner"), vec![], inner.clone());
+        compressed.convert_declaration(&inner_decl).unwrap();
+        let text = compressed.convert_declaration(&definition).unwrap();
+        assert!(text.contains("late_inner"), "{text}");
+        assert!(!text.contains("(as outer"), "{text}");
+    }
+    #[test]
+    fn previously_declared_aliases_keep_reused_mask_definitions_bounded() {
+        let f = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: true,
+        });
+        let mut converter = TermToSmtLib2Converter::new(f.clone());
+        let mut previous = f.zero_mask();
+        for index in 0..12 {
+            let at = f.var(Identifier::new(format!("r{index}")), Sort::Ref, false);
+            let body = f.mask_add(
+                f.mask_sum(previous.clone(), previous.clone()),
+                at,
+                f.full_perm(),
+            );
+            let name = format!("alias{index}");
+            let definition = f.macro_decl(Identifier::new(&name), vec![], body.clone());
+            let text = converter.convert_declaration(&definition).unwrap();
+            assert!(text.len() < 250, "alias {index} expanded: {}", text.len());
+            if index > 0 {
+                assert!(text.contains(&format!("alias{}", index - 1)), "{text}");
+            }
+            let symbol = f.applicable(crate::state::terms::ApplicableData {
+                kind: crate::state::terms::ApplicableKind::Macro,
+                id: Identifier::new(&name),
+                arg_sorts: vec![],
+                result_sort: body.sort().clone(),
+            });
+            body.set_var_repr(Some(f.app(symbol, vec![])));
+            previous = body;
+        }
     }
     #[test]
     fn sorts_names_and_quantified_empty_patterns_follow_source_dispatch() {

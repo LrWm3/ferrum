@@ -1193,3 +1193,10 @@ through worker transfers. Actual one/two-worker, failure-order and skipped-tail
 checks pass, with shared ordinary completion. An invalid internal-AST name lookup
 check preserves current Rust ordering, which differs from Scala; valid frontend
 programs resolve the declaration before verification.
+
+Fixed mask-heap worker replay of a macro whose shared body had acquired its own
+alias: it previously emitted a self-referential definition and failed in Z3.
+Converters now use only locally available aliases, excluding self/forward
+references during macro expansion. Prior aliases keep reused definitions compact.
+Stdio restart and failed emission clear stale availability; both transports and
+the original one/two-worker failure fixture pass their focused checks.

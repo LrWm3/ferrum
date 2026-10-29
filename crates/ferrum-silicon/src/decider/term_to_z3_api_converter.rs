@@ -71,6 +71,40 @@ mod mask_tests {
     use crate::state::terms::{ApplicableData, TermOptions};
 
     #[test]
+    fn macro_expansion_ignores_later_nested_aliases() {
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: true,
+        });
+        let at = factory.var(Identifier::new("r"), Sort::Ref, false);
+        let inner = factory.mask_add(factory.zero_mask(), at.clone(), factory.full_perm());
+        let body = factory.mask_add(
+            inner.clone(),
+            factory.var(Identifier::new("s"), Sort::Ref, false),
+            factory.full_perm(),
+        );
+        let mk_alias = |name: &str| {
+            factory.app(
+                factory.applicable(ApplicableData {
+                    kind: ApplicableKind::Macro,
+                    id: Identifier::new(name),
+                    arg_sorts: vec![],
+                    result_sort: Sort::mask(),
+                }),
+                vec![],
+            )
+        };
+        let mut converter = TermToZ3ApiConverter::new(LinkedZ3::new().unwrap(), factory.clone());
+        let expected = converter.convert_term(&body).unwrap();
+        let outer = mk_alias("outer");
+        body.set_var_repr(Some(outer.clone()));
+        inner.set_var_repr(Some(mk_alias("later_unregistered")));
+        assert!(converter.convert_term(&body).unwrap() == expected);
+        converter.register_macro("outer".into(), vec![], body);
+        assert!(converter.convert_term(&outer).unwrap() == expected);
+    }
+    #[test]
     fn expands_mask_alias_without_recursing_into_its_own_representation() {
         let factory = TermFactory::new(TermOptions {
             use_flyweight: false,
@@ -163,6 +197,8 @@ pub struct TermToZ3ApiConverter<C: Z3NativeContext> {
     sorts: HashMap<Sort, C::Sort>,
     terms: HashMap<Term, C::Expr>,
     macros: HashMap<String, (Vec<Term>, Term)>,
+    macro_order: HashMap<String, usize>,
+    current_macro_limit: Option<usize>,
 }
 impl<C: Z3NativeContext> TermToZ3ApiConverter<C> {
     pub fn new(context: C, factory: TermFactory) -> Self {
@@ -173,6 +209,8 @@ impl<C: Z3NativeContext> TermToZ3ApiConverter<C> {
             sorts: HashMap::new(),
             terms: HashMap::new(),
             macros: HashMap::new(),
+            macro_order: HashMap::new(),
+            current_macro_limit: None,
         }
     }
     /// Drop all cached context handles and macros before reusing or replacing the context.
@@ -180,9 +218,13 @@ impl<C: Z3NativeContext> TermToZ3ApiConverter<C> {
         self.sorts.clear();
         self.terms.clear();
         self.macros.clear();
+        self.macro_order.clear();
+        self.current_macro_limit = None;
         self.names.reset();
     }
     pub fn register_macro(&mut self, name: String, vars: Vec<Term>, body: Term) {
+        let order = self.macro_order.len();
+        self.macro_order.entry(name.clone()).or_insert(order);
         self.macros.insert(name, (vars, body));
         self.terms.clear();
     }
@@ -373,7 +415,19 @@ impl<C: Z3NativeContext> TermToZ3ApiConverter<C> {
             )
         {
             if let Some(repr) = term.var_repr() {
-                return self.convert_term(&repr);
+                let available = match (self.current_macro_limit, repr.kind()) {
+                    (None, TermKind::App { applicable, .. }) => {
+                        self.macro_order.contains_key(&applicable.id().name())
+                    }
+                    (Some(limit), TermKind::App { applicable, .. }) => self
+                        .macro_order
+                        .get(&applicable.id().name())
+                        .is_some_and(|order| *order < limit),
+                    _ => false,
+                };
+                if available {
+                    return self.convert_term(&repr);
+                }
             }
         }
         if let Some(value) = self.terms.get(term) {
@@ -440,7 +494,16 @@ impl<C: Z3NativeContext> TermToZ3ApiConverter<C> {
                         .map_err(|_| NativeConversionError::Substitution)?;
                     // The alias macro's body carries its own auxiliary representation.  Its
                     // root must expand directly, or it resolves back to this same macro forever.
-                    self.convert_term_inner(&replaced, false)?
+                    // Only earlier macro aliases can safely occur in this body:
+                    // shared subterms may acquire later aliases after capture.
+                    let limit = *self
+                        .macro_order
+                        .get(&macro_name)
+                        .expect("registered macro order");
+                    let previous = self.current_macro_limit.replace(limit);
+                    let converted = self.convert_term_inner(&replaced, false);
+                    self.current_macro_limit = previous;
+                    converted?
                 } else {
                     let name = if smt {
                         self.raw_identifier(id)?

@@ -339,3 +339,11 @@ ordinary term/debug construction. The synthetic unresolved-function check follow
 current Rust resolution-before-arguments order; pinned Scala resolves afterward.
 Valid frontend inputs resolve these names before verification. Ordinary function
 applications and CurrentPerm arguments remain separate receiver families.
+
+Mask alias replay now follows a shared term representation only when that alias
+is declared in the receiving solver. Macro bodies exclude self/forward aliases;
+linked Z3 uses the analogous registration order. Conversion does not mutate the
+shared term. Stdio restart clears declaration history and failed emission
+invalidates it conservatively. Actual one/two-worker mask-heap replay, linked
+conversion and a 12-level reused-mask size regression pass. These paths require
+the source global-declaration setting to remain enabled.

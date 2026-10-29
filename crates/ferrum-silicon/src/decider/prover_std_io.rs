@@ -511,7 +511,11 @@ impl ProverLike for ProverStdIo {
         if self.settings.debug {
             self.declarations.push(declaration.clone());
         }
-        self.emit(&text)
+        if let Err(error) = self.emit(&text) {
+            self.converter.forget_failed_declaration(declaration);
+            return Err(error);
+        }
+        Ok(())
     }
     fn comment(&mut self, content: &mut dyn FnMut() -> String) -> Result<(), Self::Error> {
         if self.log.is_some() {
@@ -551,6 +555,9 @@ impl Prover for ProverStdIo {
                 "stop must be called between starts",
             ));
         }
+        // Macro alias availability belongs to the solver process, not the
+        // reusable prover object. A restarted process has no prior declarations.
+        self.converter.start();
         self.scope_depth = 0;
         self.last_timeout = -1;
         self.log = self
@@ -915,6 +922,102 @@ mod fallible_comment_tests {
     use crate::interfaces::decider::prover::CommentError;
     use crate::state::terms::TermOptions;
 
+    #[test]
+    fn failed_declaration_does_not_make_alias_available() {
+        use crate::interfaces::decider::prover::ProverLike;
+        use crate::state::identifiers::Identifier;
+        use crate::state::terms::{ApplicableData, ApplicableKind, Sort};
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: true,
+        });
+        let at = factory.var(Identifier::new("r"), Sort::Ref, false);
+        let body = factory.mask_add(factory.zero_mask(), at, factory.full_perm());
+        let alias = factory.app(
+            factory.applicable(ApplicableData {
+                kind: ApplicableKind::Macro,
+                id: Identifier::new("rejected"),
+                arg_sorts: vec![],
+                result_sort: body.sort().clone(),
+            }),
+            vec![],
+        );
+        let declaration = factory.macro_decl(Identifier::new("rejected"), vec![], body.clone());
+        let mut prover = crate::decider::z3_prover_std_io::new(
+            "failed".into(),
+            ProverSettings::new("unused".into(), 10000),
+            factory,
+            |_| {},
+        );
+        // No solver has started, so emitting the otherwise renderable declaration fails.
+        assert!(prover.declare(&declaration).is_err());
+        body.set_var_repr(Some(alias));
+        assert!(
+            !prover
+                .converter
+                .convert_term(&body)
+                .unwrap()
+                .contains("rejected")
+        );
+    }
+    #[test]
+    fn restarted_prover_does_not_reuse_old_macro_aliases() {
+        use crate::interfaces::decider::prover::Prover;
+        use crate::state::identifiers::Identifier;
+        use crate::state::terms::{ApplicableData, ApplicableKind, Sort};
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: true,
+        });
+        let at = factory.var(Identifier::new("r"), Sort::Ref, false);
+        let inner = factory.mask_add(factory.zero_mask(), at.clone(), factory.full_perm());
+        let alias = factory.app(
+            factory.applicable(ApplicableData {
+                kind: ApplicableKind::Macro,
+                id: Identifier::new("oldAlias"),
+                arg_sorts: vec![],
+                result_sort: inner.sort().clone(),
+            }),
+            vec![],
+        );
+        let mut prover = crate::decider::z3_prover_std_io::new(
+            "restart".into(),
+            ProverSettings::new(z3.into(), 10000),
+            factory.clone(),
+            |_| {},
+        );
+        prover.start(None).unwrap();
+        prover
+            .converter
+            .convert_declaration(&factory.macro_decl(
+                Identifier::new("oldAlias"),
+                vec![],
+                inner.clone(),
+            ))
+            .unwrap();
+        inner.set_var_repr(Some(alias));
+        assert!(
+            prover
+                .converter
+                .convert_term(&inner)
+                .unwrap()
+                .contains("oldAlias")
+        );
+        prover.reset().unwrap();
+        assert!(
+            !prover
+                .converter
+                .convert_term(&inner)
+                .unwrap()
+                .contains("oldAlias")
+        );
+        prover.stop().unwrap();
+    }
     #[test]
     fn comments_are_lazy_and_render_failure_writes_nothing() {
         let mut prover = ProverStdIo::new(
