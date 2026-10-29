@@ -55,6 +55,9 @@ thread_local! {
     static FUNCTION_PRE_BRIDGE_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
     static STATEMENT_CONSUME_BRIDGE_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
     static TEST_CONSUMER_SERVICE_ERROR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    // Test-only fault after the real pop, so the solver is left clean while
+    // the adapter receives the same error shape as an independently failed pop.
+    static TEST_CONDITIONAL_POP_FAULT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 type TermValue = Term;
@@ -64,6 +67,78 @@ use std::{
     marker::PhantomData,
     sync::{Arc, atomic::Ordering},
 };
+
+// Callback adapters use a typed abort sentinel to unwind borrowed callbacks.
+// Preserve any independent error reported while unwinding instead of dropping it.
+macro_rules! recover_callback_error {
+    ($slot:expr, $result:ident, $source:ident, $target:ident, $variant:ident) => {
+        if let Some(error) = $slot {
+            return match $result {
+                Ok(_) | Err($source::Context(NativeError::ContinuationAbort)) => Err(error),
+                Err(other) => Err($target::$variant(NativeError::Cleanup(format!(
+                    "callback: {error:?}; adapter: {other:?}"
+                )))),
+            };
+        }
+    };
+}
+
+macro_rules! recover_chunk_callback_error {
+    ($slot:expr, $result:ident, $target:ident, $variant:ident) => {
+        if let Some(error) = $slot {
+            return match $result {
+                Ok(_)
+                | Err(ChunkExecutionError::Context(NativeError::ContinuationAbort))
+                | Err(ChunkExecutionError::Greedy(
+                    crate::rules::chunk_supporter::ChunkSupportError::Solver(
+                        NativeError::ContinuationAbort,
+                    ),
+                )) => Err(error),
+                Err(other) => Err($target::$variant(NativeError::Cleanup(format!(
+                    "callback: {error:?}; adapter: {other:?}"
+                )))),
+            };
+        }
+    };
+}
+
+macro_rules! recover_native_callback_error {
+    ($slot:expr, $result:ident, $target:ident, $variant:ident) => {
+        if let Some(error) = $slot {
+            return match $result {
+                Ok(_) | Err(NativeError::ContinuationAbort) => Err(error),
+                Err(other) => Err($target::$variant(NativeError::Cleanup(format!(
+                    "callback: {error:?}; adapter: {other:?}"
+                )))),
+            };
+        }
+    };
+}
+
+macro_rules! recover_service_callback_error {
+    ($slot:expr, $result:ident, $source:ident, $target:ident, $variant:ident) => {
+        if let Some(error) = $slot {
+            return match $result {
+                Ok(_) | Err($source::Service(NativeError::ContinuationAbort)) => Err(error),
+                Err(other) => Err($target::$variant(NativeError::Cleanup(format!(
+                    "callback: {error:?}; adapter: {other:?}"
+                )))),
+            };
+        }
+    };
+}
+macro_rules! recover_native_service_callback_error {
+    ($slot:expr, $result:ident, $source:ident) => {
+        if let Some(error) = $slot {
+            return match $result {
+                Ok(_) | Err($source::Service(NativeError::ContinuationAbort)) => Err(error),
+                Err(other) => Err(NativeError::Cleanup(format!(
+                    "callback: {error:?}; adapter: {other:?}"
+                ))),
+            };
+        }
+    };
+}
 
 #[derive(Clone, Debug)]
 pub struct NativeOptions {
@@ -959,7 +1034,10 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
                     .map_err(NativeError::Decider)
             },
         )
-        .map_err(|e| NativeError::Chunk(format!("empty mask heap: {e:?}")))
+        .map_err(|e| match e {
+            crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => error,
+            other => NativeError::Chunk(format!("empty mask heap: {other:?}")),
+        })
     }
     fn mask_resource_sequence(
         &mut self,
@@ -1001,7 +1079,10 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             state.may_assume_upper_bounds(),
             &mut service,
         )
-        .map_err(|e| NativeError::Chunk(format!("mask heap merge: {e:?}")))
+        .map_err(|e| match e {
+            crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => error,
+            other => NativeError::Chunk(format!("mask heap merge: {other:?}")),
+        })
     }
     fn produce_native_mask_single(
         &mut self,
@@ -1031,7 +1112,10 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             state.may_assume_upper_bounds(),
             &mut service,
         )
-        .map_err(|e| NativeError::Chunk(format!("mask single production: {e:?}")))?;
+        .map_err(|e| match e {
+            crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => error,
+            other => NativeError::Chunk(format!("mask single production: {other:?}")),
+        })?;
         state.h = Arc::new(result);
         Ok(state)
     }
@@ -1077,7 +1161,10 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             timeout,
             &mut service,
         )
-        .map_err(|e| NativeError::Chunk(format!("mask single consumption: {e:?}")))
+        .map_err(|e| match e {
+            crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => error,
+            other => NativeError::Chunk(format!("mask single consumption: {other:?}")),
+        })
     }
     fn consume_mask_transfer(
         &mut self,
@@ -1186,10 +1273,11 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
-        result.map_err(|e| NativeError::Chunk(format!("mask wand transfer: {e:?}")))
+        recover_native_service_callback_error!(callback_error, result, WandTransferError);
+        result.map_err(|e| match e {
+            WandTransferError::Service(error) => error,
+            other => NativeError::Chunk(format!("mask wand transfer: {other:?}")),
+        })
     }
     fn native_havoc_resource(
         &mut self,
@@ -1206,7 +1294,10 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             return crate::rules::heap_supporter::havoc_resource(
                 self, state, condition, resource, info,
             )
-            .map_err(|e| NativeError::Execution(format!("havoc resource: {e:?}")));
+            .map_err(|e| match e {
+                crate::rules::heap_supporter::HavocError::Context(error) => error,
+                other => NativeError::Execution(format!("havoc resource: {other:?}")),
+            });
         }
         let factory = self.factory.clone();
         let mut service = NativeMaskProduction {
@@ -1222,7 +1313,10 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             info,
             &mut service,
         )
-        .map_err(|e| NativeError::Chunk(format!("mask havoc: {e:?}")))
+        .map_err(|e| match e {
+            crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => error,
+            other => NativeError::Chunk(format!("mask havoc: {other:?}")),
+        })
     }
     /// Write the source CFG dump at the method/standalone verification hook.
     fn write_cfg_output(
@@ -1755,8 +1849,10 @@ where
         &mut self,
         state: &State<PD, FD, JoinMode>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
-        crate::rules::magic_wand_supporter::evaluation_heap(self, state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))
+        crate::rules::magic_wand_supporter::evaluation_heap(self, state).map_err(|e| match e {
+            crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+            other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+        })
     }
     fn record_possible_trigger(
         &mut self,
@@ -2393,9 +2489,13 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(
+            callback_error,
+            result,
+            ConsumptionError,
+            EvaluationError,
+            Context
+        );
         result.map_err(|e| match e {
             ConsumptionError::Context(error) => EvaluationError::Context(error),
             other => EvaluationError::Context(NativeError::Consumption(format!("{other:?}"))),
@@ -2439,8 +2539,13 @@ where
                         .map_err(NativeError::Decider)
                 },
             )
-            .map_err(|e| {
-                EvaluationError::Context(NativeError::Chunk(format!("mask field read: {e:?}")))
+            .map_err(|e| match e {
+                crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => {
+                    EvaluationError::Context(error)
+                }
+                other => EvaluationError::Context(NativeError::Chunk(format!(
+                    "mask field read: {other:?}"
+                ))),
             })?;
             return match result {
                 crate::rules::mask_heap_supporter::MaskFieldRead::Value { value, snapshot } => {
@@ -2474,10 +2579,14 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
-        result.map_err(|e| EvaluationError::Context(NativeError::Chunk(format!("{e:?}"))))
+        recover_chunk_callback_error!(callback_error, result, EvaluationError, Context);
+        result.map_err(|e| match e {
+            ChunkExecutionError::Context(error)
+            | ChunkExecutionError::Greedy(
+                crate::rules::chunk_supporter::ChunkSupportError::Solver(error),
+            ) => EvaluationError::Context(error),
+            other => EvaluationError::Context(NativeError::Chunk(format!("{other:?}"))),
+        })
     }
     fn record_intermediate_heap(
         &mut self,
@@ -2491,8 +2600,12 @@ where
             ));
         }
         let pcs = self.base.decider.pcs.clone();
-        let probe = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let probe = crate::rules::magic_wand_supporter::evaluation_heap(self, &state).map_err(
+            |e| match e {
+                crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+                other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+            },
+        )?;
         let (label, fresh) = {
             let render = |chunk: &crate::state::chunks::Chunk| {
                 crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
@@ -2504,8 +2617,12 @@ where
         if !fresh {
             return Ok(state);
         }
-        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state).map_err(
+            |e| match e {
+                crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+                other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+            },
+        )?;
         self.debug_heap_recorder.record_fresh_intermediate(
             &mut state,
             label,
@@ -2520,8 +2637,12 @@ where
         state: &State<PD, FD, JoinMode>,
         position: &ferrum_silver::ast::position::Position,
     ) -> Result<String, Self::Error> {
-        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, state).map_err(
+            |e| match e {
+                crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+                other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+            },
+        )?;
         let render = |chunk: &crate::state::chunks::Chunk| {
             crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
                 .map_err(|e| NativeError::Diagnostic(format!("debug heap rendering: {e:?}")))
@@ -3106,10 +3227,13 @@ where
         if self.base.decider.debug_mode {
             let old_pcs = self.base.decider.pcs.clone();
             let probe = crate::rules::magic_wand_supporter::evaluation_heap(self, &merged)
-                .map_err(|e| {
-                    EvaluationError::Context(NativeError::Execution(format!(
-                        "wand evaluation heap: {e:?}"
-                    )))
+                .map_err(|e| match e {
+                    crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => {
+                        EvaluationError::Context(error)
+                    }
+                    other => EvaluationError::Context(NativeError::Execution(format!(
+                        "wand evaluation heap: {other:?}"
+                    ))),
                 })?;
             let (label, fresh) = {
                 let render = |chunk: &crate::state::chunks::Chunk| {
@@ -3124,10 +3248,13 @@ where
             };
             if fresh {
                 let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &merged)
-                    .map_err(|e| {
-                        EvaluationError::Context(NativeError::Execution(format!(
-                            "wand evaluation heap: {e:?}"
-                        )))
+                    .map_err(|e| match e {
+                        crate::rules::magic_wand_supporter::WandReserveHeapError::Service(
+                            error,
+                        ) => EvaluationError::Context(error),
+                        other => EvaluationError::Context(NativeError::Execution(format!(
+                            "wand evaluation heap: {other:?}"
+                        ))),
                     })?;
                 let render = |chunk: &crate::state::chunks::Chunk| {
                     crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
@@ -3360,9 +3487,13 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(
+            callback_error,
+            result,
+            ConsumptionError,
+            EvaluationError,
+            Context
+        );
         result.map_err(|e| match e {
             ConsumptionError::Context(error) => EvaluationError::Context(error),
             other => EvaluationError::Context(NativeError::Consumption(format!("{other:?}"))),
@@ -3380,7 +3511,7 @@ where
             return crate::rules::mask_heap_supporter::function_app_snapshot::<NativeError<S::Error>>(
                 &self.factory, &state.h, &resources,
             )
-            .map_err(|e| NativeError::Chunk(format!("function heap snapshot: {e:?}")));
+            .map_err(|e| match e { crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => error, other => NativeError::Chunk(format!("function heap snapshot: {other:?}")) });
         }
         let snapshot = self.factory.sort_wrapper(snapshot.clone(), Sort::Snap);
         Ok((vec![snapshot.clone()], snapshot))
@@ -3473,7 +3604,10 @@ where
             let condition = crate::rules::mask_heap_supporter::forperm_mask_condition::<
                 NativeError<S::Error>,
             >(&factory, &state.h, resource, args)
-            .map_err(|e| NativeError::Chunk(format!("forperm mask: {e:?}")))?;
+            .map_err(|e| match e {
+                crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => error,
+                other => NativeError::Chunk(format!("forperm mask: {other:?}")),
+            })?;
             return Ok(condition
                 .into_iter()
                 .map(|(condition, trigger)| ForPermCondition {
@@ -3654,9 +3788,13 @@ where
                     }
                 },
             );
-            if let Some(error) = callback_error {
-                return Err(error);
-            }
+            recover_callback_error!(
+                callback_error,
+                result,
+                ConsumptionError,
+                EvaluationError,
+                Context
+            );
             return result.map_err(|e| match e {
                 ConsumptionError::Context(error) => EvaluationError::Context(error),
                 other => EvaluationError::Context(NativeError::Consumption(format!(
@@ -3881,9 +4019,7 @@ where
                 )
                 .map_err(|error| {
                     ProductionError::Context(match error {
-                        MethodVerificationError::Service(NativeError::Cancelled) => {
-                            NativeError::Cancelled
-                        }
+                        MethodVerificationError::Service(error) => error,
                         other => NativeError::OwnedMethodContinuation(Box::new(other)),
                     })
                 })
@@ -4135,9 +4271,13 @@ where
                     }
                 },
             );
-            if let Some(error) = callback_error {
-                return Err(error);
-            }
+            recover_callback_error!(
+                callback_error,
+                result,
+                EvaluationError,
+                ProductionError,
+                Context
+            );
             result.map_err(|e| match e {
                 EvaluationError::Context(error) => ProductionError::Context(error),
                 other => ProductionError::Context(NativeError::Evaluation(format!("{other:?}"))),
@@ -4341,10 +4481,14 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
-        result.map_err(|e| ProductionError::Context(NativeError::Chunk(format!("{e:?}"))))
+        recover_chunk_callback_error!(callback_error, result, ProductionError, Context);
+        result.map_err(|e| match e {
+            ChunkExecutionError::Context(error)
+            | ChunkExecutionError::Greedy(
+                crate::rules::chunk_supporter::ChunkSupportError::Solver(error),
+            ) => ProductionError::Context(error),
+            other => ProductionError::Context(NativeError::Chunk(format!("{other:?}"))),
+        })
     }
     fn branch_production(
         &mut self,
@@ -4446,9 +4590,17 @@ where
             },
         );
         if let Some(error) = saved_error.into_inner() {
-            return Err(error);
+            return match result {
+                Ok(_) | Err(ExecutionError::Context(NativeError::ContinuationAbort)) => Err(error),
+                Err(other) => Err(ProductionError::Context(NativeError::Cleanup(format!(
+                    "production callback: {error:?}; branch: {other:?}"
+                )))),
+            };
         }
-        result.map_err(|e| ProductionError::Context(NativeError::Execution(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            ExecutionError::Context(error) => ProductionError::Context(error),
+            other => ProductionError::Context(NativeError::Execution(format!("{other:?}"))),
+        })
     }
     fn join_impure(&self, state: &State<PD, FD, JoinMode>) -> bool {
         matches!(state.more_joins, JoinMode::Impure | JoinMode::All)
@@ -4482,9 +4634,13 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(
+            callback_error,
+            result,
+            EvaluationError,
+            ProductionError,
+            Context
+        );
         result.map_err(|e| match e {
             EvaluationError::Context(error) => ProductionError::Context(error),
             other => ProductionError::Context(NativeError::Evaluation(format!("{other:?}"))),
@@ -4525,9 +4681,13 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(
+            callback_error,
+            result,
+            EvaluationError,
+            ProductionError,
+            Context
+        );
         result.map_err(|e| match e {
             EvaluationError::Context(error) => ProductionError::Context(error),
             other => ProductionError::Context(NativeError::Evaluation(format!("{other:?}"))),
@@ -5279,9 +5439,13 @@ where
                     }
                 },
             );
-            if let Some(error) = callback_error {
-                return Err(error);
-            }
+            recover_callback_error!(
+                callback_error,
+                result,
+                EvaluationError,
+                ConsumptionError,
+                Context
+            );
             result.map_err(|e| match e {
                 EvaluationError::Context(error) => ConsumptionError::Context(error),
                 other => ConsumptionError::Context(NativeError::Evaluation(format!("{other:?}"))),
@@ -5445,9 +5609,7 @@ where
                         }
                     },
                 );
-                if let Some(e) = callback_error {
-                    return Err(e);
-                }
+                recover_native_callback_error!(callback_error, result, ConsumptionError, Context);
                 return result.map_err(ConsumptionError::Context);
             }
             return match self
@@ -5482,17 +5644,23 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
-        result.map_err(|e| ConsumptionError::Context(NativeError::Chunk(format!("{e:?}"))))
+        recover_chunk_callback_error!(callback_error, result, ConsumptionError, Context);
+        result.map_err(|e| match e {
+            ChunkExecutionError::Context(error)
+            | ChunkExecutionError::Greedy(
+                crate::rules::chunk_supporter::ChunkSupportError::Solver(error),
+            ) => ConsumptionError::Context(error),
+            other => ConsumptionError::Context(NativeError::Chunk(format!("{other:?}"))),
+        })
     }
     fn eval_heap(
         &mut self,
         state: &State<PD, FD, JoinMode>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
-        crate::rules::magic_wand_supporter::evaluation_heap(self, state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))
+        crate::rules::magic_wand_supporter::evaluation_heap(self, state).map_err(|e| match e {
+            crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+            other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+        })
     }
     fn retry_pure(
         &mut self,
@@ -5736,9 +5904,17 @@ where
             },
         );
         if let Some(error) = saved_error.into_inner() {
-            return Err(error);
+            return match result {
+                Ok(_) | Err(ExecutionError::Context(NativeError::ContinuationAbort)) => Err(error),
+                Err(other) => Err(ConsumptionError::Context(NativeError::Cleanup(format!(
+                    "consumption callback: {error:?}; branch: {other:?}"
+                )))),
+            };
         }
-        result.map_err(|e| ConsumptionError::Context(NativeError::Execution(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            ExecutionError::Context(error) => ConsumptionError::Context(error),
+            other => ConsumptionError::Context(NativeError::Execution(format!("{other:?}"))),
+        })
     }
     fn handle_let(
         &mut self,
@@ -5769,9 +5945,13 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(
+            callback_error,
+            result,
+            EvaluationError,
+            ConsumptionError,
+            Context
+        );
         result.map_err(|e| match e {
             EvaluationError::Context(error) => ConsumptionError::Context(error),
             other => ConsumptionError::Context(NativeError::Evaluation(format!("{other:?}"))),
@@ -5812,9 +5992,13 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(
+            callback_error,
+            result,
+            EvaluationError,
+            ConsumptionError,
+            Context
+        );
         result.map_err(|e| match e {
             EvaluationError::Context(error) => ConsumptionError::Context(error),
             other => ConsumptionError::Context(NativeError::Evaluation(format!("{other:?}"))),
@@ -6075,13 +6259,18 @@ where
                         }
                     },
                 );
-                if let Some(e) = callback_error {
-                    return Err(e);
-                }
-                return result.map_err(|e| {
-                    ConsumptionError::Context(NativeError::Chunk(format!(
-                        "mask quantified wand transfer: {e:?}"
-                    )))
+                recover_service_callback_error!(
+                    callback_error,
+                    result,
+                    WandTransferError,
+                    ConsumptionError,
+                    Context
+                );
+                return result.map_err(|e| match e {
+                    WandTransferError::Service(error) => ConsumptionError::Context(error),
+                    other => ConsumptionError::Context(NativeError::Chunk(format!(
+                        "mask quantified wand transfer: {other:?}"
+                    ))),
                 });
             }
             let mut adapter = NativeMaskQuantified {
@@ -6227,8 +6416,11 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| {
-            ConsumptionError::Context(NativeError::Chunk(format!("quantified consumption: {e:?}")))
+        result.map_err(|e| match e {
+            GeneralConsumptionExecutionError::Service(error) => ConsumptionError::Context(error),
+            other => ConsumptionError::Context(NativeError::Chunk(format!(
+                "quantified consumption: {other:?}"
+            ))),
         })
     }
     fn consume_special(
@@ -6288,8 +6480,12 @@ where
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
         let factory = self.factory.clone();
         let choice = self.consolidation_choice(&state)?;
-        crate::rules::state_consolidator::consolidate(&factory, self, state, choice, false)
-            .map_err(|e| NativeError::Consolidation(format!("{e:?}")))
+        crate::rules::state_consolidator::consolidate(&factory, self, state, choice, false).map_err(
+            |e| match e {
+                crate::rules::state_consolidator::ConsolidationError::Service(error) => error,
+                other => NativeError::Consolidation(format!("{other:?}")),
+            },
+        )
     }
     fn retry_exhale_modes(
         &mut self,
@@ -6809,8 +7005,12 @@ where
     ) -> Result<State<PD, FD, JoinMode>, NativeError<S::Error>> {
         let choice = self.consolidation_choice(&state)?;
         let factory = self.factory.clone();
-        crate::rules::state_consolidator::consolidate(&factory, self, state, choice, true)
-            .map_err(|e| NativeError::Consolidation(format!("{e:?}")))
+        crate::rules::state_consolidator::consolidate(&factory, self, state, choice, true).map_err(
+            |e| match e {
+                crate::rules::state_consolidator::ConsolidationError::Service(error) => error,
+                other => NativeError::Consolidation(format!("{other:?}")),
+            },
+        )
     }
     fn retry_consumption<T>(
         &mut self,
@@ -7041,7 +7241,10 @@ where
                         &chunk.identifier(),
                         chunk.args_ref(),
                     )
-                    .map_err(|e| NativeError::Chunk(format!("{e:?}")))
+                    .map_err(|e| match e {
+                        crate::rules::chunk_supporter::ChunkSupportError::Solver(error) => error,
+                        other => NativeError::Chunk(format!("{other:?}")),
+                    })
                 }
                 crate::state::chunks::Chunk::MagicWand(_) => Ok(None),
                 _ => {
@@ -7379,8 +7582,13 @@ where
             state,
             &mut bridge,
             &mut |ctx, state, (heap, snapshot)| {
-                continuation(ctx, state, heap, snapshot)
-                    .map_err(|e| NativeError::Chunk(format!("{e:?}")))
+                continuation(ctx, state, heap, snapshot).map_err(|e| match e {
+                    ChunkExecutionError::Context(error)
+                    | ChunkExecutionError::Greedy(
+                        crate::rules::chunk_supporter::ChunkSupportError::Solver(error),
+                    ) => error,
+                    other => NativeError::Chunk(format!("{other:?}")),
+                })
             },
         )
         .map_err(ChunkExecutionError::Context)
@@ -7549,11 +7757,12 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
-        result.map_err(|e| {
-            ChunkExecutionError::Context(NativeError::Execution(format!("wand transfer: {e:?}")))
+        recover_service_callback_error!(callback_error, result, WE, ChunkExecutionError, Context);
+        result.map_err(|e| match e {
+            WE::Service(error) => ChunkExecutionError::Context(error),
+            other => ChunkExecutionError::Context(NativeError::Execution(format!(
+                "wand transfer: {other:?}"
+            ))),
         })
     }
     fn smoke(&mut self, is_assert: bool) -> Result<bool, Self::Error> {
@@ -7725,7 +7934,10 @@ where
                 &addition,
                 choice,
             )
-            .map_err(|e| NativeError::Consolidation(format!("{e:?}")))
+            .map_err(|e| match e {
+                crate::rules::state_consolidator::ConsolidationError::Service(error) => error,
+                other => NativeError::Consolidation(format!("{other:?}")),
+            })
         }
     }
 }
@@ -7776,7 +7988,13 @@ where
         (self.action)(context, state, &mut |ctx, state, heap, snap| {
             continuation(ctx, state, (heap, snap)).map_err(ChunkExecutionError::Context)
         })
-        .map_err(|e| NativeError::Chunk(format!("{e:?}")))
+        .map_err(|e| match e {
+            ChunkExecutionError::Context(error)
+            | ChunkExecutionError::Greedy(
+                crate::rules::chunk_supporter::ChunkSupportError::Solver(error),
+            ) => error,
+            other => NativeError::Chunk(format!("{other:?}")),
+        })
     }
 }
 
@@ -7831,10 +8049,16 @@ where
             merge_and_trigger,
             false,
         )
-        .map_err(|e| {
-            ChunkExecutionError::Context(NativeError::Chunk(format!(
-                "quantified production: {e:?}"
-            )))
+        .map_err(|e| match e {
+            crate::rules::quantified_chunk_support::SingleLocationProductionError::Service(
+                error,
+            )
+            | crate::rules::quantified_chunk_support::SingleLocationProductionError::Map(
+                crate::rules::quantified_chunk_support::SingletonMapError::Fresh(error),
+            ) => ChunkExecutionError::Context(error),
+            other => ChunkExecutionError::Context(NativeError::Chunk(format!(
+                "quantified production: {other:?}"
+            ))),
         })?;
         continuation(self, next)
     }
@@ -7907,10 +8131,11 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| {
-            ChunkExecutionError::Context(NativeError::Chunk(format!(
-                "quantified single consumption: {e:?}"
-            )))
+        result.map_err(|e| match e {
+            SingleConsumptionError::Service(error) => ChunkExecutionError::Context(error),
+            other => ChunkExecutionError::Context(NativeError::Chunk(format!(
+                "quantified single consumption: {other:?}"
+            ))),
         })
     }
     fn create_wand_chunk(
@@ -7965,9 +8190,13 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(
+            callback_error,
+            result,
+            EvaluationError,
+            ChunkExecutionError,
+            Context
+        );
         result.map_err(|e| match e {
             EvaluationError::Context(error) => ChunkExecutionError::Context(error),
             other => ChunkExecutionError::Context(NativeError::Evaluation(format!(
@@ -8564,22 +8793,30 @@ where
         &mut self,
         state: State<PD, FD, JoinMode>,
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
-        crate::rules::magic_wand_supporter::move_to_reserve_heap(self, state)
-            .map_err(|e| NativeError::Execution(format!("wand reserve heap: {e:?}")))
+        crate::rules::magic_wand_supporter::move_to_reserve_heap(self, state).map_err(|e| match e {
+            crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+            other => NativeError::Execution(format!("wand reserve heap: {other:?}")),
+        })
     }
     fn evaluation_heap(
         &mut self,
         state: &State<PD, FD, JoinMode>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
-        crate::rules::magic_wand_supporter::evaluation_heap(self, state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))
+        crate::rules::magic_wand_supporter::evaluation_heap(self, state).map_err(|e| match e {
+            crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+            other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+        })
     }
     fn debug_statement_snapshot(
         &mut self,
         state: &State<PD, FD, JoinMode>,
     ) -> Result<Option<crate::rules::executor::DebugStatementSnapshot>, Self::Error> {
-        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, state).map_err(
+            |e| match e {
+                crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+                other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+            },
+        )?;
         let render = |chunk: &crate::state::chunks::Chunk| {
             crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
                 .map_err(|e| NativeError::Diagnostic(format!("debug heap rendering: {e:?}")))
@@ -8612,8 +8849,12 @@ where
             return Ok(state);
         };
         let pcs = self.base.decider.pcs.clone();
-        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state).map_err(
+            |e| match e {
+                crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+                other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+            },
+        )?;
         let render = |chunk: &crate::state::chunks::Chunk| {
             crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
                 .map_err(|e| NativeError::Diagnostic(format!("debug heap rendering: {e:?}")))
@@ -8698,9 +8939,13 @@ where
                     }
                 },
             );
-            if let Some(error) = callback_error {
-                return Err(error);
-            }
+            recover_callback_error!(
+                callback_error,
+                result,
+                EvaluationError,
+                ExecutionError,
+                Context
+            );
             result.map_err(|e| match e {
                 EvaluationError::Context(error) => ExecutionError::Context(error),
                 other => ExecutionError::Context(NativeError::Evaluation(format!("{other:?}"))),
@@ -8863,10 +9108,14 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
-        result.map_err(|e| ExecutionError::Context(NativeError::Chunk(format!("{e:?}"))))
+        recover_chunk_callback_error!(callback_error, result, ExecutionError, Context);
+        result.map_err(|e| match e {
+            ChunkExecutionError::Context(error)
+            | ChunkExecutionError::Greedy(
+                crate::rules::chunk_supporter::ChunkSupportError::Solver(error),
+            ) => ExecutionError::Context(error),
+            other => ExecutionError::Context(NativeError::Chunk(format!("{other:?}"))),
+        })
     }
     fn produce(
         &mut self,
@@ -8900,9 +9149,13 @@ where
                     }
                 },
             );
-            if let Some(error) = callback_error {
-                return Err(error);
-            }
+            recover_callback_error!(
+                callback_error,
+                result,
+                ProductionError,
+                ExecutionError,
+                Context
+            );
             result.map_err(|e| match e {
                 ProductionError::Context(error) => ExecutionError::Context(error),
                 other => ExecutionError::Context(NativeError::Production(format!("{other:?}"))),
@@ -8994,9 +9247,13 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(
+            callback_error,
+            result,
+            ProductionError,
+            ExecutionError,
+            Context
+        );
         result.map_err(|e| match e {
             ProductionError::Context(error) => ExecutionError::Context(error),
             other => ExecutionError::Context(NativeError::Production(format!("{other:?}"))),
@@ -9118,9 +9375,13 @@ where
                     }
                 },
             );
-            if let Some(error) = callback_error {
-                return Err(error);
-            }
+            recover_callback_error!(
+                callback_error,
+                result,
+                ConsumptionError,
+                ExecutionError,
+                Context
+            );
             result.map_err(|e| match e {
                 ConsumptionError::Context(error) => ExecutionError::Context(error),
                 other => ExecutionError::Context(NativeError::Consumption(format!("{other:?}"))),
@@ -9219,10 +9480,14 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
-        result.map_err(|e| ExecutionError::Context(NativeError::Chunk(format!("{e:?}"))))
+        recover_chunk_callback_error!(callback_error, result, ExecutionError, Context);
+        result.map_err(|e| match e {
+            ChunkExecutionError::Context(error)
+            | ChunkExecutionError::Greedy(
+                crate::rules::chunk_supporter::ChunkSupportError::Solver(error),
+            ) => ExecutionError::Context(error),
+            other => ExecutionError::Context(NativeError::Chunk(format!("{other:?}"))),
+        })
     }
     fn assume_reference_disjointness(
         &mut self,
@@ -9246,8 +9511,12 @@ where
             return Ok(state);
         };
         let pcs = self.base.decider.pcs.clone();
-        let probe = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let probe = crate::rules::magic_wand_supporter::evaluation_heap(self, &state).map_err(
+            |e| match e {
+                crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+                other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+            },
+        )?;
         let (label, fresh) = {
             let render = |chunk: &crate::state::chunks::Chunk| {
                 crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
@@ -9259,8 +9528,12 @@ where
         if !fresh {
             return Ok(state);
         }
-        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state).map_err(
+            |e| match e {
+                crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+                other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+            },
+        )?;
         let render = |chunk: &crate::state::chunks::Chunk| {
             crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
                 .map_err(|e| NativeError::Diagnostic(format!("debug heap rendering: {e:?}")))
@@ -9304,10 +9577,18 @@ where
             return Ok(state);
         }
         let pcs = self.base.decider.pcs.clone();
-        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
-        let probe = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state).map_err(
+            |e| match e {
+                crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+                other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+            },
+        )?;
+        let probe = crate::rules::magic_wand_supporter::evaluation_heap(self, &state).map_err(
+            |e| match e {
+                crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+                other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+            },
+        )?;
         let render = |chunk: &crate::state::chunks::Chunk| {
             crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
                 .map_err(|e| NativeError::Diagnostic(format!("debug heap rendering: {e:?}")))
@@ -9465,9 +9746,13 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(
+            callback_error,
+            result,
+            EvaluationError,
+            ExecutionError,
+            Context
+        );
         result.map_err(|e| match e {
             EvaluationError::Context(error) => ExecutionError::Context(error),
             other => ExecutionError::Context(NativeError::Evaluation(format!("{other:?}"))),
@@ -9570,9 +9855,13 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(
+            callback_error,
+            result,
+            ConsumptionError,
+            ExecutionError,
+            Context
+        );
         result.map_err(|e| match e {
             ConsumptionError::Context(error) => ExecutionError::Context(error),
             other => ExecutionError::Context(NativeError::Consumption(format!("{other:?}"))),
@@ -9645,9 +9934,13 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(
+            callback_error,
+            result,
+            ProductionError,
+            ExecutionError,
+            Context
+        );
         result.map_err(|e| match e {
             ProductionError::Context(error) => ExecutionError::Context(error),
             other => ExecutionError::Context(NativeError::Production(format!("{other:?}"))),
@@ -9869,9 +10162,13 @@ where
                     }
                 },
             );
-            if let Some(error) = callback_error {
-                return Err(error);
-            }
+            recover_callback_error!(
+                callback_error,
+                result,
+                EvaluationError,
+                ExecutionError,
+                Context
+            );
             return result.map_err(|e| match e {
                 EvaluationError::Context(error) => ExecutionError::Context(error),
                 other => {
@@ -9964,9 +10261,13 @@ where
                     )
                 },
             );
-            if let Some(error) = callback_error {
-                return Err(error);
-            }
+            recover_callback_error!(
+                callback_error,
+                result,
+                EvaluationError,
+                ExecutionError,
+                Context
+            );
             return result.map_err(|e| match e {
                 EvaluationError::Context(error) => ExecutionError::Context(error),
                 other => {
@@ -10057,11 +10358,12 @@ where
                     }
                 },
             );
-            if let Some(error) = callback_error {
-                return Err(error);
-            }
-            return result.map_err(|e| {
-                ExecutionError::Context(NativeError::Execution(format!("package wand: {e:?}")))
+            recover_service_callback_error!(callback_error, result, PE, ExecutionError, Context);
+            return result.map_err(|e| match e {
+                PE::Service(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Execution(format!(
+                    "package wand: {other:?}"
+                ))),
             });
         }
         if let StmtKind::Apply(wand) = statement.kind() {
@@ -10085,11 +10387,12 @@ where
                     }
                 },
             );
-            if let Some(error) = callback_error {
-                return Err(error);
-            }
-            return result.map_err(|e| {
-                ExecutionError::Context(NativeError::Execution(format!("apply wand: {e:?}")))
+            recover_service_callback_error!(callback_error, result, WE, ExecutionError, Context);
+            return result.map_err(|e| match e {
+                WE::Service(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Execution(format!(
+                    "apply wand: {other:?}"
+                ))),
             });
         }
         self.execute_native_predicate_statement(state, statement, None, continuation)
@@ -10251,11 +10554,15 @@ where
                                     &mut next,
                                 )
                             };
-                            if let Some(error) = continuation_error {
-                                return Err(error);
-                            }
+                            recover_service_callback_error!(
+                                continuation_error,
+                                result,
+                                PredicateExecutionError,
+                                ExecutionError,
+                                Context
+                            );
                             result.map_err(|e| match e {
-                                PredicateExecutionError::Service(error) if owned_tail.is_some() => {
+                                PredicateExecutionError::Service(error) => {
                                     ExecutionError::Context(error)
                                 }
                                 other => ExecutionError::Context(NativeError::Execution(format!(
@@ -10274,15 +10581,26 @@ where
                     },
                 );
                 if let Some(error) = inner_error {
-                    outer_error = Some(error);
+                    outer_error = Some(match evaluated {
+                        Ok(_) | Err(EvaluationError::Context(NativeError::ContinuationAbort)) => {
+                            error
+                        }
+                        Err(other) => ExecutionError::Context(NativeError::Cleanup(format!(
+                            "predicate callback: {error:?}; evaluation: {other:?}"
+                        ))),
+                    });
                     return Err(EvaluationError::Context(NativeError::ContinuationAbort));
                 }
                 evaluated
             },
         );
-        if let Some(error) = outer_error {
-            return Err(error);
-        }
+        recover_callback_error!(
+            outer_error,
+            result,
+            EvaluationError,
+            ExecutionError,
+            Context
+        );
         result.map_err(|e| match e {
             EvaluationError::Context(error) => ExecutionError::Context(error),
             other => ExecutionError::Context(NativeError::Evaluation(format!("{other:?}"))),
@@ -10309,9 +10627,7 @@ where
             crate::rules::executor::CfgContinuationTerminal::Method(method) => {
                 crate::supporters::method_supporter::complete_method_cfg(self, state, method)
                     .map_err(|error| match error {
-                        MethodVerificationError::Service(NativeError::Cancelled) => {
-                            ExecutionError::Context(NativeError::Cancelled)
-                        }
+                        MethodVerificationError::Service(error) => ExecutionError::Context(error),
                         other => ExecutionError::Context(NativeError::OwnedMethodContinuation(
                             Box::new(other),
                         )),
@@ -10476,7 +10792,10 @@ where
             &saved,
             choice,
         )
-        .map_err(|e| NativeError::Consolidation(format!("{e:?}")))?;
+        .map_err(|e| match e {
+            crate::rules::state_consolidator::ConsolidationError::Service(error) => error,
+            other => NativeError::Consolidation(format!("{other:?}")),
+        })?;
         let mut state = state;
         state.function_recorder = recorder;
         state.h = Arc::new(heap);
@@ -10517,9 +10836,13 @@ where
                     }
                 },
             );
-            if let Some(error) = callback_error {
-                return Err(error);
-            }
+            recover_callback_error!(
+                callback_error,
+                result,
+                EvaluationError,
+                ExecutionError,
+                Context
+            );
             result.map_err(|e| match e {
                 EvaluationError::Context(error) => ExecutionError::Context(error),
                 other => ExecutionError::Context(NativeError::Evaluation(format!("{other:?}"))),
@@ -10619,6 +10942,12 @@ where
                 action(this, branch_state)
             })();
             let cleanup = this.base.decider.pop_scope();
+            #[cfg(test)]
+            let cleanup = if TEST_CONDITIONAL_POP_FAULT.with(|flag| flag.replace(false)) {
+                cleanup.and(Err(DeciderError::MissingDebugExpression))
+            } else {
+                cleanup
+            };
             match (result, cleanup) {
                 (Ok(v), Ok(())) => Ok(v),
                 (Err(e), Ok(())) => Err(e),
@@ -10743,9 +11072,7 @@ where
                 }
             },
         );
-        if let Some(error) = error.into_inner() {
-            return Err(error);
-        }
+        recover_native_callback_error!(error.into_inner(), result, ExecutionError, Context);
         result.map_err(ExecutionError::Context)
     }
     fn begin_edges_scope(&mut self, count: usize) -> Result<Option<i32>, Self::Error> {
@@ -10971,9 +11298,13 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(
+            callback_error,
+            result,
+            ProductionError,
+            ExecutionError,
+            Context
+        );
         result.map_err(|e| match e {
             ProductionError::Context(error) => ExecutionError::Context(error),
             other => ExecutionError::Context(NativeError::Production(format!("{other:?}"))),
@@ -11074,9 +11405,13 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(
+            callback_error,
+            result,
+            ConsumptionError,
+            ExecutionError,
+            Context
+        );
         result.map_err(|e| match e {
             ConsumptionError::Context(error) => ExecutionError::Context(error),
             other => ExecutionError::Context(NativeError::Consumption(format!("{other:?}"))),
@@ -11106,7 +11441,12 @@ where
             }
             LoopDebugHeapStart::ExhaleInvariant => {
                 let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
-                    .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+                    .map_err(|e| match e {
+                        crate::rules::magic_wand_supporter::WandReserveHeapError::Service(
+                            error,
+                        ) => error,
+                        other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+                    })?;
                 let render = |chunk: &crate::state::chunks::Chunk| {
                     crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
                         .map_err(|e| {
@@ -11160,8 +11500,12 @@ where
         {
             return Ok(None);
         }
-        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, state).map_err(
+            |e| match e {
+                crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+                other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+            },
+        )?;
         let render = |chunk: &crate::state::chunks::Chunk| {
             crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
                 .map_err(|e| NativeError::Diagnostic(format!("debug heap rendering: {e:?}")))
@@ -11343,8 +11687,12 @@ where
             JoinMode,
             VerificationError,
         >>::finish_key_heap(self, state)?;
-        let probe = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let probe = crate::rules::magic_wand_supporter::evaluation_heap(self, &state).map_err(
+            |e| match e {
+                crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+                other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+            },
+        )?;
         let parent = {
             let render = |chunk: &crate::state::chunks::Chunk| {
                 crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
@@ -11355,8 +11703,12 @@ where
                 .unwrap_or_else(|| "nil".into())
         };
         let pcs = self.base.decider.pcs.clone();
-        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state).map_err(
+            |e| match e {
+                crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+                other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+            },
+        )?;
         let render = |chunk: &crate::state::chunks::Chunk| {
             crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
                 .map_err(|e| NativeError::Diagnostic(format!("debug heap rendering: {e:?}")))
@@ -11377,8 +11729,12 @@ where
         &mut self,
         mut state: State<PD, FD, JoinMode>,
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
-        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+        let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state).map_err(
+            |e| match e {
+                crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+                other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+            },
+        )?;
         let render = |chunk: &crate::state::chunks::Chunk| {
             crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
                 .map_err(|e| NativeError::Diagnostic(format!("debug heap rendering: {e:?}")))
@@ -11473,9 +11829,13 @@ where
                     }
                 },
             );
-            if let Some(error) = callback_error {
-                return Err(error);
-            }
+            recover_callback_error!(
+                callback_error,
+                result,
+                ProductionError,
+                MethodVerificationError,
+                Service
+            );
             result.map_err(|e| match e {
                 ProductionError::Context(error) => MethodVerificationError::Service(error),
                 other => {
@@ -11562,14 +11922,16 @@ where
                     }
                 },
             );
-            if let Some(error) = callback_error {
-                return Err(error);
-            }
+            recover_callback_error!(
+                callback_error,
+                result,
+                ExecutionError,
+                MethodVerificationError,
+                Service
+            );
             result.map_err(|error| match error {
                 ExecutionError::Context(NativeError::OwnedMethodContinuation(error)) => *error,
-                ExecutionError::Context(NativeError::Cancelled) => {
-                    MethodVerificationError::Service(NativeError::Cancelled)
-                }
+                ExecutionError::Context(error) => MethodVerificationError::Service(error),
                 other => {
                     MethodVerificationError::Service(NativeError::Execution(format!("{other:?}")))
                 }
@@ -11647,9 +12009,13 @@ where
                     }
                 },
             );
-            if let Some(error) = callback_error {
-                return Err(error);
-            }
+            recover_callback_error!(
+                callback_error,
+                result,
+                ConsumptionError,
+                MethodVerificationError,
+                Service
+            );
             result.map_err(|e| match e {
                 ConsumptionError::Context(error) => MethodVerificationError::Service(error),
                 other => {
@@ -11774,12 +12140,18 @@ where
             );
             let cleanup = self.base.decider.pop_scope();
             if let Some(error) = callback_error {
-                if let Err(cleanup) = cleanup {
-                    return Err(PredicateVerificationError::Service(NativeError::Cleanup(
-                        format!("{error:?}; cleanup: {cleanup:?}"),
-                    )));
-                }
-                return Err(error);
+                let adapter = match result {
+                    Ok(_) | Err(ProductionError::Context(NativeError::ContinuationAbort)) => None,
+                    Err(other) => Some(other),
+                };
+                return match (adapter, cleanup) {
+                    (None, Ok(())) => Err(error),
+                    (adapter, cleanup) => Err(PredicateVerificationError::Service(
+                        NativeError::Cleanup(format!(
+                            "predicate callback: {error:?}; adapter: {adapter:?}; cleanup: {cleanup:?}"
+                        )),
+                    )),
+                };
             }
             match (result, cleanup) {
                 (Ok(v), Ok(())) => Ok(v),
@@ -12075,11 +12447,26 @@ where
                     Err(NativeError::Cancelled)
                 }
                 (Err(EvaluationError::Context(error)), Ok(())) => Err(error),
+                (
+                    Err(EvaluationError::TriggerCleanup {
+                        evaluation,
+                        cleanup,
+                    }),
+                    Ok(()),
+                ) => Err(NativeError::Cleanup(format!(
+                    "branch evaluation: {evaluation:?}; cleanup: {cleanup:?}"
+                ))),
                 (Err(e), Ok(())) => {
                     Err(NativeError::Evaluation(format!("branch evaluation: {e:?}")))
                 }
                 (Err(e), Err(cleanup)) => match coalesce_evaluation_cleanup(e, cleanup) {
                     EvaluationError::Context(error) => Err(error),
+                    EvaluationError::TriggerCleanup {
+                        evaluation,
+                        cleanup,
+                    } => Err(NativeError::Cleanup(format!(
+                        "branch evaluation: {evaluation:?}; cleanup: {cleanup:?}"
+                    ))),
                     other => Err(NativeError::Evaluation(format!(
                         "branch evaluation: {other:?}"
                     ))),
@@ -12684,9 +13071,9 @@ where
         let results = crate::supporters::method_supporter::verify_method(self, state, method)
             .map(flatten_results)
             .map_err(|e| match e {
-                crate::supporters::method_supporter::MethodVerificationError::Service(
-                    NativeError::Cancelled,
-                ) => NativeError::Cancelled,
+                crate::supporters::method_supporter::MethodVerificationError::Service(error) => {
+                    error
+                }
                 other => NativeError::Execution(format!("worker method verification: {other:?}")),
             })?;
         Ok(results)
@@ -12724,9 +13111,7 @@ where
         crate::supporters::cfg_supporter::verify_cfg(self, state, Arc::new(cfg.clone()))
             .map(flatten_results)
             .map_err(|e| match e {
-                crate::supporters::cfg_supporter::CfgVerificationError::Service(
-                    NativeError::Cancelled,
-                ) => NativeError::Cancelled,
+                crate::supporters::cfg_supporter::CfgVerificationError::Service(error) => error,
                 other => NativeError::Execution(format!("worker CFG verification: {other:?}")),
             })
     }
@@ -12751,7 +13136,11 @@ where
             .borrow_mut()
             .verify(&factory, self, state, function)
             .map(flatten_results)
-            .map_err(|e| NativeError::Execution(format!("function verification: {e:?}")))
+            .map_err(|e| match e {
+                crate::supporters::functions::function_verification_unit::FunctionVerificationError::Service(error) => error,
+                crate::supporters::functions::function_verification_unit::FunctionVerificationError::Cleanup { primary, cleanup } => NativeError::Cleanup(format!("function verification: {primary:?}; cleanup: {cleanup:?}")),
+                other => NativeError::Execution(format!("function verification: {other:?}")),
+            })
     }
     /// Verify a predicate before reporting and scope assignment in a pool orchestrator.
     pub fn verify_predicate_unscoped(
@@ -12777,7 +13166,10 @@ where
             &factory, self, state, &data,
         )
         .map(flatten_results)
-        .map_err(|e| NativeError::Execution(format!("{e:?}")))
+        .map_err(|e| match e {
+            PredicateVerificationError::Service(error) => error,
+            other => NativeError::Execution(format!("{other:?}")),
+        })
     }
 
     /// Execute the actual main-verifier orchestration with one owned solver.
@@ -13643,8 +14035,12 @@ where
             )?;
             started = Some(std::time::Instant::now());
             self.log_member_start("METHOD", Some(&method.name));
-            crate::supporters::method_supporter::verify_method(self, state, method)
-                .map_err(|e| NativeError::Execution(format!("{e:?}")))
+            crate::supporters::method_supporter::verify_method(self, state, method).map_err(|e| {
+                match e {
+                    MethodVerificationError::Service(error) => error,
+                    other => NativeError::Execution(format!("{other:?}")),
+                }
+            })
         })();
         if outcome.is_err() {
             if let Some((logger, _)) = &self.general_logging {
@@ -13702,7 +14098,10 @@ where
         self.log_member_start("CFG", None);
         let outcome =
             crate::supporters::cfg_supporter::verify_cfg(self, state, Arc::new(cfg.clone()))
-                .map_err(|e| NativeError::Execution(format!("CFG verification: {e:?}")));
+                .map_err(|e| match e {
+                    crate::supporters::cfg_supporter::CfgVerificationError::Service(error) => error,
+                    other => NativeError::Execution(format!("CFG verification: {other:?}")),
+                });
         if outcome.is_err() {
             if let Some((logger, _)) = &self.general_logging {
                 logger.entity_exception("cfg", None);
@@ -14037,9 +14436,7 @@ where
                 }
             },
         );
-        if let Some(e) = callback_error {
-            return Err(e);
-        }
+        recover_callback_error!(callback_error, result, ConsumptionError, PE, Service);
         result.map_err(|e| match e {
             ConsumptionError::Context(error) => PE::Service(error),
             other => PE::Service(NativeError::Consumption(format!("{other:?}"))),
@@ -14101,10 +14498,14 @@ where
                 }
             },
         );
-        if let Some(e) = callback_error {
-            return Err(e);
-        }
-        result.map_err(|e| PE::Service(NativeError::Chunk(format!("{e:?}"))))
+        recover_chunk_callback_error!(callback_error, result, PE, Service);
+        result.map_err(|e| match e {
+            ChunkExecutionError::Context(error)
+            | ChunkExecutionError::Greedy(
+                crate::rules::chunk_supporter::ChunkSupportError::Solver(error),
+            ) => PE::Service(error),
+            other => PE::Service(NativeError::Chunk(format!("{other:?}"))),
+        })
     }
     fn consume_predicate_chunk(
         &mut self,
@@ -14166,9 +14567,7 @@ where
                         }
                     },
                 );
-                if let Some(e) = callback_error {
-                    return Err(e);
-                }
+                recover_native_callback_error!(callback_error, result, PE, Service);
                 return result.map_err(PE::Service);
             }
             return match self
@@ -14210,10 +14609,14 @@ where
                 }
             },
         );
-        if let Some(e) = callback_error {
-            return Err(e);
-        }
-        result.map_err(|e| PE::Service(NativeError::Chunk(format!("{e:?}"))))
+        recover_chunk_callback_error!(callback_error, result, PE, Service);
+        result.map_err(|e| match e {
+            ChunkExecutionError::Context(error)
+            | ChunkExecutionError::Greedy(
+                crate::rules::chunk_supporter::ChunkSupportError::Solver(error),
+            ) => PE::Service(error),
+            other => PE::Service(NativeError::Chunk(format!("{other:?}"))),
+        })
     }
     fn folded_predicate_snapshot(
         &mut self,
@@ -14412,9 +14815,7 @@ where
                 }
             },
         );
-        if let Some(e) = callback_error {
-            return Err(e);
-        }
+        recover_callback_error!(callback_error, result, ProductionError, PE, Service);
         result.map_err(|e| match e {
             ProductionError::Context(error) => PE::Service(error),
             other => PE::Service(NativeError::Production(format!("{other:?}"))),
@@ -14687,9 +15088,13 @@ where
                             &mut finish,
                         )
                     };
-                    if let Some(e) = production_callback_error {
-                        return Err(e);
-                    }
+                    recover_callback_error!(
+                        production_callback_error,
+                        result,
+                        ProductionError,
+                        EvaluationError,
+                        Context
+                    );
                     result.map_err(|e| match e {
                         ProductionError::Context(error) => EvaluationError::Context(error),
                         other => {
@@ -14706,9 +15111,13 @@ where
                 }
             },
         );
-        if let Some(e) = callback_error {
-            return Err(e);
-        }
+        recover_callback_error!(
+            callback_error,
+            result,
+            ConsumptionError,
+            EvaluationError,
+            Context
+        );
         result.map_err(|e| match e {
             ConsumptionError::Context(error) => EvaluationError::Context(error),
             other => EvaluationError::Context(NativeError::Consumption(format!("{other:?}"))),
@@ -15074,11 +15483,15 @@ where
             },
         );
         let block = match (evaluation_error, block) {
-            (Some(error), _) => Err(error),
-            (None, result) => result.map_err(|e| {
-                EvaluationError::Context(NativeError::Execution(format!(
-                    "applying expression: {e:?}"
-                )))
+            (Some(error), Ok(_) | Err(WE::Service(NativeError::ContinuationAbort))) => Err(error),
+            (Some(error), Err(other)) => Err(EvaluationError::Context(NativeError::Cleanup(
+                format!("applying callback: {error:?}; adapter: {other:?}"),
+            ))),
+            (None, result) => result.map_err(|e| match e {
+                WE::Service(error) => EvaluationError::Context(error),
+                other => EvaluationError::Context(NativeError::Execution(format!(
+                    "applying expression: {other:?}"
+                ))),
             }),
         };
         let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
@@ -15549,7 +15962,10 @@ where
             let chunk = crate::rules::mask_heap_supporter::find_chunk::<NativeError<S::Error>>(
                 &state.h, &resource,
             )
-            .map_err(|e| NativeError::Chunk(format!("mask trigger lookup: {e:?}")))?;
+            .map_err(|e| match e {
+                crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => error,
+                other => NativeError::Chunk(format!("mask trigger lookup: {other:?}")),
+            })?;
             if chunk.is_none() && matches!(resource, ResourceKey::Wand(_)) {
                 return Ok((state, vec![], vec![vec![]], vec![]));
             }
@@ -15579,7 +15995,10 @@ where
             let variants = crate::rules::mask_heap_supporter::resource_trigger_variants::<
                 NativeError<S::Error>,
             >(&self.factory, &state.h, &resource, &terms)
-            .map_err(|e| NativeError::Chunk(format!("mask trigger variants: {e:?}")))?;
+            .map_err(|e| match e {
+                crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => error,
+                other => NativeError::Chunk(format!("mask trigger variants: {other:?}")),
+            })?;
             return Ok((state, vec![], variants, vec![]));
         }
         let factory = self.factory.clone();
@@ -15993,8 +16412,8 @@ where
                 CfgContinuationTerminal::Method(method) => {
                     crate::supporters::method_supporter::complete_method_cfg(context, state, method)
                         .map_err(|error| match error {
-                            MethodVerificationError::Service(NativeError::Cancelled) => {
-                                ExecutionError::Context(NativeError::Cancelled)
+                            MethodVerificationError::Service(error) => {
+                                ExecutionError::Context(error)
                             }
                             other => ExecutionError::Context(NativeError::OwnedMethodContinuation(
                                 Box::new(other),
@@ -16967,9 +17386,17 @@ where
         );
         let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
         let block = if let Some(e) = saved_error.into_inner() {
-            Err(e)
+            match block {
+                Ok(_) | Err(ExecutionError::Context(NativeError::ContinuationAbort)) => Err(e),
+                Err(other) => Err(NativeError::Cleanup(format!(
+                    "join callback: {e:?}; branch: {other:?}"
+                ))),
+            }
         } else {
-            block.map_err(|e| NativeError::Execution(format!("{e:?}")))
+            block.map_err(|e| match e {
+                ExecutionError::Context(error) => error,
+                other => NativeError::Execution(format!("{other:?}")),
+            })
         };
         let block = match (block, cleanup) {
             (Ok(v), Ok(())) => v,
@@ -17112,9 +17539,7 @@ where
                 }
             },
         );
-        if let Some(e) = error.into_inner() {
-            return Err(e);
-        }
+        recover_native_callback_error!(error.into_inner(), result, ProductionError, Context);
         result.map_err(ProductionError::Context)
     }
     fn joined_consumption(
@@ -17241,9 +17666,7 @@ where
                 }
             },
         );
-        if let Some(e) = error.into_inner() {
-            return Err(e);
-        }
+        recover_native_callback_error!(error.into_inner(), result, ConsumptionError, Context);
         result.map_err(ConsumptionError::Context)
     }
 }
@@ -17290,7 +17713,12 @@ where
             ),
             FunctionDebugPhase::Post => {
                 let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
-                    .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+                    .map_err(|e| match e {
+                        crate::rules::magic_wand_supporter::WandReserveHeapError::Service(
+                            error,
+                        ) => error,
+                        other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+                    })?;
                 let render = |chunk: &crate::state::chunks::Chunk| {
                     crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
                         .map_err(|e| {
@@ -17408,9 +17836,7 @@ where
                 }
             },
         );
-        if let Some(e) = callback_error {
-            return Err(e);
-        }
+        recover_callback_error!(callback_error, result, ProductionError, FE, Service);
         result.map_err(|e| match e {
             ProductionError::Context(error) => FE::Service(error),
             other => FE::Service(NativeError::Production(format!("{other:?}"))),
@@ -17526,9 +17952,7 @@ where
                 }
             },
         );
-        if let Some(e) = callback_error {
-            return Err(e);
-        }
+        recover_callback_error!(callback_error, result, EvaluationError, FE, Service);
         result.map_err(|e| match e {
             EvaluationError::Context(error) => FE::Service(error),
             other => FE::Service(NativeError::Evaluation(format!("{other:?}"))),
@@ -17627,9 +18051,7 @@ where
                 }
             },
         );
-        if let Some(e) = callback_error {
-            return Err(e);
-        }
+        recover_callback_error!(callback_error, result, ConsumptionError, FE, Service);
         result.map_err(|e| match e {
             ConsumptionError::Context(error) => FE::Service(error),
             other => FE::Service(NativeError::Consumption(format!("{other:?}"))),
@@ -17743,7 +18165,7 @@ where
         self.log_function_phase("Well-definedness of specifications");
         let factory = self.factory.clone();
         crate::supporters::functions::function_verification_unit::check_specification_well_definedness(&factory, self, state, data)
-            .map_err(|e| NativeError::Execution(format!("function specification phase: {e:?}")))
+            .map_err(|e| match e { crate::supporters::functions::function_verification_unit::FunctionPhaseError::Service(error) => error, other => NativeError::Execution(format!("function specification phase: {other:?}")) })
     }
     fn well_definedness_declarations(
         &mut self,
@@ -17925,7 +18347,7 @@ where
         crate::supporters::functions::function_verification_unit::check_function_body(
             self, data, paths,
         )
-        .map_err(|e| NativeError::Execution(format!("function body phase: {e:?}")))
+        .map_err(|e| match e { crate::supporters::functions::function_verification_unit::FunctionPhaseError::Service(error) => error, other => NativeError::Execution(format!("function body phase: {other:?}")) })
     }
     fn build_phase_two_definition(
         &mut self,
@@ -19074,13 +19496,12 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
-        result.map_err(|e| {
-            SE::Service(NativeError::Chunk(format!(
-                "wand quantified transfer: {e:?}"
-            )))
+        recover_service_callback_error!(callback_error, result, WE, SE, Service);
+        result.map_err(|e| match e {
+            WE::Service(error) => SE::Service(error),
+            other => SE::Service(NativeError::Chunk(format!(
+                "wand quantified transfer: {other:?}"
+            ))),
         })
     }
     fn summarise_consumed_snapshot(
@@ -20075,10 +20496,13 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
-        result.map_err(|e| GE::Service(NativeError::Chunk(format!("wand general transfer: {e:?}"))))
+        recover_service_callback_error!(callback_error, result, WE, GE, Service);
+        result.map_err(|e| match e {
+            WE::Service(error) => GE::Service(error),
+            other => GE::Service(NativeError::Chunk(format!(
+                "wand general transfer: {other:?}"
+            ))),
+        })
     }
     fn summarise_general_consumed(
         &mut self,
@@ -20409,9 +20833,7 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(callback_error, result, ConsumptionError, WE, Service);
         result.map_err(|e| match e {
             ConsumptionError::Context(error) => WE::Service(error),
             other => WE::Service(NativeError::Consumption(format!(
@@ -20423,8 +20845,10 @@ where
         &mut self,
         state: &State<PD, FD, JoinMode>,
     ) -> Result<Arc<ListBackedHeap>, Self::Error> {
-        crate::rules::magic_wand_supporter::evaluation_heap(self, state)
-            .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))
+        crate::rules::magic_wand_supporter::evaluation_heap(self, state).map_err(|e| match e {
+            crate::rules::magic_wand_supporter::WandReserveHeapError::Service(error) => error,
+            other => NativeError::Execution(format!("wand evaluation heap: {other:?}")),
+        })
     }
     fn applied_wand_snapshot(
         &mut self,
@@ -20474,9 +20898,7 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(callback_error, result, ProductionError, WE, Service);
         result.map_err(|e| match e {
             ProductionError::Context(error) => WE::Service(error),
             other => WE::Service(NativeError::Production(format!(
@@ -20812,9 +21234,7 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(callback_error, result, EvaluationError, PE, Service);
         result.map_err(|e| match e {
             EvaluationError::Context(error) => PE::Service(error),
             other => PE::Service(NativeError::Evaluation(format!(
@@ -20883,9 +21303,7 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(callback_error, result, ProductionError, PE, Service);
         result.map_err(|e| match e {
             ProductionError::Context(error) => PE::Service(error),
             other => PE::Service(NativeError::Production(format!(
@@ -20919,11 +21337,13 @@ where
                 }
             }
         });
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
-        result
-            .map_err(|e| PE::Service(NativeError::Execution(format!("wand package proof: {e:?}"))))
+        recover_callback_error!(callback_error, result, ExecutionError, PE, Service);
+        result.map_err(|e| match e {
+            ExecutionError::Context(error) => PE::Service(error),
+            other => PE::Service(NativeError::Execution(format!(
+                "wand package proof: {other:?}"
+            ))),
+        })
     }
     fn consume_package_rhs(
         &mut self,
@@ -20952,9 +21372,7 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_callback_error!(callback_error, result, ConsumptionError, PE, Service);
         result.map_err(|e| match e {
             ConsumptionError::Context(error) => PE::Service(error),
             other => PE::Service(NativeError::Consumption(format!(
@@ -22559,10 +22977,11 @@ where
                 }
             }
         });
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
-        result.map_err(|e| CE::Service(NativeError::Execution(format!("CFG execution: {e:?}"))))
+        recover_callback_error!(callback_error, result, ExecutionError, CE, Service);
+        result.map_err(|e| match e {
+            ExecutionError::Context(error) => CE::Service(error),
+            other => CE::Service(NativeError::Execution(format!("CFG execution: {other:?}"))),
+        })
     }
     fn execute_cfg_standalone(
         &mut self,
@@ -22874,9 +23293,7 @@ where
                     }
                 },
             );
-            if let Some(error) = error.into_inner() {
-                return Err(error);
-            }
+            recover_callback_error!(error.into_inner(), result, ExecutionError, PE, Service);
             return result.map_err(|e| match e {
                 ExecutionError::Context(error) => PE::Service(error),
                 other => PE::Service(NativeError::Execution(format!("predicate join: {other:?}"))),
@@ -22943,9 +23360,7 @@ where
                 }
             },
         );
-        if let Some(e) = error.into_inner() {
-            return Err(e);
-        }
+        recover_callback_error!(error.into_inner(), result, ProductionError, PE, Service);
         result.map_err(|e| match e {
             ProductionError::Context(error) => PE::Service(error),
             other => PE::Service(NativeError::Production(format!("{other:?}"))),
@@ -26823,5 +27238,178 @@ mod queued_cfg_isolation_tests {
         }
         source.context.cancellation = None;
         source.stop().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod conditional_callback_cleanup_regression {
+    use super::*;
+    use crate::{
+        config::Config,
+        decider::z3_prover_std_io,
+        rules::{consumer::ConsumptionContext, producer::ProductionContext},
+        verifier::verification_pool_manager::{ThreadBoundWorker, native_method_worker},
+    };
+
+    #[test]
+    fn callback_and_independent_branch_cleanup_both_survive() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let config = Config::default();
+        let options = NativeOptions::from_config(&config).unwrap();
+        let factory = TermFactory::new(crate::state::terms::TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let prover = z3_prover_std_io::new(
+            "conditional-cleanup-test".into(),
+            z3_prover_std_io::settings(z3.into()),
+            factory.clone(),
+            |_| {},
+        );
+        let identifiers = prover.identifier_factory();
+        let mut worker = native_method_worker(
+            "conditional-cleanup-test".into(),
+            prover,
+            identifiers,
+            factory.clone(),
+            options,
+            &config,
+        );
+        worker.start().unwrap();
+        let program = ferrum_silver::ast::program::Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Default::default(),
+        );
+        let state = State::new(
+            program,
+            Default::default(),
+            Default::default(),
+            config.more_joins,
+            &factory,
+            false,
+            false,
+        );
+        let condition = factory.boolean(true);
+        let original = Exp::new(ExpKind::TrueLit, Default::default());
+        let mut failures = Vec::new();
+        for mode in ["production", "consumption", "join", "inhale_tail"] {
+            for inject in [false, true] {
+                TEST_CONDITIONAL_POP_FAULT.with(|flag| flag.set(inject));
+                let text = match mode {
+                    "production" => format!(
+                        "{:?}",
+                        ProductionContext::branch_production(
+                            &mut worker.context,
+                            state.clone(),
+                            condition.clone(),
+                            &original,
+                            None,
+                            false,
+                            false,
+                            &mut |ctx, state, done| done(ctx, state),
+                            &mut |_, _, _| unreachable!("false branch"),
+                            &mut |_, _| Err(ProductionError::Context(NativeError::Diagnostic(
+                                "primary".into()
+                            ))),
+                        )
+                    ),
+                    "consumption" => format!(
+                        "{:?}",
+                        ConsumptionContext::branch_consumption(
+                            &mut worker.context,
+                            state.clone(),
+                            condition.clone(),
+                            &original,
+                            None,
+                            false,
+                            false,
+                            &mut |ctx, state, done| {
+                                let heap = state.h.clone();
+                                done(ctx, state, heap, None)
+                            },
+                            &mut |_, _, _| unreachable!("false branch"),
+                            &mut |_, _, _, _| Err(ConsumptionError::Context(
+                                NativeError::Diagnostic("primary".into())
+                            )),
+                        )
+                    ),
+                    "inhale_tail" => {
+                        let location = ferrum_silver::ast::expression::PredicateAccess::new(
+                            vec![],
+                            "P".into(),
+                            Default::default(),
+                        );
+                        let access = ferrum_silver::ast::statement::PredicateAccessPredicate::new(
+                            location,
+                            None,
+                            Default::default(),
+                        );
+                        let assertion = Exp::new(
+                            ExpKind::CondExp(
+                                original.clone(),
+                                original.clone(),
+                                Exp::new(
+                                    ExpKind::PredicateAccessPredicate(access),
+                                    Default::default(),
+                                ),
+                            ),
+                            Default::default(),
+                        );
+                        let statement = Stmt::new(
+                            ferrum_silver::ast::statement::StmtKind::Inhale(assertion.clone()),
+                            Default::default(),
+                        );
+                        format!(
+                            "{:?}",
+                            crate::rules::executor::ExecutionContext::produce(
+                                &mut worker.context,
+                                state.clone(),
+                                &statement,
+                                &assertion,
+                                &mut |_, _| Err(ExecutionError::Context(NativeError::Diagnostic(
+                                    "primary".into()
+                                )))
+                            )
+                        )
+                    }
+                    _ => format!(
+                        "{:?}",
+                        worker.context.join_impure_branches::<()>(
+                            state.clone(),
+                            condition.clone(),
+                            &original,
+                            None,
+                            &mut |_, _, _| Err(NativeError::Diagnostic("primary".into())),
+                            &mut |_, _, _| unreachable!("false branch"),
+                            &mut |_, _| unreachable!("merge"),
+                            &mut |_, _, _| unreachable!("continuation"),
+                        )
+                    ),
+                };
+                if inject {
+                    if !(text.contains("Cleanup")
+                        && text.contains("primary")
+                        && text.contains("MissingDebugExpression"))
+                    {
+                        failures.push(format!("{mode}: lost cleanup: {text}"));
+                    }
+                } else {
+                    assert!(
+                        text.contains("primary") && !text.contains("Cleanup"),
+                        "{mode}: {text}"
+                    );
+                }
+            }
+        }
+        worker.stop().unwrap();
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }

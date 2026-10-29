@@ -1090,3 +1090,9 @@ When both addition operands contain eligible Asserting expressions, the right
 operand can transfer after the left returns. Real-worker tests check both
 submissions/executions, right-side permission failures and cancellation at the
 right receiver followed by pool draining. Each transfer retains runtime guards.
+
+Execution adapters now preserve typed context/service failures. Saved callback
+errors survive normal abort unwinding, and independent cleanup errors remain
+visible alongside the original error. Real-Z3 conditional adapter controls check
+three rule families and a nested inhale tail. Resource error bridges remain a
+separate follow-on; the cleanup injection runs after a successful solver pop.
