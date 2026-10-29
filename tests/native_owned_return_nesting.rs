@@ -43,3 +43,27 @@ method bad(x: Ref, b: Bool) returns (r: Int) {
         assert!(!stderr.contains("assertion.false"), "{stderr}");
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn failing_left_assertion_precedes_right_assertion() {
+    let source = r#"field f: Int
+method bad(x: Ref, y: Ref, b: Bool, c: Bool) returns (r: Int)
+  requires x != y
+{
+    label L;
+    r := -(old(asserting (b ? acc(x.f) : acc(y.f)) in 1) + old[L](asserting (c ? false : false) in 2));
+}
+"#;
+    for workers in ["1", "2"] {
+        let output = run(source, workers);
+        assert!(
+            !output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("insufficient.permission"), "{stderr}");
+        assert!(!stderr.contains("assertion.false"), "{stderr}");
+    }
+}

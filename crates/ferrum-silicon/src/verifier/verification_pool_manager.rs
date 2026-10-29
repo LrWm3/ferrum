@@ -1910,6 +1910,21 @@ pub(crate) static LOOP_PHASE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static LOOP_PHASE_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static RETURN_ADD_LEFT_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static RETURN_ADD_RIGHT_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static RETURN_ADD_LEFT_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static RETURN_RIGHT_CANCEL_HOOKS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static RETURN_ADD_RIGHT_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
 pub(crate) static NESTED_RETURN_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -2161,6 +2176,24 @@ where
                         ..
                     } = f
                     {
+                        if frame.return_frames.iter().any(|f| {
+                            matches!(
+                                f,
+                                crate::rules::evaluator::OwnedEvaluationReturnFrame::AddLeft { .. }
+                            )
+                        }) {
+                            RETURN_ADD_LEFT_SUBMISSIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if frame.return_frames.iter().any(|f| {
+                            matches!(
+                                f,
+                                crate::rules::evaluator::OwnedEvaluationReturnFrame::AddRight { .. }
+                            )
+                        }) {
+                            RETURN_ADD_RIGHT_SUBMISSIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
                         if frame.return_frames.len() >= 2 {
                             NESTED_RETURN_SUBMISSIONS
                                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -4227,6 +4260,14 @@ mod thread_pool_tests {
                     "{failures:?}"
                 );
             }
+            if source.contains("// owned_return_right_failure_check") {
+                assert!(
+                    failures[0]
+                        .iter()
+                        .any(|error| error.full_id().contains("insufficient.permission")),
+                    "right assertion permission error missing: {failures:?}"
+                );
+            }
             if source.contains("// owned_return_tail_check") {
                 assert!(
                     failures[0]
@@ -5909,6 +5950,204 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
                     "no assert-probe job executed"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn real_stdio_cancel_after_owned_right_receiver_starts() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::{
+            config::Config,
+            decider::{decider::DefaultDecider, z3_prover_std_io},
+            state::terms::{TermFactory, TermOptions},
+            verifier::{
+                base_verifier::BaseVerifier,
+                native_context::{NativeError, NativeOptions, NativeVerifierContext},
+            },
+        };
+        use ferrum_silver::frontend::{
+            frontend::FrontendPhases,
+            sil_front_end_config::SilFrontendConfig,
+            sil_frontend::{SilFrontendPhases, standard_plugin_manager},
+        };
+        let source = r#"field f: Int
+method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+{ label L;
+  r := -(old(asserting (b ? acc(x.f) : acc(y.f)) in 1) + old[L](asserting (c ? acc(z.f) : acc(w.f)) in 2));
+}
+"#;
+        for workers in [1, 2] {
+            let cancellation = CancellationController::default();
+            let config = Config::default();
+            let mut config = config;
+            config.more_joins = crate::config::JoinMode::Off;
+            config.number_of_errors_to_report = 2;
+            let options = NativeOptions::from_config(&config).unwrap();
+            let factory = TermFactory::new(TermOptions {
+                use_flyweight: false,
+                use_old_axiomatization: false,
+                mask_heap_mode: false,
+            });
+            let worker_factory = factory.clone();
+            let worker_options = options.clone();
+            let worker_config = config.clone();
+            let worker_cancel = cancellation.clone();
+            let path = std::path::PathBuf::from(&z3);
+            let pool = ThreadVerificationPool::start_with_cancellation(
+                workers,
+                ThreadVerificationPool::<
+                    NativeMethodWorker<crate::decider::prover_std_io::ProverStdIo>,
+                >::DEFAULT_STACK_SIZE,
+                cancellation.clone(),
+                move |id| {
+                    let name = format!("right-cancel-{id}");
+                    let prover = z3_prover_std_io::new(
+                        name.clone(),
+                        z3_prover_std_io::settings(path.clone()),
+                        worker_factory.clone(),
+                        |_| {},
+                    );
+                    let identifiers = prover.identifier_factory();
+                    let mut worker = native_method_worker(
+                        name,
+                        prover,
+                        identifiers,
+                        worker_factory.clone(),
+                        worker_options.clone(),
+                        &worker_config,
+                    );
+                    worker.context.joined_branch_scheduler_enabled = true;
+                    worker.set_cancellation(worker_cancel.clone());
+                    worker.context.test_cancel_owned_right = Some(worker_cancel.clone());
+                    Ok(worker)
+                },
+            )
+            .unwrap();
+            let pool = std::rc::Rc::new(std::cell::RefCell::new(pool));
+            let prover = z3_prover_std_io::new(
+                "main".into(),
+                z3_prover_std_io::settings(std::path::PathBuf::from(&z3)),
+                factory.clone(),
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            let decider = DefaultDecider::new(
+                BroadcastingProver::new(prover, pool.clone()),
+                false,
+                None,
+                None,
+                None,
+            );
+            let base = BaseVerifier::new_with_identifiers(
+                "main".into(),
+                decider,
+                factory.clone(),
+                false,
+                crate::config::StateConsolidationMode::Default,
+                identifiers,
+            );
+            let mut context = NativeVerifierContext::new(base, factory, options);
+            context.set_cancellation(cancellation.clone());
+            context.start(None, &[]).unwrap();
+            let cfg = SilFrontendConfig::new("test");
+            let mut phases =
+                SilFrontendPhases::new("test.vpr".into(), standard_plugin_manager(&cfg).unwrap());
+            let parsed = phases.parse(source).unwrap();
+            let checked = phases.analyze(parsed).unwrap();
+            let program = phases.translate(checked).unwrap();
+            let program = phases.check_consistency(program).unwrap();
+            let program = phases.prepare_verification(program).unwrap();
+            let submitted = RETURN_ADD_RIGHT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let hooks = RETURN_RIGHT_CANCEL_HOOKS.load(std::sync::atomic::Ordering::SeqCst);
+            let result = verify_native_parallel_with_reporting(
+                &mut context,
+                &program,
+                &[],
+                None,
+                None,
+                None,
+            );
+            assert!(
+                RETURN_ADD_RIGHT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > submitted,
+                "right branch never transferred: {result:?}"
+            );
+            assert!(
+                RETURN_RIGHT_CANCEL_HOOKS.load(std::sync::atomic::Ordering::SeqCst) > hooks,
+                "right receiver never began: {result:?}"
+            );
+            assert!(
+                matches!(
+                    result,
+                    Err(NativeParallelError::Worker(ThreadPoolError::Worker(
+                        NativeError::Cancelled
+                    )))
+                ),
+                "{result:?}"
+            );
+            drop(context);
+            let pool = std::rc::Rc::try_unwrap(pool).ok().unwrap().into_inner();
+            assert!(pool.cancel_and_join().is_empty());
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_both_add_operands() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_right_failure_check
+field f: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+  requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+  requires x.f == 7 && y.f == 8 && z.f == 4 && w.f == 5
+  ensures acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f) && x.f == 11
+  ensures r == -((b ? 7 : 8) + (c ? 4 : 5))
+{ label L; x.f := 11;
+  r := -(old(asserting (b ? acc(x.f) : acc(y.f)) in (b ? x.f : y.f)) + old[L](asserting (c ? acc(z.f) : acc(w.f)) in (c ? z.f : w.f)));
+  assert x.f == 11;
+}
+method bad(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+  requires w != x && w != y && w != z && acc(x.f) && acc(y.f) && acc(z.f)
+{ label L;
+  r := -(old(asserting (b ? acc(x.f) : acc(y.f)) in 1) + old[L](asserting (c ? acc(z.f) : acc(w.f)) in 2));
+}
+"#;
+        for workers in [1, 2] {
+            let ls = RETURN_ADD_LEFT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let rs = RETURN_ADD_RIGHT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let le = RETURN_ADD_LEFT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let re = RETURN_ADD_RIGHT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert!(
+                fatal.iter().any(|value| *value),
+                "workers={workers}: {fatal:?}"
+            );
+            assert!(RETURN_ADD_LEFT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > ls);
+            assert!(RETURN_ADD_RIGHT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > rs);
+            assert!(RETURN_ADD_LEFT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > le);
+            assert!(RETURN_ADD_RIGHT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > re);
         }
     }
 

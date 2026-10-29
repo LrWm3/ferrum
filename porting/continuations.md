@@ -174,7 +174,7 @@ cancellation before removing their guard.
 | Inhale/exhale/assert (including disable-subsumption probes), method/call contracts, fold snapshots and statement unfold | Owned rule and caller frames |
 | Loop collection, establishment and backedges | Identified phase outputs and explicit consumption terminals |
 | Function preconditions and cached/uncached expression Unfolding | Owned snapshot/value receivers and identified join outputs |
-| Local assignment with old/labelled-old, integer negation and addition around Asserting | Composable owned return frames; leftmost eligible subtree transfers |
+| Local assignment with old/labelled-old, integer negation and addition around Asserting | Composable owned return frames; both eligible addition operands can transfer |
 | Arbitrary nested value callbacks, other old-expression shapes and custom borrowed entry points | Safe synchronous fallback; not complete parallel source coverage |
 | Active member logs, extended exhale and packaging | Owned dispatch disabled; logger migration remains unfinished |
 
@@ -213,9 +213,9 @@ real simultaneous parent/child execution at every cancellation boundary.
 The assignment receiver now carries an immutable vector of typed return frames,
 ordered from inner to outer. Frames now represent old/labelled-old, integer negation and addition. Supported
 wrapper chains can compose around Asserting while retaining each evaluator entry
-and return action. Addition evaluates its left operand first; if both sides
-contain transferable assertions, this first expansion transfers the leftmost
-subtree and evaluates the right synchronously. Other expression families retain
+and return action. Addition evaluates its left operand first, then transfers an eligible right
+operand with the left value and remaining return frames retained. Each transfer
+checks the current runtime guards. Other expression families retain
 local callbacks. Guarded logging, packaging and extended-exhale cases are unchanged.
 
 Actual one/two-worker jobs check mixed and labelled old/current heap values,
@@ -231,3 +231,9 @@ function-precondition and ordinary assertion-tail checkpoints. Reverting either
 bridge alone makes its cancellation test fail with a formatted error. The existing
 rule unit suite also passes. This does not claim that every execution adapter or
 saved-callback/cleanup combination has completed its error-identity audit.
+
+Both-operand tests assert actual submissions and executions on each side with
+one and two workers, including an else-only right permission failure. A separate
+probe cancels after the right receiver starts and its sibling has been submitted;
+it checks typed cancellation and pool draining, without assuming that sibling
+has already executed. Both run under an external process watchdog.

@@ -419,6 +419,12 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
         result_sort: &crate::state::terms::Sort,
         backend: bool,
     ) -> Result<crate::state::terms::Applicable, Self::Error>;
+    #[cfg(test)]
+    fn test_owned_right_resume(&mut self, _frame: &OwnedAsserting<Self::PartialError>) {}
+    /// Whether a continuation can transfer another assertion in this state.
+    fn can_transfer_owned_asserting(&self, _state: &State<P, D, J>) -> bool {
+        false
+    }
     fn try_consume_owned_asserting(
         &mut self,
         _state: &State<P, D, J>,
@@ -1087,6 +1093,8 @@ where
     C: EvaluationContext<P, D, J, V>,
 {
     #[cfg(test)]
+    context.test_owned_right_resume(frame);
+    #[cfg(test)]
     let hook = OWNED_ASSERTING_RESUME_HOOK.with(|slot| slot.borrow_mut().take());
     #[cfg(test)]
     if let Some(hook) = hook {
@@ -1215,6 +1223,16 @@ where
                 finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
             }
             OwnedEvaluationReturnFrame::AddLeft { wrapper, right } => {
+                if has_owned_asserting_path(right) && context.can_transfer_owned_asserting(&state) {
+                    let mut next = Vec::with_capacity(frames.len() - index);
+                    next.push(OwnedEvaluationReturnFrame::AddRight {
+                        wrapper: wrapper.clone(),
+                        left: term,
+                        left_debug: debug,
+                    });
+                    next.extend_from_slice(&frames[index + 1..]);
+                    return evaluate_owned_nested(context, state, right, error, receiver, next);
+                }
                 return evaluate(
                     context,
                     state,

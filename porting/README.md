@@ -1086,5 +1086,7 @@ measurement scope and the temporary index memory cost.
 Owned assignment returns now compose old/labelled-old, integer negation and addition
 frames around Asserting. Real jobs at one/two workers preserve evaluation order,
 historical/current values and permissions, and reach a failing captured tail.
-When both addition operands independently contain Asserting, this first expansion
-transfers the leftmost eligible subtree and evaluates the right synchronously.
+When both addition operands contain eligible Asserting expressions, the right
+operand can transfer after the left returns. Real-worker tests check both
+submissions/executions, right-side permission failures and cancellation at the
+right receiver followed by pool draining. Each transfer retains runtime guards.

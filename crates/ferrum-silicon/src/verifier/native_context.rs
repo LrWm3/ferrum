@@ -300,6 +300,9 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     #[cfg(test)]
     evaluator_debug_for_test: bool,
     #[cfg(test)]
+    pub(crate) test_cancel_owned_right:
+        Option<crate::verifier::verification_pool_manager::CancellationController>,
+    #[cfg(test)]
     executor_debug_for_test: bool,
     /// Owner-local symbolic logger and record constructor. Both are inactive until
     /// the verification lifecycle explicitly installs a member log.
@@ -659,6 +662,8 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             debug_heap_recorder: Default::default(),
             #[cfg(test)]
             evaluator_debug_for_test: false,
+            #[cfg(test)]
+            test_cancel_owned_right: None,
             #[cfg(test)]
             executor_debug_for_test: false,
             logging_root: None,
@@ -3259,6 +3264,28 @@ where
                 other => EvaluationError::Context(NativeError::Consumption(format!("{other:?}"))),
             }),
         )
+    }
+    #[cfg(test)]
+    fn test_owned_right_resume(
+        &mut self,
+        frame: &crate::rules::evaluator::OwnedAsserting<Self::PartialError>,
+    ) {
+        if frame.return_frames.iter().any(|f| {
+            matches!(
+                f,
+                crate::rules::evaluator::OwnedEvaluationReturnFrame::AddRight { .. }
+            )
+        }) {
+            if let Some(cancel) = self.test_cancel_owned_right.take() {
+                super::verification_pool_manager::RETURN_RIGHT_CANCEL_HOOKS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                cancel.cancel();
+            }
+        }
+    }
+    fn can_transfer_owned_asserting(&self, state: &State<PD, FD, JoinMode>) -> bool {
+        use crate::rules::consumer::ConsumptionContext;
+        self.supports_owned_consumption(state)
     }
     fn try_consume_owned_asserting(
         &mut self,
@@ -12159,6 +12186,24 @@ where
                     ..
                 } = f
                 {
+                    if frame.return_frames.iter().any(|f| {
+                        matches!(
+                            f,
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::AddLeft { .. }
+                        )
+                    }) {
+                        super::verification_pool_manager::RETURN_ADD_LEFT_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if frame.return_frames.iter().any(|f| {
+                        matches!(
+                            f,
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::AddRight { .. }
+                        )
+                    }) {
+                        super::verification_pool_manager::RETURN_ADD_RIGHT_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
                     if frame.return_frames.len() >= 2 {
                         super::verification_pool_manager::NESTED_RETURN_EXECUTIONS
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
