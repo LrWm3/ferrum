@@ -303,6 +303,10 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     /// the verification lifecycle explicitly installs a member log.
     pub(crate) logging_root: Option<Arc<crate::logger::symb_ex_logger::NativeSymbExLogger>>,
     trace_reporting_enabled: bool,
+    loop_phase_collector: Option<(
+        Arc<()>,
+        std::rc::Rc<std::cell::RefCell<Vec<crate::rules::executor::LoopPhase<PD, FD, JoinMode>>>>,
+    )>,
     pub(crate) member_log: Option<Arc<crate::logger::symb_ex_logger::MemberSymbExLog>>,
     decider_log_formatter: Option<fn(f64) -> String>,
     pub(crate) record_factory: Option<
@@ -357,6 +361,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             executor_debug_for_test: false,
             logging_root: None,
             trace_reporting_enabled: false,
+            loop_phase_collector: None,
             member_log: None,
             decider_log_formatter: None,
             record_factory: None,
@@ -3025,6 +3030,40 @@ where
                     }
                 })
             }
+            crate::rules::producer::OwnedProductionTerminal::LoopPhaseCollect { mark, id } => {
+                use crate::rules::executor::CfgContext;
+                let state = self
+                    .loop_finish_debug_heap(state)
+                    .map_err(ProductionError::Context)?;
+                let paths = self
+                    .loop_path_after(*mark)
+                    .map_err(ProductionError::Context)?;
+                let (functions, macros) = self.loop_fresh_declarations();
+                let Some((active_id, entries)) = &self.loop_phase_collector else {
+                    return Err(ProductionError::Context(NativeError::Unsupported(
+                        "loop phase collector unavailable",
+                    )));
+                };
+                if !Arc::ptr_eq(active_id, id) {
+                    return Err(ProductionError::Context(NativeError::Unsupported(
+                        "loop phase collector identity mismatch",
+                    )));
+                }
+                entries
+                    .try_borrow_mut()
+                    .map_err(|_| {
+                        ProductionError::Context(NativeError::Unsupported(
+                            "loop phase collector borrowed",
+                        ))
+                    })?
+                    .push(crate::rules::executor::LoopPhase {
+                        state,
+                        paths,
+                        functions,
+                        macros,
+                    });
+                Ok(VerificationResult::success())
+            }
             crate::rules::producer::OwnedProductionTerminal::MethodWellformed => {
                 self.close_post_wellformedness_scope(None)
                     .map_err(ProductionError::Context)?;
@@ -3926,7 +3965,12 @@ where
         assertion: &Exp,
         return_snapshot: bool,
         error: &Self::PartialError,
-        frames: &[crate::rules::consumer::OwnedConsumptionFrame<Self::PartialError>],
+        frames: &[crate::rules::consumer::OwnedConsumptionFrame<
+            Self::PartialError,
+            PD,
+            FD,
+            JoinMode,
+        >],
     ) -> Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>> {
         let original_heap = state.h.clone();
         let mut working = state;
@@ -3965,8 +4009,8 @@ where
         condition: &Term,
         original: &Exp,
         rewritten: Option<&Exp>,
-        yes: crate::rules::consumer::OwnedConsumptionAction<Self::PartialError>,
-        no: crate::rules::consumer::OwnedConsumptionAction<Self::PartialError>,
+        yes: crate::rules::consumer::OwnedConsumptionAction<Self::PartialError, PD, FD, JoinMode>,
+        no: crate::rules::consumer::OwnedConsumptionAction<Self::PartialError, PD, FD, JoinMode>,
     ) -> Option<Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>>> {
         use super::verification_pool_manager::NativeJoinAction;
         Some(
@@ -3990,7 +4034,7 @@ where
         &mut self,
         mut state: State<PD, FD, JoinMode>,
         snapshot: Option<Term>,
-        terminal: &crate::rules::consumer::OwnedConsumptionTerminal,
+        terminal: &crate::rules::consumer::OwnedConsumptionTerminal<PD, FD, JoinMode>,
     ) -> Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>> {
         use crate::rules::executor::ExecutionContext;
         let (completion, tail) = match terminal {
@@ -4007,6 +4051,20 @@ where
                     ))),
                 });
             }
+            crate::rules::consumer::OwnedConsumptionTerminal::LoopEstablish { frame, terminal } => {
+                if snapshot.is_some() {
+                    return Err(ConsumptionError::UnexpectedSnapshot);
+                }
+                return crate::rules::executor::execute_owned_loop_establishment(
+                    self, state, frame, terminal,
+                )
+                .map_err(|e| match e {
+                    ExecutionError::Context(e) => ConsumptionError::Context(e),
+                    other => ConsumptionError::Context(NativeError::Execution(format!(
+                        "owned loop establishment: {other:?}"
+                    ))),
+                });
+            }
             crate::rules::consumer::OwnedConsumptionTerminal::MethodCallPre(frame) => {
                 return crate::rules::executor::execute_owned_call_pre(
                     self, state, snapshot, frame,
@@ -4018,7 +4076,8 @@ where
                     ))),
                 });
             }
-            crate::rules::consumer::OwnedConsumptionTerminal::MethodSuccess => {
+            crate::rules::consumer::OwnedConsumptionTerminal::MethodSuccess
+            | crate::rules::consumer::OwnedConsumptionTerminal::LoopBackedgeSuccess => {
                 if snapshot.is_some() {
                     return Err(ConsumptionError::UnexpectedSnapshot);
                 }
@@ -5120,12 +5179,12 @@ where
 }
 
 /// Adapt the consumer's fallible continuation to the shared source retry algorithm.
-struct OwnedConsumerRetryAction<'a, E> {
+struct OwnedConsumerRetryAction<'a, E, PD, FD> {
     original_heap: Arc<ListBackedHeap>,
     assertion: &'a Exp,
     return_snapshot: bool,
     error: &'a E,
-    frames: &'a [crate::rules::consumer::OwnedConsumptionFrame<E>],
+    frames: &'a [crate::rules::consumer::OwnedConsumptionFrame<E, PD, FD, JoinMode>],
     attempt: Option<crate::rules::execution_flow_controller::RetryAttempt>,
 }
 impl<S: Prover, PD, FD: Clone>
@@ -5136,7 +5195,7 @@ impl<S: Prover, PD, FD: Clone>
         JoinMode,
         (),
         VerificationError,
-    > for OwnedConsumerRetryAction<'_, PartialVerificationError>
+    > for OwnedConsumerRetryAction<'_, PartialVerificationError, PD, FD>
 where
     S::Error: std::fmt::Debug,
 {
@@ -9340,6 +9399,67 @@ where
             )
             .map_err(NativeError::Decider)
     }
+    fn try_produce_owned_loop_phases(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        invariants: &[Exp],
+        mark: crate::decider::path_conditions::Mark,
+    ) -> Option<
+        Result<
+            (
+                VerificationResult<VerificationError>,
+                Vec<crate::rules::executor::LoopPhase<PD, FD, JoinMode>>,
+            ),
+            ExecutionError<Self::Error>,
+        >,
+    > {
+        use crate::rules::producer::ProductionContext;
+        if !self.supports_owned_production(state) {
+            return None;
+        }
+        let id = Arc::new(());
+        let entries = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let previous = self
+            .loop_phase_collector
+            .replace((id.clone(), entries.clone()));
+        let terminal =
+            crate::rules::producer::OwnedProductionTerminal::LoopPhaseCollect { mark, id };
+        let result = crate::rules::producer::produce_all_owned(
+            self,
+            state.clone(),
+            NativeSnapshot::Fresh,
+            invariants,
+            &|exp| {
+                PartialVerificationError::for_kind(VerificationErrorKind::ContractNotWellformed(
+                    exp.clone(),
+                ))
+            },
+            &terminal,
+            &mut |ctx, state| ctx.finish_owned_production(state, &terminal),
+        );
+        self.loop_phase_collector = previous;
+        Some(
+            result
+                .map_err(|e| match e {
+                    ProductionError::Context(e) => ExecutionError::Context(e),
+                    other => ExecutionError::Context(NativeError::Production(format!(
+                        "loop phase production: {other:?}"
+                    ))),
+                })
+                .and_then(|result| {
+                    let phases = entries
+                        .try_borrow_mut()
+                        .map_err(|_| {
+                            ExecutionError::Context(NativeError::Unsupported(
+                                "loop phase collector borrowed",
+                            ))
+                        })?
+                        .drain(..)
+                        .collect();
+                    Ok((result, phases))
+                }),
+        )
+    }
     fn loop_produce_invariants(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -9375,6 +9495,67 @@ where
             return Err(error);
         }
         result.map_err(|e| ExecutionError::Context(NativeError::Production(format!("{e:?}"))))
+    }
+    fn try_consume_owned_loop_establishment(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        invariants: &[Exp],
+        frame: &crate::rules::executor::LoopPhaseExecutionFrame<PD, FD, JoinMode>,
+        terminal: &crate::rules::executor::CfgContinuationTerminal,
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+        use crate::rules::consumer::ConsumptionContext;
+        if !self.supports_owned_consumption(state) {
+            return None;
+        }
+        Some(
+            crate::rules::consumer::consume_many_owned(
+                self,
+                state.clone(),
+                invariants,
+                false,
+                &|exp| {
+                    PartialVerificationError::for_kind(
+                        VerificationErrorKind::LoopInvariantNotEstablished(exp.clone()),
+                    )
+                },
+                crate::rules::consumer::OwnedConsumptionTerminal::LoopEstablish {
+                    frame: Arc::new(frame.clone()),
+                    terminal: terminal.clone(),
+                },
+            )
+            .map_err(|e| match e {
+                ConsumptionError::Context(e) => ExecutionError::Context(e),
+                other => ExecutionError::Context(NativeError::Consumption(format!("{other:?}"))),
+            }),
+        )
+    }
+    fn try_consume_owned_loop_backedge(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        invariants: &[Exp],
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+        use crate::rules::consumer::ConsumptionContext;
+        if !self.supports_owned_consumption(state) {
+            return None;
+        }
+        Some(
+            crate::rules::consumer::consume_many_owned(
+                self,
+                state.clone(),
+                invariants,
+                false,
+                &|exp| {
+                    PartialVerificationError::for_kind(
+                        VerificationErrorKind::LoopInvariantNotPreserved(exp.clone()),
+                    )
+                },
+                crate::rules::consumer::OwnedConsumptionTerminal::LoopBackedgeSuccess,
+            )
+            .map_err(|e| match e {
+                ConsumptionError::Context(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Consumption(format!("{other:?}"))),
+            }),
+        )
     }
     fn loop_consume_invariants(
         &mut self,
@@ -10465,12 +10646,48 @@ where
                 matches!(
                     frame,
                     crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                        terminal:
+                            crate::rules::consumer::OwnedConsumptionTerminal::LoopBackedgeSuccess,
+                        ..
+                    }
+                )
+            }) {
+                super::verification_pool_manager::LOOP_BACKEDGE_TEST_EXECUTIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        #[cfg(test)]
+        if let super::verification_pool_manager::NativeJoinAction::Consumption(action) =
+            &branch.action
+        {
+            if action.frames.iter().any(|frame| matches!(frame, crate::rules::consumer::OwnedConsumptionFrame::Finish { terminal: crate::rules::consumer::OwnedConsumptionTerminal::LoopEstablish { .. }, .. })) { super::verification_pool_manager::LOOP_ESTABLISH_TEST_EXECUTIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
+        }
+        #[cfg(test)]
+        if let super::verification_pool_manager::NativeJoinAction::Consumption(action) =
+            &branch.action
+        {
+            if action.frames.iter().any(|frame| {
+                matches!(
+                    frame,
+                    crate::rules::consumer::OwnedConsumptionFrame::Finish {
                         terminal: crate::rules::consumer::OwnedConsumptionTerminal::FoldBody(_),
                         ..
                     }
                 )
             }) {
                 super::verification_pool_manager::FOLD_BODY_TEST_EXECUTIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        #[cfg(test)]
+        if let super::verification_pool_manager::NativeJoinAction::Production(action) =
+            &branch.action
+        {
+            if matches!(
+                &action.tail,
+                crate::rules::producer::OwnedProductionTerminal::LoopPhaseCollect { .. }
+            ) {
+                super::verification_pool_manager::LOOP_PHASE_TEST_EXECUTIONS
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
         }
@@ -10595,6 +10812,23 @@ where
                 }
             }
         };
+        let phase_id = match &branch.action {
+            super::verification_pool_manager::NativeJoinAction::Production(action) => match &action
+                .tail
+            {
+                crate::rules::producer::OwnedProductionTerminal::LoopPhaseCollect {
+                    id, ..
+                } => Some(id.clone()),
+                _ => None,
+            },
+            _ => None,
+        };
+        let previous_collector = self.loop_phase_collector.take();
+        let phase_entries = phase_id.as_ref().map(|id| {
+            let entries = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            self.loop_phase_collector = Some((id.clone(), entries.clone()));
+            entries
+        });
         let under_join = branch.state.under_join;
         let warning_start = self.warnings.len();
         let result = (|| {
@@ -10687,6 +10921,7 @@ where
                     result,
                     entries,
                     declarations,
+                    phases: None,
                     warnings: Vec::new(),
                 })
             }
@@ -10712,6 +10947,25 @@ where
             (Ok(_), Err(cleanup)) => Err(cleanup),
             (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
                 "joined branch: {primary:?}; worker restore: {cleanup:?}"
+            ))),
+        };
+        self.loop_phase_collector = previous_collector;
+        let phases = match (phase_id, phase_entries) {
+            (Some(id), Some(entries)) => match entries.try_borrow_mut() {
+                Ok(mut entries) => Ok(Some((id, entries.drain(..).collect()))),
+                Err(_) => Err(NativeError::Unsupported("loop phase collector borrowed")),
+            },
+            _ => Ok(None),
+        };
+        let result = match (result, phases) {
+            (Ok(mut output), Ok(phases)) => {
+                output.phases = phases;
+                Ok(output)
+            }
+            (Err(error), Ok(_)) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+            (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
+                "loop phase branch: {primary:?}; collector cleanup: {cleanup:?}"
             ))),
         };
         let warnings = self.warnings.split_off(warning_start);
@@ -13754,7 +14008,7 @@ where
     fn execute_join_action(
         &mut self,
         state: State<PD, FD, JoinMode>,
-        action: &super::verification_pool_manager::NativeJoinAction,
+        action: &super::verification_pool_manager::NativeJoinAction<PD, FD>,
         done: &mut dyn FnMut(
             &mut Self,
             State<PD, FD, JoinMode>,
@@ -13873,8 +14127,8 @@ where
         condition: Term,
         original: &Exp,
         rewritten: Option<&Exp>,
-        yes: super::verification_pool_manager::NativeJoinAction,
-        no: super::verification_pool_manager::NativeJoinAction,
+        yes: super::verification_pool_manager::NativeJoinAction<PD, FD>,
+        no: super::verification_pool_manager::NativeJoinAction<PD, FD>,
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<NativeError<S::Error>>> {
         use super::verification_pool_manager::{NativeJoinJob, ThreadPoolError};
         use crate::rules::brancher::{self, BranchTransferSnapshot};
@@ -13957,69 +14211,72 @@ where
         } else {
             None
         };
-        let run = |this: &mut Self,
-                   active: bool,
-                   positive: bool,
-                   action: &super::verification_pool_manager::NativeJoinAction| {
-            if !active {
-                return Ok(VerificationResult::unreachable());
-            }
-            this.base
-                .decider
-                .push_scope()
-                .map_err(|e| ExecutionError::Context(NativeError::Decider(e)))?;
-            let guard = if positive {
-                condition.clone()
-            } else {
-                factory.not(condition.clone())
-            };
-            let exp = if positive {
-                original.clone()
-            } else {
-                Exp::new(
-                    ExpKind::Not(original.clone()),
-                    ferrum_silver::ast::ast::Metadata {
-                        position: original.metadata().position.clone(),
-                        info: original.metadata().info.clone(),
-                        error_trafo: Default::default(),
-                    },
-                )
-            };
-            let debug = if positive {
-                rewritten.cloned()
-            } else {
-                rewritten.map(|e| {
+        let run =
+            |this: &mut Self,
+             active: bool,
+             positive: bool,
+             action: &super::verification_pool_manager::NativeJoinAction<PD, FD>| {
+                if !active {
+                    return Ok(VerificationResult::unreachable());
+                }
+                this.base
+                    .decider
+                    .push_scope()
+                    .map_err(|e| ExecutionError::Context(NativeError::Decider(e)))?;
+                let guard = if positive {
+                    condition.clone()
+                } else {
+                    factory.not(condition.clone())
+                };
+                let exp = if positive {
+                    original.clone()
+                } else {
                     Exp::new(
-                        ExpKind::Not(e.clone()),
+                        ExpKind::Not(original.clone()),
                         ferrum_silver::ast::ast::Metadata {
-                            position: e.metadata().position.clone(),
-                            info: e.metadata().info.clone(),
+                            position: original.metadata().position.clone(),
+                            info: original.metadata().info.clone(),
                             error_trafo: Default::default(),
                         },
                     )
-                })
+                };
+                let debug = if positive {
+                    rewritten.cloned()
+                } else {
+                    rewritten.map(|e| {
+                        Exp::new(
+                            ExpKind::Not(e.clone()),
+                            ferrum_silver::ast::ast::Metadata {
+                                position: e.metadata().position.clone(),
+                                info: e.metadata().info.clone(),
+                                error_trafo: Default::default(),
+                            },
+                        )
+                    })
+                };
+                let result = (|| {
+                    this.set_native_branch_condition(guard, exp, debug)
+                        .map_err(ExecutionError::Context)?;
+                    let branch_state = this
+                        .consolidate_optional(state.clone())
+                        .map_err(ExecutionError::Context)?;
+                    this.execute_join_action(branch_state, action, &mut |_, _| {
+                        Err(ExecutionError::Context(NativeError::Unsupported(
+                            "terminal action invoked join collector",
+                        )))
+                    })
+                })();
+                let cleanup = this.base.decider.pop_scope().map_err(NativeError::Decider);
+                match (result, cleanup) {
+                    (result, Ok(())) => result,
+                    (Ok(_), Err(cleanup)) => Err(ExecutionError::Context(cleanup)),
+                    (Err(primary), Err(cleanup)) => {
+                        Err(ExecutionError::Context(NativeError::Cleanup(format!(
+                            "continuation: {primary:?}; scope cleanup: {cleanup:?}"
+                        ))))
+                    }
+                }
             };
-            let result = (|| {
-                this.set_native_branch_condition(guard, exp, debug)
-                    .map_err(ExecutionError::Context)?;
-                let branch_state = this
-                    .consolidate_optional(state.clone())
-                    .map_err(ExecutionError::Context)?;
-                this.execute_join_action(branch_state, action, &mut |_, _| {
-                    Err(ExecutionError::Context(NativeError::Unsupported(
-                        "terminal action invoked join collector",
-                    )))
-                })
-            })();
-            let cleanup = this.base.decider.pop_scope().map_err(NativeError::Decider);
-            match (result, cleanup) {
-                (result, Ok(())) => result,
-                (Ok(_), Err(cleanup)) => Err(ExecutionError::Context(cleanup)),
-                (Err(primary), Err(cleanup)) => Err(ExecutionError::Context(NativeError::Cleanup(
-                    format!("continuation: {primary:?}; scope cleanup: {cleanup:?}"),
-                ))),
-            }
-        };
         let then_result = run(self, decision.execute_then, true, &yes);
         let report_error = if state.is_last_retry() {
             then_result.as_ref().ok().and_then(|result| {
@@ -14066,7 +14323,26 @@ where
             let other = match waited.result {
                 Ok(mut output) => {
                     self.warnings.append(&mut output.warnings);
-                    Ok(output.result)
+                    let append = (|| -> Result<(), NativeError<S::Error>> {
+                        if let Some((id, phases)) = output.phases.take() {
+                            let (active_id, entries) = self.loop_phase_collector.as_ref().ok_or(
+                                NativeError::Unsupported("loop phase collector unavailable"),
+                            )?;
+                            if !Arc::ptr_eq(active_id, &id) {
+                                return Err(NativeError::Unsupported(
+                                    "loop phase collector identity mismatch",
+                                ));
+                            }
+                            entries
+                                .try_borrow_mut()
+                                .map_err(|_| {
+                                    NativeError::Unsupported("loop phase collector borrowed")
+                                })?
+                                .extend(phases);
+                        }
+                        Ok(())
+                    })();
+                    append.map(|()| output.result)
                 }
                 Err(ThreadPoolError::Worker(NativeError::BranchWarnings { primary, warnings })) => {
                     self.warnings.extend(warnings);
@@ -14129,8 +14405,8 @@ where
         condition: Term,
         original: &Exp,
         rewritten: Option<&Exp>,
-        yes: super::verification_pool_manager::NativeJoinAction,
-        no: super::verification_pool_manager::NativeJoinAction,
+        yes: super::verification_pool_manager::NativeJoinAction<PD, FD>,
+        no: super::verification_pool_manager::NativeJoinAction<PD, FD>,
         consolidate_join: bool,
         continuation: &mut dyn FnMut(
             &mut Self,
@@ -14211,7 +14487,7 @@ where
             let run = |this: &mut Self,
                        active: bool,
                        positive: bool,
-                       action: &super::verification_pool_manager::NativeJoinAction|
+                       action: &super::verification_pool_manager::NativeJoinAction<PD, FD>|
              -> Result<
                 (
                     VerificationResult<VerificationError>,
@@ -20856,6 +21132,12 @@ mod queued_cfg_isolation_tests {
             same_source: bool,
             expect_foreign_failure: bool,
         },
+        PhaseSequence {
+            foreign: NativeWorkerTask,
+            own: NativeWorkerTask,
+            outer_id: Arc<()>,
+            foreign_id: Arc<()>,
+        },
         Inline(NativeWorkerTask),
     }
     struct TestWorker {
@@ -21001,6 +21283,112 @@ mod queued_cfg_isolation_tests {
                             .load(std::sync::atomic::Ordering::SeqCst),
                         7
                     );
+                    self.native
+                        .context
+                        .base
+                        .decider
+                        .pop_scope()
+                        .map_err(NativeError::Decider)?;
+                    Ok(true)
+                }
+                Job::PhaseSequence {
+                    mut foreign,
+                    mut own,
+                    outer_id,
+                    foreign_id,
+                } => {
+                    use crate::rules::producer::OwnedProductionTerminal;
+                    self.native
+                        .context
+                        .base
+                        .decider
+                        .push_scope()
+                        .map_err(NativeError::Decider)?;
+                    let opposite = self.native.context.factory.not(self.requirement.clone());
+                    self.native
+                        .context
+                        .base
+                        .decider
+                        .assume([(opposite.clone(), None)], false, false)
+                        .map_err(NativeError::Decider)?;
+                    let mark = self.native.context.base.decider.pcs.mark();
+                    let NativeWorkerTarget::Join(own_job) = &mut own.target else {
+                        return Err(NativeError::Unsupported("expected phase job"));
+                    };
+                    own_job.source_worker_id = self.native.context.base.unique_id.clone();
+                    own_job.snapshot =
+                        BranchTransferSnapshot::capture(&self.native.context.base.decider, 0);
+                    own_job.replay_check = Some(opposite.clone());
+                    let crate::verifier::verification_pool_manager::NativeJoinAction::Production(
+                        action,
+                    ) = &mut own_job.action
+                    else {
+                        return Err(NativeError::Unsupported("expected phase action"));
+                    };
+                    action.tail = OwnedProductionTerminal::LoopPhaseCollect {
+                        mark,
+                        id: outer_id.clone(),
+                    };
+                    let NativeWorkerTarget::Join(foreign_job) = &mut foreign.target else {
+                        return Err(NativeError::Unsupported("expected foreign phase job"));
+                    };
+                    foreign_job.source_worker_id = self.native.context.base.unique_id.clone();
+                    let local = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+                    self.native.context.loop_phase_collector =
+                        Some((outer_id.clone(), local.clone()));
+                    let _foreign = queue
+                        .submit(Job::Inline(foreign))
+                        .map_err(|e| NativeError::Diagnostic(format!("foreign submit: {e:?}")))?;
+                    let own = queue
+                        .submit(Job::Inline(own))
+                        .map_err(|e| NativeError::Diagnostic(format!("own submit: {e:?}")))?;
+                    let mut first = true;
+                    let waited = queue.wait_cooperatively_with(own, |job| match job {
+                        Job::Inline(task) => {
+                            let NativeWorkerOutput::Join(output) =
+                                execute_native_worker_task(&mut self.native.context, task)?
+                            else {
+                                return Err(NativeError::Unsupported("expected phase output"));
+                            };
+                            let (id, entries) = output
+                                .phases
+                                .ok_or(NativeError::Unsupported("missing phase output"))?;
+                            assert!(Arc::ptr_eq(
+                                &id,
+                                if first { &foreign_id } else { &outer_id }
+                            ));
+                            assert_eq!(entries.len(), 1);
+                            assert!(Arc::ptr_eq(
+                                &self.native.context.loop_phase_collector.as_ref().unwrap().0,
+                                &outer_id
+                            ));
+                            assert!(
+                                local.borrow().is_empty(),
+                                "intervening task polluted parent collector"
+                            );
+                            let restored = self
+                                .native
+                                .context
+                                .base
+                                .decider
+                                .prover
+                                .assert_goal(&opposite, None)
+                                .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+                            assert!(restored, "intervening phase did not restore parent PCS");
+                            first = false;
+                            Ok(true)
+                        }
+                        _ => Err(NativeError::Unsupported("unexpected phase task")),
+                    });
+                    assert!(
+                        waited.executed_other_task && waited.awaited_executed_on_current_worker
+                    );
+                    assert!(
+                        waited
+                            .result
+                            .map_err(|e| NativeError::Diagnostic(format!("phase wait: {e:?}")))?
+                    );
+                    self.native.context.loop_phase_collector = None;
                     self.native
                         .context
                         .base
@@ -21397,6 +21785,96 @@ mod queued_cfg_isolation_tests {
             }
             pool.shutdown().unwrap();
         }
+        // A nested same-worker loop phase job must not overwrite the suspended collector.
+        {
+            use crate::rules::producer::{OwnedProductionAction, OwnedProductionTerminal};
+            let outer_id = Arc::new(());
+            let foreign_id = Arc::new(());
+            let make_phase = |id: Arc<()>| NativeWorkerTask {
+                analysis: analysis.clone(),
+                target: NativeWorkerTarget::Join(Box::new(NativeJoinJob {
+                    source_worker_id: "source".into(),
+                    snapshot: snapshot.clone(),
+                    state: {
+                        let mut state = state.clone();
+                        state.under_join = false;
+                        state
+                    },
+                    mark: None,
+                    condition: factory.boolean(true),
+                    original: Exp::new(ExpKind::TrueLit, Default::default()),
+                    rewritten: None,
+                    action:
+                        crate::verifier::verification_pool_manager::NativeJoinAction::Production(
+                            OwnedProductionAction {
+                                snapshot: NativeSnapshot::Projection(factory.unit()),
+                                body: None,
+                                error: PartialVerificationError::for_kind(
+                                    VerificationErrorKind::ContractNotWellformed(Exp::new(
+                                        ExpKind::TrueLit,
+                                        Default::default(),
+                                    )),
+                                ),
+                                remaining: vec![],
+                                tail: OwnedProductionTerminal::LoopPhaseCollect { mark, id },
+                            },
+                        ),
+                    after_start: None,
+                    replay_check: Some(requirement.clone()),
+                })),
+                reporter: None,
+                warning_sink: None,
+            };
+            let started = Arc::new((Mutex::new(false), Condvar::new()));
+            let (ready_tx, _) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let release_rx = Arc::new(Mutex::new(release_rx));
+            let worker_requirement = requirement.clone();
+            let worker_factory = factory.clone();
+            let worker_options = options.clone();
+            let worker_config = config.clone();
+            let path = std::path::PathBuf::from(&z3);
+            let mut pool = ThreadVerificationPool::start(1, move |id| {
+                let name = format!("phase-sequence-{id}");
+                let prover = z3_prover_std_io::new(
+                    name.clone(),
+                    z3_prover_std_io::settings(path.clone()),
+                    worker_factory.clone(),
+                    |_| {},
+                );
+                let identifiers = prover.identifier_factory();
+                Ok(TestWorker {
+                    native: native_method_worker(
+                        name,
+                        prover,
+                        identifiers,
+                        worker_factory.clone(),
+                        worker_options.clone(),
+                        &worker_config,
+                    ),
+                    started: started.clone(),
+                    parent_ready: ready_tx.clone(),
+                    release_tx: release_tx.clone(),
+                    release_rx: release_rx.clone(),
+                    requirement: worker_requirement.clone(),
+                })
+            })
+            .unwrap();
+            pool.broadcast(WorkerPreambleCommand::Declare(declaration.clone()))
+                .unwrap();
+            assert!(
+                pool.submit(Job::PhaseSequence {
+                    foreign: make_phase(foreign_id.clone()),
+                    own: make_phase(outer_id.clone()),
+                    outer_id,
+                    foreign_id
+                })
+                .unwrap()
+                .wait()
+                .unwrap()
+            );
+            pool.shutdown().unwrap();
+        }
         // A parent can help a foreign branch before its own queued else runs.
         // The foreign branch must restore the parent's contradictory path first.
         for (terminal, same_source, false_proof) in [
@@ -21739,6 +22217,7 @@ mod queued_cfg_isolation_tests {
                             result: VerificationResult::success(),
                             entries: vec![],
                             declarations: Default::default(),
+                            phases: None,
                             warnings: vec![],
                         },
                     ),

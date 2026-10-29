@@ -1788,8 +1788,10 @@ pub struct NativeEvaluationBranchOutput {
     pub warnings: Vec<String>,
 }
 /// Source-eligible branch actions that terminate at a join collector.
-#[derive(Clone)]
-pub enum NativeJoinAction {
+pub enum NativeJoinAction<
+    PD = crate::supporters::predicate_verification_unit::PredicateData,
+    FD = super::native_context::NativeFunctionData,
+> {
     Cfg(crate::rules::executor::CfgJoinBranch),
     Predicate(crate::rules::predicate_supporter::PredicateContentsAction),
     PredicateContinuation {
@@ -1806,8 +1808,26 @@ pub enum NativeJoinAction {
     Consumption(
         crate::rules::consumer::OwnedConsumptionAction<
             ferrum_silver::verifier::verification_error::PartialVerificationError,
+            PD,
+            FD,
+            crate::config::JoinMode,
         >,
     ),
+}
+impl<PD, FD> Clone for NativeJoinAction<PD, FD> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Cfg(a) => Self::Cfg(a.clone()),
+            Self::Predicate(a) => Self::Predicate(a.clone()),
+            Self::Continuation(a) => Self::Continuation(a.clone()),
+            Self::Production(a) => Self::Production(a.clone()),
+            Self::Consumption(a) => Self::Consumption(a.clone()),
+            Self::PredicateContinuation { action, finish } => Self::PredicateContinuation {
+                action: action.clone(),
+                finish: finish.clone(),
+            },
+        }
+    }
 }
 pub struct NativeJoinJob<
     PD = crate::supporters::predicate_verification_unit::PredicateData,
@@ -1820,7 +1840,7 @@ pub struct NativeJoinJob<
     pub condition: Term,
     pub original: ferrum_silver::ast::expression::Exp,
     pub rewritten: Option<ferrum_silver::ast::expression::Exp>,
-    pub action: NativeJoinAction,
+    pub action: NativeJoinAction<PD, FD>,
     #[cfg(test)]
     pub after_start: Option<Arc<dyn Fn() + Send + Sync>>,
     #[cfg(test)]
@@ -1834,6 +1854,10 @@ pub struct NativeJoinOutput<
         ferrum_silver::verifier::verification_error::VerificationError,
     >,
     pub entries: Vec<crate::rules::joiner::JoinDataEntry<PD, FD, crate::config::JoinMode, ()>>,
+    pub(crate) phases: Option<(
+        Arc<()>,
+        Vec<crate::rules::executor::LoopPhase<PD, FD, crate::config::JoinMode>>,
+    )>,
     pub declarations: crate::rules::brancher::BranchJoinDeclarations,
     pub warnings: Vec<String>,
 }
@@ -1845,6 +1869,24 @@ pub(crate) static CONTINUATION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize 
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static CONTINUATION_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static LOOP_ESTABLISH_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static LOOP_ESTABLISH_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static LOOP_BACKEDGE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static LOOP_BACKEDGE_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static LOOP_PHASE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static LOOP_PHASE_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static UNFOLD_TREE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
@@ -2019,6 +2061,12 @@ where
             NativeJoinAction::Production(action) => {
                 if matches!(
                     &action.tail,
+                    crate::rules::producer::OwnedProductionTerminal::LoopPhaseCollect { .. }
+                ) {
+                    LOOP_PHASE_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                if matches!(
+                    &action.tail,
                     crate::rules::producer::OwnedProductionTerminal::CallPost(_)
                 ) {
                     CALL_POST_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -2033,6 +2081,8 @@ where
                 RULE_PRODUCTION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
             NativeJoinAction::Consumption(action) => {
+                if action.frames.iter().any(|frame| matches!(frame, crate::rules::consumer::OwnedConsumptionFrame::Finish { terminal: crate::rules::consumer::OwnedConsumptionTerminal::LoopBackedgeSuccess, .. })) { LOOP_BACKEDGE_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
+                if action.frames.iter().any(|frame| matches!(frame, crate::rules::consumer::OwnedConsumptionFrame::Finish { terminal: crate::rules::consumer::OwnedConsumptionTerminal::LoopEstablish { .. }, .. })) { LOOP_ESTABLISH_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
                 if action.frames.iter().any(|frame| {
                     matches!(
                         frame,
@@ -5115,6 +5165,325 @@ method bad(x: Ref, b: Bool)
                 UNFOLD_PRODUCTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
                     > executed
             );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_loop_phase_collector() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let cases = [
+            r#"field f: Int
+method good(b: Bool, x: Ref, y: Ref)
+  requires acc(x.f) && acc(y.f)
+{
+  var i: Int := 0;
+  while (i < 1)
+    invariant 0 <= i && i <= 1
+    invariant b ? acc(x.f) : acc(y.f)
+  { i := i + 1; }
+}
+method bad(b: Bool, x: Ref, y: Ref)
+  requires acc(x.f) && acc(y.f)
+{
+  var i: Int := 0;
+  while (i < 1)
+    invariant 0 <= i && i <= 1
+    invariant b ? acc(x.f) : acc(y.f)
+  { exhale b ? acc(x.f) : acc(y.f); i := i + 1; }
+}
+"#,
+            r#"field f: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref)
+  requires acc(x.f) && acc(y.f) && acc(z.f)
+{
+  var i: Int := 0;
+  while (i < 1)
+    invariant 0 <= i && i <= 1
+    invariant b ? (c ? acc(x.f) : acc(y.f)) : acc(z.f)
+  { i := i + 1; }
+}
+method bad(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref)
+  requires acc(x.f) && acc(y.f) && acc(z.f)
+{
+  var i: Int := 0;
+  while (i < 1)
+    invariant 0 <= i && i <= 1
+    invariant b ? (c ? acc(x.f) : acc(y.f)) : acc(z.f)
+  { exhale b ? (c ? acc(x.f) : acc(y.f)) : acc(z.f); i := i + 1; }
+}
+"#,
+        ];
+        for source in cases {
+            for workers in [1, 2] {
+                let submitted =
+                    LOOP_PHASE_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let executed = LOOP_PHASE_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert!(fatal.iter().any(|fatal| *fatal));
+                assert!(
+                    LOOP_PHASE_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > submitted
+                );
+                assert!(
+                    LOOP_PHASE_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_loop_establishment() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let cases = [
+            r#"field f: Int
+method good(b: Bool, x: Ref, y: Ref)
+  requires acc(x.f) && acc(y.f)
+{
+  var i: Int := 0;
+  while (i < 1)
+    invariant 0 <= i && i <= 1
+    invariant b ? acc(x.f) : acc(y.f)
+  { i := i + 1; }
+}
+method bad(b: Bool, x: Ref, y: Ref)
+  requires x != y && acc(x.f)
+{
+  var i: Int := 0;
+  while (i < 1)
+    invariant 0 <= i && i <= 1
+    invariant b ? acc(x.f) : acc(y.f)
+  { i := i + 1; }
+}
+"#,
+            r#"field f: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref)
+  requires acc(x.f) && acc(y.f) && acc(z.f)
+{
+  var i: Int := 0;
+  while (i < 1)
+    invariant 0 <= i && i <= 1
+    invariant b ? (c ? acc(x.f) : acc(y.f)) : acc(z.f)
+  { i := i + 1; }
+}
+method bad(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref)
+  requires x != y && x != z && acc(x.f)
+{
+  var i: Int := 0;
+  while (i < 1)
+    invariant 0 <= i && i <= 1
+    invariant b ? (c ? acc(x.f) : acc(y.f)) : acc(z.f)
+  { i := i + 1; }
+}
+"#,
+        ];
+        for source in cases {
+            for workers in [1, 2] {
+                let submitted =
+                    LOOP_ESTABLISH_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let executed =
+                    LOOP_ESTABLISH_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert!(fatal.iter().any(|fatal| *fatal));
+                assert!(
+                    LOOP_ESTABLISH_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > submitted
+                );
+                assert!(
+                    LOOP_ESTABLISH_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > executed
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_loop_backedge_invariants() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+method choose() returns (r: Bool)
+method good(x: Ref)
+  requires acc(x.f)
+{
+  var i: Int := 0;
+  var c: Bool;
+  while (i < 1)
+    invariant 0 <= i && i <= 1
+    invariant c ? acc(x.f) : acc(x.f)
+  {
+    c := choose();
+    i := i + 1;
+  }
+}
+method bad(x: Ref)
+  requires acc(x.f)
+{
+  var i: Int := 0;
+  var c: Bool;
+  while (i < 1)
+    invariant 0 <= i && i <= 1
+    invariant c ? acc(x.f) : acc(x.f)
+  {
+    exhale acc(x.f);
+    c := choose();
+    i := i + 1;
+  }
+}
+"#;
+        for workers in [1, 2] {
+            let submitted =
+                LOOP_BACKEDGE_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed = LOOP_BACKEDGE_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert!(fatal.iter().any(|fatal| *fatal));
+            assert!(
+                LOOP_BACKEDGE_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > submitted
+            );
+            assert!(
+                LOOP_BACKEDGE_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_integrated_call_fold_unfold_loop() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+predicate P(b: Bool, x: Ref, y: Ref) { b ? (acc(x.f) && x.f == 1) : (acc(y.f) && y.f == 2) }
+method callee(b: Bool, c: Bool, x: Ref, y: Ref) returns (r: Int)
+  requires (b ? acc(x.f, 1/2) : acc(y.f, 1/2)) && acc(x.f, 1/2) && acc(y.f, 1/2)
+  ensures c ? acc(x.f, 1/2) : acc(y.f, 1/2)
+  ensures r == old(x.f)
+method good(b: Bool, c: Bool, x: Ref, y: Ref)
+  requires x != y && acc(x.f) && acc(y.f) && x.f == 1 && y.f == 2
+{
+  var i: Int := 0;
+  while (i < 1)
+    invariant 0 <= i && i <= 1
+    invariant acc(x.f) && acc(y.f) && x.f == 1 && y.f == 2
+  {
+    fold acc(P(b, x, y));
+    unfold acc(P(b, x, y));
+    i := i + 1;
+  }
+  var r: Int;
+  r := callee(b, c, x, y);
+  assert r == 1;
+}
+method bad(b: Bool, c: Bool, x: Ref, y: Ref)
+  requires x != y && acc(x.f) && acc(y.f) && x.f == 1 && y.f == 2
+{
+  var r: Int;
+  r := callee(b, c, x, y);
+  assert r == 9;
+}
+method extra(b: Bool, x: Ref, y: Ref)
+  requires acc(P(b, x, y))
+{
+  unfold acc(P(b, x, y));
+  assert b ? x.f == 1 : y.f == 2;
+}
+"#;
+        for workers in [1, 2, 4] {
+            let counters = [
+                &CALL_PRE_TEST_EXECUTIONS,
+                &CALL_POST_TEST_EXECUTIONS,
+                &FOLD_BODY_TEST_EXECUTIONS,
+                &UNFOLD_TREE_TEST_EXECUTIONS,
+            ];
+            let before = counters.map(|counter| counter.load(std::sync::atomic::Ordering::SeqCst));
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert!(fatal.iter().any(|fatal| *fatal));
+            for (counter, previous) in counters.into_iter().zip(before) {
+                assert!(
+                    counter.load(std::sync::atomic::Ordering::SeqCst) > previous,
+                    "an owned action never executed"
+                );
+            }
         }
     }
 

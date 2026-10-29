@@ -102,23 +102,21 @@ solver depth and options before return.
 
 ## Remaining scope
 
-The public parallel-branch option remains gated. Loop successor propagation now
-carries the terminal through replayed loop-body and exit paths. Invariant
-collection stays local, and backedges stop at invariant re-establishment. Actual
-Z3 checks separately exercise forks in the body and after the exit edge with one
-and two workers. The same-worker isolation fix is shared by terminal, joined and
-evaluation jobs; a regression prevents an outer branch from falsely proving an
-assertion using the suspended inner branch's assumptions.
+The public parallel-branch option remains gated while expression result frames
+and final integration checks are completed. Loop invariant collection now uses
+explicit collector identities and owned phase outputs. Establishment resumes
+phase replay inside its original consumption continuation, retaining retry and
+result-combination boundaries. Backedges have a distinct success terminal.
+Actual Z3 tests exercise all three phases, including nested invariants and entry
+or preservation failures. A deterministic cooperative test checks collector and
+solver restoration when an unrelated phase job executes on the same worker.
+Disabled scheduling does not allocate or clone the new establishment frame.
 
-Additional producer/consumer callers, snapshot-returning consumption, predicate
-contents, active logger scope migration and general borrowed callback entry
-points still need owned caller frames. Conditional/implication rules and nested lets, statement sequences, TryBlock
-and loop-head statements have executable owned caller frames. Loop invariant
-collection/establishment and additional method/predicate callers remain pending. They retain synchronous execution. Joined CFG/predicate dispatch
-also falls back synchronously when member logging, packaging or extended exhale
-is active. Broad parallel compatibility remains incomplete. Conditional scope
-closures may be bypassed only when the native context proves them to be no-ops;
-active member logging disables this owned terminal dispatch.
+Expression Unfolding and further value-returning callbacks remain synchronous
+pending explicit frames. Active member logging, packaging and extended exhale
+still disable owned dispatch. Generic borrowed callback entry points remain
+local; source-eligible parallelism is enabled only where an exact owned terminal
+or collector represents Q.
 
 Packaging proof scripts and joined consumer branches explicitly disable branch
 parallelism upstream (MagicWandSupporter.scala and Consumer.scala). Their local

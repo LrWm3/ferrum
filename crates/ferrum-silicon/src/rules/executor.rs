@@ -1216,6 +1216,15 @@ pub trait CfgContext<P, D, J, V>: ExecutionContext<P, D, J, V> {
         functions: &[crate::state::terms::Declaration],
         macros: &[crate::state::terms::Declaration],
     ) -> Result<(), Self::Error>;
+    fn try_produce_owned_loop_phases(
+        &mut self,
+        _state: &State<P, D, J>,
+        _invariants: &[Exp],
+        _mark: crate::decider::path_conditions::Mark,
+    ) -> Option<Result<(VerificationResult<V>, Vec<LoopPhase<P, D, J>>), ExecutionError<Self::Error>>>
+    {
+        None
+    }
     fn loop_produce_invariants(
         &mut self,
         state: State<P, D, J>,
@@ -1227,6 +1236,22 @@ pub trait CfgContext<P, D, J, V>: ExecutionContext<P, D, J, V> {
             -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
     ) -> Result<VerificationResult<V>, ExecutionError<Self::Error>>;
     /// preserved=true selects LoopInvariantNotPreserved; false selects NotEstablished.
+    fn try_consume_owned_loop_establishment(
+        &mut self,
+        _state: &State<P, D, J>,
+        _invariants: &[Exp],
+        _frame: &LoopPhaseExecutionFrame<P, D, J>,
+        _terminal: &CfgContinuationTerminal,
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
+    }
+    fn try_consume_owned_loop_backedge(
+        &mut self,
+        _state: &State<P, D, J>,
+        _invariants: &[Exp],
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
+    }
     fn loop_consume_invariants(
         &mut self,
         state: State<P, D, J>,
@@ -2299,16 +2324,65 @@ where
     Ok(checked.combine(|| followed, false))
 }
 
-struct LoopPhase<P, D, J> {
-    state: State<P, D, J>,
-    paths: crate::decider::path_conditions::RecordedPathConditions,
-    functions: Vec<crate::state::terms::Declaration>,
-    macros: Vec<crate::state::terms::Declaration>,
+pub struct LoopPhase<P, D, J> {
+    pub(crate) state: State<P, D, J>,
+    pub(crate) paths: crate::decider::path_conditions::RecordedPathConditions,
+    pub(crate) functions: Vec<crate::state::terms::Declaration>,
+    pub(crate) macros: Vec<crate::state::terms::Declaration>,
 }
-struct LoopPhaseExecutionFrame<P, D, J> {
+pub struct LoopPhaseExecutionFrame<P, D, J> {
     phases: Vec<LoopPhase<P, D, J>>,
     statements: Arc<[Stmt]>,
     successors: LoopHeadSuccessorFrame,
+}
+
+impl<P, D, J: Clone> Clone for LoopPhase<P, D, J> {
+    fn clone(&self) -> Self {
+        Self {
+            state: self.state.clone(),
+            paths: self.paths.clone(),
+            functions: self.functions.clone(),
+            macros: self.macros.clone(),
+        }
+    }
+}
+impl<P, D, J: Clone> Clone for LoopPhaseExecutionFrame<P, D, J> {
+    fn clone(&self) -> Self {
+        Self {
+            phases: self.phases.clone(),
+            statements: self.statements.clone(),
+            successors: self.successors.clone(),
+        }
+    }
+}
+
+/// Resume the source invariant-establishment success continuation on its worker.
+pub(crate) fn execute_owned_loop_establishment<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    frame: &LoopPhaseExecutionFrame<P, D, J>,
+    terminal: &CfgContinuationTerminal,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    let leftover = context
+        .loop_finish_debug_heap(state)
+        .map_err(ExecutionError::Context)?;
+    let debug_record = context
+        .loop_capture_debug_heap(&leftover)
+        .map_err(ExecutionError::Context)?;
+    context
+        .loop_comment("Loop head block: Execute statements of loop head block (in invariant state)")
+        .map_err(ExecutionError::Context)?;
+    execute_loop_phases(
+        context,
+        leftover,
+        frame,
+        debug_record.as_ref(),
+        Some(terminal),
+        &mut |context, state| context.resume_owned_cfg_terminal(state, terminal),
+    )
 }
 
 fn execute_loop_phases<C, P, D, J: Clone, V>(
@@ -2392,6 +2466,9 @@ where
         context
             .loop_comment("Loop head block: Re-establish invariant")
             .map_err(ExecutionError::Context)?;
+        if let Some(result) = context.try_consume_owned_loop_backedge(&state, invariants) {
+            return result;
+        }
         return context.loop_consume_invariants(state, invariants, true, &mut |_, _| {
             Ok(VerificationResult::success())
         });
@@ -2442,6 +2519,11 @@ where
         let state = context
             .loop_start_debug_heap(state, LoopDebugHeapStart::InhaleInvariant)
             .map_err(ExecutionError::Context)?;
+        if let Some(result) = context.try_produce_owned_loop_phases(&state, invariants, mark) {
+            let (result, collected) = result?;
+            phases.extend(collected);
+            return Ok(result);
+        }
         context.loop_produce_invariants(state, invariants, &mut |context, state| {
             let state = context
                 .loop_finish_debug_heap(state)
@@ -2474,6 +2556,13 @@ where
         let state = context
             .loop_start_debug_heap(state, LoopDebugHeapStart::ExhaleInvariant)
             .map_err(ExecutionError::Context)?;
+        if let Some(terminal) = owned.filter(|_| join_point.is_none()) {
+            if let Some(result) =
+                context.try_consume_owned_loop_establishment(&state, invariants, &frame, terminal)
+            {
+                return result;
+            }
+        }
         context.loop_consume_invariants(state, invariants, false, &mut |context, leftover| {
             let leftover = context
                 .loop_finish_debug_heap(leftover)

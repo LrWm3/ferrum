@@ -1634,7 +1634,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Consumer.scala"
 destination = "crates/ferrum-silicon/src/rules/consumer.rs"
 status = "skeleton"
-remaining = ["Owned consumption covers statements, method posts/calls and snapshot-returning fold bodies. Loop phases, further callers, logging and broader compatibility remain."]
+remaining = ["Owned statements, method posts/calls, fold snapshots and loop consumption retain generic typed caller frames and retries. Expression receivers, logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1661,7 +1661,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Executor.scala"
 destination = "crates/ferrum-silicon/src/rules/executor.rs"
 status = "skeleton"
-remaining = ["Owned CFG/loop, nested sequence/TryBlock and loop-head statement tails connect rule jobs to method completion. Invariant-phase ownership, further caller frames, public scheduling and broader compatibility remain."]
+remaining = ["Owned CFG, statement, method-call and all loop invariant phases connect worker branches to exact terminals or collectors. Expression receivers, logging, public scheduling and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1737,7 +1737,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Producer.scala"
 destination = "crates/ferrum-silicon/src/rules/producer.rs"
 status = "skeleton"
-remaining = ["Owned production covers inhale and method/call contracts. Predicate/loop callers, active logging and broader parallel compatibility remain."]
+remaining = ["Owned inhale, method/call contracts, uncached statement unfold and loop collection carry exact terminals. Expression receivers, active logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"

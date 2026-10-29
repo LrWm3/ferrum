@@ -839,3 +839,11 @@ restore their caller fields and continue the statement tail. Actual Z3 tests
 separately exercise both profiles with one and two workers and match the pinned
 JVM for field permissions, values and an expected bad assertion. Expression
 Unfolding has a distinct term-returning continuation and remains separate work.
+
+Loop invariant collection, establishment and backedge consumption now have
+explicit owned collectors/terminals. Phase states retain paths and declarations,
+then replay inside the original consumption continuation and retry boundary.
+Actual Z3 checks cover nested entry/preservation errors and forced same-worker
+collector restoration. A combined call/fold/unfold/loop fixture passes with one,
+two and four workers and matches the pinned JVM's expected assertion failure.
+Disabled scheduling avoids cloning or allocating the establishment frame.

@@ -96,6 +96,10 @@ pub enum OwnedProductionTerminal {
     Inhale(crate::rules::executor::CfgStatementTail),
     MethodPre(crate::supporters::method_supporter::MethodPreContinuation),
     MethodWellformed,
+    LoopPhaseCollect {
+        mark: crate::decider::path_conditions::Mark,
+        id: std::sync::Arc<()>,
+    },
     CallPost(crate::rules::executor::MethodCallPreFrame),
     Unfold(crate::rules::predicate_supporter::OwnedUnfoldFinish),
 }

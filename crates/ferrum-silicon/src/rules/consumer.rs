@@ -69,22 +69,43 @@ pub enum OwnedConsumptionCompletion {
         reserve: Vec<Arc<ListBackedHeap>>,
     },
 }
-#[derive(Clone)]
-pub enum OwnedConsumptionTerminal {
+pub enum OwnedConsumptionTerminal<P, D, J> {
     Statement {
         completion: OwnedConsumptionCompletion,
         tail: crate::rules::executor::CfgStatementTail,
     },
     MethodSuccess,
+    LoopBackedgeSuccess,
     MethodCallPre(crate::rules::executor::MethodCallPreFrame),
     FoldBody(
         crate::rules::predicate_supporter::OwnedFoldBody<
             ferrum_silver::verifier::verification_error::PartialVerificationError,
         >,
     ),
+    LoopEstablish {
+        frame: Arc<crate::rules::executor::LoopPhaseExecutionFrame<P, D, J>>,
+        terminal: crate::rules::executor::CfgContinuationTerminal,
+    },
 }
-#[derive(Clone)]
-pub enum OwnedConsumptionFrame<E> {
+impl<P, D, J> Clone for OwnedConsumptionTerminal<P, D, J> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Statement { completion, tail } => Self::Statement {
+                completion: completion.clone(),
+                tail: tail.clone(),
+            },
+            Self::MethodSuccess => Self::MethodSuccess,
+            Self::LoopBackedgeSuccess => Self::LoopBackedgeSuccess,
+            Self::MethodCallPre(f) => Self::MethodCallPre(f.clone()),
+            Self::FoldBody(f) => Self::FoldBody(f.clone()),
+            Self::LoopEstablish { frame, terminal } => Self::LoopEstablish {
+                frame: frame.clone(),
+                terminal: terminal.clone(),
+            },
+        }
+    }
+}
+pub enum OwnedConsumptionFrame<E, P, D, J> {
     Retry(crate::rules::execution_flow_controller::RetryAttempt),
     FinishScope {
         conditional: bool,
@@ -105,16 +126,69 @@ pub enum OwnedConsumptionFrame<E> {
         partial: Option<Arc<ListBackedHeap>>,
         original_heap: Arc<ListBackedHeap>,
         assertions: Vec<Exp>,
-        terminal: OwnedConsumptionTerminal,
+        terminal: OwnedConsumptionTerminal<P, D, J>,
     },
 }
-#[derive(Clone)]
-pub struct OwnedConsumptionAction<E> {
+impl<E: Clone, P, D, J> Clone for OwnedConsumptionFrame<E, P, D, J> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Retry(a) => Self::Retry(a.clone()),
+            Self::FinishScope { conditional } => Self::FinishScope {
+                conditional: *conditional,
+            },
+            Self::More {
+                first,
+                assertions,
+                errors,
+                return_snapshot,
+            } => Self::More {
+                first: first.clone(),
+                assertions: assertions.clone(),
+                errors: errors.clone(),
+                return_snapshot: *return_snapshot,
+            },
+            Self::Combine {
+                first,
+                rest,
+                first_snapshot,
+                return_snapshot,
+            } => Self::Combine {
+                first: first.clone(),
+                rest: rest.clone(),
+                first_snapshot: first_snapshot.clone(),
+                return_snapshot: *return_snapshot,
+            },
+            Self::Finish {
+                partial,
+                original_heap,
+                assertions,
+                terminal,
+            } => Self::Finish {
+                partial: partial.clone(),
+                original_heap: original_heap.clone(),
+                assertions: assertions.clone(),
+                terminal: terminal.clone(),
+            },
+        }
+    }
+}
+pub struct OwnedConsumptionAction<E, P, D, J> {
     pub body: Option<Exp>,
     pub heap: Arc<ListBackedHeap>,
     pub error: E,
     pub return_snapshot: bool,
-    pub frames: Vec<OwnedConsumptionFrame<E>>,
+    pub frames: Vec<OwnedConsumptionFrame<E, P, D, J>>,
+}
+impl<E: Clone, P, D, J> Clone for OwnedConsumptionAction<E, P, D, J> {
+    fn clone(&self) -> Self {
+        Self {
+            body: self.body.clone(),
+            heap: self.heap.clone(),
+            error: self.error.clone(),
+            return_snapshot: self.return_snapshot,
+            frames: self.frames.clone(),
+        }
+    }
 }
 
 /// Verifier services needed to consume each conjunct, including failure-driven retry.
@@ -131,7 +205,7 @@ pub trait ConsumptionContext<P, D, J, V>: Sized {
         _assertion: &Exp,
         _return_snapshot: bool,
         _error: &Self::PartialError,
-        _frames: &[OwnedConsumptionFrame<Self::PartialError>],
+        _frames: &[OwnedConsumptionFrame<Self::PartialError, P, D, J>],
     ) -> Result<VerificationResult<V>, ConsumptionError<Self::Error>> {
         Err(ConsumptionError::OwnedSchedulerUnavailable)
     }
@@ -148,8 +222,8 @@ pub trait ConsumptionContext<P, D, J, V>: Sized {
         _condition: &Term,
         _original: &Exp,
         _rewritten: Option<&Exp>,
-        _yes: OwnedConsumptionAction<Self::PartialError>,
-        _no: OwnedConsumptionAction<Self::PartialError>,
+        _yes: OwnedConsumptionAction<Self::PartialError, P, D, J>,
+        _no: OwnedConsumptionAction<Self::PartialError, P, D, J>,
     ) -> Option<Result<VerificationResult<V>, ConsumptionError<Self::Error>>> {
         None
     }
@@ -157,7 +231,7 @@ pub trait ConsumptionContext<P, D, J, V>: Sized {
         &mut self,
         _state: State<P, D, J>,
         _snapshot: Option<Term>,
-        _terminal: &OwnedConsumptionTerminal,
+        _terminal: &OwnedConsumptionTerminal<P, D, J>,
     ) -> Result<VerificationResult<V>, ConsumptionError<Self::Error>> {
         Err(ConsumptionError::OwnedSchedulerUnavailable)
     }
@@ -528,7 +602,7 @@ pub(crate) fn consume_many_owned<C, P, D, J: Clone, V>(
     expressions: &[Exp],
     return_snapshot: bool,
     error_for: &impl Fn(&Exp) -> C::PartialError,
-    terminal: OwnedConsumptionTerminal,
+    terminal: OwnedConsumptionTerminal<P, D, J>,
 ) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
 where
     C: ConsumptionContext<P, D, J, V>,
@@ -565,7 +639,7 @@ fn consume_owned_conjuncts<C, P, D, J: Clone, V>(
     assertions: &[Exp],
     errors: &[C::PartialError],
     return_snapshot: bool,
-    frames: &[OwnedConsumptionFrame<C::PartialError>],
+    frames: &[OwnedConsumptionFrame<C::PartialError, P, D, J>],
 ) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
 where
     C: ConsumptionContext<P, D, J, V>,
@@ -591,7 +665,7 @@ fn resume_owned_consumption<C, P, D, J: Clone, V>(
     mut state: State<P, D, J>,
     heap: Arc<ListBackedHeap>,
     snapshot: Option<Term>,
-    frames: &[OwnedConsumptionFrame<C::PartialError>],
+    frames: &[OwnedConsumptionFrame<C::PartialError, P, D, J>],
 ) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
 where
     C: ConsumptionContext<P, D, J, V>,
@@ -686,7 +760,7 @@ pub(crate) fn consume_owned_one<C, P, D, J: Clone, V>(
     return_snapshot: bool,
     error: &C::PartialError,
     attempt: crate::rules::execution_flow_controller::RetryAttempt,
-    frames: &[OwnedConsumptionFrame<C::PartialError>],
+    frames: &[OwnedConsumptionFrame<C::PartialError, P, D, J>],
 ) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
 where
     C: ConsumptionContext<P, D, J, V>,
@@ -788,7 +862,7 @@ where
 pub(crate) fn execute_owned_consumption_action<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
-    action: &OwnedConsumptionAction<C::PartialError>,
+    action: &OwnedConsumptionAction<C::PartialError, P, D, J>,
 ) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
 where
     C: ConsumptionContext<P, D, J, V>,
