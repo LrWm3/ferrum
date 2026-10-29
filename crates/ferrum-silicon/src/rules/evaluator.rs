@@ -213,6 +213,27 @@ pub enum OwnedEvaluationReturnFrame {
         terms: Vec<Term>,
         debug_args: Vec<Option<Exp>>,
     },
+    ForPermArg {
+        wrapper: OwnedValueWrapper,
+        data: OwnedForPermData,
+        index: usize,
+        terms: Vec<Term>,
+        debug_args: Vec<Option<Exp>>,
+    },
+    UnfoldArg {
+        wrapper: OwnedValueWrapper,
+        args: Vec<Exp>,
+        permission: Exp,
+        index: usize,
+        terms: Vec<Term>,
+        debug_args: Vec<Option<Exp>>,
+    },
+    UnfoldPermission {
+        wrapper: OwnedValueWrapper,
+        args: Vec<Term>,
+        arps:
+            crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<Term>,
+    },
     LetValue(OwnedValueWrapper),
     LetBody {
         wrapper: OwnedValueWrapper,
@@ -276,6 +297,18 @@ pub struct OwnedValueWrapper {
     heap: Arc<crate::state::heap::ListBackedHeap>,
     reserve: Vec<Arc<crate::state::heap::ListBackedHeap>>,
     exhale: bool,
+}
+
+/// Binder and original-state fields needed after ForPerm resource arguments.
+#[derive(Clone)]
+pub struct OwnedForPermData {
+    resource: crate::state::terms::ResourceKey,
+    args: Vec<Exp>,
+    vars: Vec<(Term, Option<Exp>)>,
+    declarations: Vec<ferrum_silver::ast::program::LocalVarDecl>,
+    original_heap: Arc<ListBackedHeap>,
+    original_store: Arc<crate::state::store::MapBackedStore>,
+    original_quantified: Vec<(Term, Option<AbstractLocalVar>)>,
 }
 
 /// Exact destination for an owned expression value. A joined value returns to
@@ -575,6 +608,31 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
             | OwnedEvaluationReceiver::CallArgument(_) => self.can_transfer_owned_asserting(state),
             OwnedEvaluationReceiver::Join(_) | OwnedEvaluationReceiver::Quantified(_) => false,
         }
+    }
+    fn can_transfer_owned_unfold_input(&self, _state: &State<P, D, J>, _expression: &Exp) -> bool {
+        false
+    }
+    fn finish_owned_unfold_input(
+        &mut self,
+        _state: State<P, D, J>,
+        _expression: &Exp,
+        _args: &[Term],
+        _amount: &Term,
+        _arps: &crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<
+            Term,
+        >,
+        _error: &Self::PartialError,
+        _continuation: &mut dyn FnMut(
+            &mut Self,
+            State<P, D, J>,
+            Term,
+            Option<Exp>,
+        ) -> Result<
+            VerificationResult<V>,
+            EvaluationError<Self::Error>,
+        >,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
     }
     fn finish_owned_join_value(
         &mut self,
@@ -1184,10 +1242,30 @@ enum OwnedPathStep {
     ExplicitCollectionArg(usize),
     IndexedCollectionArg(usize),
     CurrentPermArg(usize),
+    ForPermArg(usize),
+    UnfoldInput(usize),
+    CurrentPermWandProbe,
+    ForPermWandProbe,
     AddLeft,
     AddRight,
     StrictLeft,
     StrictRight,
+}
+
+#[cfg(test)]
+pub(crate) static WAND_PROBE_SELECTED: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static WAND_PROBE_FALLBACK: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+fn wand_may_contain_owned_asserting(wand: &Exp) -> bool {
+    use ferrum_silver::ast::utility::{nodes::Node, nodes::subnodes, visitor::exists_defined};
+    exists_defined(
+        &Node::Exp(wand.clone()),
+        &subnodes,
+        &mut |node| matches!(node, Node::Exp(exp) if matches!(exp.kind(), ExpKind::Asserting(..))),
+    )
+    .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -1266,8 +1344,44 @@ fn owned_asserting_path(expression: &Exp, strict_boolean: bool) -> Option<Vec<Ow
                                 ));
                             }
                         }
+                        ExpKind::MagicWand(..) if wand_may_contain_owned_asserting(access) => {
+                            path.push(OwnedPathStep::CurrentPermWandProbe);
+                            return Some(path);
+                        }
                         _ => (),
                     },
+                    ExpKind::ForPerm(_, access, _) => match access.kind() {
+                        ExpKind::FieldAccess(field) => work.push(Work::Visit(
+                            &field.receiver,
+                            Some(OwnedPathStep::ForPermArg(0)),
+                        )),
+                        ExpKind::PredicateAccess(predicate) => {
+                            for (index, arg) in predicate.args.iter().enumerate().rev() {
+                                work.push(Work::Visit(arg, Some(OwnedPathStep::ForPermArg(index))));
+                            }
+                        }
+                        ExpKind::MagicWand(..) if wand_may_contain_owned_asserting(access) => {
+                            path.push(OwnedPathStep::ForPermWandProbe);
+                            return Some(path);
+                        }
+                        _ => (),
+                    },
+                    ExpKind::Unfolding(access, _) => {
+                        if let ExpKind::PredicateAccessPredicate(pap) = access.kind() {
+                            if let Some(permission) = &pap.permission {
+                                work.push(Work::Visit(
+                                    permission,
+                                    Some(OwnedPathStep::UnfoldInput(pap.location.args.len())),
+                                ));
+                            }
+                            for (index, arg) in pap.location.args.iter().enumerate().rev() {
+                                work.push(Work::Visit(
+                                    arg,
+                                    Some(OwnedPathStep::UnfoldInput(index)),
+                                ));
+                            }
+                        }
+                    }
                     ExpKind::SeqContains(element, sequence) => {
                         work.push(Work::Visit(
                             element,
@@ -1369,6 +1483,25 @@ pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
             ExpKind::FieldAccess(field) => has_owned_asserting_path(&field.receiver),
             ExpKind::PredicateAccess(predicate) => {
                 predicate.args.iter().any(has_owned_asserting_path)
+            }
+            ExpKind::MagicWand(..) => wand_may_contain_owned_asserting(access),
+            _ => false,
+        },
+        ExpKind::ForPerm(_, access, _) => match access.kind() {
+            ExpKind::FieldAccess(field) => has_owned_asserting_path(&field.receiver),
+            ExpKind::PredicateAccess(predicate) => {
+                predicate.args.iter().any(has_owned_asserting_path)
+            }
+            ExpKind::MagicWand(..) => wand_may_contain_owned_asserting(access),
+            _ => false,
+        },
+        ExpKind::Unfolding(access, _) => match access.kind() {
+            ExpKind::PredicateAccessPredicate(pap) => {
+                pap.location.args.iter().any(has_owned_asserting_path)
+                    || pap
+                        .permission
+                        .as_ref()
+                        .is_some_and(has_owned_asserting_path)
             }
             _ => false,
         },
@@ -1539,6 +1672,62 @@ where
         return evaluate_owned_asserting(context, state, expression, error, receiver, frames);
     };
     if matches!(step, OwnedPathStep::ShortCircuitHead) && context.disable_short_circuiting() {
+        return evaluate(
+            context,
+            state,
+            expression,
+            error,
+            &mut |context, state, term, debug| {
+                resume_owned_return_frames(context, state, term, debug, &frames, error, receiver)
+            },
+        );
+    }
+    if matches!(
+        step,
+        OwnedPathStep::CurrentPermWandProbe | OwnedPathStep::ForPermWandProbe
+    ) {
+        let access = match expression.kind() {
+            ExpKind::CurrentPerm(access) | ExpKind::ForPerm(_, access, _) => access,
+            _ => unreachable!("wand probe frame"),
+        };
+        let selected = access
+            .magic_wand_subexpressions(&state.program)
+            .ok()
+            .and_then(|args| {
+                args.iter().enumerate().find_map(|(index, arg)| {
+                    owned_asserting_path(arg, context.disable_short_circuiting())
+                        .map(|path| (index, path))
+                })
+            });
+        if let Some((index, inner)) = selected {
+            #[cfg(test)]
+            WAND_PROBE_SELECTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let mut resolved = Vec::with_capacity(1 + inner.len());
+            resolved.push(match step {
+                OwnedPathStep::CurrentPermWandProbe => OwnedPathStep::CurrentPermArg(index),
+                OwnedPathStep::ForPermWandProbe => OwnedPathStep::ForPermArg(index),
+                _ => unreachable!(),
+            });
+            resolved.extend(inner);
+            return evaluate_owned_planned(
+                context, state, expression, error, receiver, &resolved, frames,
+            );
+        }
+        #[cfg(test)]
+        WAND_PROBE_FALLBACK.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        return evaluate(
+            context,
+            state,
+            expression,
+            error,
+            &mut |context, state, term, debug| {
+                resume_owned_return_frames(context, state, term, debug, &frames, error, receiver)
+            },
+        );
+    }
+    if matches!(step, OwnedPathStep::UnfoldInput(_))
+        && !context.can_transfer_owned_unfold_input(&state, expression)
+    {
         return evaluate(
             context,
             state,
@@ -1906,6 +2095,129 @@ where
                 resource,
                 heap,
                 args,
+            };
+            evaluate_owned_arguments(
+                context,
+                state,
+                &wrapper,
+                &terminal,
+                0,
+                Vec::new(),
+                Vec::new(),
+                &frames,
+                error,
+                receiver,
+                Some((*index, rest)),
+            )
+        }
+        (ExpKind::ForPerm(declarations, access, _), OwnedPathStep::ForPermArg(index)) => {
+            use crate::state::terms::ResourceKey;
+            let (resource, args) = match access.kind() {
+                ExpKind::FieldAccess(field) => (
+                    ResourceKey::Field(Arc::new(field.field.clone())),
+                    vec![field.receiver.clone()],
+                ),
+                ExpKind::PredicateAccess(predicate) => {
+                    let decl = state
+                        .program
+                        .predicates
+                        .iter()
+                        .find(|p| p.name == predicate.predicate_name)
+                        .ok_or_else(|| {
+                            EvaluationError::MissingPredicate(predicate.predicate_name.clone())
+                        })?;
+                    (
+                        ResourceKey::Predicate(Arc::new(decl.clone())),
+                        predicate.args.clone(),
+                    )
+                }
+                ExpKind::MagicWand(..) => {
+                    let wand = crate::state::chunks::MagicWandIdentifier::new(
+                        access.clone(),
+                        &state.program,
+                    )
+                    .map_err(EvaluationError::Wand)?;
+                    let args = access
+                        .magic_wand_subexpressions(&state.program)
+                        .map_err(EvaluationError::Wand)?;
+                    (ResourceKey::Wand(wand), args)
+                }
+                _ => return Err(EvaluationError::InvalidResourceAccess),
+            };
+            let original_heap = state.h.clone();
+            let original_store = state.g.clone();
+            let original_quantified = state.quantified_variables.clone();
+            state.h = state
+                .partially_consumed_heap
+                .clone()
+                .unwrap_or_else(|| state.h.clone());
+            let mut vars = Vec::new();
+            let mut declarations_new = Vec::new();
+            let mut bindings = Vec::new();
+            let mut quantified = Vec::new();
+            for decl in declarations {
+                let (term, debug) = context
+                    .fresh_for_perm(decl)
+                    .map_err(EvaluationError::Context)?;
+                if context.debugging() && debug.is_none() {
+                    return Err(EvaluationError::MissingDebugExpression);
+                }
+                let local = Exp::new(ExpKind::LocalVar(decl.local_var()), decl.meta.clone());
+                bindings.push((
+                    AbstractLocalVar::new(local.clone()),
+                    (term.clone(), debug.clone()),
+                ));
+                quantified.push((
+                    term.clone(),
+                    context.debugging().then(|| AbstractLocalVar::new(local)),
+                ));
+                if context.debugging() {
+                    let crate::state::terms::TermKind::Var(var) = term.kind() else {
+                        return Err(EvaluationError::InvalidResourceAccess);
+                    };
+                    declarations_new.push(ferrum_silver::ast::program::LocalVarDecl::new(
+                        var.id.name(),
+                        decl.typ.clone(),
+                        decl.meta.clone(),
+                    ));
+                }
+                vars.push((term, debug));
+            }
+            state.g = Arc::new(state.g.with_store(
+                &crate::state::store::MapBackedStore::from_bindings(bindings),
+            ));
+            quantified.extend(state.quantified_variables.clone());
+            state.quantified_variables = quantified;
+            let terminal = OwnedArgumentsTerminal::ForPerm(OwnedForPermData {
+                resource,
+                args,
+                vars,
+                declarations: declarations_new,
+                original_heap,
+                original_store,
+                original_quantified,
+            });
+            evaluate_owned_arguments(
+                context,
+                state,
+                &wrapper,
+                &terminal,
+                0,
+                Vec::new(),
+                Vec::new(),
+                &frames,
+                error,
+                receiver,
+                Some((*index, rest)),
+            )
+        }
+        (ExpKind::Unfolding(access, _), OwnedPathStep::UnfoldInput(index)) => {
+            let ExpKind::PredicateAccessPredicate(pap) = access.kind() else {
+                return Err(EvaluationError::InvalidResourceAccess);
+            };
+            let terminal = OwnedArgumentsTerminal::Unfold {
+                args: pap.location.args.clone(),
+                permission: pap.permission_or_full(),
             };
             evaluate_owned_arguments(
                 context,
@@ -2676,6 +2988,11 @@ enum OwnedArgumentsTerminal {
         record_heap: bool,
     },
     Domain(ferrum_silver::ast::program::DomainFunc),
+    ForPerm(OwnedForPermData),
+    Unfold {
+        args: Vec<Exp>,
+        permission: Exp,
+    },
     CurrentPerm {
         access: Exp,
         resource: crate::state::terms::ResourceKey,
@@ -2718,9 +3035,43 @@ where
             _ => unreachable!("domain argument frame"),
         },
         OwnedArgumentsTerminal::CurrentPerm { args, .. } => args,
+        OwnedArgumentsTerminal::ForPerm(data) => &data.args,
+        OwnedArgumentsTerminal::Unfold { args, .. } => args,
     };
     if index == args.len() {
         let debug = rebuild_domain_debug_arguments(context.debugging(), debug_args)?;
+        if let OwnedArgumentsTerminal::Unfold { permission, .. } = terminal {
+            let arps = state.constrainable_arps.clone();
+            let mut next = frames.to_vec();
+            next.push(OwnedEvaluationReturnFrame::UnfoldPermission {
+                wrapper: wrapper.clone(),
+                args: terms,
+                arps,
+            });
+            let planned = match selected {
+                Some((target, path)) if target == index => Some(path.to_vec()),
+                Some(_) => None,
+                None if context.can_transfer_owned_receiver(&state, receiver) => {
+                    owned_asserting_path(permission, context.disable_short_circuiting())
+                }
+                None => None,
+            };
+            return if let Some(path) = planned {
+                evaluate_owned_planned(context, state, permission, error, receiver, &path, next)
+            } else {
+                evaluate(
+                    context,
+                    state,
+                    permission,
+                    error,
+                    &mut |context, state, term, debug| {
+                        resume_owned_return_frames(
+                            context, state, term, debug, &next, error, receiver,
+                        )
+                    },
+                )
+            };
+        }
         let mut done = |context: &mut C, mut state, term, debug| {
             finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
             resume_owned_return_frames(context, state, term, debug, frames, error, receiver)
@@ -2764,6 +3115,17 @@ where
                 function,
                 terms,
                 debug,
+                &mut done,
+            ),
+            OwnedArgumentsTerminal::Unfold { .. } => unreachable!("unfold args handled above"),
+            OwnedArgumentsTerminal::ForPerm(data) => complete_owned_for_perm(
+                context,
+                state,
+                &wrapper.expression,
+                data,
+                terms,
+                debug,
+                error,
                 &mut done,
             ),
             OwnedArgumentsTerminal::CurrentPerm {
@@ -2831,6 +3193,23 @@ where
                 terms,
                 debug_args,
             },
+            OwnedArgumentsTerminal::Unfold { args, permission } => {
+                OwnedEvaluationReturnFrame::UnfoldArg {
+                    wrapper: wrapper.clone(),
+                    args: args.clone(),
+                    permission: permission.clone(),
+                    index,
+                    terms,
+                    debug_args,
+                }
+            }
+            OwnedArgumentsTerminal::ForPerm(data) => OwnedEvaluationReturnFrame::ForPermArg {
+                wrapper: wrapper.clone(),
+                data: data.clone(),
+                index,
+                terms,
+                debug_args,
+            },
             OwnedArgumentsTerminal::CurrentPerm {
                 access,
                 resource,
@@ -2872,6 +3251,70 @@ where
                 receiver,
                 selected,
             )
+        },
+    )
+}
+
+fn complete_owned_for_perm<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    data: &OwnedForPermData,
+    terms: Vec<Term>,
+    debug_args: Option<Vec<Exp>>,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let ExpKind::ForPerm(_, _, body) = expression.kind() else {
+        unreachable!("forperm frame")
+    };
+    let options = context
+        .for_perm_conditions(
+            &state,
+            &data.resource,
+            &data.vars,
+            &terms,
+            debug_args.as_deref(),
+        )
+        .map_err(EvaluationError::Context)?;
+    let bound_store = state.g.clone();
+    let factory = context.factory().clone();
+    evaluate_for_perm_options(
+        context,
+        state,
+        &options,
+        body,
+        error,
+        &data.declarations,
+        bound_store,
+        &mut |context, mut state, terms, exps| {
+            state.h = data.original_heap.clone();
+            state.g = data.original_store.clone();
+            state.quantified_variables = data.original_quantified.clone();
+            let term = factory.and(terms);
+            let debug = if context.debugging() {
+                let mut it = exps
+                    .ok_or(EvaluationError::MissingDebugExpression)?
+                    .into_iter();
+                let mut result = it
+                    .next()
+                    .unwrap_or_else(|| Exp::new(ExpKind::TrueLit, Default::default()));
+                for next in it {
+                    result = Exp::new(ExpKind::And(result, next), Default::default());
+                }
+                Some(result)
+            } else {
+                None
+            };
+            continuation(context, state, term, debug)
         },
     )
 }
@@ -3216,6 +3659,31 @@ where
                     None,
                 );
             }
+            OwnedEvaluationReturnFrame::ForPermArg {
+                wrapper,
+                data,
+                index: argument_index,
+                terms,
+                debug_args,
+            } => {
+                let mut terms = terms.clone();
+                terms.push(term);
+                let mut debug_args = debug_args.clone();
+                debug_args.push(debug);
+                return evaluate_owned_arguments(
+                    context,
+                    state,
+                    wrapper,
+                    &OwnedArgumentsTerminal::ForPerm(data.clone()),
+                    argument_index + 1,
+                    terms,
+                    debug_args,
+                    &frames[..index],
+                    error,
+                    receiver,
+                    None,
+                );
+            }
             OwnedEvaluationReturnFrame::DomainArg {
                 wrapper,
                 function,
@@ -3274,6 +3742,64 @@ where
                     receiver,
                     None,
                 );
+            }
+            OwnedEvaluationReturnFrame::UnfoldArg {
+                wrapper,
+                args,
+                permission,
+                index: argument_index,
+                terms,
+                debug_args,
+            } => {
+                let mut terms = terms.clone();
+                terms.push(term);
+                let mut debug_args = debug_args.clone();
+                debug_args.push(debug);
+                return evaluate_owned_arguments(
+                    context,
+                    state,
+                    wrapper,
+                    &OwnedArgumentsTerminal::Unfold {
+                        args: args.clone(),
+                        permission: permission.clone(),
+                    },
+                    argument_index + 1,
+                    terms,
+                    debug_args,
+                    &frames[..index],
+                    error,
+                    receiver,
+                    None,
+                );
+            }
+            OwnedEvaluationReturnFrame::UnfoldPermission {
+                wrapper,
+                args,
+                arps,
+            } => {
+                let mut done = |context: &mut C, mut state, value, debug| {
+                    finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &value)?;
+                    resume_owned_return_frames(
+                        context,
+                        state,
+                        value,
+                        debug,
+                        &frames[..index],
+                        error,
+                        receiver,
+                    )
+                };
+                return context
+                    .finish_owned_unfold_input(
+                        state,
+                        &wrapper.expression,
+                        args,
+                        &term,
+                        arps,
+                        error,
+                        &mut done,
+                    )
+                    .ok_or(EvaluationError::OwnedSchedulerUnavailable)?;
             }
             OwnedEvaluationReturnFrame::LetValue(wrapper) => {
                 return resume_owned_let_value(

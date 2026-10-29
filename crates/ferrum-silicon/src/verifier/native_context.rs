@@ -416,6 +416,25 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     #[cfg(test)]
     pub(crate) test_cancel_quantified_after_prefix: bool,
     #[cfg(test)]
+    pub(crate) test_cancel_owned_forperm:
+        Option<crate::verifier::verification_pool_manager::CancellationController>,
+    #[cfg(test)]
+    test_in_forperm_worker: bool,
+    #[cfg(test)]
+    pub(crate) test_cancel_owned_current_wand:
+        Option<crate::verifier::verification_pool_manager::CancellationController>,
+    #[cfg(test)]
+    test_in_current_wand_worker: bool,
+    #[cfg(test)]
+    pub(crate) test_cancel_owned_unfold_input:
+        Option<crate::verifier::verification_pool_manager::CancellationController>,
+    #[cfg(test)]
+    pub(crate) test_cancel_unfold_permission: bool,
+    #[cfg(test)]
+    test_in_unfold_arg_worker: bool,
+    #[cfg(test)]
+    test_in_unfold_permission_worker: bool,
+    #[cfg(test)]
     test_in_quantified_worker: bool,
     #[cfg(test)]
     test_in_quantified_suffix_worker: bool,
@@ -813,6 +832,22 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             test_cancel_owned_quantified: None,
             #[cfg(test)]
             test_cancel_quantified_after_prefix: false,
+            #[cfg(test)]
+            test_cancel_owned_forperm: None,
+            #[cfg(test)]
+            test_in_forperm_worker: false,
+            #[cfg(test)]
+            test_cancel_owned_current_wand: None,
+            #[cfg(test)]
+            test_in_current_wand_worker: false,
+            #[cfg(test)]
+            test_cancel_owned_unfold_input: None,
+            #[cfg(test)]
+            test_cancel_unfold_permission: false,
+            #[cfg(test)]
+            test_in_unfold_arg_worker: false,
+            #[cfg(test)]
+            test_in_unfold_permission_worker: false,
             #[cfg(test)]
             test_in_quantified_worker: false,
             #[cfg(test)]
@@ -2585,24 +2620,8 @@ where
             }),
         )
     }
-    fn finish_owned_cfg_single_guard(
-        &mut self,
-        state: State<PD, FD, JoinMode>,
-        term: Term,
-        debug: Option<Exp>,
-        receiver: &crate::rules::executor::OwnedCfgSingleGuard,
-    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
-        Some(
-            crate::rules::executor::execute_owned_cfg_single_guard(
-                self, state, term, debug, receiver,
-            )
-            .map_err(|e| match e {
-                ExecutionError::Context(error) => EvaluationError::Context(error),
-                other => EvaluationError::Context(NativeError::Execution(format!(
-                    "owned CFG single guard: {other:?}"
-                ))),
-            }),
-        )
+    fn finish_owned_cfg_single_guard(&mut self, state: State<PD, FD, JoinMode>, term: Term, debug: Option<Exp>, receiver: &crate::rules::executor::OwnedCfgSingleGuard) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        Some(crate::rules::executor::execute_owned_cfg_single_guard(self, state, term, debug, receiver).map_err(|e| match e { ExecutionError::Context(error) => EvaluationError::Context(error), other => EvaluationError::Context(NativeError::Execution(format!("owned CFG single guard: {other:?}"))) }))
     }
     fn finish_owned_cfg_guard(
         &mut self,
@@ -3589,6 +3608,38 @@ where
         &mut self,
         frame: &crate::rules::evaluator::OwnedAsserting<Self::PartialError>,
     ) {
+        let cancel_unfold = if self.test_cancel_unfold_permission {
+            self.test_in_unfold_permission_worker
+        } else {
+            self.test_in_unfold_arg_worker
+        };
+        if cancel_unfold {
+            if let Some(cancel) = self.test_cancel_owned_unfold_input.take() {
+                super::verification_pool_manager::UNFOLD_INPUT_CANCEL_HOOKS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                cancel.cancel();
+            }
+        }
+        if self.test_in_current_wand_worker && frame.return_frames.iter().any(|f| matches!(f, crate::rules::evaluator::OwnedEvaluationReturnFrame::CurrentPermArg { access, .. } if matches!(access.kind(), ExpKind::MagicWand(..)))) {
+            if let Some(cancel) = self.test_cancel_owned_current_wand.take() {
+                super::verification_pool_manager::CURRENT_WAND_ARG_CANCEL_HOOKS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                cancel.cancel();
+            }
+        }
+        if self.test_in_forperm_worker
+            && frame.return_frames.iter().any(|f| {
+                matches!(
+                    f,
+                    crate::rules::evaluator::OwnedEvaluationReturnFrame::ForPermArg { .. }
+                )
+            })
+        {
+            if let Some(cancel) = self.test_cancel_owned_forperm.take() {
+                super::verification_pool_manager::FORPERM_ARG_CANCEL_HOOKS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                cancel.cancel();
+            }
+        }
         if self.test_in_quantified_worker
             && matches!(
                 &frame.receiver,
@@ -3693,10 +3744,7 @@ where
     ) -> bool {
         use crate::rules::evaluator::OwnedEvaluationReceiver;
         match receiver {
-            OwnedEvaluationReceiver::Assignment(_)
-            | OwnedEvaluationReceiver::CfgGuard(_)
-            | OwnedEvaluationReceiver::CfgSingleGuard(_)
-            | OwnedEvaluationReceiver::LoopGuardCheck
+            OwnedEvaluationReceiver::Assignment(_) | OwnedEvaluationReceiver::CfgGuard(_) | OwnedEvaluationReceiver::CfgSingleGuard(_) | OwnedEvaluationReceiver::LoopGuardCheck
             | OwnedEvaluationReceiver::FieldAssignment(_)
             | OwnedEvaluationReceiver::CallArgument(_) => self.can_transfer_owned_asserting(state),
             OwnedEvaluationReceiver::Quantified(quant) => {
@@ -3725,6 +3773,87 @@ where
                         .is_some_and(|(id, _)| Arc::ptr_eq(id, &join.collector_id))
             }
         }
+    }
+    fn can_transfer_owned_unfold_input(
+        &self,
+        state: &State<PD, FD, JoinMode>,
+        expression: &Exp,
+    ) -> bool {
+        let ExpKind::Unfolding(access, _) = expression.kind() else {
+            return false;
+        };
+        let ExpKind::PredicateAccessPredicate(pap) = access.kind() else {
+            return false;
+        };
+        let Ok(predicate) = state.program.find_predicate(&pap.location.predicate_name) else {
+            return false;
+        };
+        (state.cycles(&ferrum_silver::ast::program::Member::Predicate(
+            predicate.clone(),
+        )) as i64)
+            < i64::from(self.options.recursive_predicate_unfoldings)
+    }
+    fn finish_owned_unfold_input(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        expression: &Exp,
+        args: &[Term],
+        amount: &Term,
+        arps: &crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<
+            Term,
+        >,
+        error: &Self::PartialError,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Term,
+            Option<Exp>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            EvaluationError<Self::Error>,
+        >,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        Some((|| {
+            let ExpKind::Unfolding(access, body) = expression.kind() else {
+                return Err(EvaluationError::InvalidResourceAccess);
+            };
+            let ExpKind::PredicateAccessPredicate(pap) = access.kind() else {
+                return Err(EvaluationError::InvalidResourceAccess);
+            };
+            let predicate = state
+                .program
+                .find_predicate(&pap.location.predicate_name)
+                .map_err(|_| {
+                    EvaluationError::MissingPredicate(pap.location.predicate_name.clone())
+                })?
+                .clone();
+            let positive = self.factory.is_positive_perm(amount.clone());
+            let proven = self
+                .base
+                .decider
+                .check(&positive, self.base.decider.assert_timeout)
+                .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+            if !proven {
+                return self
+                    .failure(
+                        error,
+                        ErrorReason::NonPositivePermission(pap.permission_or_full()),
+                        &state,
+                    )
+                    .map_err(EvaluationError::Context);
+            }
+            self.join_unfold_expression(
+                state,
+                &predicate,
+                access,
+                body,
+                args,
+                amount,
+                arps,
+                error,
+                continuation,
+            )
+        })())
     }
     fn finish_owned_join_value(
         &mut self,
@@ -11653,40 +11782,12 @@ where
             }),
         )
     }
-    fn try_evaluate_owned_cfg_single_guard(
-        &mut self,
-        state: &State<PD, FD, JoinMode>,
-        guard: &crate::rules::executor::OwnedCfgSingleGuard,
-    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+    fn try_evaluate_owned_cfg_single_guard(&mut self, state: &State<PD, FD, JoinMode>, guard: &crate::rules::executor::OwnedCfgSingleGuard) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
         use crate::rules::consumer::ConsumptionContext;
-        if !crate::rules::evaluator::has_owned_asserting_path(&guard.condition)
-            || !self.supports_owned_consumption(state)
-        {
-            return None;
-        }
-        let partial = PartialVerificationError::for_kind(if guard.is_loop_guard {
-            VerificationErrorKind::WhileFailed(guard.condition.clone())
-        } else {
-            VerificationErrorKind::IfFailed(guard.condition.clone())
-        });
-        let receiver =
-            crate::rules::evaluator::OwnedEvaluationReceiver::CfgSingleGuard(guard.clone());
-        Some(
-            crate::rules::evaluator::evaluate_owned_received(
-                self,
-                state.clone(),
-                &guard.condition,
-                &partial,
-                &receiver,
-                vec![],
-            )
-            .map_err(|e| match e {
-                EvaluationError::Context(error) => ExecutionError::Context(error),
-                other => ExecutionError::Context(NativeError::Evaluation(format!(
-                    "owned CFG single guard: {other:?}"
-                ))),
-            }),
-        )
+        if !crate::rules::evaluator::has_owned_asserting_path(&guard.condition) || !self.supports_owned_consumption(state) { return None; }
+        let partial = PartialVerificationError::for_kind(if guard.is_loop_guard { VerificationErrorKind::WhileFailed(guard.condition.clone()) } else { VerificationErrorKind::IfFailed(guard.condition.clone()) });
+        let receiver = crate::rules::evaluator::OwnedEvaluationReceiver::CfgSingleGuard(guard.clone());
+        Some(crate::rules::evaluator::evaluate_owned_received(self, state.clone(), &guard.condition, &partial, &receiver, vec![]).map_err(|e| match e { EvaluationError::Context(error) => ExecutionError::Context(error), other => ExecutionError::Context(NativeError::Evaluation(format!("owned CFG single guard: {other:?}"))) }))
     }
     fn try_evaluate_owned_cfg_guard(
         &mut self,
@@ -13527,12 +13628,8 @@ where
                         super::verification_pool_manager::LOOP_GUARD_EXECUTIONS
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
-                    if matches!(
-                        &frame.receiver,
-                        crate::rules::evaluator::OwnedEvaluationReceiver::CfgSingleGuard(_)
-                    ) {
-                        super::verification_pool_manager::CFG_SINGLE_EXECUTIONS
-                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if matches!(&frame.receiver, crate::rules::evaluator::OwnedEvaluationReceiver::CfgSingleGuard(_)) {
+                        super::verification_pool_manager::CFG_SINGLE_EXECUTIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
                     if matches!(
                         &frame.receiver,
@@ -13938,6 +14035,69 @@ where
                 }
             }
         };
+        #[cfg(test)]
+        let forperm_arg_job = match &branch.action {
+            super::verification_pool_manager::NativeJoinAction::Consumption(action) => action.frames.iter().any(|frame| matches!(frame,
+                crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                    terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), ..
+                } if frame.return_frames.iter().any(|f| matches!(f, crate::rules::evaluator::OwnedEvaluationReturnFrame::ForPermArg { .. })))),
+            _ => false,
+        };
+        #[cfg(test)]
+        if forperm_arg_job {
+            super::verification_pool_manager::FORPERM_ARG_EXECUTIONS
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        #[cfg(test)]
+        let previous_forperm_worker =
+            std::mem::replace(&mut self.test_in_forperm_worker, forperm_arg_job);
+        #[cfg(test)]
+        let current_wand_job = match &branch.action {
+            super::verification_pool_manager::NativeJoinAction::Consumption(action) => action.frames.iter().any(|frame| matches!(frame,
+                crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                    terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), ..
+                } if frame.return_frames.iter().any(|f| matches!(f, crate::rules::evaluator::OwnedEvaluationReturnFrame::CurrentPermArg { access, .. } if matches!(access.kind(), ExpKind::MagicWand(..)))))),
+            _ => false,
+        };
+        #[cfg(test)]
+        if current_wand_job {
+            super::verification_pool_manager::CURRENT_WAND_ARG_EXECUTIONS
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        #[cfg(test)]
+        let previous_current_wand_worker =
+            std::mem::replace(&mut self.test_in_current_wand_worker, current_wand_job);
+        #[cfg(test)]
+        let (unfold_arg_job, unfold_permission_job) = match &branch.action {
+            super::verification_pool_manager::NativeJoinAction::Consumption(action) => {
+                let has = |permission| {
+                    action.frames.iter().any(|frame| matches!(frame,
+                    crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                        terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), ..
+                    } if frame.return_frames.iter().any(|f| if permission { matches!(f, crate::rules::evaluator::OwnedEvaluationReturnFrame::UnfoldPermission { .. }) } else { matches!(f, crate::rules::evaluator::OwnedEvaluationReturnFrame::UnfoldArg { .. }) })))
+                };
+                (has(false), has(true))
+            }
+            _ => (false, false),
+        };
+        #[cfg(test)]
+        if unfold_arg_job {
+            super::verification_pool_manager::UNFOLD_ARG_EXECUTIONS
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        #[cfg(test)]
+        if unfold_permission_job {
+            super::verification_pool_manager::UNFOLD_PERMISSION_EXECUTIONS
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        #[cfg(test)]
+        let previous_unfold_arg_worker =
+            std::mem::replace(&mut self.test_in_unfold_arg_worker, unfold_arg_job);
+        #[cfg(test)]
+        let previous_unfold_permission_worker = std::mem::replace(
+            &mut self.test_in_unfold_permission_worker,
+            unfold_permission_job,
+        );
         let phase_id = match &branch.action {
             super::verification_pool_manager::NativeJoinAction::Production(action) => match &action
                 .tail
@@ -14170,6 +14330,19 @@ where
         #[cfg(test)]
         {
             self.test_in_quantified_suffix_worker = previous_in_quantified_suffix_worker;
+        }
+        #[cfg(test)]
+        {
+            self.test_in_forperm_worker = previous_forperm_worker;
+        }
+        #[cfg(test)]
+        {
+            self.test_in_current_wand_worker = previous_current_wand_worker;
+        }
+        #[cfg(test)]
+        {
+            self.test_in_unfold_arg_worker = previous_unfold_arg_worker;
+            self.test_in_unfold_permission_worker = previous_unfold_permission_worker;
         }
         self.quantified_evaluation_collector = previous_quantified_collector;
         let quantified_entries = match (quantified_id, quantified_entries) {
@@ -16219,6 +16392,65 @@ where
         }
     }
 
+    /// Evaluate an unfolding's `in` expression at its exact enclosing value collector.
+    fn evaluate_unfold_body_at_join(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        body: &Exp,
+        error: &PartialVerificationError,
+        join: Option<(
+            &State<PD, FD, JoinMode>,
+            crate::decider::path_conditions::Mark,
+            &Arc<()>,
+        )>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Term,
+            Option<Exp>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            EvaluationError<NativeError<S::Error>>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, EvaluationError<NativeError<S::Error>>> {
+        use crate::rules::evaluator::{self, OwnedEvaluationReceiver, OwnedJoinedValue};
+        if let Some((initial, mark, id)) = join {
+            if self.joined_branch_scheduler_enabled
+                && self.joined_branch_scheduler.is_some()
+                && self.member_log.is_none()
+                && state.parallelize_branches
+                && state.under_join
+                && !state.is_in_package
+                && !state.exhale_ext
+                && self
+                    .unfold_evaluation_collector
+                    .as_ref()
+                    .is_some_and(|(active, _)| Arc::ptr_eq(active, id))
+                && evaluator::has_owned_asserting_path(body)
+            {
+                let receiver = OwnedEvaluationReceiver::Join(OwnedJoinedValue {
+                    restore: crate::rules::joiner::JoinRestoreState::capture(initial),
+                    mark,
+                    collector_id: id.clone(),
+                });
+                if self.can_transfer_owned_receiver(&state, &receiver) {
+                    #[cfg(test)]
+                    super::verification_pool_manager::UNFOLD_BODY_OWNED_ATTEMPTS
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    return evaluator::evaluate_owned_received(
+                        self,
+                        state,
+                        body,
+                        error,
+                        &receiver,
+                        vec![],
+                    );
+                }
+            }
+        }
+        evaluator::evaluate(self, state, body, error, continuation)
+    }
+
     fn unfold_expression_body(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -16304,11 +16536,12 @@ where
                         state.constrainable_arps = old_arps.clone();
                         state = state.dec_cycle_counter(&Member::Predicate(predicate.clone()));
                         match ctx.consolidate_optional(state) {
-                            Ok(state) => match crate::rules::evaluator::evaluate(
-                                ctx,
+                            Ok(state) => match ctx.evaluate_unfold_body_at_join(
                                 state,
                                 body,
                                 error,
+                                owned_join
+                                    .map(|join| (&join.initial, join.mark, &join.collector_id)),
                                 continuation,
                             ) {
                                 Ok(v) => Ok(v),
@@ -16323,6 +16556,13 @@ where
                     let cached = crate::rules::predicate_supporter::PredicateExecutionServices::cached_predicate_contents(ctx, &bound, predicate)
                         .map_err(EvaluationError::Context)?;
                     let result = if let Some((tree, params)) = cached {
+                        #[cfg(test)]
+                        if owned_join.is_some()
+                            && crate::rules::evaluator::has_owned_asserting_path(body)
+                        {
+                            super::verification_pool_manager::UNFOLD_BODY_CACHED_PATH
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
                         let replacements = params
                             .into_iter()
                             .zip(std::iter::once(snapshot.clone()).chain(args.iter().cloned()))
@@ -16348,6 +16588,13 @@ where
                             &mut |ctx, state| finish(ctx, state).map_err(|e| match e { ProductionError::Context(error) => crate::rules::predicate_supporter::PredicateExecutionError::Service(error), other => crate::rules::predicate_supporter::PredicateExecutionError::Service(NativeError::Production(format!("{other:?}"))) }),
                         ).map_err(|e| match e { crate::rules::predicate_supporter::PredicateExecutionError::Service(error) => ProductionError::Context(error), other => ProductionError::Context(NativeError::Production(format!("{other:?}"))) })
                     } else {
+                        #[cfg(test)]
+                        if owned_join.is_some()
+                            && crate::rules::evaluator::has_owned_asserting_path(body)
+                        {
+                            super::verification_pool_manager::UNFOLD_BODY_UNCACHED_PATH
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
                         let body_snapshot = if ctx.options.mask_heap_mode {
                             let eval_heap =
                                 crate::rules::magic_wand_supporter::evaluation_heap(ctx, &bound)
@@ -16545,6 +16792,11 @@ where
             EvaluationError<NativeError<S::Error>>,
         >,
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<NativeError<S::Error>>> {
+        #[cfg(test)]
+        if crate::rules::evaluator::has_owned_asserting_path(&frame.body) {
+            super::verification_pool_manager::UNFOLD_BODY_WORKER_FINISH
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
         use ferrum_silver::ast::program::Member;
         state.g = frame.outer_store.clone();
         state.function_recorder = state.function_recorder.change_depth_by(-1);
@@ -16556,7 +16808,13 @@ where
         let state = self
             .consolidate_optional(state)
             .map_err(EvaluationError::Context)?;
-        crate::rules::evaluator::evaluate(self, state, &frame.body, &frame.error, continuation)
+        self.evaluate_unfold_body_at_join(
+            state,
+            &frame.body,
+            &frame.error,
+            Some((&frame.initial, frame.mark, &frame.collector_id)),
+            continuation,
+        )
     }
     fn join_unfold_expression(
         &mut self,
@@ -16787,26 +17045,52 @@ where
             wand,
             error,
             &mut |ctx, result_state| {
-                let result = crate::rules::evaluator::evaluate(
-                    ctx,
-                    result_state,
-                    in_expression,
-                    error,
-                    &mut |ctx, result_state, value, debug| {
-                        let path_conditions = ctx
-                            .base
-                            .decider
-                            .pcs
-                            .after(mark)
-                            .map_err(EvaluationError::Path)?;
-                        entries.push(JoinDataEntry {
-                            state: joiner::restore_state(result_state, &state),
-                            data: (value, debug),
-                            path_conditions,
-                        });
-                        Ok(VerificationResult::success())
-                    },
-                );
+                let eligible = ctx.joined_branch_scheduler_enabled
+                    && ctx.joined_branch_scheduler.is_some()
+                    && ctx.member_log.is_none()
+                    && result_state.parallelize_branches
+                    && !result_state.is_in_package
+                    && !result_state.exhale_ext
+                    && crate::rules::evaluator::has_owned_asserting_path(in_expression);
+                let result = if eligible {
+                    #[cfg(test)]
+                    super::verification_pool_manager::APPLYING_BODY_OWNED_ATTEMPTS
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    ctx.execute_identified_evaluation_branch(
+                        result_state,
+                        crate::rules::evaluator::EvaluationBranchAction::Evaluate {
+                            expression: in_expression.clone(),
+                            error: error.clone(),
+                        },
+                        &state,
+                        mark,
+                    )
+                    .map(|(result, returned)| {
+                        entries.extend(returned);
+                        result
+                    })
+                } else {
+                    crate::rules::evaluator::evaluate(
+                        ctx,
+                        result_state,
+                        in_expression,
+                        error,
+                        &mut |ctx, result_state, value, debug| {
+                            let path_conditions = ctx
+                                .base
+                                .decider
+                                .pcs
+                                .after(mark)
+                                .map_err(EvaluationError::Path)?;
+                            entries.push(JoinDataEntry {
+                                state: joiner::restore_state(result_state, &state),
+                                data: (value, debug),
+                                path_conditions,
+                            });
+                            Ok(VerificationResult::success())
+                        },
+                    )
+                };
                 match result {
                     Ok(value) => Ok(value),
                     Err(e) => {
