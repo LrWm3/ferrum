@@ -1,29 +1,22 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 424 mapped and assembly modules. `described` files
-remain comment-only; `skeleton` files contain partial implementations with explicit
-gaps; `ported` means translated bodies compile, not that compatibility has been
-proved. Reviewed progress and remaining work are recorded per file.
+The workspace inventory now covers 437 destinations, including 101 assembly
+files. Inventory stages describe implementation progress, not proof of complete
+source compatibility.
 
-The latest continuation checkpoint connects owned CFG guards and loop checks,
-expression return frames, generic production and consumption receivers, and
-Applying stages to exact terminals and identified collectors. Solver and collector
-state is restored across cooperative waits. Public advanced logging or state
-reporting combined with parallel branches is rejected by the pinned source
-configuration; a reused internal CFG context with a stale member logger falls
-back locally. Direct source-disabled branches and first-stage quantified
-conditions remain serial. Missing quantified-trigger warnings retain source text,
-position and reporter category (diagnostic checkpoint `cef2f19`). See
-[continuations.md](continuations.md) for fixtures and limitations. At code checkpoint `f4a070c`, the workspace all-target test run with `native-z3`
-passes 690 regular tests (142 ignored), including 309 Silicon library tests
-(nine ignored). An explicit real-Z3 pass adds 60 CLI continuation cases, 11 warning
-checks, mask-alias replay and the cooperative collector-restoration regression.
-Both mask fixtures pass linked Z3 4.16 with one and two workers. Test-only
-optimization overrides were used; the production-profile workspace all-target
-check and both Prusti integration checks also pass. The inventory check covers
-424 destinations. This checkpoint does not complete the port or establish a
-performance improvement.
+The current code checkpoint is `f686fde`. Public debugger/reporting integration
+and the hardening fixes are documented in [debugger-validation.md](debugger-validation.md)
+and [hardening-validation.md](hardening-validation.md). Completed member loggers
+are detached from reused workers, cancellation captures remain replayable after
+cleanup, and the demonstrated recursive execution, rewrite, rendering and
+expression-destruction overflows have focused regressions. Public source-invalid
+logging/parallelism combinations remain rejected. Production optimization
+settings are unchanged; no performance improvement is claimed.
+
+[completion.md](completion.md) tracks the requested sequence through fresh Prusti
+verification and broader pinned-source compatibility testing. Historical Rust
+matrix results must not be treated as runs of this code checkpoint.
 
 The entries below are historical checkpoints; later work may supersede their
 statements about remaining work.

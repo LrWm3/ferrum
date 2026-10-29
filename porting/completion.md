@@ -79,7 +79,7 @@ validation](debugger-validation.md) for scope, commands and reproduced source
 limitations. The latter records native EOF/collection presentation, source
 simplified-unfold failure, source sequence replay behavior and API solver settings.
 
-## 2. Advanced features and hardening — in progress
+## 2. Advanced features and hardening — complete
 
 - Audit reachable unsupported extension/configuration paths against the source
   and connect missing native services; keep genuine source restrictions explicit.
@@ -93,15 +93,18 @@ simplified-unfold failure, source sequence replay behavior and API solver settin
   and session reuse in the newly connected paths. Check failure behavior as well
   as successful transfers.
 
-The confirmed semantic investigations are generic-domain type grounding in
-`0236`, annotated Boolean operator inference in `0950`, the empty-result path
-when heap-trigger argument evaluation fails in `0652`, and first-match termination
-metadata in the two `specOrder` cases. Internal logger reuse and newly connected
-debugger cancellation/interleaving paths need focused checks. Recursive stack
-usage requires representative subprocess measurements and fixes at observed
-failure paths, without changing the production optimization policy.
+The concrete source gaps are fixed at `f686fde`: generic-domain grounding,
+annotated Boolean overloads, failed heap-trigger arguments, termination metadata,
+function permission warnings, SIF conditions and structured SIF/ARP diagnostics.
+Completed member loggers detach correctly, deep cancellation checks exercise
+actual workers and solver reaping, and the demonstrated native stack overflows
+have same-thread recursion checkpoints and focused regressions. The exact committed
+source passed all 826 library tests with real Z3, no failures and no ignored
+tests; see [hardening-validation.md](hardening-validation.md) for checked coverage
+and explicit limits. Unexercised unsupported paths remain
+unclassified for broader compatibility triage, not silently accepted.
 
-## 3. Fresh Prusti verification — pending
+## 3. Fresh Prusti verification — in progress
 
 - Update the isolated `prusti-ferrum` integration worktree to the resulting
   committed Ferrum revision; preserve the user's active stdlib worktree.
@@ -112,6 +115,15 @@ failure paths, without changing the production optimization policy.
   independently generated encodings must not be silently treated as identical.
 - Fix regressions and rerun affected fixtures. Replace the older matrix in the
   integration validation record with clearly identified fresh evidence.
+
+The fresh integration source is frozen at committed stdlib snapshot
+`708b0063c1ebc76521e89291d4fab16e3b63bcc3`, merged with adapter `1b994e389`,
+with Ferrum pinned to `f686fde`. The user's uncommitted stdlib work is preserved.
+Both locked nightly-2026-08-15 native-only and dual native/JVM builds pass.
+The current matrix contains 602 client binaries across eight stdlib suites,
+plus spec-library, Rust/runtime and trigger controls. Explicit harness backend
+selection is required because inherited `PRUSTI_*` variables are cleared.
+Verification results remain pending; the earlier eight-case matrix is not reused.
 
 ## 4. Broader compatibility testing — pending
 

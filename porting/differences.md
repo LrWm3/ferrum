@@ -238,7 +238,10 @@ with the same 128 MiB stack setting. Direct AST sessions retain caller-thread
 ownership; embedders choose the stack when creating that thread. No native Z3
 context is transferred between threads. The evaluator's large dispatch body is
 split into non-inlined expression families without changing continuation order.
-Both runtimes still have finite stacks; recursive inputs can exceed that bound.
+Ferrum now checks stack space at the demonstrated recursive evaluator, executor,
+SMT rendering, expression rewriting and expression destruction boundaries, growing
+same-thread segments when needed. This does not bound total memory or establish
+stack safety for every recursive path; see [hardening-validation.md](hardening-validation.md).
 
 ## No-trigger snapshot-map templates
 
@@ -323,8 +326,9 @@ factory in every worker. Ferrum checks their identity before traced method/CFG
 execution and rejects missing setup. This is an explicit assembly requirement
 when a logger owner is explicitly installed. The native factory now propagates
 that owner to main and workers, with source decider formatting and public
-logging configuration connected. Active internal member-log migration remains
-part of the subsequent hardening pass.
+logging configuration connected. Successful member close now detaches the active
+worker/decider handle while the root retains its records. Reused standalone CFG
+workers submit and execute owned jobs; failed close preserves the active handle.
 
 Run logger shutdown waits for native worker threads before closing the shared
 root. An extra internal pool `Rc` makes explicit stop retain the context and

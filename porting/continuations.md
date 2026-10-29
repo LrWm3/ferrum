@@ -124,8 +124,9 @@ Several local paths are source semantics or explicit API boundaries:
 - Active member logs retain the safe local fallback. Public advanced logging
   (`--ideModeAdvanced`) or state reporting (`--reportStateAfter`) combined with
   parallel branches is rejected by the pinned source configuration and by Ferrum.
-  Reused standalone CFG contexts can retain a previous member logger; general
-  logger migration for this internal embedding case is not claimed complete.
+  Successfully completed member logs are now detached from reused CFG workers
+  and their deciders; the run root retains the completed records. A real-solver
+  regression checks actual CFG job submission/execution after member reuse.
 - First-stage quantified-condition evaluation retains its ordinary local callback.
   A tested independent two-path Asserting condition aborts the pinned serial Scala
   local-Q cardinality assertion; the native path rejects multiple local results.
