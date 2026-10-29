@@ -1972,6 +1972,25 @@ mod tests {
         );
     }
     #[test]
+    fn nested_forperm_reports_inner_bans() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let source = "field f: Int\nmethod m() {\n  assert forperm x: Ref [x.f] :: (forperm y: Ref [y.f] :: perm(y.f) >= none)\n}\n";
+        let parsed = phases.parse(source).unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "forperm quantifier bodies are not allowed to contain `forperm` expressions (test.vpr@3.35--3.76)",
+                "forperm quantifier bodies are not allowed to contain `perm` expressions (test.vpr@3.59--3.68)",
+            ]
+        );
+    }
+    #[test]
     fn recursive_function_postconditions_report_each_call() {
         let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
         let mut phases = SilFrontendPhases::new(

@@ -2042,6 +2042,17 @@ fn check_expression_context(
                 PExpressionKind::ForPerm { trigger, body, .. } => {
                     if ban_all_perm {
                         errors.push(TypeCheckError::Positioned { node: node.clone(), message: if forbid_spec_perm { "function postconditions are not allowed to contain `forperm` expressions" } else { "forperm quantifier bodies are not allowed to contain `forperm` expressions" } });
+                        if !forbid_spec_perm {
+                            visit(body.node(), inside_inex, false, true, forbid_wand, errors)?;
+                            visit(
+                                trigger.node(),
+                                inside_inex,
+                                false,
+                                ban_all_perm,
+                                forbid_wand,
+                                errors,
+                            )?;
+                        }
                         return Ok(());
                     } else if forbid_spec_perm && !inside_inex {
                         errors.push(TypeCheckError::Positioned { node: node.clone(), message: "preconditions, postconditions and invariants may only contain `perm` and `forperm` expressions inside of an inhale-exhale" });
