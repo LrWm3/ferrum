@@ -167,6 +167,43 @@ It is not a general soundness argument. The fixture was not edited to make the
 original matrix pass. Sources, settings, commands and log hashes are retained in
 `/tmp/ferrum-prusti-borrow-shift-probe/results.json`.
 
+## Completed suites while iterator verification continues
+
+Seven suites have completed on both original backends. The table counts client
+fixtures that satisfy their annotated expectation; compilation, runtime and
+specification-library controls are separate. These are Rust fixture outcomes,
+not a claim that independently produced Viper encodings are identical.
+
+| Suite | Clients | Original native | Bundled JVM |
+| --- | ---: | ---: | ---: |
+| extern | 78 | 76 | 76 |
+| hash | 40 | 19 | 40 |
+| collections | 22 | 21 | 21 |
+| sequence | 15 | 15 | 15 |
+| vec | 14 | 14 | 14 |
+| resources | 14 | 14 | 14 |
+| borrow | 109 | 88 | 90 |
+
+The corrected native hash run satisfies all 40 client expectations and all 11
+controls, as recorded above. All controls pass in the other completed small
+suites. The borrow specification library fails on both backends in Prusti's
+encoder; the other 52 borrow controls pass on each side.
+
+Both extern failures (`pass` and `cross_crate_pass`) report unpositioned
+`postcondition.violated:insufficient.permission` on generated indirect resources,
+which Prusti surfaces as an internal error. That harness did not retain Viper
+inputs, so matching Rust diagnostics do not establish input identity.
+`collections/slices_pass` reports insufficient permission at `values.swap(a, b)`
+on line 76 on both backends. Its Viper dumps differ and remain separately hashed.
+
+Of the 109 borrow pairs, 85 satisfy both expectations, 13 have reviewed shared
+Prusti failures (nine encoder-only, four also containing a generated verification
+error), ten have at least one verifier timeout, and one is the controlled obsolete
+unsupported expectation described above. Timeouts remain inconclusive and are
+queued for sequential retries with the same bounds after the initial matrix.
+Per-case logs, source hashes and decisions are in `small-suite-triage.json` and
+`borrow-triage.json` under the retained matrix directory.
+
 ## Findings awaiting the full matrix
 
 The borrow spec library and several borrow clients fail in the Prusti encoder on
