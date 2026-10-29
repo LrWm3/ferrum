@@ -2629,7 +2629,7 @@ remaining = ["Paired source traversal is connected for internal debug profiles; 
 destination = "crates/ferrum-silicon/src/logger/general.rs"
 status = "skeleton"
 role = "assembly"
-remaining = ["Hierarchical levels, owner attachment, member events and recursive evaluation logs are connected. Other rule/solver events and public flag activation remain incomplete."]
+remaining = ["Hierarchical levels, owner attachment, member events, recursive evaluation logs and public INFO/ERROR levels are connected. Other rule/solver events, levels and named override activation remain incomplete."]
 
 [[scaffolding]]
 destination = "tests/native_domain_axiom_closure.rs"

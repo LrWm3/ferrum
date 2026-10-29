@@ -762,6 +762,11 @@ struct NativeBackend {
 }
 impl NativeBackend {
     fn new(config: Config) -> Self {
+        let general_logger = silicon::logger::general::GeneralLogger::new(
+            config.log_level.as_deref(),
+            &config.logger,
+            Arc::new(silicon::logger::general::StdoutSink),
+        );
         Self {
             config,
             context: None,
@@ -770,7 +775,7 @@ impl NativeBackend {
             warnings: Arc::new(Mutex::new(Vec::new())),
             reporter: None,
             logging: None,
-            general_logger: None,
+            general_logger: Some(general_logger),
             postcondition_axioms: Rc::new(RefCell::new(Vec::new())),
         }
     }

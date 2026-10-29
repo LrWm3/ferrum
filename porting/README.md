@@ -938,8 +938,8 @@ failures are retained, and log ownership survives the intended reset/stop order.
 Positive/negative and repeated Session checks cover one/two workers with both
 Z3 transports. A public single-worker stdio fixture holds a real solver query
 until the state callback and checks callback-error delivery and solver cleanup.
-These profiles supersede the earlier blanket logging gate; interactive debugging,
-block messages and general logger-level configuration remain incomplete. Active
+These profiles supersede the earlier blanket logging gate; interactive debugging
+and general logger levels beyond INFO/ERROR remain incomplete. Active
 logs still disable owned branch dispatch.
 
 Ordinary quantified wildcard removal now skips only the unavailable debug AST
@@ -1110,3 +1110,12 @@ Owned return frames also cover Boolean negation, subtraction, multiplication,
 equality and ordered comparisons. They preserve source evaluation order and
 reuse the ordinary evaluator constructors. Other expression families retain
 synchronous fallback; this is additional dispatch coverage, not a speed claim.
+
+General logging now defaults to INFO, with public --logLevel INFO and ERROR.
+SiliconFrontend retains its explicit nonadditive INFO default independently of
+ROOT; an explicit level applies to both frontend and Silicon package logging.
+ERROR suppresses informational logs while preserving verification results and
+reporter configuration events. Other levels and named --logger overrides stay
+gated, and event parity is incomplete. CLI tests use regular-file-backed stdin;
+the existing frontend still rejects pipe-backed /dev/stdin. Prusti must pass
+ERROR when updating to this backend revision.

@@ -211,7 +211,10 @@ impl NativeOptions {
                 "requested verifier configuration is not connected",
             ));
         }
-        if config.log_level.is_some() || !config.logger.is_empty() {
+        if config.log_level.as_deref().is_some_and(|level| {
+            !level.eq_ignore_ascii_case("INFO") && !level.eq_ignore_ascii_case("ERROR")
+        }) || !config.logger.is_empty()
+        {
             return Err(NativeError::Unsupported(
                 "requested timeout, logging, solver, worker, cache or encoding policy is not connected",
             ));

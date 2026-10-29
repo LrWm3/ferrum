@@ -128,3 +128,117 @@ fn cli_emits_requested_logging_without_duplicate_results() {
     }
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn public_levels_control_cli_logs_but_not_verification_results() {
+    use std::process::{Command, Stdio};
+    let path =
+        std::env::temp_dir().join(format!("ferrum-logging-stdin-{}.vpr", std::process::id()));
+    std::fs::write(&path, "method m() { assert true; }").unwrap();
+    for (level, expect_log) in [(None, true), (Some("INFO"), true), (Some("ERROR"), false)] {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_ferrum"));
+        cmd.args([
+            "--z3Exe",
+            &std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3"),
+            "--proverConfigArgs",
+            "smt.random_seed=1",
+        ]);
+        if let Some(level) = level {
+            cmd.args(["--logLevel", level]);
+        }
+        let child = cmd
+            .arg("/dev/stdin")
+            .stdin(Stdio::from(std::fs::File::open(&path).unwrap()))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout.contains("Additional prover configuration options"),
+            expect_log,
+            "{stdout}"
+        );
+        assert_eq!(
+            stdout.matches("Verification succeeded").count(),
+            1,
+            "{stdout}"
+        );
+    }
+    std::fs::write(&path, "method m() { assert false; }").unwrap();
+    let child = Command::new(env!("CARGO_BIN_EXE_ferrum"))
+        .args([
+            "--z3Exe",
+            &std::env::var("FERRUM_TEST_Z3").unwrap(),
+            "--logLevel",
+            "ERROR",
+            "--proverConfigArgs",
+            "smt.random_seed=1",
+            "/dev/stdin",
+        ])
+        .stdin(Stdio::from(std::fs::File::open(&path).unwrap()))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        !String::from_utf8_lossy(&output.stdout)
+            .contains("Additional prover configuration options")
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr)
+            .matches("assert.failed")
+            .count(),
+        1
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn error_level_retains_configuration_reporter_events() {
+    std::thread::Builder::new().stack_size(VERIFICATION_STACK_SIZE).spawn(|| {
+        let args = vec!["--ignoreFile".into(), "--z3Exe".into(), std::env::var("FERRUM_TEST_Z3").unwrap(),
+            "--logLevel".into(), "ERROR".into(), "--proverConfigArgs".into(), "smt.random_seed=1".into(), "test.vpr".into()];
+        let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+        let mut session = Session::new_with_reporter(Config::parse(&args).unwrap(), reporter.clone()).unwrap();
+        let mut phases = SilFrontendPhases::new("test.vpr".into(), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("method m() { assert true; }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        assert!(matches!(session.verify(&program, &[]).unwrap(), VerificationResult::Success));
+        let mut saw_configuration = false;
+        while reporter.has_new_message() {
+            if let Ok(Message::Simple { kind: ferrum::silver::reporter::message::SimpleMessageKind::ConfigurationConfirmation, text }) = reporter.get_new_message() {
+                saw_configuration |= text.contains("Additional prover configuration options");
+            }
+        }
+        assert!(saw_configuration);
+        session.stop().unwrap();
+    }).unwrap().join().unwrap();
+}
+
+#[test]
+fn public_levels_accept_supported_case_and_reject_unconnected_options() {
+    use ferrum::silicon::verifier::native_context::NativeOptions;
+    for level in ["INFO", "info", "ERROR", "error"] {
+        let mut config = Config::default();
+        config.log_level = Some(level.into());
+        assert!(NativeOptions::from_config(&config).is_ok(), "{level}");
+    }
+    let mut config = Config::default();
+    config.log_level = Some("DEBUG".into());
+    assert!(NativeOptions::from_config(&config).is_err());
+    let mut config = Config::default();
+    config.logger.insert("ROOT".into(), "OFF".into());
+    assert!(NativeOptions::from_config(&config).is_err());
+}

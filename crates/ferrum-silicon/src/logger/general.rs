@@ -1,6 +1,6 @@
 //! Ferrum general logger assembly described in PLAN.md.
 //! Source: [Silicon.scala](https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/Silicon.scala) and the pinned Logback configuration.
-//! Public log flags remain gated until source event coverage is complete.
+//! INFO and ERROR are publicly connected; other levels and named overrides remain gated.
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -56,6 +56,8 @@ impl GeneralLogger {
     ) -> Self {
         let mut levels = BTreeMap::new();
         levels.insert(String::new(), Level::Info);
+        // ViperStdOutLogger installs its own nonadditive INFO logger.
+        levels.insert("SiliconFrontend".into(), Level::Info);
         if let Some(level) = package_level {
             let level = Level::from_source(level);
             levels.insert("viper.silicon".into(), level);
@@ -136,6 +138,24 @@ mod tests {
         fn write(&self, m: &str) {
             self.0.lock().unwrap().push(m.into());
         }
+    }
+    #[test]
+    fn frontend_default_does_not_inherit_root_override() {
+        let sink = Arc::new(Capture::default());
+        let named = BTreeMap::from([("ROOT".into(), "OFF".into())]);
+        let logger = GeneralLogger::new(None, &named, sink.clone());
+        assert!(logger.enabled("SiliconFrontend", Level::Info));
+        assert!(!logger.enabled(
+            "viper.silicon.verifier.DefaultMainVerifier-00",
+            Level::Error
+        ));
+        let logger = GeneralLogger::new(Some("ERROR"), &BTreeMap::new(), sink);
+        assert!(!logger.enabled("SiliconFrontend", Level::Info));
+        assert!(!logger.enabled("viper.silicon.verifier.DefaultMainVerifier-00", Level::Info));
+        assert!(logger.enabled(
+            "viper.silicon.verifier.DefaultMainVerifier-00",
+            Level::Error
+        ));
     }
     #[test]
     fn inherited_named_levels_and_real_preamble_event() {
