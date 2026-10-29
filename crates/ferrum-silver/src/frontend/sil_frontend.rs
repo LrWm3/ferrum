@@ -3254,6 +3254,74 @@ method chainParen2(i1: Int, i2: Int, i3: Int, i4: Int)
         );
     }
     #[test]
+    fn generic_domain_axiom_keeps_its_type_variable_but_external_calls_default() {
+        use crate::ast::{
+            expression::ExpKind,
+            r#type::{Type, TypeVar},
+            utility::nodes::{Node, subnodes},
+        };
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("domain D[T] { function make(): D[T] function tag(x: D[T]): Int axiom { tag(make()) == 0 } } method m() { assert tag(make()) == 0 }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        assert_eq!(phases.typechecking_warnings.iter().filter(|w| matches!(&w.kind, FrontendErrorKind::TypecheckerWarning(message) if message == "unconstrained type parameter, substituting default type Int")).count(), 1);
+        let program = phases.translate(analyzed).unwrap();
+        fn collect(node: &Node, values: &mut Vec<Type>) {
+            if let Node::Exp(exp) = node {
+                if let ExpKind::DomainFuncApp(_, _, map) = exp.kind() {
+                    values.push(map[&TypeVar::new("T")].clone());
+                }
+            }
+            for child in subnodes(node).unwrap() {
+                collect(&child, values);
+            }
+        }
+        let mut values = Vec::new();
+        collect(
+            &Node::DomainAxiom(program.domains[0].axioms[0].clone()),
+            &mut values,
+        );
+        assert_eq!(values, vec![Type::Var(TypeVar::new("T")); 2]);
+        let mut values = Vec::new();
+        collect(
+            &Node::Member(crate::ast::program::Member::Method(
+                program.methods[0].clone(),
+            )),
+            &mut values,
+        );
+        assert_eq!(values, vec![Type::Int; 2]);
+    }
+    #[test]
+    fn generic_axiom_does_not_bind_another_domains_type_parameter() {
+        use crate::ast::{
+            expression::ExpKind,
+            r#type::{Type, TypeVar},
+            utility::nodes::{Node, subnodes},
+        };
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let parsed = phases.parse("domain E[U] { function make(): E[U] function tag(x: E[U]): Int } domain D[T] { axiom { tag(make()) == 0 } }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        assert_eq!(phases.typechecking_warnings.iter().filter(|w| matches!(&w.kind, FrontendErrorKind::TypecheckerWarning(message) if message == "unconstrained type parameter, substituting default type Int")).count(), 1);
+        let program = phases.translate(analyzed).unwrap();
+        fn collect(node: &Node, values: &mut Vec<Type>) {
+            if let Node::Exp(exp) = node {
+                if let ExpKind::DomainFuncApp(_, _, map) = exp.kind() {
+                    values.push(map[&TypeVar::new("U")].clone());
+                }
+            }
+            for child in subnodes(node).unwrap() {
+                collect(&child, values);
+            }
+        }
+        let mut values = Vec::new();
+        collect(
+            &Node::DomainAxiom(program.domains[1].axioms[0].clone()),
+            &mut values,
+        );
+        assert_eq!(values, vec![Type::Int; 2]);
+    }
+    #[test]
     fn generic_domain_use_checks_arity_and_translates_arguments() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());

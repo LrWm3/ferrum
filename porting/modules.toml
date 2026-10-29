@@ -2735,3 +2735,8 @@ role = "assembly"
 destination = "tests/native_annotated_bool.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "tests/native_generic_domain_grounding.rs"
+status = "wired"
+role = "assembly"

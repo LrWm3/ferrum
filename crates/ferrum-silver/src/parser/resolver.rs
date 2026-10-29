@@ -2033,15 +2033,51 @@ pub fn check_top_expression(
             );
         }
         for variable in free {
-            warn(
-                node,
-                "unconstrained type parameter, substituting default type Int",
-            );
-            chosen = chosen
-                .add(
-                    &p_type_var(variable),
-                    &type_from_signature(&super::parse_ast_keyword::SignatureType::Int),
+            // Silver retains a fresh domain-function type parameter as its
+            // declaring domain's rigid variable while checking an axiom in
+            // that domain. Other unconstrained parameters still default to Int.
+            let declared = super::parse_ast::get_ancestor(node, |candidate| {
+                matches!(
+                    &candidate.read().expect("poisoned parse node").kind,
+                    PNodeKind::Member(PMember {
+                        kind: PMemberKind::Domain { .. },
+                        ..
+                    })
                 )
+            })
+            .and_then(|domain| {
+                let domain = domain.read().expect("poisoned parse node");
+                let PNodeKind::Member(PMember {
+                    kind:
+                        PMemberKind::Domain {
+                            idndef, type_vars, ..
+                        },
+                    ..
+                }) = &domain.kind
+                else {
+                    return None;
+                };
+                let prefix = format!("{}%", definition_name(idndef));
+                let (name, _) = variable.strip_prefix(&prefix)?.split_once('#')?;
+                let found = type_vars
+                    .as_ref()?
+                    .inner()
+                    .to_seq()
+                    .into_iter()
+                    .any(|decl| {
+                        declaration_identifier(decl).is_some_and(|id| definition_name(&id) == name)
+                    });
+                found.then(|| p_type_var(name))
+            });
+            let target = declared.unwrap_or_else(|| {
+                warn(
+                    node,
+                    "unconstrained type parameter, substituting default type Int",
+                );
+                type_from_signature(&super::parse_ast_keyword::SignatureType::Int)
+            });
+            chosen = chosen
+                .add(&p_type_var(variable), &target)
                 .map_err(|_| TypeCheckError::Unsupported("default type substitution"))?;
         }
         Ok(chosen)
