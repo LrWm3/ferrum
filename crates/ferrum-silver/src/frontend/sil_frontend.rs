@@ -631,19 +631,35 @@ impl FrontendPhases for SilFrontendPhases {
                         continue;
                     }
                 };
-                let render = |typ: &crate::parser::parse_ast::PTypeHandle| {
-                    use crate::parser::parse_ast::PTypeKind;
+                fn render(typ: &crate::parser::parse_ast::PTypeHandle) -> Option<String> {
+                    use crate::parser::parse_ast::{PNodeKind, PTypeKind};
                     match typ.kind() {
                         PTypeKind::Unknown => return Some("<error>".into()),
                         PTypeKind::BoolImpure => return Some("<impure>".into()),
                         PTypeKind::BoolWand => return Some("<wand>".into()),
                         PTypeKind::BoolPredicate => return Some("<predicate>".into()),
+                        PTypeKind::Domain { domain, args, .. } => {
+                            let name = match &domain.read().ok()?.kind {
+                                PNodeKind::IdnRef(id) => id.name.clone(),
+                                _ => return None,
+                            };
+                            if let Some(args) = args {
+                                let arguments = args
+                                    .inner()
+                                    .to_seq()
+                                    .into_iter()
+                                    .map(render)
+                                    .collect::<Option<Vec<_>>>()?;
+                                return Some(format!("{name}[{}]", arguments.join(", ")));
+                            }
+                            return Some(name);
+                        }
                         _ => {}
                     }
                     crate::parser::translator::translate_type(typ)
                         .ok()
                         .and_then(|t| crate::ast::pretty::pretty_printer::show_type(&t).ok())
-                };
+                }
                 let (Some(actual), Some(expected)) = (render(actual), render(expected)) else {
                     return Self::failure(
                         format!("type checking: {e:?}"),
@@ -2662,6 +2678,48 @@ mod tests {
             vec![
                 "undeclared type `Missing` (test.vpr@1.17--1.24)",
                 "undeclared type `Other` (test.vpr@1.26--1.31)",
+            ]
+        );
+    }
+    #[test]
+    fn signature_errors_do_not_hide_independent_body_errors() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse(
+                "function f(x: Missing): Int { true }\nmethod m(y: Nope) { assert false == 1 }\n",
+            )
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "undeclared type `Missing` (test.vpr@1.15--1.22)",
+                "found incompatible type `Bool`, expected `Int` (test.vpr@1.31--1.35)",
+                "undeclared type `Nope` (test.vpr@2.13--2.17)",
+                "found incompatible type `Bool`, expected `Int` (test.vpr@2.37--2.38)",
+            ]
+        );
+    }
+    #[test]
+    fn unresolved_return_type_is_rendered_in_body_mismatch() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("function f(): Missing { 1 }\n").unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "undeclared type `Missing` (test.vpr@1.15--1.22)",
+                "found incompatible type `Int`, expected `Missing` (test.vpr@1.25--1.26)",
             ]
         );
     }

@@ -2095,6 +2095,11 @@ fn check_supported_type(typ: &PTypeHandle) -> Result<(), TypeCheckError> {
                 }
             });
             if declarations.len() != 1 {
+                if let PNodeKind::Type(super::parse_ast::PTypeKind::Domain { kind, .. }) =
+                    &mut typ.node().write().expect("poisoned parse node").kind
+                {
+                    *kind = PDomainTypeKind::Undeclared;
+                }
                 let name = match &domain.read().expect("poisoned parse node").kind {
                     PNodeKind::IdnRef(id) => id.name.clone(),
                     _ => return Err(TypeCheckError::Unsupported("domain type identifier")),
@@ -2470,12 +2475,9 @@ pub fn check_program_core(
         })();
         retain_type_mismatches(&mut signature_errors, checked)?;
     }
-    if !signature_errors.is_empty() {
-        return Err(TypeCheckError::Mismatches(signature_errors));
-    }
     let impure = type_from_signature(&super::parse_ast_keyword::SignatureType::Impure);
     let boolean = type_from_signature(&super::parse_ast_keyword::SignatureType::Bool);
-    let mut errors = Vec::new();
+    let mut errors = signature_errors;
     for handle in &members {
         let checked = (|| -> Result<(), TypeCheckError> {
             let member = match &handle.node().read().expect("poisoned parse node").kind {
