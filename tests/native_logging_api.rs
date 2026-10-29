@@ -136,7 +136,13 @@ fn public_levels_control_cli_logs_but_not_verification_results() {
     let path =
         std::env::temp_dir().join(format!("ferrum-logging-stdin-{}.vpr", std::process::id()));
     std::fs::write(&path, "method m() { assert true; }").unwrap();
-    for (level, expect_log) in [(None, true), (Some("INFO"), true), (Some("ERROR"), false)] {
+    for (level, expect_log) in [
+        (None, true),
+        (Some("INFO"), true),
+        (Some("WARN"), false),
+        (Some("ERROR"), false),
+        (Some("OFF"), false),
+    ] {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_ferrum"));
         cmd.args([
             "--z3Exe",
@@ -230,7 +236,9 @@ fn error_level_retains_configuration_reporter_events() {
 #[test]
 fn public_levels_accept_supported_case_and_reject_unconnected_options() {
     use ferrum::silicon::verifier::native_context::NativeOptions;
-    for level in ["INFO", "info", "ERROR", "error"] {
+    for level in [
+        "INFO", "info", "WARN", "warn", "ERROR", "error", "OFF", "off",
+    ] {
         let mut config = Config::default();
         config.log_level = Some(level.into());
         assert!(NativeOptions::from_config(&config).is_ok(), "{level}");
@@ -240,5 +248,7 @@ fn public_levels_accept_supported_case_and_reject_unconnected_options() {
     assert!(NativeOptions::from_config(&config).is_err());
     let mut config = Config::default();
     config.logger.insert("ROOT".into(), "OFF".into());
+    assert!(NativeOptions::from_config(&config).is_ok());
+    config.logger.insert("viper.silicon".into(), "DEBUG".into());
     assert!(NativeOptions::from_config(&config).is_err());
 }

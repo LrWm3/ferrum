@@ -211,9 +211,18 @@ impl NativeOptions {
                 "requested verifier configuration is not connected",
             ));
         }
-        if config.log_level.as_deref().is_some_and(|level| {
-            !level.eq_ignore_ascii_case("INFO") && !level.eq_ignore_ascii_case("ERROR")
-        }) || !config.logger.is_empty()
+        // Lower thresholds expose source DEBUG events that are not yet connected.
+        // Unknown Logback levels also resolve to DEBUG, so keep them gated.
+        let connected_level = |level: &str| {
+            ["INFO", "WARN", "ERROR", "OFF"]
+                .iter()
+                .any(|supported| level.eq_ignore_ascii_case(supported))
+        };
+        if config
+            .log_level
+            .as_deref()
+            .is_some_and(|level| !connected_level(level))
+            || config.logger.values().any(|level| !connected_level(level))
         {
             return Err(NativeError::Unsupported(
                 "requested timeout, logging, solver, worker, cache or encoding policy is not connected",
