@@ -2977,6 +2977,19 @@ pub struct QuantifiedPropertyDebug<'a> {
     pub permission_exp: Option<&'a Exp>,
     pub condition_exp: Option<&'a Exp>,
 }
+fn internal_inverse_debug(label: &str) -> crate::debugger::debug_exp::DebugExp {
+    crate::debugger::debug_exp::DebugExp::create(
+        Some(label.into()),
+        None,
+        None,
+        None,
+        true,
+        Default::default(),
+        false,
+        &|e: &Exp| Ok::<_, std::convert::Infallible>(e.clone()),
+    )
+    .expect("infallible debug expression")
+}
 pub struct GeneralProductionInput {
     pub qvars: Vec<Term>,
     pub qvar_exps: Option<Vec<LocalVarDecl>>,
@@ -3389,7 +3402,12 @@ pub trait GeneralQuantifiedConsumptionPreparation<P, D, J, V>: InverseFunctionSe
         state: &crate::state::state::State<P, D, J>,
         term: &Term,
     ) -> Result<Term, Self::Error>;
-    fn consume_assume_terms(&mut self, terms: &[Term]) -> Result<(), Self::Error>;
+    fn consume_prover_comment(&mut self, comment: &str) -> Result<(), Self::Error>;
+    fn consume_assume_terms(
+        &mut self,
+        terms: &[Term],
+        debug: Option<&crate::debugger::debug_exp::DebugExp>,
+    ) -> Result<(), Self::Error>;
     fn consume_assert_goal(&mut self, term: &Term) -> Result<bool, Self::Error>;
     fn general_consumption_failure(
         &mut self,
@@ -3503,7 +3521,16 @@ pub fn prepare_general_quantified_consumption<
         (vars.clone(), triggers.clone())
     };
     context
-        .consume_assume_terms(&input.aux_globals)
+        .consume_prover_comment("Nested auxiliary terms: globals")
+        .map_err(GeneralProductionError::Service)?;
+    let global_debug = input.auxiliary_debug.as_ref().map(|(global, _)| {
+        crate::debugger::debug_exp::DebugExp::group(
+            "Nested auxiliary terms: globals".into(),
+            global.clone(),
+        )
+    });
+    context
+        .consume_assume_terms(&input.aux_globals, global_debug.as_ref())
         .map_err(GeneralProductionError::Service)?;
     let mut auxiliary = Vec::new();
     for term in &input.aux_non_globals {
@@ -3537,7 +3564,16 @@ pub fn prepare_general_quantified_consumption<
         );
     }
     context
-        .consume_assume_terms(&auxiliary)
+        .consume_prover_comment("Nested auxiliary terms: non-globals")
+        .map_err(GeneralProductionError::Service)?;
+    let local_debug = input.auxiliary_debug.as_ref().map(|(_, local)| {
+        crate::debugger::debug_exp::DebugExp::group(
+            "Nested auxiliary terms: non-globals".into(),
+            local.clone(),
+        )
+    });
+    context
+        .consume_assume_terms(&auxiliary, local_debug.as_ref())
         .map_err(GeneralProductionError::Service)?;
     let nonnegative = factory.implies(
         input.condition.clone(),
@@ -3700,16 +3736,31 @@ pub fn prepare_general_quantified_consumption<
         None
     };
     let axioms: Vec<_> = inverse.definitional_axioms().into_iter().cloned().collect();
+    context
+        .consume_prover_comment("Definitional axioms for inverse functions")
+        .map_err(GeneralProductionError::Service)?;
     let transformed = axioms
         .iter()
         .map(|a| context.consume_transform_precondition(&state, a))
         .collect::<Result<Vec<_>, _>>()
         .map_err(GeneralProductionError::Service)?;
     context
-        .consume_assume_terms(&transformed)
+        .consume_assume_terms(
+            &transformed,
+            input
+                .debugging
+                .then(|| internal_inverse_debug("Inverse Function Axioms"))
+                .as_ref(),
+        )
         .map_err(GeneralProductionError::Service)?;
     context
-        .consume_assume_terms(&axioms)
+        .consume_assume_terms(
+            &axioms,
+            input
+                .debugging
+                .then(|| internal_inverse_debug("Inverse function axiom"))
+                .as_ref(),
+        )
         .map_err(GeneralProductionError::Service)?;
     let (snapshot, trigger_cache) = if let Some((definition, cache)) = summary {
         context

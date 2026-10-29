@@ -5731,7 +5731,13 @@ where
             qvars: data.qvars.clone(),
             qvar_exps: data.qvar_expressions.clone(),
             formal_vars: formals,
-            formal_var_exps: None,
+            formal_var_exps: if self.base.decider.debug_mode {
+                Some(state.formal_arg_decls(&source).map_err(|e| {
+                    ConsumptionError::Context(NativeError::Diagnostic(format!("{e:?}")))
+                })?)
+            } else {
+                None
+            },
             qid: qid.into(),
             has_explicit_triggers,
             triggers: data.triggers.clone(),
@@ -5746,7 +5752,16 @@ where
             snapshot_map: self.factory.unit(),
             permission: data.permission.clone(),
             permission_exp: data.permission_exp.clone(),
-            debugging: false,
+            debugging: {
+                #[cfg(test)]
+                {
+                    self.evaluator_debug_for_test
+                }
+                #[cfg(not(test))]
+                {
+                    false
+                }
+            },
         };
         let factory = self.factory.clone();
         let plan =
@@ -17900,9 +17915,41 @@ where
     fn assume_permission_constraint(
         &mut self,
         term: &Term,
-        _: Option<&Exp>,
+        expression: Option<&Exp>,
     ) -> Result<(), Self::Error> {
-        self.assume_term(term)
+        let debug = if self.base.decider.debug_mode {
+            let exp = expression.ok_or(NativeError::Unsupported(
+                "missing quantified removal expression",
+            ))?;
+            let simplify = |e: &Exp| {
+                ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                    Ok::<_, std::convert::Infallible>(true)
+                })
+            };
+            Some(
+                crate::debugger::debug_exp::DebugExp::create(
+                    None,
+                    Some(exp.clone()),
+                    Some(exp.clone()),
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .map_err(|e| {
+                    NativeError::Diagnostic(format!(
+                        "quantified removal debug simplification: {e:?}"
+                    ))
+                })?,
+            )
+        } else {
+            None
+        };
+        self.base
+            .decider
+            .assume([(term.clone(), debug)], false, false)
+            .map_err(NativeError::Decider)
     }
     fn next_permission_constraint_id(&mut self) -> i32 {
         let id = self.quantified_counter as i32;
@@ -17911,18 +17958,41 @@ where
     }
     fn removal_constraint_debug(
         &mut self,
-        _: Option<&[ferrum_silver::ast::program::LocalVarDecl]>,
-        _: Option<&Exp>,
-        _: Option<&Exp>,
-        _: Option<&Exp>,
+        variables: Option<&[ferrum_silver::ast::program::LocalVarDecl]>,
+        condition: Option<&Exp>,
+        requested: Option<&Exp>,
+        provided: Option<&Exp>,
     ) -> Result<Option<Exp>, Self::Error> {
-        if self.base.decider.debug_mode {
-            Err(NativeError::Unsupported("quantified removal debugging"))
-        } else {
-            // The permission constraint itself is still assumed by the caller.
-            // Only its optional source expression depends on the debug profile.
-            Ok(None)
+        if !self.base.decider.debug_mode {
+            return Ok(None);
         }
+        let variables = variables.ok_or(NativeError::Unsupported(
+            "missing quantified removal variables",
+        ))?;
+        let condition = condition.ok_or(NativeError::Unsupported(
+            "missing quantified removal condition",
+        ))?;
+        let requested = requested.ok_or(NativeError::Unsupported(
+            "missing quantified removal requested permission",
+        ))?;
+        let provided = provided.ok_or(NativeError::Unsupported(
+            "missing quantified removal provided permission",
+        ))?;
+        let none = || Exp::new(ExpKind::NoPerm, Default::default());
+        let conditional = Exp::new(
+            ExpKind::CondExp(condition.clone(), requested.clone(), none()),
+            Default::default(),
+        );
+        let nonzero = Exp::new(ExpKind::NeCmp(provided.clone(), none()), Default::default());
+        let less = Exp::new(
+            ExpKind::PermLtCmp(conditional, provided.clone()),
+            Default::default(),
+        );
+        let body = Exp::new(ExpKind::Implies(nonzero, less), Default::default());
+        Ok(Some(Exp::new(
+            ExpKind::Forall(variables.to_vec(), vec![], body),
+            Default::default(),
+        )))
     }
 }
 
@@ -18755,9 +18825,20 @@ where
             self, state, term,
         )
     }
-    fn consume_assume_terms(&mut self, terms: &[Term]) -> Result<(), Self::Error> {
+    fn consume_prover_comment(&mut self, comment: &str) -> Result<(), Self::Error> {
+        self.base
+            .decider
+            .prover
+            .comment(&mut || comment.to_owned())
+            .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))
+    }
+    fn consume_assume_terms(
+        &mut self,
+        terms: &[Term],
+        debug: Option<&crate::debugger::debug_exp::DebugExp>,
+    ) -> Result<(), Self::Error> {
         crate::rules::quantified_chunk_support::GeneralQuantifiedProduction::assume_quantified_terms(
-            self, terms, false, None,
+            self, terms, false, debug,
         )
     }
     fn consume_assert_goal(&mut self, term: &Term) -> Result<bool, Self::Error> {
@@ -19097,7 +19178,7 @@ where
                     })?;
                 for axiom in [axiom1, axiom2] {
                     let precondition = ctx.consume_transform_precondition(&state, &axiom)?;
-                    ctx.consume_assume_terms(&[precondition, axiom])?;
+                    ctx.consume_assume_terms(&[precondition, axiom], None)?;
                 }
                 state.sm_cache = cache;
                 state.constrainable_arps = original_arps.clone();
@@ -20978,6 +21059,132 @@ mod worker_analysis_contract_tests {
                 let record = post.temporary_heap_record.as_ref().unwrap();
                 assert!(matches!(record.cause, HeapCause::ExhalePost));
                 assert!(post.debug_old_heaps.get(&record.label).is_some());
+                worker.context.stop().unwrap();
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn method_debug_quantified_consumption_executes_real_method() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024 * 1024)
+            .spawn(|| {
+                use super::*;
+                use crate::{
+                    config::Config, decider::z3_prover_std_io, state::terms::TermOptions,
+                    verifier::verification_pool_manager::native_method_worker,
+                };
+                use ferrum_silver::frontend::{
+                    frontend::FrontendPhases, sil_frontend::SilFrontendPhases,
+                };
+                let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+                let config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3.clone(),
+                    "debug.vpr".into(),
+                ])
+                .unwrap();
+                let factory = TermFactory::new(TermOptions {
+                    use_flyweight: config.use_flyweight(),
+                    use_old_axiomatization: config.use_old_axiomatization,
+                    mask_heap_mode: config.mask_heap_mode,
+                });
+                let prover = z3_prover_std_io::new(
+                    "function-debug".into(),
+                    z3_prover_std_io::settings(z3.into()),
+                    factory.clone(),
+                    |_| {},
+                );
+                let identifiers = prover.identifier_factory();
+                let mut worker = native_method_worker(
+                    "function-debug".into(),
+                    prover,
+                    identifiers,
+                    factory,
+                    NativeOptions::from_config(&config).unwrap(),
+                    &config,
+                );
+                let mut phases = SilFrontendPhases::new(
+                    "debug.vpr".into(),
+                    ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                let parsed = phases
+                    .parse("field x: Int function g(i: Int): Int requires i >= 0 ensures result == i { i } method m() requires forall r: Ref :: r != null ==> acc(r.x) { exhale forall r: Ref :: r != null && g(1) == 1 ==> acc(r.x) }")
+                    .unwrap();
+                let analyzed = phases.analyze(parsed).unwrap();
+                let program = phases.translate(analyzed).unwrap();
+                worker.context.start(None, &[]).unwrap();
+                worker.context.evaluator_debug_for_test = true;
+                worker.context.executor_debug_for_test = true;
+                worker.context.base.decider.debug_mode = true;
+                let results = worker.context.verify_program(&program, &[]).unwrap();
+                assert!(results.iter().all(|result| !result.is_fatal()));
+                worker.context.stop().unwrap();
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn method_debug_quantified_wildcard_exhale_executes_real_method() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024 * 1024)
+            .spawn(|| {
+                use super::*;
+                use crate::{
+                    config::Config, decider::z3_prover_std_io, state::terms::TermOptions,
+                    verifier::verification_pool_manager::native_method_worker,
+                };
+                use ferrum_silver::frontend::{
+                    frontend::FrontendPhases, sil_frontend::SilFrontendPhases,
+                };
+                let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+                let config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3.clone(),
+                    "debug.vpr".into(),
+                ])
+                .unwrap();
+                let factory = TermFactory::new(TermOptions {
+                    use_flyweight: config.use_flyweight(),
+                    use_old_axiomatization: config.use_old_axiomatization,
+                    mask_heap_mode: config.mask_heap_mode,
+                });
+                let prover = z3_prover_std_io::new(
+                    "function-debug".into(),
+                    z3_prover_std_io::settings(z3.into()),
+                    factory.clone(),
+                    |_| {},
+                );
+                let identifiers = prover.identifier_factory();
+                let mut worker = native_method_worker(
+                    "function-debug".into(),
+                    prover,
+                    identifiers,
+                    factory,
+                    NativeOptions::from_config(&config).unwrap(),
+                    &config,
+                );
+                let mut phases = SilFrontendPhases::new(
+                    "debug.vpr".into(),
+                    ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                let parsed = phases
+                    .parse("field x: Int method m() requires forall r: Ref :: r != null ==> acc(r.x) { exhale forall r: Ref :: r != null ==> acc(r.x, wildcard) }")
+                    .unwrap();
+                let analyzed = phases.analyze(parsed).unwrap();
+                let program = phases.translate(analyzed).unwrap();
+                worker.context.start(None, &[]).unwrap();
+                worker.context.evaluator_debug_for_test = true;
+                worker.context.executor_debug_for_test = true;
+                worker.context.base.decider.debug_mode = true;
+                let results = worker.context.verify_program(&program, &[]).unwrap();
+                assert!(results.iter().all(|result| !result.is_fatal()));
                 worker.context.stop().unwrap();
             })
             .unwrap()

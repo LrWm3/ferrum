@@ -991,3 +991,9 @@ Ordinary forperm conditions now match magic-wand chunks by structural resource
 identity, arguments and positive permission, as for other nonquantified chunks.
 The source forpermWands fixture verifies; an intentionally false quantified
 assertion remains rejected.
+
+Quantified consumption and permission removal retain their source debug expressions,
+auxiliary groups and inverse-axiom labels. Singleton quantified wand properties
+carry permission, argument and value expressions. Real-solver debug fixtures reach
+quantified consumption and wildcard removal; public interactive debugging remains
+gated while its remaining services are connected.

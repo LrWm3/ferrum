@@ -338,6 +338,25 @@ where
                     .map_err(|_| NonQuantifiedError::DebugSubstitution)?,
                 )
             }
+            Chunk::QuantifiedMagicWand(c) => {
+                let exp = c
+                    .permission_exp()
+                    .ok_or(NonQuantifiedError::MissingDebugExpression)?;
+                let vars = c
+                    .quantified_var_exps()
+                    .ok_or(NonQuantifiedError::MissingDebugExpression)?;
+                let args = c
+                    .singleton_argument_exps()
+                    .ok_or(NonQuantifiedError::MissingDebugExpression)?;
+                Some(
+                    crate::utils::ast::replace_vars_in_exp(
+                        &exp,
+                        &vars.iter().map(|v| v.name.clone()).collect::<Vec<_>>(),
+                        args,
+                    )
+                    .map_err(|_| NonQuantifiedError::DebugSubstitution)?,
+                )
+            }
             _ => return Err(NonQuantifiedError::UnsupportedChunk),
         }
         .ok_or(NonQuantifiedError::MissingDebugExpression)?;
@@ -368,6 +387,7 @@ where
             Chunk::MagicWand(c) => c.args_exp().map(|v| v.to_vec()),
             Chunk::QuantifiedField(c) => c.singleton_argument_exps(),
             Chunk::QuantifiedPredicate(c) => c.singleton_argument_exps().map(|v| v.to_vec()),
+            Chunk::QuantifiedMagicWand(c) => c.singleton_argument_exps().map(|v| v.to_vec()),
             _ => return Err(NonQuantifiedError::UnsupportedChunk),
         }
         .ok_or(NonQuantifiedError::MissingDebugExpression)?;
@@ -519,5 +539,89 @@ mod debug_tests {
                 .iter()
                 .all(|term| matches!(term.kind(), TermKind::True))
         );
+    }
+}
+
+#[cfg(test)]
+mod debug_wand_tests {
+    use super::*;
+    use crate::resources::property_expressions::{
+        ArgumentExpression as A, BooleanExpression as B, PermissionExpression as P,
+        ValueExpression as V,
+    };
+    use crate::state::chunks::{MagicWandIdentifier, QuantifiedMagicWandChunk};
+    use crate::state::identifiers::Identifier;
+    use crate::state::terms::{Sort, TermKind, TermOptions};
+    use ferrum_silver::ast::{
+        ast::Metadata,
+        expression::{Exp, ExpKind},
+    };
+    #[test]
+    fn singleton_quantified_wand_debug_properties_use_real_chunk_operands() {
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let lit = |kind| Exp::new(kind, Metadata::default());
+        let wand = lit(ExpKind::MagicWand(
+            lit(ExpKind::TrueLit),
+            lit(ExpKind::FalseLit),
+        ));
+        let qvar = factory.var(Identifier::new("r"), Sort::Ref, false);
+        let qdecl = ferrum_silver::ast::program::LocalVarDecl::new(
+            "r".into(),
+            ferrum_silver::ast::r#type::Type::Ref,
+            Metadata::default(),
+        );
+        let chunk = Chunk::QuantifiedMagicWand(QuantifiedMagicWandChunk::new(
+            MagicWandIdentifier::from_structure_index(wand, 0),
+            vec![qvar],
+            Some(vec![qdecl]),
+            factory.var(
+                Identifier::new("w"),
+                Sort::PredicateSnapFunction {
+                    codomain: Box::new(Sort::MagicWandSnapFunction),
+                    predicate_name: "w".into(),
+                },
+                false,
+            ),
+            factory.boolean(true),
+            factory.full_perm(),
+            Some(lit(ExpKind::FullPerm)),
+            vec![],
+            Some(vec![factory.null()]),
+            Some(vec![lit(ExpKind::NullLit)]),
+            None,
+            vec![],
+        ));
+        let heap = [&chunk];
+        for expression in [
+            B::EqualsPermission(
+                P::Access(ChunkPlaceholder::This),
+                P::Literal(1.into(), 1.into()),
+            ),
+            B::EqualsArgument(A::Access(ChunkPlaceholder::This), A::Null),
+            B::EqualsValue(
+                V::Access(ChunkPlaceholder::This),
+                V::Access(ChunkPlaceholder::This),
+            ),
+        ] {
+            let property = Property::new(expression, "wand", "").unwrap();
+            let (term, exp) = build_debug(
+                &factory,
+                &heap,
+                ResourceId::MagicWand,
+                Some(&chunk),
+                &property,
+                |_| Ok::<_, ()>(true),
+            )
+            .unwrap();
+            assert!(matches!(term.kind(), TermKind::True));
+            assert!(matches!(
+                exp.kind(),
+                ExpKind::EqCmp(..) | ExpKind::TrueLit | ExpKind::And(..)
+            ));
+        }
     }
 }
