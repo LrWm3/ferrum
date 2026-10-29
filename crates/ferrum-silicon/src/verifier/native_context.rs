@@ -298,7 +298,6 @@ impl NativeOptions {
         })
     }
 }
-#[derive(Debug)]
 pub enum NativeError<E> {
     Decider(DeciderError<E>),
     Sort(crate::state::symbol_converter::SymbolConversionError),
@@ -332,6 +331,69 @@ pub enum NativeError<E> {
     },
     Unsupported(&'static str),
 }
+// Some source-adapter errors contain an already rendered nested diagnostic.
+// Debug-escaping that text at every failed cleanup scope doubles backslashes
+// repeatedly. Render these payloads verbatim while retaining all evidence.
+// This intentionally differs from Rust's quoted String Debug representation.
+struct RenderedNativeError<'a>(&'a str);
+impl std::fmt::Debug for RenderedNativeError<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+impl<E: std::fmt::Debug> std::fmt::Debug for NativeError<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use NativeError::*;
+        macro_rules! typed {
+            ($name:literal, $value:expr) => {
+                f.debug_tuple($name).field($value).finish()
+            };
+        }
+        macro_rules! text {
+            ($name:literal, $value:expr) => {
+                f.debug_tuple($name)
+                    .field(&RenderedNativeError($value))
+                    .finish()
+            };
+        }
+        match self {
+            Decider(v) => typed!("Decider", v),
+            Sort(v) => typed!("Sort", v),
+            HeapDependency(v) => text!("HeapDependency", v),
+            Diagnostic(v) => text!("Diagnostic", v),
+            Reporter(v) => typed!("Reporter", v),
+            UnsupportedConfiguration(v) => text!("UnsupportedConfiguration", v),
+            Evaluation(v) => text!("Evaluation", v),
+            Consumption(v) => text!("Consumption", v),
+            Production(v) => text!("Production", v),
+            Execution(v) => text!("Execution", v),
+            Cleanup(v) => text!("Cleanup", v),
+            Snapshot(v) => text!("Snapshot", v),
+            ResourceProperty(v) => text!("ResourceProperty", v),
+            Preamble(v) => text!("Preamble", v),
+            Chunk(v) => text!("Chunk", v),
+            Consolidation(v) => text!("Consolidation", v),
+            ContinuationAbort => f.write_str("ContinuationAbort"),
+            OwnedMethodContinuation(v) => typed!("OwnedMethodContinuation", v),
+            BranchWarnings { primary, warnings } => f
+                .debug_struct("BranchWarnings")
+                .field("primary", primary)
+                .field("warnings", warnings)
+                .finish(),
+            Cancelled => f.write_str("Cancelled"),
+            State(v) => typed!("State", v),
+            BranchTraversal(v) => text!("BranchTraversal", v),
+            Resource(v) => typed!("Resource", v),
+            StartCleanup { primary, cleanup } => f
+                .debug_struct("StartCleanup")
+                .field("primary", primary)
+                .field("cleanup", cleanup)
+                .finish(),
+            Unsupported(v) => typed!("Unsupported", v),
+        }
+    }
+}
+
 fn validate_member_prover_options<E>(
     prover: &str,
     options: &crate::package::Map<String, String>,
@@ -34925,5 +34987,126 @@ mod conditional_callback_cleanup_regression {
         );
         worker.stop().unwrap();
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod cancellation_cleanup_render_tests {
+    use super::*;
+    use crate::{
+        config::Config,
+        decider::{
+            prover_std_io::{ProverError, ProverStdIo},
+            z3_prover_std_io,
+        },
+        interfaces::{decider::prover::Prover, verification::VerificationResult},
+        rules::executor::{CfgContext, ExecutionError},
+        state::{state::State, terms::TermOptions},
+        supporters::predicate_verification_unit::PredicateData,
+        verifier::verification_pool_manager::native_method_worker,
+    };
+    use ferrum_silver::ast::{ast::Metadata, program::Program};
+    use std::os::unix::fs::PermissionsExt;
+
+    type Context = NativeVerifierContext<ProverStdIo, PredicateData, NativeFunctionData>;
+    fn nested(
+        context: &mut Context,
+        state: NativeState,
+        depth: usize,
+    ) -> Result<VerificationResult<VerificationError>, ExecutionError<NativeError<ProverError>>>
+    {
+        if depth == 0 {
+            context
+                .base
+                .decider
+                .prover
+                .cancellation_handle()
+                .cancel()
+                .unwrap();
+            return Err(ExecutionError::Context(NativeError::Execution(
+                r#"primary-"quoted\path"#.into(),
+            )));
+        }
+        context.locally_loop(state, &mut |context, state| {
+            nested(context, state, depth - 1)
+        })
+    }
+
+    #[test]
+    fn nested_interrupted_scope_failures_keep_evidence_without_escape_explosion() {
+        let path =
+            std::env::temp_dir().join(format!("ferrum-nested-cancel-{}", std::process::id()));
+        std::fs::write(
+            &path,
+            "#!/bin/sh\nwhile IFS= read -r line; do printf 'success\\n'; done\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let config = Config::default();
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let prover = z3_prover_std_io::new(
+            "nested-cancel".into(),
+            z3_prover_std_io::settings(path.clone()),
+            factory.clone(),
+            |_| {},
+        );
+        let identifiers = prover.identifier_factory();
+        let mut worker = native_method_worker(
+            "nested-cancel".into(),
+            prover,
+            identifiers,
+            factory.clone(),
+            NativeOptions::from_config(&config).unwrap(),
+            &config,
+        );
+        worker.context.base.decider.prover.start(None).unwrap();
+        let handle = worker.context.base.decider.prover.cancellation_handle();
+        let child_id = handle.child_id().unwrap();
+        let program = Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Metadata::default(),
+        );
+        let state = State::new(
+            program,
+            Default::default(),
+            Default::default(),
+            config.more_joins,
+            &factory,
+            false,
+            false,
+        );
+        let error =
+            nested(&mut worker.context, state, 12).expect_err("interrupted scopes must fail");
+        let text = format!("{error:?}");
+        eprintln!("nested failure bytes={}", text.len());
+        assert!(
+            text.len() < 8_000,
+            "unexpected nested rendering growth: {}",
+            text.len()
+        );
+        assert_eq!(text.matches(r#"primary-"quoted\path"#).count(), 1, "{text}");
+        assert_eq!(text.matches("cleanup: Prover(").count(), 12, "{text}");
+        assert_eq!(
+            text.matches("BrokenPipe").count() + text.matches("SourceProtocol").count(),
+            12,
+            "{text}"
+        );
+        let _ = worker.context.base.decider.prover.stop();
+        assert!(!handle.has_child_handle());
+        #[cfg(target_os = "linux")]
+        assert!(
+            !std::path::Path::new(&format!("/proc/{child_id}")).exists(),
+            "child was not reaped"
+        );
+        std::fs::remove_file(path).unwrap();
     }
 }

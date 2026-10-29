@@ -214,3 +214,9 @@ other deadline outcomes differ. Equal timeouts are not compatible proof results.
 Quiet repeats and remaining paired-case review follow the complete initial run.
 
 The final matrix counts and any confirmed port defects remain to be recorded.
+
+Investigation of the native outer-watchdog cases exposed exponential expansion
+of nested cleanup diagnostics. The [cancellation follow-up](cancellation-cleanup.md)
+records the controlled AST stack, correction and library checks. Updated Prusti
+builds and affected-case reruns remain pending; the initial matrix keeps its
+original binaries and evidence.
