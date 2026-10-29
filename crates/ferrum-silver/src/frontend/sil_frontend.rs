@@ -2505,6 +2505,27 @@ mod tests {
         assert!(message.contains("@2."), "{message}");
     }
     #[test]
+    fn domain_axiom_reports_all_calls_with_preconditions() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let source = "function f(x: Int): Int requires x > 0 { x }\nfunction g(x: Int): Int requires x > 1 { x }\ndomain D {\n  axiom { f(0) == g(0) }\n  axiom { f(1) == g(1) }\n}\n";
+        let parsed = phases.parse(source).unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "Cannot use function f, which has preconditions, inside axiom (test.vpr@4.11--4.12)",
+                "Cannot use function g, which has preconditions, inside axiom (test.vpr@4.19--4.20)",
+                "Cannot use function f, which has preconditions, inside axiom (test.vpr@5.11--5.12)",
+                "Cannot use function g, which has preconditions, inside axiom (test.vpr@5.19--5.20)",
+            ]
+        );
+    }
+    #[test]
     fn forbidden_wands_report_each_source_expression() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));

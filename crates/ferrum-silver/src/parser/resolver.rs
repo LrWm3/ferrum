@@ -2410,6 +2410,7 @@ pub fn check_program_core(
                         .as_any()
                         .is::<crate::plugin::standard::adt::adt_past_extension::PAdt>() => {}
                 PMemberKind::Domain { members, .. } => {
+                    let mut domain_errors = Vec::new();
                     for member in members.inner().to_seq() {
                         let axiom = match &member.node().read().expect("poisoned parse node").kind {
                             PNodeKind::DomainMember(super::parse_ast::PDomainMember::Axiom {
@@ -2421,7 +2422,10 @@ pub fn check_program_core(
                             ) => continue,
                             _ => unreachable!(),
                         };
-                        fn no_calls(node: &PNodeHandle) -> Result<(), TypeCheckError> {
+                        fn no_calls(
+                            node: &PNodeHandle,
+                            errors: &mut Vec<TypeCheckError>,
+                        ) -> Result<(), TypeCheckError> {
                             let kind = node.read().expect("poisoned parse node").kind.clone();
                             if let PNodeKind::Expression(super::parse_ast::PExpression {
                                 kind: PExpressionKind::Call { idnref, .. },
@@ -2453,7 +2457,7 @@ pub fn check_program_core(
                                             PNodeKind::IdnRef(reference) => reference.name.clone(),
                                             _ => return Err(TypeCheckError::Unsupported("call identifier")),
                                         };
-                                        return Err(TypeCheckError::FunctionPreconditionInDomainAxiom { name, identifier: idnref.clone() });
+                                        errors.push(TypeCheckError::FunctionPreconditionInDomainAxiom { name, identifier: idnref.clone() });
                                     }
                                     }
                                     _ => {
@@ -2492,12 +2496,22 @@ pub fn check_program_core(
                             for child in subnodes(node).map_err(|_| {
                                 TypeCheckError::Unsupported("domain axiom traversal")
                             })? {
-                                no_calls(&child)?;
+                                no_calls(&child, errors)?;
                             }
                             Ok(())
                         }
-                        no_calls(axiom.exp().inner().node())?;
-                        check_program_expression(axiom.exp().inner(), Some(&boolean), &mut *warn)?;
+                        no_calls(axiom.exp().inner().node(), &mut domain_errors)?;
+                        retain_type_mismatches(
+                            &mut domain_errors,
+                            check_program_expression(
+                                axiom.exp().inner(),
+                                Some(&boolean),
+                                &mut *warn,
+                            ),
+                        )?;
+                    }
+                    if !domain_errors.is_empty() {
+                        return Err(TypeCheckError::Mismatches(domain_errors));
                     }
                 }
                 PMemberKind::Function {
@@ -2997,7 +3011,7 @@ mod program_tests {
             let result = check_program_core(&program, &mut |_, _| {});
             if expected_error {
                 assert!(
-                    matches!(result, Err(TypeCheckError::FunctionPreconditionInDomainAxiom { name, .. }) if name == "f")
+                    matches!(result, Err(TypeCheckError::Mismatches(errors)) if errors.iter().any(|e| matches!(e, TypeCheckError::FunctionPreconditionInDomainAxiom { name, .. } if name == "f")))
                 );
             } else {
                 result.unwrap();
