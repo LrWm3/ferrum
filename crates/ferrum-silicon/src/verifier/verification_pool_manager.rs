@@ -6353,6 +6353,68 @@ method bad() { assert false; }
     }
 
     #[test]
+    fn real_stdio_owned_necmp() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Bool)
+ requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+ ensures acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f) && r
+{
+ r := (asserting (b ? acc(x.f) : acc(y.f)) in 7) != (asserting (c ? acc(z.f) : acc(w.f)) in 4);
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before = [
+                RETURN_STRICT_LEFT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                RETURN_STRICT_RIGHT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                RETURN_STRICT_LEFT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                RETURN_STRICT_RIGHT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+            ];
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            let after = [
+                RETURN_STRICT_LEFT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                RETURN_STRICT_RIGHT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                RETURN_STRICT_LEFT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                RETURN_STRICT_RIGHT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+            ];
+            assert!(
+                before
+                    .iter()
+                    .zip(after)
+                    .all(|(before, after)| after > *before),
+                "NeCmp jobs did not run: {before:?} -> {after:?}"
+            );
+        }
+    }
+
+    #[test]
     fn real_stdio_owned_strict_operators() {
         let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
             return;

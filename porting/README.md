@@ -1151,3 +1151,7 @@ binding, recorder and return ordering. Actual one/two-worker tests cover both
 transfers and permission-failure order, with a separate LetBody cancellation
 probe. Trigger/debug reconstruction matches the ordinary evaluator by review;
 its Let-specific runtime coverage remains incomplete.
+
+Owned strict return frames now also cover inequality. Actual one/two-worker jobs
+check both operand receivers; CLI regressions retain permission-error order and
+skip the caller tail after a failed operand.

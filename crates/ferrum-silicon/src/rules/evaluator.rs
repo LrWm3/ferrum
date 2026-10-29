@@ -943,6 +943,7 @@ fn owned_strict_binary(expression: &Exp) -> Option<(Binary, &Exp, &Exp)> {
         ExpKind::Sub(a, b) => Some((Binary::Sub, a, b)),
         ExpKind::Mul(a, b) => Some((Binary::Mul, a, b)),
         ExpKind::EqCmp(a, b) => Some((Binary::Eq, a, b)),
+        ExpKind::NeCmp(a, b) => Some((Binary::Ne, a, b)),
         ExpKind::LeCmp(a, b) => Some((Binary::Le, a, b)),
         ExpKind::LtCmp(a, b) => Some((Binary::Lt, a, b)),
         ExpKind::GeCmp(a, b) => Some((Binary::Ge, a, b)),
