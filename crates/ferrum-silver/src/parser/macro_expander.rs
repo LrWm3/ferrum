@@ -342,6 +342,7 @@ mod tests {
 struct ExpressionMacro {
     parameters: Option<Vec<String>>,
     body: super::parse_ast::PDefineBody,
+    pos: super::parse_ast_keyword::Span,
 }
 
 fn missing_macro_arguments(name: &str, parameters: &[String]) -> String {
@@ -1909,6 +1910,12 @@ pub fn expand_global_expression_macros(
         warnings: &mut Vec<crate::verifier::verification_result::ParseReport>,
         keep_first: bool,
     ) -> Result<(), MacroError> {
+        let definition_pos = member
+            .node()
+            .read()
+            .expect("poisoned parse node")
+            .pos
+            .clone();
         let error_position = member
             .node()
             .read()
@@ -1987,6 +1994,7 @@ pub fn expand_global_expression_macros(
                     let definition = ExpressionMacro {
                         parameters,
                         body: body.body().clone(),
+                        pos: definition_pos,
                     };
                     if keep_first {
                         definitions.entry(name).or_insert(definition);
@@ -2255,8 +2263,8 @@ pub fn expand_global_expression_macros(
                     {
                         if stack.contains(&name) {
                             return Err(MacroError {
-                                message: format!("recursive macro `{name}`"),
-                                pos,
+                                message: format!("Recursive macro declaration found: {name}"),
+                                pos: def.pos.clone(),
                             });
                         }
                         if args.is_none() {
@@ -2355,8 +2363,8 @@ pub fn expand_global_expression_macros(
                 }
                 if stack.contains(&name) {
                     return Err(MacroError {
-                        message: format!("recursive macro `{name}`"),
-                        pos,
+                        message: format!("Recursive macro declaration found: {name}"),
+                        pos: definition.pos.clone(),
                     });
                 }
                 let PDefineBody::Expression(body) = &definition.body else {
@@ -2460,8 +2468,8 @@ pub fn expand_global_expression_macros(
         if let Some((name, args)) = invocation {
             if stack.contains(&name) {
                 return Err(MacroError {
-                    message: format!("recursive macro `{name}`"),
-                    pos,
+                    message: format!("Recursive macro declaration found: {name}"),
+                    pos: definitions[&name].pos.clone(),
                 });
             }
             let def = &definitions[&name];

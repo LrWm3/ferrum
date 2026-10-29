@@ -1807,6 +1807,22 @@ mod tests {
         );
     }
     #[test]
+    fn recursive_macro_diagnostic_points_to_cycle_declaration() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::default());
+        let errors = phases
+            .parse("define a(x) b(x)\ndefine b(x) a(x)\nmethod m() { assert a(1) == 1; }\n")
+            .unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec!["Parse error: Recursive macro declaration found: a (test.vpr@1.1--1.17)"]
+        );
+    }
+    #[test]
     fn forperm_resource_and_binder_reach_verification_preparation() {
         let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
         let mut phases = SilFrontendPhases::new(
