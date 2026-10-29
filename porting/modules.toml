@@ -2750,3 +2750,8 @@ role = "assembly"
 destination = "crates/ferrum-silver/src/utility/stack.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "examples/compatibility_session.rs"
+status = "wired"
+role = "assembly"

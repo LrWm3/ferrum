@@ -47,3 +47,6 @@ opt-level = 1
 
 [profile.dev.package.ferrum-silver]
 opt-level = 1
+
+[dev-dependencies]
+serde_json.workspace = true

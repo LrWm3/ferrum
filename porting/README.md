@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The workspace inventory now covers 437 destinations, including 101 assembly
+The workspace inventory now covers 438 destinations, including 102 assembly
 files. Inventory stages describe implementation progress, not proof of complete
 source compatibility.
 

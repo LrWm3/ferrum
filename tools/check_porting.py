@@ -33,7 +33,7 @@ def main():
     assert len(destinations) == len({path.casefold() for path in destinations}), "Case collision"
     source_keys = [(entry["repository"], entry["upstream"]) for entry in modules]
     assert len(source_keys) == len(set(source_keys)), "Duplicate source mappings"
-    actual = {str(path.relative_to(ROOT)) for base in ("src", "crates", "tests") for path in (ROOT / base).rglob("*.rs")}
+    actual = {str(path.relative_to(ROOT)) for base in ("src", "crates", "tests", "examples") for path in (ROOT / base).rglob("*.rs")}
     assert actual == set(destinations), f"Unmapped/missing Rust files: {actual ^ set(destinations)}"
     selected = set(args.paths) if args.paths else set(destinations)
     assert selected <= set(destinations), f"Unknown destination: {selected - set(destinations)}"
