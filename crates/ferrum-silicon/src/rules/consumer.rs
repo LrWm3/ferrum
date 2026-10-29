@@ -75,6 +75,7 @@ pub enum OwnedConsumptionTerminal<P, D, J> {
         tail: crate::rules::executor::CfgStatementTail,
     },
     MethodSuccess,
+    AssertProbe,
     Asserting(
         crate::rules::evaluator::OwnedAsserting<
             ferrum_silver::verifier::verification_error::PartialVerificationError,
@@ -101,6 +102,7 @@ impl<P, D, J> Clone for OwnedConsumptionTerminal<P, D, J> {
                 tail: tail.clone(),
             },
             Self::MethodSuccess => Self::MethodSuccess,
+            Self::AssertProbe => Self::AssertProbe,
             Self::Asserting(frame) => Self::Asserting(frame.clone()),
             Self::FunctionPre(frame) => Self::FunctionPre(frame.clone()),
             Self::LoopBackedgeSuccess => Self::LoopBackedgeSuccess,

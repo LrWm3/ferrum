@@ -1958,6 +1958,12 @@ pub(crate) static CALL_POST_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static CALL_POST_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static ASSERT_PROBE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static ASSERT_PROBE_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
 pub(crate) static RULE_CONSUMPTION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -2187,6 +2193,17 @@ where
                     )
                 }) {
                     CALL_PRE_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                if action.frames.iter().any(|frame| {
+                    matches!(
+                        frame,
+                        crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                            terminal: crate::rules::consumer::OwnedConsumptionTerminal::AssertProbe,
+                            ..
+                        }
+                    )
+                }) {
+                    ASSERT_PROBE_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
                 RULE_CONSUMPTION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
@@ -3911,6 +3928,7 @@ mod thread_pool_tests {
             cfg_scheduler,
             nonjoined,
             true,
+            false,
         )
     }
     fn run_parallel_source_with_profile<P, F>(
@@ -3921,6 +3939,7 @@ mod thread_pool_tests {
         cfg_scheduler: bool,
         nonjoined: bool,
         simplified_unfolds: bool,
+        disable_subsumption: bool,
     ) -> (Vec<bool>, Vec<String>)
     where
         P: crate::interfaces::decider::prover::Prover + 'static,
@@ -3949,6 +3968,7 @@ mod thread_pool_tests {
             sil_frontend::{SilFrontendPhases, standard_plugin_manager},
         };
         let mut config = Config::default();
+        config.disable_subsumption = disable_subsumption;
         if nonjoined {
             config.number_of_errors_to_report = 2;
             config.more_joins = crate::config::JoinMode::Off;
@@ -4164,35 +4184,39 @@ mod thread_pool_tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(failures.len(), 1);
-        if source.contains("if (b) { assert false; } else { assert false; }") {
-            assert_eq!(
-                failures[0].len(),
-                2,
-                "both branch failures must be retained"
-            );
-        }
-        if standalone_cfg {
-            assert!(failures[0][0].scope().unwrap().is_none());
-        } else {
-            let scope = failures[0][0]
-                .scope()
-                .unwrap()
-                .expect("reported error scope");
-            assert_eq!(scope.name(), "bad");
-        }
-        drop(reports);
-        for result in &results {
-            result.with_kind(|kind| {
-                if let crate::interfaces::verification::ResultKind::Failure(error) = kind {
-                    if standalone_cfg {
-                        assert!(error.scope().is_none());
-                    } else {
-                        let scope = error.scope().expect("member scope on failure");
-                        assert_eq!(scope.name(), "bad");
+        if !disable_subsumption {
+            assert_eq!(failures.len(), 1);
+            if source.contains("if (b) { assert false; } else { assert false; }") {
+                assert_eq!(
+                    failures[0].len(),
+                    2,
+                    "both branch failures must be retained"
+                );
+            }
+            if standalone_cfg {
+                assert!(failures[0][0].scope().unwrap().is_none());
+            } else {
+                let scope = failures[0][0]
+                    .scope()
+                    .unwrap()
+                    .expect("reported error scope");
+                assert_eq!(scope.name(), "bad");
+            }
+            drop(reports);
+            for result in &results {
+                result.with_kind(|kind| {
+                    if let crate::interfaces::verification::ResultKind::Failure(error) = kind {
+                        if standalone_cfg {
+                            assert!(error.scope().is_none());
+                        } else {
+                            let scope = error.scope().expect("member scope on failure");
+                            assert_eq!(scope.name(), "bad");
+                        }
                     }
-                }
-            });
+                });
+            }
+        } else {
+            drop(reports);
         }
         let fatal = results.iter().map(|result| result.is_fatal()).collect();
         drop(context);
@@ -5272,6 +5296,7 @@ method bad(x: Ref, b: Bool)
                 true,
                 true,
                 false,
+                false,
             );
             assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1);
             assert!(
@@ -5650,6 +5675,7 @@ method bad(x: Ref, b: Bool) returns (r: Int)
                 true,
                 true,
                 false,
+                false,
             );
             assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1);
             assert!(
@@ -5774,6 +5800,58 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
             assert!(
                 FUNCTION_PRE_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed
             );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_assert_probe_restores_heap_and_tail() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let prefix = "field f: Int method m(x: Ref, y: Ref, b: Bool) requires acc(x.f) && acc(y.f) { assert (b ? acc(x.f) : acc(y.f)); exhale acc(x.f) && acc(y.f);";
+        for workers in [1, 2] {
+            for (tail, expected) in [("}", false), ("assert false; }", true)] {
+                let submitted =
+                    ASSERT_PROBE_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let executed =
+                    ASSERT_PROBE_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let (fatal, _) = run_parallel_source_with_profile(
+                    &format!("{prefix} {tail}"),
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                    true,
+                    true,
+                );
+                assert_eq!(
+                    fatal.iter().any(|f| *f),
+                    expected,
+                    "workers={workers}, {fatal:?}"
+                );
+                assert!(
+                    ASSERT_PROBE_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > submitted,
+                    "no assert-probe job submitted"
+                );
+                assert!(
+                    ASSERT_PROBE_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > executed,
+                    "no assert-probe job executed"
+                );
+            }
         }
     }
 

@@ -69,6 +69,11 @@ active logger transfer is still disabled. Ordinary execution without an eligible
 scheduler does not construct these statement tails.
 
 Method precondition production now carries the exact method body and CFG terminal.
+Disable-subsumption assertion probes have an explicit consumption-success terminal.
+The owner waits for the probe result, then resumes the original unconsumed state
+once. Real-Z3 checks exercise actual jobs with one/two workers, retained permissions
+and an expected downstream failure.
+
 Postcondition wellformedness has its own success terminal in the original local
 empty-heap scope. Contract saturation, old-heap recording, fatal-result gating
 and separate body verification retain their source ordering. Actual Z3 checks
@@ -155,11 +160,11 @@ cancellation before removing their guard.
 | Caller or context | Current execution |
 | --- | --- |
 | Method/standalone CFG, sequences, TryBlock, loop heads and successors | Owned actions through exact method or standalone terminals |
-| Inhale/exhale/assert, method/call contracts, fold snapshots and statement unfold | Owned rule and caller frames |
+| Inhale/exhale/assert (including disable-subsumption probes), method/call contracts, fold snapshots and statement unfold | Owned rule and caller frames |
 | Loop collection, establishment and backedges | Identified phase outputs and explicit consumption terminals |
 | Function preconditions and cached/uncached expression Unfolding | Owned snapshot/value receivers and identified join outputs |
 | Direct local assignment of an Asserting expression | Owned evaluation restoration and assignment receiver |
-| Disable-subsumption assertion probes, arbitrary nested value callbacks, old/labelled-old wrappers and custom borrowed entry points | Safe synchronous fallback; not complete parallel source coverage |
+| Arbitrary nested value callbacks, old/labelled-old wrappers and custom borrowed entry points | Safe synchronous fallback; not complete parallel source coverage |
 | Active member logs, extended exhale and packaging | Owned dispatch disabled; logger migration remains unfinished |
 
 Upstream explicitly disables direct evaluator and joined producer/consumer forks.

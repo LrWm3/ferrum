@@ -1040,3 +1040,7 @@ method workers, with task-local reporter installation and restoration across
 cooperative reentry. Real-solver tests cover one/two workers, branch parallelism,
 API reuse and reporting errors. Path completion is shared within one native run;
 Silicon uses a process-global set. Both retain the source callback order.
+
+Disable-subsumption assertion probes now use an owned success terminal, then resume
+the saved caller state exactly once. Actual worker-job checks with one/two Z3
+workers retain original permissions and reject a downstream false assertion.

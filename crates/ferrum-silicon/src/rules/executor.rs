@@ -271,6 +271,14 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
     ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
         None
     }
+    fn try_consume_owned_assert_probe(
+        &mut self,
+        _state: &State<P, D, J>,
+        _statement: &Stmt,
+        _assertion: &Exp,
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
+    }
     fn execute_owned_try_body(
         &mut self,
         _state: State<P, D, J>,
@@ -766,9 +774,15 @@ where
         }
         StmtKind::Assert(assertion) if context.disable_subsumption() => {
             let original = state.clone();
-            let result = context.consume(state, statement, assertion, &mut |_, _| {
-                Ok(VerificationResult::success())
-            })?;
+            let result = if let Some(result) =
+                context.try_consume_owned_assert_probe(&state, statement, assertion)
+            {
+                result?
+            } else {
+                context.consume(state, statement, assertion, &mut |_, _| {
+                    Ok(VerificationResult::success())
+                })?
+            };
             if !result.continue_verification() {
                 return Ok(result);
             }

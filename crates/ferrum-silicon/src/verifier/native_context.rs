@@ -5102,6 +5102,7 @@ where
                 });
             }
             crate::rules::consumer::OwnedConsumptionTerminal::MethodSuccess
+            | crate::rules::consumer::OwnedConsumptionTerminal::AssertProbe
             | crate::rules::consumer::OwnedConsumptionTerminal::LoopBackedgeSuccess => {
                 if snapshot.is_some() {
                     return Err(ConsumptionError::UnexpectedSnapshot);
@@ -8911,6 +8912,34 @@ where
             other => ExecutionError::Context(NativeError::Production(format!("{other:?}"))),
         })
     }
+    fn try_consume_owned_assert_probe(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        statement: &Stmt,
+        assertion: &Exp,
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+        use crate::rules::consumer::ConsumptionContext;
+        if !self.supports_owned_consumption(state) {
+            return None;
+        }
+        let partial = PartialVerificationError::for_kind(VerificationErrorKind::AssertFailed(
+            statement.clone(),
+        ));
+        Some(
+            crate::rules::consumer::consume_many_owned(
+                self,
+                state.clone(),
+                std::slice::from_ref(assertion),
+                false,
+                &|_| partial.clone(),
+                crate::rules::consumer::OwnedConsumptionTerminal::AssertProbe,
+            )
+            .map_err(|error| match error {
+                ConsumptionError::Context(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Consumption(format!("{other:?}"))),
+            }),
+        )
+    }
     fn consume_with_owned_tail(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -12121,6 +12150,23 @@ where
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
             _ => {}
+        }
+        #[cfg(test)]
+        if let super::verification_pool_manager::NativeJoinAction::Consumption(action) =
+            &branch.action
+        {
+            if action.frames.iter().any(|frame| {
+                matches!(
+                    frame,
+                    crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                        terminal: crate::rules::consumer::OwnedConsumptionTerminal::AssertProbe,
+                        ..
+                    }
+                )
+            }) {
+                super::verification_pool_manager::ASSERT_PROBE_TEST_EXECUTIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
         }
         #[cfg(test)]
         if matches!(
