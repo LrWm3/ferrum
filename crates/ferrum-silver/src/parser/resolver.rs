@@ -1525,15 +1525,29 @@ fn check_new_fields(expression: &PExpHandle) -> Result<bool, TypeCheckError> {
     let PExpressionKind::NewExp { fields, .. } = kind else {
         return Ok(false);
     };
+    let mut errors = Vec::new();
     if let super::parse_ast::PNewFields::Fields(fields) = fields.inner() {
         for reference in fields.to_seq() {
             let declarations = super::parse_ast::PIdnRef::decls(reference, |_| true);
             if declarations.len() != 1 {
-                return Err(TypeCheckError::Unsupported(
-                    "undefined or ambiguous allocation field",
-                ));
+                let name = match &reference.read().expect("poisoned parse node").kind {
+                    PNodeKind::IdnRef(id) => id.name.clone(),
+                    _ => return Err(TypeCheckError::Unsupported("allocation field identifier")),
+                };
+                let message = if declarations.is_empty() {
+                    format!("undeclared field `{name}`")
+                } else {
+                    format!("ambiguous field `{name}`")
+                };
+                errors.push(TypeCheckError::PositionedMessage {
+                    node: reference.clone(),
+                    message,
+                });
             }
         }
+    }
+    if !errors.is_empty() {
+        return Err(TypeCheckError::Mismatches(errors));
     }
     Ok(true)
 }
