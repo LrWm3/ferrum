@@ -2535,7 +2535,32 @@ where
             return Ok(result.combine(VerificationResult::success, false));
         }
         let (assumptions, feasible) = joiner::joined_conditions(&entries, &factory);
-        let (merged, value, debug) = if entries.len() == 1 {
+        let big_and = |items: Vec<Exp>| {
+            crate::utils::ast::big_and(
+                items,
+                |e| e,
+                ferrum_silver::ast::position::Position::NoPosition,
+            )
+        };
+        let big_or = |items: Vec<Exp>| {
+            crate::utils::ast::big_or(
+                items,
+                |e| e,
+                ferrum_silver::ast::position::Position::NoPosition,
+            )
+        };
+        let branch_expressions = |paths: &crate::decider::path_conditions::RecordedPathConditions| -> Result<(Exp, Exp), EvaluationError<Self::Error>> {
+            let pairs = paths.branch_condition_exps();
+            let original = big_and(pairs.iter().map(|(original, _)| original.clone()).collect());
+            let rewritten = big_and(pairs.into_iter().map(|(_, rewritten)| rewritten.ok_or(EvaluationError::MissingDebugExpression)).collect::<Result<Vec<_>, _>>()?);
+            Ok((original, rewritten))
+        };
+        let simplify = |e: &Exp| {
+            ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                Ok::<_, std::convert::Infallible>(true)
+            })
+        };
+        let (mut merged, value, debug) = if entries.len() == 1 {
             let entry = &entries[0];
             (
                 entry.state.clone(),
@@ -2565,6 +2590,62 @@ where
                 )));
             };
             let value = factory.app(fun.clone(), args.to_vec());
+            let mut join_definitions = Vec::new();
+            for entry in &entries {
+                let guard = factory.and(entry.path_conditions.branch_conditions());
+                let term = factory.implies(
+                    guard,
+                    factory.builtin_equals(value.clone(), entry.data.0.clone()),
+                );
+                let payload = if self.base.decider.debug_mode {
+                    let joined = debug_exp
+                        .cloned()
+                        .ok_or(EvaluationError::MissingDebugExpression)?;
+                    let branch_value = entry
+                        .data
+                        .1
+                        .clone()
+                        .ok_or(EvaluationError::MissingDebugExpression)?;
+                    let (old_guard, new_guard) = branch_expressions(&entry.path_conditions)?;
+                    let old = Exp::new(
+                        ExpKind::Implies(
+                            old_guard,
+                            Exp::new(
+                                ExpKind::EqCmp(joined.clone(), branch_value.clone()),
+                                Default::default(),
+                            ),
+                        ),
+                        Default::default(),
+                    );
+                    let new = Exp::new(
+                        ExpKind::Implies(
+                            new_guard,
+                            Exp::new(ExpKind::EqCmp(joined, branch_value), Default::default()),
+                        ),
+                        Default::default(),
+                    );
+                    Some(
+                        crate::debugger::debug_exp::DebugExp::create(
+                            None,
+                            Some(old),
+                            Some(new),
+                            None,
+                            false,
+                            Default::default(),
+                            false,
+                            &simplify,
+                        )
+                        .map_err(|e| {
+                            EvaluationError::Context(NativeError::Diagnostic(format!(
+                                "function join debug simplification: {e:?}"
+                            )))
+                        })?,
+                    )
+                } else {
+                    None
+                };
+                join_definitions.push((term, payload));
+            }
             let mut merged = entries[0].state.clone();
             for entry in &entries[1..] {
                 merged = merged
@@ -2572,23 +2653,132 @@ where
                     .map_err(|e| EvaluationError::Context(NativeError::State(e)))?;
             }
             merged.function_recorder = merged.function_recorder.record_path_symbol(target);
-            for entry in &entries {
-                let guard = factory.and(entry.path_conditions.branch_conditions());
-                self.assume_term(&factory.implies(
-                    guard,
-                    factory.builtin_equals(value.clone(), entry.data.0.clone()),
-                ))
-                .map_err(EvaluationError::Context)?;
+            for definition in join_definitions {
+                self.checkpoint().map_err(EvaluationError::Context)?;
+                self.base
+                    .decider
+                    .assume([definition], false, false)
+                    .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
             }
             (merged, value, debug_exp.cloned())
         };
-        for group in assumptions {
-            for term in group {
-                self.assume_term(&term).map_err(EvaluationError::Context)?;
+        if self.base.decider.debug_mode {
+            let old_pcs = self.base.decider.pcs.clone();
+            let probe = crate::rules::magic_wand_supporter::evaluation_heap(self, &merged)
+                .map_err(|e| {
+                    EvaluationError::Context(NativeError::Execution(format!(
+                        "wand evaluation heap: {e:?}"
+                    )))
+                })?;
+            let (label, fresh) = {
+                let render = |chunk: &crate::state::chunks::Chunk| {
+                    crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
+                        .map_err(|e| {
+                            NativeError::Diagnostic(format!("debug heap rendering: {e:?}"))
+                        })
+                };
+                self.debug_heap_recorder
+                    .label_or_new(&merged, &probe, &render)
+                    .map_err(EvaluationError::Context)?
+            };
+            if fresh {
+                let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &merged)
+                    .map_err(|e| {
+                        EvaluationError::Context(NativeError::Execution(format!(
+                            "wand evaluation heap: {e:?}"
+                        )))
+                    })?;
+                let render = |chunk: &crate::state::chunks::Chunk| {
+                    crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
+                        .map_err(|e| {
+                            NativeError::Diagnostic(format!("debug heap rendering: {e:?}"))
+                        })
+                };
+                self.debug_heap_recorder
+                    .record_heap(
+                        &mut merged,
+                        heap,
+                        Some(label),
+                        "nil".into(),
+                        crate::state::state::HeapCause::StateMerge,
+                        &old_pcs,
+                        &old_pcs,
+                        &render,
+                    )
+                    .map_err(EvaluationError::Context)?;
             }
         }
-        self.assume_term(&feasible)
-            .map_err(EvaluationError::Context)?;
+        for (entry, group) in entries.iter().zip(assumptions) {
+            self.checkpoint().map_err(EvaluationError::Context)?;
+            self.base
+                .decider
+                .prover
+                .comment(&mut || "Joined path conditions".into())
+                .map_err(|e| {
+                    EvaluationError::Context(NativeError::Decider(DeciderError::Prover(e)))
+                })?;
+            let payload = if self.base.decider.debug_mode {
+                if entry
+                    .path_conditions
+                    .branch_condition_exps()
+                    .iter()
+                    .any(|(_, final_exp)| final_exp.is_none())
+                {
+                    return Err(EvaluationError::MissingDebugExpression);
+                }
+                let children = entry
+                    .path_conditions
+                    .conditionalized_exp(&factory, &simplify)
+                    .map_err(|e| {
+                        EvaluationError::Context(NativeError::Diagnostic(format!(
+                            "joined path debug simplification: {e:?}"
+                        )))
+                    })?;
+                Some(crate::debugger::debug_exp::DebugExp::group(
+                    "Joined path conditions".into(),
+                    children.into_iter().collect(),
+                ))
+            } else {
+                None
+            };
+            self.base
+                .decider
+                .assume_terms(&factory, group, payload.as_ref(), false, false)
+                .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+        }
+        let payload = if self.base.decider.debug_mode {
+            let mut originals = Vec::new();
+            let mut rewritten = Vec::new();
+            for entry in entries.iter().rev() {
+                let (old, new) = branch_expressions(&entry.path_conditions)?;
+                originals.push(old);
+                rewritten.push(new);
+            }
+            Some(
+                crate::debugger::debug_exp::DebugExp::create(
+                    Some("Feasible Branches".into()),
+                    Some(big_or(originals)),
+                    Some(big_or(rewritten)),
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .map_err(|e| {
+                    EvaluationError::Context(NativeError::Diagnostic(format!(
+                        "feasible branches debug simplification: {e:?}"
+                    )))
+                })?,
+            )
+        } else {
+            None
+        };
+        self.checkpoint().map_err(EvaluationError::Context)?;
+        self.base
+            .decider
+            .assume([(feasible, payload)], false, false)
+            .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
         let next = continuation(self, merged, value, debug)?;
         Ok(result.combine(|| next, false))
     }
@@ -2744,7 +2934,38 @@ where
         function: &ferrum_silver::ast::program::Function,
         debug_args: Option<&[Exp]>,
     ) -> Result<(), Self::Error> {
-        self.assume_term(term)
+        self.checkpoint()?;
+        let debug = if self.base.decider.debug_mode {
+            let args = debug_args.ok_or(NativeError::Unsupported(
+                "missing function argument debug expressions",
+            ))?;
+            let args = args
+                .iter()
+                .map(|arg| {
+                    ferrum_silver::ast::pretty::pretty_printer::pretty_expression(arg).map_err(
+                        |e| {
+                            NativeError::Diagnostic(format!(
+                                "function argument debug rendering: {e:?}"
+                            ))
+                        },
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Some(crate::debugger::debug_exp::DebugExp::group(
+                format!(
+                    "precondition of {}({}) holds",
+                    function.name,
+                    args.join(", ")
+                ),
+                Default::default(),
+            ))
+        } else {
+            None
+        };
+        self.base
+            .decider
+            .assume([(term.clone(), debug)], false, false)
+            .map_err(NativeError::Decider)
     }
     fn branch_conditions(&self) -> Vec<Term> {
         self.base.decider.pcs.recorded().branch_conditions()
@@ -21610,6 +21831,325 @@ mod owned_branch_worker_tests {
                 "missing existential precondition debug expression"
             ))
         ));
+        let receiver = LocalVar::new(
+            "receiver".into(),
+            ferrum_silver::ast::r#type::Type::Ref,
+            Default::default(),
+        );
+        let (receiver_term, receiver_debug) = worker.context.fresh_local(&receiver).unwrap();
+        let receiver_exp = Exp::new(ExpKind::LocalVar(receiver.clone()), receiver.meta.clone());
+        let field =
+            ferrum_silver::ast::program::Field::new(ferrum_silver::ast::program::FieldData {
+                name: "debug_field".into(),
+                typ: ferrum_silver::ast::r#type::Type::Int,
+                meta: Default::default(),
+            });
+        let access = ferrum_silver::ast::expression::FieldAccess::new(
+            receiver_exp.clone(),
+            field.clone(),
+            Default::default(),
+        );
+        let field_exp = Exp::new(ExpKind::FieldAccess(access), Default::default());
+        let chunk = crate::state::chunks::Chunk::Basic(crate::state::chunks::BasicChunk::new(
+            crate::resources::resources::BaseId::Field,
+            crate::state::chunks::BasicChunkIdentifier(field.name.clone()),
+            vec![receiver_term.clone()],
+            receiver_debug.clone().map(|e| vec![e]),
+            factory.int_literal(9),
+            None,
+            factory.full_perm(),
+            Some(Exp::new(ExpKind::FullPerm, Default::default())),
+            None,
+        ));
+        let mut field_state = state.clone();
+        field_state.h = Arc::new(ListBackedHeap::from_chunks([chunk]));
+        field_state.g = Arc::new(field_state.g.with_binding(
+            crate::state::store::AbstractLocalVar::new(receiver_exp.clone()),
+            (receiver_term.clone(), receiver_debug.clone()),
+        ));
+        worker.context.debug_heap_recorder.start_key_heap(
+            &mut field_state,
+            "nil".into(),
+            crate::state::state::HeapCause::InhalePre,
+            Arc::new(worker.context.base.decider.pcs.clone()),
+        );
+        let mut evaluated = None;
+        crate::rules::evaluator::evaluate(
+            &mut worker.context,
+            field_state.clone(),
+            &field_exp,
+            &error,
+            &mut |_, state, term, debug| {
+                evaluated = Some((state, term, debug));
+                Ok(VerificationResult::success())
+            },
+        )
+        .unwrap();
+        let (field_result_state, value, debug) = evaluated.expect("field continuation");
+        assert_eq!(value, factory.int_literal(9));
+        let debug = debug.unwrap();
+        let ExpKind::DebugLabelledOld(field, label) = debug.kind() else {
+            panic!("expected labelled field read");
+        };
+        assert!(label.starts_with("debug@") && label.ends_with("#l:unknown"));
+        assert!(
+            matches!(field.kind(), ExpKind::FieldAccess(access) if matches!(access.receiver.kind(), ExpKind::LocalVarWithVersion(..)))
+        );
+        assert_eq!(
+            field_result_state
+                .temporary_heap_record
+                .as_ref()
+                .unwrap()
+                .intermediate_heaps
+                .iter()
+                .count(),
+            1
+        );
+        let mut old_state = field_state.clone();
+        old_state.is_eval_in_old = true;
+        let mut old_debug = None;
+        crate::rules::evaluator::evaluate(
+            &mut worker.context,
+            old_state,
+            &field_exp,
+            &error,
+            &mut |_, _, _, debug| {
+                old_debug = debug;
+                Ok(VerificationResult::success())
+            },
+        )
+        .unwrap();
+        assert!(matches!(old_debug.unwrap().kind(), ExpKind::FieldAccess(_)));
+        let mut missing_state = field_state;
+        missing_state.g = Arc::new(missing_state.g.with_binding(
+            crate::state::store::AbstractLocalVar::new(receiver_exp),
+            (receiver_term, None),
+        ));
+        let missing = crate::rules::evaluator::evaluate(
+            &mut worker.context,
+            missing_state,
+            &field_exp,
+            &error,
+            &mut |_, _, _, _| Ok(VerificationResult::success()),
+        );
+        assert!(matches!(
+            missing,
+            Err(EvaluationError::MissingDebugExpression)
+        ));
+        let formal = LocalVarDecl::new(
+            "arg".into(),
+            ferrum_silver::ast::r#type::Type::Int,
+            Default::default(),
+        );
+        let function =
+            ferrum_silver::ast::program::Function::new(ferrum_silver::ast::program::FunctionData {
+                name: "debug_function".into(),
+                formal_args: vec![formal],
+                typ: ferrum_silver::ast::r#type::Type::Int,
+                pres: vec![],
+                posts: vec![],
+                body: None,
+                meta: Default::default(),
+            });
+        let function_program = ferrum_silver::ast::program::Program::new(
+            vec![],
+            vec![],
+            vec![function.clone()],
+            vec![],
+            vec![],
+            vec![],
+            Default::default(),
+        );
+        let function_state = State::new(
+            function_program.clone(),
+            Default::default(),
+            Default::default(),
+            config.more_joins,
+            &factory,
+            false,
+            false,
+        );
+        let symbol = worker
+            .context
+            .base
+            .symbol_converter
+            .heap_dependent_function(&function, &function_program, None)
+            .unwrap();
+        let pre_symbol = crate::rules::function_supporter::precondition_version(&factory, &symbol);
+        worker
+            .context
+            .base
+            .decider
+            .declare_fresh_functions([
+                factory.function_decl(symbol),
+                factory.function_decl(pre_symbol),
+            ])
+            .unwrap();
+        let argument = Exp::new(ExpKind::IntLit(7.into()), Default::default());
+        let application = Exp::with_extra(
+            ExpKind::FuncApp("debug_function".into(), vec![argument]),
+            Default::default(),
+            ferrum_silver::ast::expression::ExpExtra {
+                typ: Some(ferrum_silver::ast::r#type::Type::Int),
+                ..Default::default()
+            },
+        );
+        let mut function_debug = None;
+        let function_result = crate::rules::evaluator::evaluate(
+            &mut worker.context,
+            function_state,
+            &application,
+            &error,
+            &mut |_, _, _, debug| {
+                function_debug = debug;
+                Ok(VerificationResult::success())
+            },
+        )
+        .unwrap();
+        assert!(!function_result.is_fatal());
+        assert!(
+            matches!(function_debug.unwrap().kind(), ExpKind::FuncApp(name, args) if name == "debug_function" && args.len() == 1)
+        );
+        let replayed = worker.context.base.decider.pcs.recorded().assumption_exps();
+        assert!(replayed.iter().any(|entry| {
+            entry.description() == Some("Joined path conditions")
+                && entry.children().iter().any(|child| {
+                    child.description() == Some("precondition of debug_function(7) holds")
+                })
+        }));
+        let mut joined_debug = None;
+        let joined = worker
+            .context
+            .join_function_application(
+                state.clone(),
+                &function,
+                &[factory.int_literal(7)],
+                Some(&application),
+                &mut |ctx, state, done| {
+                    for positive in [true, false] {
+                        ctx.base
+                            .decider
+                            .push_scope()
+                            .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+                        let condition = if positive {
+                            branch_term.clone()
+                        } else {
+                            factory.not(branch_term.clone())
+                        };
+                        let original = if positive {
+                            branch_original.clone()
+                        } else {
+                            Exp::new(ExpKind::Not(branch_original.clone()), Default::default())
+                        };
+                        let rewritten = if positive {
+                            branch_rewritten.clone()
+                        } else {
+                            branch_rewritten
+                                .clone()
+                                .map(|e| Exp::new(ExpKind::Not(e), Default::default()))
+                        };
+                        ctx.set_native_branch_condition(condition, original, rewritten)
+                            .map_err(EvaluationError::Context)?;
+                        let value = if positive { 1 } else { 2 };
+                        let result = done(
+                            ctx,
+                            state.clone(),
+                            factory.int_literal(value),
+                            Some(Exp::new(ExpKind::IntLit(value.into()), Default::default())),
+                        )?;
+                        ctx.base
+                            .decider
+                            .pop_scope()
+                            .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+                        if result.is_fatal() {
+                            return Ok(result);
+                        }
+                    }
+                    Ok(VerificationResult::success())
+                },
+                &mut |_, _, _, debug| {
+                    joined_debug = debug;
+                    Ok(VerificationResult::success())
+                },
+            )
+            .unwrap();
+        assert!(!joined.is_fatal());
+        assert!(joined_debug.unwrap().same_node(&application));
+        let join_records = worker.context.base.decider.pcs.recorded().assumption_exps();
+        assert!(join_records.iter().any(|entry| matches!(
+            entry.original_exp().map(Exp::kind),
+            Some(ExpKind::Implies(..))
+        ) && matches!(
+            entry.final_exp().map(Exp::kind),
+            Some(ExpKind::Implies(..))
+        )));
+        assert!(
+            join_records
+                .iter()
+                .any(|entry| entry.description() == Some("Feasible Branches"))
+        );
+        let before_failed_join = worker.context.base.decider.pcs.recorded().assumptions();
+        let failed_join = worker.context.join_function_application(
+            state.clone(),
+            &function,
+            &[factory.int_literal(7)],
+            Some(&application),
+            &mut |ctx, state, done| {
+                for positive in [true, false] {
+                    ctx.base
+                        .decider
+                        .push_scope()
+                        .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+                    let condition = if positive {
+                        branch_term.clone()
+                    } else {
+                        factory.not(branch_term.clone())
+                    };
+                    let original = if positive {
+                        branch_original.clone()
+                    } else {
+                        Exp::new(ExpKind::Not(branch_original.clone()), Default::default())
+                    };
+                    let rewritten = if positive {
+                        branch_rewritten.clone()
+                    } else {
+                        branch_rewritten
+                            .clone()
+                            .map(|e| Exp::new(ExpKind::Not(e), Default::default()))
+                    };
+                    ctx.set_native_branch_condition(condition, original, rewritten)
+                        .map_err(EvaluationError::Context)?;
+                    let value = if positive { 1 } else { 2 };
+                    let debug = positive
+                        .then(|| Exp::new(ExpKind::IntLit(value.into()), Default::default()));
+                    done(ctx, state.clone(), factory.int_literal(value), debug)?;
+                    ctx.base
+                        .decider
+                        .pop_scope()
+                        .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+                }
+                Ok(VerificationResult::success())
+            },
+            &mut |_, _, _, _| Ok(VerificationResult::success()),
+        );
+        assert!(matches!(
+            failed_join,
+            Err(EvaluationError::MissingDebugExpression)
+        ));
+        assert_eq!(
+            worker.context.base.decider.pcs.recorded().assumptions(),
+            before_failed_join
+        );
+        let missing =
+            worker
+                .context
+                .assume_function_precondition(&factory.boolean(true), &function, None);
+        assert!(matches!(
+            missing,
+            Err(NativeError::Unsupported(
+                "missing function argument debug expressions"
+            ))
+        ));
         worker.context.executor_debug_for_test = false;
         worker.context.evaluator_debug_for_test = false;
         worker.context.base.decider.debug_mode = false;
@@ -21673,7 +22213,8 @@ mod owned_branch_worker_tests {
             .context
             .debug_old_label(&state, &expression.metadata().position)
             .unwrap();
-        assert_eq!(label, "debug@1#l:unknown");
+        let heap_label = label.strip_suffix("#l:unknown").unwrap().to_owned();
+        assert!(heap_label.starts_with("debug@"));
         let state = worker
             .context
             .record_intermediate_heap(state, &expression)
@@ -21690,7 +22231,7 @@ mod owned_branch_worker_tests {
         );
         let state = worker.context.finish_key_heap(state).unwrap();
         assert!(state.temporary_heap_record.is_none());
-        let record = state.debug_old_heaps.get(&"debug@1".to_string()).unwrap();
+        let record = state.debug_old_heaps.get(&heap_label).unwrap();
         assert_eq!(record.parent_label, "old");
         let state = worker
             .context

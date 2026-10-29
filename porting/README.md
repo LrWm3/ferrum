@@ -922,3 +922,10 @@ and 29 cases requiring failure/diagnostic review. It exposed assignment and call
 source ranges extending through trailing whitespace/comments; these now end at
 the actual right-hand expression, matching source `assign` parsing. Other parser
 positions and aggregated frontend diagnostics still need reconciliation.
+
+Field and function evaluation now retains the source heap-label lookup order,
+including old reads and function calls with debugging disabled. Owned function
+precondition frames carry that same label. Function joins now retain guarded
+debug definitions, joined paths, feasible branches and merged-heap records.
+Real-Z3 checks exercise debug reconstruction and ordinary/owned function calls;
+public interactive debugging remains gated.
