@@ -218,7 +218,7 @@ fn unresolved_reporter_failure_keeps_structural_error() {
         error,
         NativeError::Reporter(ReportError::Unsupported("rejected internal warning"))
     ));
-    assert_eq!(worker.context.reported_internal_warnings.len(), 1);
+    assert_eq!(worker.context.reported_source_warnings.len(), 1);
 }
 
 #[test]

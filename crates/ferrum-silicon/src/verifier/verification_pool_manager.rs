@@ -2653,7 +2653,7 @@ where
     S::Error: std::fmt::Debug,
 {
     let outer_warnings = std::mem::take(&mut context.warnings);
-    let outer_internal = std::mem::take(&mut context.reported_internal_warnings);
+    let outer_internal = std::mem::take(&mut context.reported_source_warnings);
     let warning_sink = task.warning_sink.clone();
     let has_reporter = task.reporter.is_some();
     let previous_reporter = context.replace_preprocessing_reporter(task.reporter.clone());
@@ -2661,7 +2661,7 @@ where
     context.replace_preprocessing_reporter(previous_reporter);
     let inner_warnings = std::mem::replace(&mut context.warnings, outer_warnings);
     context.warnings.extend(inner_warnings);
-    let internal = std::mem::replace(&mut context.reported_internal_warnings, outer_internal);
+    let internal = std::mem::replace(&mut context.reported_source_warnings, outer_internal);
     if let Some(sink) = warning_sink {
         sink.lock()
             .expect("poisoned native warning sink")

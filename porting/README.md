@@ -1179,3 +1179,11 @@ A Let-specific real-Z3 regression compares owned and ordinary trigger maps and
 reconstructed debug expressions, including substitution of the source value for
 the bound local. This uses an injected scheduler without submitting a sibling;
 separate tests establish actual worker transfers.
+
+Trigger fallback warnings now report individually at occurrence with the trigger
+expression source position, matching the pinned evaluator order. Their text
+remains available through the session warning sink without a duplicate batch.
+Real-Z3 checks cover positions, event order, repeated resets and reporter
+rejection; a direct check retains the structural native Reporter error. Worker
+delivery with parallel branching enabled is exercised, without claiming that
+a specific captured branch was submitted or executed.

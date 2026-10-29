@@ -382,8 +382,7 @@ where
         )
         .map_err(execution);
         self.warnings.append(&mut context.warnings);
-        self.warnings
-            .append(&mut context.reported_internal_warnings);
+        self.warnings.append(&mut context.reported_source_warnings);
         result
     }
     fn stop(&mut self) -> Result<(), FerrumError> {
@@ -392,8 +391,7 @@ where
             Some(context) => {
                 let result = context.stop().map_err(execution);
                 self.warnings.append(&mut context.warnings);
-                self.warnings
-                    .append(&mut context.reported_internal_warnings);
+                self.warnings.append(&mut context.reported_source_warnings);
                 result
             }
             None => Ok(()),
@@ -509,7 +507,7 @@ impl OwnedContext {
             Self::Stdio(context) => {
                 context
                     .warnings
-                    .append(&mut context.reported_internal_warnings);
+                    .append(&mut context.reported_source_warnings);
                 &mut context.warnings
             }
             Self::ParallelStdio(context) => &mut context.warnings,
@@ -517,7 +515,7 @@ impl OwnedContext {
             Self::Api(context) => {
                 context
                     .warnings
-                    .append(&mut context.reported_internal_warnings);
+                    .append(&mut context.reported_source_warnings);
                 &mut context.warnings
             }
             #[cfg(feature = "native-z3")]

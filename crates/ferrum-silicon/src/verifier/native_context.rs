@@ -375,9 +375,9 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub factory: TermFactory,
     pub options: NativeOptions,
     pub warnings: Vec<String>,
-    // Internal warnings are already reported in their source category; retain
+    // Source warnings are reported in their source category at occurrence; retain
     // them separately for the public warning sink without reporting twice.
-    pub reported_internal_warnings: Vec<String>,
+    pub reported_source_warnings: Vec<String>,
     debug_heap_recorder: crate::verifier::verifier::DebugHeapRecorder,
     #[cfg(test)]
     evaluator_debug_for_test: bool,
@@ -751,7 +751,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             factory,
             options,
             warnings: Vec::new(),
-            reported_internal_warnings: Vec::new(),
+            reported_source_warnings: Vec::new(),
             debug_heap_recorder: Default::default(),
             #[cfg(test)]
             evaluator_debug_for_test: false,
@@ -5051,7 +5051,7 @@ where
             "Could not resolve expression {rendered} ({}) during the axiomatisation of function {}. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
             expression.metadata().position, function.name,
         );
-        self.reported_internal_warnings.push(message.clone());
+        self.reported_source_warnings.push(message.clone());
         if let Some(reporter) = &self.preprocessing_reporter {
             reporter.report(ferrum_silver::reporter::message::Message::Simple {
                 kind: ferrum_silver::reporter::message::SimpleMessageKind::InternalWarning,
@@ -16188,9 +16188,24 @@ where
             .map_err(|error| {
                 NativeError::Diagnostic(format!("trigger warning rendering: {error:?}"))
             })?;
-        self.warnings.push(format!(
+        let message = format!(
             "Might not be able to use trigger {rendered}, since it is not evaluated while evaluating the body of the quantifier"
-        ));
+        );
+        self.reported_source_warnings.push(message.clone());
+        if let Some(reporter) = &self.preprocessing_reporter {
+            use ferrum_silver::{
+                reporter::message::Message,
+                verifier::verification_result::{FrontendError, FrontendErrorKind},
+            };
+            reporter
+                .report(Message::WarningsDuringVerification {
+                    warnings: vec![FrontendError::new(
+                        FrontendErrorKind::VerifierWarning(message),
+                        expression.metadata().position.clone(),
+                    )],
+                })
+                .map_err(NativeError::Reporter)?;
+        }
         Ok(())
     }
     fn handles_resource_trigger(&self, state: &State<PD, FD, JoinMode>, expression: &Exp) -> bool {
