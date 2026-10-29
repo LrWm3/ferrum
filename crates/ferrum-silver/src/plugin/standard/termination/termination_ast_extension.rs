@@ -392,12 +392,7 @@ impl DecreasesSpecification {
         Ok(Stmt::new(stmt.kind().clone(), meta))
     }
     pub fn from_info(info: &Info) -> Result<Self, &'static str> {
-        let found = info.all_extensions::<Self>();
-        match found.as_slice() {
-            [] => Ok(Self::default()),
-            [single] => Ok((*single).clone()),
-            _ => Err("multiple decreases specifications"),
-        }
+        Ok(info.find_extension::<Self>().cloned().unwrap_or_default())
     }
 }
 impl ExtensionInfo for DecreasesSpecification {
@@ -409,6 +404,36 @@ impl ExtensionInfo for DecreasesSpecification {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn composed_info_returns_first_decreases_specification() {
+        let first = DecreasesSpecification {
+            wildcard: Some(DecreasesClause::new(
+                DecreasesKind::Wildcard { condition: None },
+                Metadata::default(),
+            )),
+            ..Default::default()
+        };
+        let second = DecreasesSpecification {
+            star: Some(DecreasesClause::new(
+                DecreasesKind::Star,
+                Metadata::default(),
+            )),
+            ..Default::default()
+        };
+        let nested = Info::pair(
+            Info::pair(Info::NoInfo, Info::Extension(Arc::new(first))),
+            Info::Extension(Arc::new(second)),
+        );
+        let selected = DecreasesSpecification::from_info(&nested).unwrap();
+        assert!(selected.wildcard.is_some());
+        assert!(selected.star.is_none());
+        assert!(
+            DecreasesSpecification::from_info(&Info::NoInfo)
+                .unwrap()
+                .wildcard
+                .is_none()
+        );
+    }
     #[test]
     fn default_termination_and_tuple_conditions_match_source() {
         let empty = DecreasesSpecification::default();

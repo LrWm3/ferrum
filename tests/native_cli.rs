@@ -944,3 +944,42 @@ fn loop_termination_diagnostic_uses_decreases_clause_span() {
     );
     assert!(stderr.contains("@4.15--4.16"), "{stderr}");
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn termination_specification_order_preserves_source_failures() {
+    for source in [
+        include_str!("fixtures/termination_function_spec_order.vpr"),
+        include_str!("fixtures/termination_method_spec_order.vpr"),
+    ] {
+        let output = run(
+            source,
+            &["--disableCaches", "--numberOfParallelVerifiers", "1"],
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{stderr}");
+        assert_eq!(
+            stderr.matches("termination.failed:tuple.false").count(),
+            3,
+            "{stderr}"
+        );
+        assert_eq!(
+            stderr
+                .matches("termination.failed:tuple.condition.false")
+                .count(),
+            3,
+            "{stderr}"
+        );
+    }
+    let output = run(
+        include_str!("fixtures/termination_multiple_decreases.vpr"),
+        &["--disableCaches", "--numberOfParallelVerifiers", "1"],
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert_eq!(
+        stderr.matches("Multiple decreases tuple.").count(),
+        3,
+        "{stderr}"
+    );
+}
