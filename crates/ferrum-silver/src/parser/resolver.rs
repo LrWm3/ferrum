@@ -834,6 +834,10 @@ pub enum TypeCheckError {
         identifier: PNodeHandle,
         ambiguous: bool,
     },
+    PositionedMessage {
+        node: PNodeHandle,
+        message: String,
+    },
     FunctionPreconditionInDomainAxiom {
         name: String,
         identifier: PNodeHandle,
@@ -863,6 +867,11 @@ fn retain_type_mismatches<T>(
             Ok(())
         }
         Err(error @ TypeCheckError::Positioned { .. }) => {
+            errors.push(error);
+            Ok(())
+        }
+        Err(error @ TypeCheckError::UnresolvedValue { .. })
+        | Err(error @ TypeCheckError::PositionedMessage { .. }) => {
             errors.push(error);
             Ok(())
         }
@@ -983,7 +992,7 @@ pub fn check_expression(
             };
             let candidates = super::parse_ast::PIdnRef::decls(&idnref, |_| true);
             if candidates.is_empty() {
-                return Err(TypeCheckError::Undeclared(name));
+                return Err(TypeCheckError::PositionedMessage { node: idnref, message: format!("undeclared call `{name}`, expected function or predicate") });
             }
             let predicate = std::sync::Arc::new(|node: &PNodeHandle| {
                 matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Member(member) if matches!(member.kind, PMemberKind::Function { .. } | PMemberKind::Predicate { .. }))
@@ -1000,7 +1009,7 @@ pub fn check_expression(
                 ));
             }
             if candidates.len() != 1 {
-                return Err(TypeCheckError::AmbiguousIdentifier(name));
+                return Err(TypeCheckError::PositionedMessage { node: idnref, message: format!("ambiguous call `{name}`") });
             }
             let declaration = candidates[0]
                 .read()
@@ -1552,6 +1561,11 @@ fn check_operator(
                 continue;
             }
             Err(error @ TypeCheckError::Incompatible { .. }) => {
+                mismatches.push(error);
+                continue;
+            }
+            Err(error @ TypeCheckError::UnresolvedValue { .. })
+            | Err(error @ TypeCheckError::PositionedMessage { .. }) => {
                 mismatches.push(error);
                 continue;
             }
@@ -2475,7 +2489,9 @@ pub fn check_program_core(
             Err(TypeCheckError::Unification(error @ UnificationError::Mismatch { .. })) => {
                 errors.push(TypeCheckError::Unification(error))
             }
-            Err(error @ TypeCheckError::Incompatible { .. })
+            Err(error @ TypeCheckError::UnresolvedValue { .. })
+            | Err(error @ TypeCheckError::PositionedMessage { .. })
+            | Err(error @ TypeCheckError::Incompatible { .. })
             | Err(error @ TypeCheckError::Positioned { .. }) => errors.push(error),
             Err(TypeCheckError::Mismatches(more)) => errors.extend(more),
             Err(error) => {

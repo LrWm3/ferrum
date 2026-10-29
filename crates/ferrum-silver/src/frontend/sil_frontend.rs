@@ -513,6 +513,21 @@ impl FrontendPhases for SilFrontendPhases {
             let mut fallback_errors = Vec::new();
             let mut identifier_messages_added = false;
             for error in errors {
+                if let resolver::TypeCheckError::PositionedMessage { node, message } = error {
+                    match crate::parser::fast_message::message_for_node(
+                        node,
+                        message.clone(),
+                        true,
+                        true,
+                    ) {
+                        Ok(found) => messages.extend(found),
+                        Err(_) => fallback_errors.extend(Self::failure(
+                            format!("type checking: {error:?}"),
+                            Self::program_position(&input),
+                        )),
+                    }
+                    continue;
+                }
                 if let resolver::TypeCheckError::UnresolvedValue {
                     name,
                     identifier,
@@ -2041,6 +2056,47 @@ mod tests {
             vec![
                 "undeclared identifier `missing` (test.vpr@1.21--1.28)",
                 "undeclared identifier `other` (test.vpr@2.21--2.26)",
+            ]
+        );
+    }
+    #[test]
+    fn unresolved_values_do_not_hide_sibling_type_errors() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let source = "method m(x: Int, y: Ref) {\n  assert missing == 0\n  assert x < y\n  assert other == 0\n}\n";
+        let parsed = phases.parse(source).unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "undeclared identifier `missing` (test.vpr@2.10--2.17)",
+                "found incompatible type `Ref`, expected `Int` (test.vpr@3.14--3.15)",
+                "undeclared identifier `other` (test.vpr@4.10--4.15)",
+            ]
+        );
+    }
+    #[test]
+    fn unresolved_operands_and_calls_preserve_sibling_diagnostics() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let source = "method a(x: Int, y: Ref) { assert (missing == 0) && (x < y) }\nmethod b(x: Int, y: Ref) { assert x < y }\nmethod c() { assert absent(0) == 0 }\n";
+        let parsed = phases.parse(source).unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "undeclared identifier `missing` (test.vpr@1.36--1.43)",
+                "found incompatible type `Ref`, expected `Int` (test.vpr@1.58--1.59)",
+                "found incompatible type `Ref`, expected `Int` (test.vpr@2.39--2.40)",
+                "undeclared call `absent`, expected function or predicate (test.vpr@3.21--3.27)",
             ]
         );
     }
