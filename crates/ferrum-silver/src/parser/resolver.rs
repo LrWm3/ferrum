@@ -263,6 +263,51 @@ impl NameAnalyser {
             .collect()
     }
 }
+
+/// Resolve value identifiers independently when declaration errors already exist,
+/// so unrelated missing or ambiguous values are not hidden by those errors.
+pub fn value_identifier_messages(
+    root: &PNodeHandle,
+) -> Result<Vec<FastMessage>, NameAnalysisError> {
+    fn visit(node: &PNodeHandle, messages: &mut Vec<FastMessage>) -> Result<(), NameAnalysisError> {
+        let kind = node.read().expect("poisoned parse node").kind.clone();
+        if matches!(
+            &kind,
+            PNodeKind::Member(PMember {
+                kind: PMemberKind::Define { .. },
+                ..
+            })
+        ) {
+            return Ok(());
+        }
+        if let PNodeKind::Expression(super::parse_ast::PExpression {
+            kind: PExpressionKind::IdnUse { idnref },
+            ..
+        }) = &kind
+        {
+            let candidates = super::parse_ast::PIdnRef::decls(idnref, |_| true);
+            let name = match &idnref.read().expect("poisoned parse node").kind {
+                PNodeKind::IdnRef(reference) => reference.name.clone(),
+                _ => return Err(NameAnalysisError::Unsupported("identifier reference")),
+            };
+            if candidates.is_empty() || candidates.len() > 1 {
+                let label = if candidates.is_empty() {
+                    format!("undeclared identifier `{name}`")
+                } else {
+                    format!("ambiguous identifier `{name}`")
+                };
+                messages.extend(message_for_node(idnref, label, true, true)?);
+            }
+        }
+        for child in subnodes(node)? {
+            visit(&child, messages)?;
+        }
+        Ok(())
+    }
+    let mut messages = Vec::new();
+    visit(root, &mut messages)?;
+    Ok(messages)
+}
 fn definition_name(node: &PNodeHandle) -> String {
     match &node.read().expect("poisoned parse node").kind {
         PNodeKind::IdnDef(name) => name.name.clone(),

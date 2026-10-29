@@ -464,6 +464,18 @@ impl FrontendPhases for SilFrontendPhases {
                 Self::program_position(&input),
             )
         })?;
+        if !ok {
+            analyser
+                .messages
+                .extend(
+                    resolver::value_identifier_messages(input.node()).map_err(|e| {
+                        Self::failure(
+                            format!("name analysis: {e:?}"),
+                            Self::program_position(&input),
+                        )
+                    })?,
+                );
+        }
         let mut errors = Vec::new();
         for message in crate::parser::fast_message::sortmessages(analyser.messages) {
             let position = Position::LineColumn(LineColumn::Source(Box::new(message.pos)));
@@ -1918,6 +1930,27 @@ mod tests {
             messages,
             vec![
                 "Parse error: could not import file (resource 'import/missing/test.vpr' was not found in bundled imports) (test.vpr@1.1--1.26)"
+            ]
+        );
+    }
+    #[test]
+    fn duplicate_declarations_do_not_hide_other_identifier_errors() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let source = "method a() { assert missing == 0 }\nmethod b(x: Int, x: Int) { assert x == 0 }\nmethod c() { assert other == 0 }\n";
+        let parsed = phases.parse(source).unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "undeclared identifier `missing` (test.vpr@1.21--1.28)",
+                "duplicate identifier `x` at test.vpr@2.18 and at test.vpr@2.10 (test.vpr@2.18--2.19)",
+                "ambiguous identifier `x` (test.vpr@2.35--2.36)",
+                "undeclared identifier `other` (test.vpr@3.21--3.26)",
             ]
         );
     }
