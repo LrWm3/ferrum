@@ -120,6 +120,53 @@ not been established; it does not justify changing Ferrum away from the pinned
 source semantics. The raw replay commands, artifact hashes and outputs are in
 `/tmp/ferrum-prusti-stage3/replay-replace`.
 
+## Map membership adapter correction
+
+The fresh hash suite exposed a native adapter defect: VIR membership conversion
+constructed `MapContains(map, key)`, whereas Silver expects
+`MapContains(key, map)`. The JVM factory already performs that argument reorder.
+The original native run consequently rejected 22 hash checks with a map-type
+consistency error; the bundled JVM passed all 51 checks.
+
+Prusti commit `0ad015f11ac31ba76cbd942ee0c375e21b86b2a5` on
+`codex/stage3-map-fix` corrects the native argument order. A real-Z3 regression
+verifies a present key and requires exactly `assert.failed:assertion.false` for
+a missing key, using the converted VIR and one reused frontend. Both native-only
+and dual production builds pass. Their driver hashes are respectively
+`61b2b8e710c692b454d48fdc69a20e3ac5bdd0358bb962cd2b935e133c664e3a`
+and `9f08fcad676ed9b6dc3b98a771ab8e2fecacee41e7a5c2ccc77c4968eed19357`.
+
+The complete corrected native hash rerun passes **51/51 checks**: 40 clients,
+the specification library, the Rust compilation check and nine runtime controls.
+It reuses the original fixture/harness snapshot `13674e5` with the corrected
+binary built from the `0ad015f11` source tree. This is incremental validation of
+the affected suite; the initial full matrix retains its original binaries and
+results. The recorded rerun is
+`/tmp/ferrum-prusti-stage3/map-fix/hash/results.json`, SHA-256
+`a1c246c5a32f49a22c43ec047709bf52505b81691f529d0d81aa716a34f7ebc6`.
+Other suites are audited for the same consistency failure before finalizing
+the affected-fixture coverage.
+
+The complete adapter library test run also exposed an obsolete fake-solver
+handshake. The source-compatible version query reads its response directly;
+the mock must answer that query before emitting the startup warning under test.
+Test-only successor `a4d66141e` on `codex/stage3-warning-test-fix` repairs the
+mock, and all **17 adapter library tests** pass with real Z3 and no ignored
+tests. It inherits the map fix without changing production behavior; the
+production binaries above remain the builds of `0ad015f11`.
+
+## Shared unsupported expectation
+
+`borrow/call_wand_shifted_projection` expects an unsupported-feature diagnostic,
+but both original matrix backends accept it. A separate crate containing the
+same source verifies on both backends; changing only the final assertion from
+`value == 3` to `value == 4` produces the expected assertion failure at
+`src/main.rs:14:5` on both. This supports an obsolete unsupported expectation
+for that case and confirms that this deliberately false assertion is checked.
+It is not a general soundness argument. The fixture was not edited to make the
+original matrix pass. Sources, settings, commands and log hashes are retained in
+`/tmp/ferrum-prusti-borrow-shift-probe/results.json`.
+
 ## Findings awaiting the full matrix
 
 The borrow spec library and several borrow clients fail in the Prusti encoder on
