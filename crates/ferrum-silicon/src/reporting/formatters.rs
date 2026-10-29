@@ -696,7 +696,7 @@ impl<R: StateRenderer> DefaultStateFormatter<R> {
                     None => "None".into(),
                 };
                 Ok(format!(
-                    "({},({},{}))",
+                    "{} -> ({},{})",
                     self.renderer.expression(key.expression())?,
                     self.renderer.term(term)?,
                     extra
@@ -813,6 +813,36 @@ mod tests {
         identifiers::Identifier,
         terms::{Sort, TermFactory, TermOptions},
     };
+    #[test]
+    fn store_entries_match_scala_map_rendering() {
+        use crate::state::store::{AbstractLocalVar, MapBackedStore};
+        use ferrum_silver::ast::{
+            ast::Metadata,
+            expression::{Exp, ExpKind, LocalVar},
+            r#type::Type,
+        };
+        let f = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let var = |name: &str| {
+            AbstractLocalVar::new(Exp::new(
+                ExpKind::LocalVar(LocalVar::new(name.into(), Type::Int, Metadata::default())),
+                Metadata::default(),
+            ))
+        };
+        let store = MapBackedStore::from_bindings([
+            (var("x"), (f.int_literal(1), None)),
+            (var("y"), (f.int_literal(2), None)),
+        ]);
+        assert_eq!(
+            native_state_formatter(&f, false)
+                .format_store(&store)
+                .unwrap(),
+            "(x -> (1,None), y -> (2,None))"
+        );
+    }
     #[test]
     fn renders_source_let_hint_and_mask_terms() {
         let f = TermFactory::new(TermOptions {
