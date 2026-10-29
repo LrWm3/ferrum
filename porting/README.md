@@ -909,3 +909,10 @@ holds a query during nested evaluation until the actual state callback releases
 it, checks reporter-error delivery and shuts down the solver. The same fixture
 aborts with the former default stack and passes with the explicit stack size.
 Public advanced logging and state-report configuration remain gated.
+
+Function postcondition trace history now belongs to the native verifier owner,
+so recreating a solver context between Session runs preserves the source vector.
+Direct context resets retain the same history; method workers keep separate
+stores. The retained terms are diagnostic data and are not replayed as solver
+assumptions. Real-Z3 checks cover direct reset, one/two-worker repeated runs and
+postconditions retained when the function body fails verification.

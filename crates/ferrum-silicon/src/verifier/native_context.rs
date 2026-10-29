@@ -302,6 +302,7 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     /// the verification lifecycle explicitly installs a member log.
     pub(crate) logging_root: Option<Arc<crate::logger::symb_ex_logger::NativeSymbExLogger>>,
     trace_reporting_enabled: bool,
+    postcondition_axioms_store: std::rc::Rc<std::cell::RefCell<Vec<Term>>>,
     unfold_evaluation_collector: Option<(
         Arc<()>,
         std::rc::Rc<
@@ -355,6 +356,13 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     _state_types: PhantomData<(PD, FD)>,
 }
 impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
+    /// Install the backend-owned source postcondition history on the main context.
+    pub fn set_postcondition_axioms_store(
+        &mut self,
+        store: std::rc::Rc<std::cell::RefCell<Vec<Term>>>,
+    ) {
+        self.postcondition_axioms_store = store;
+    }
     pub fn new(base: BaseVerifier<S>, factory: TermFactory, options: NativeOptions) -> Self {
         Self {
             base,
@@ -368,6 +376,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             executor_debug_for_test: false,
             logging_root: None,
             trace_reporting_enabled: false,
+            postcondition_axioms_store: Default::default(),
             loop_phase_collector: None,
             unfold_evaluation_collector: None,
             member_log: None,
@@ -10656,7 +10665,14 @@ impl NativeAnalysis {
             .functions
             .try_borrow()
             .map_err(|_| "function analysis is borrowed")?;
-        Ok((domains.clone(), functions.postcondition_axioms.clone()))
+        Ok((
+            domains.clone(),
+            functions
+                .postcondition_axioms
+                .try_borrow()
+                .map_err(|_| "postcondition axioms are borrowed")?
+                .clone(),
+        ))
     }
 }
 /// Owned analysis retained after function and predicate verification for worker methods.
@@ -12092,6 +12108,7 @@ where
         )
         .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
         let mut functions = crate::supporters::functions::function_verification_unit::FunctionVerificationUnit::default();
+        functions.postcondition_axioms = self.postcondition_axioms_store.clone();
         let factory = self.factory.clone();
         let mut mask_identifiers = self.base.identifiers.clone();
         let mask_resources = &mut self.mask_resources;
@@ -19844,6 +19861,31 @@ where
 #[cfg(test)]
 mod worker_analysis_contract_tests {
     #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn direct_context_keeps_function_postconditions_across_reset() {
+        std::thread::Builder::new().stack_size(128 * 1024 * 1024).spawn(|| {
+            use super::*;
+            use crate::{config::Config, decider::z3_prover_std_io, state::terms::TermOptions, verifier::verification_pool_manager::native_method_worker};
+            use ferrum_silver::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
+            let z3 = std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+            let config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "post.vpr".into()]).unwrap();
+            let factory = TermFactory::new(TermOptions { use_flyweight: config.use_flyweight(), use_old_axiomatization: config.use_old_axiomatization, mask_heap_mode: config.mask_heap_mode });
+            let prover = z3_prover_std_io::new("post-history".into(), z3_prover_std_io::settings(z3.into()), factory.clone(), |_| {});
+            let identifiers = prover.identifier_factory();
+            let mut worker = native_method_worker("post-history".into(), prover, identifiers, factory, NativeOptions::from_config(&config).unwrap(), &config);
+            let mut phases = SilFrontendPhases::new("post.vpr".into(), ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+            let parsed = phases.parse("function f(x: Int): Int ensures result == x { x } method m() { assert f(1) == 1; }").unwrap();
+            let analyzed = phases.analyze(parsed).unwrap(); let program = phases.translate(analyzed).unwrap();
+            worker.context.start(None, &[]).unwrap();
+            assert!(worker.context.verify_program(&program, &[]).unwrap().iter().all(|result| !result.is_fatal()));
+            let first = worker.context.postcondition_axioms_store.borrow().len(); assert!(first > 0);
+            worker.context.reset().unwrap();
+            assert!(worker.context.verify_program(&program, &[]).unwrap().iter().all(|result| !result.is_fatal()));
+            assert_eq!(worker.context.postcondition_axioms_store.borrow().len(), first * 2);
+            worker.context.stop().unwrap();
+        }).unwrap().join().unwrap();
+    }
+    #[test]
     fn member_scope_is_set_on_failure_and_history() {
         use crate::interfaces::verification::VerificationResult;
         use ferrum_silver::ast::{
@@ -19930,8 +19972,11 @@ mod worker_analysis_contract_tests {
             NativeOptions::from_config(&config).unwrap(),
             &config,
         );
-        let mut functions = crate::supporters::functions::function_verification_unit::FunctionVerificationUnit::default();
-        functions.postcondition_axioms.push(factory.int_literal(7));
+        let functions = crate::supporters::functions::function_verification_unit::FunctionVerificationUnit::default();
+        functions
+            .postcondition_axioms
+            .borrow_mut()
+            .push(factory.int_literal(7));
         let mut analysis = NativeAnalysis {
             domain_axioms: Some(vec![factory.int_literal(2), factory.int_literal(3)]),
             functions: std::cell::RefCell::new(functions),
@@ -19940,6 +19985,13 @@ mod worker_analysis_contract_tests {
             snapshot_sorts: Default::default(),
             snapshot_formals: Default::default(),
         };
+        let history = analysis.functions.borrow().postcondition_axioms.clone();
+        let borrowed = history.borrow_mut();
+        assert_eq!(
+            analysis.trace_axioms().unwrap_err(),
+            "postcondition axioms are borrowed"
+        );
+        drop(borrowed);
         worker.context.set_trace_reporting_enabled(true);
         assert!(matches!(
             worker.context.report_trace_before_termination(&analysis),

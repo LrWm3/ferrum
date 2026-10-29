@@ -49,7 +49,7 @@ use silicon::{
     },
     interfaces::verification::{ResultKind, VerificationResult as SiliconResult},
     silicon::{Silicon, SiliconBackend, SiliconOutcome},
-    state::terms::{TermFactory, TermOptions},
+    state::terms::{Term, TermFactory, TermOptions},
     verifier::{
         base_verifier::BaseVerifier,
         native_context::{NativeContext, NativeFunctionData, NativeOptions, NativeVerifierContext},
@@ -155,6 +155,7 @@ type ExecutingContext<P> = NativeVerifierContext<
 type WorkerPool<P> = ThreadVerificationPool<NativeMethodWorker<P>>;
 type ParallelMain<P> = ExecutingContext<BroadcastingProver<P, NativeMethodWorker<P>>>;
 type SharedWarnings = Arc<Mutex<Vec<String>>>;
+type SharedPostconditionAxioms = Rc<RefCell<Vec<Term>>>;
 type RunLogAttachment = silicon::logger::run_owner::RunLogAttachment;
 type RunLogOwner = silicon::logger::run_owner::RunLogOwner;
 type ProverFactory<P> =
@@ -193,6 +194,7 @@ where
         make_prover: ProverFactory<P>,
         cancellation: Option<CancellationController>,
         logging: Option<RunLogAttachment>,
+        postcondition_axioms: SharedPostconditionAxioms,
     ) -> Result<Self, FerrumError> {
         let worker_config = config.clone();
         let worker_factory = factory.clone();
@@ -252,6 +254,7 @@ where
             options,
             cancellation.clone(),
             logging.as_ref(),
+            postcondition_axioms,
         );
         match context {
             Ok(context) => Ok(Self {
@@ -440,6 +443,7 @@ fn start_context<P: silicon::interfaces::decider::prover::Prover>(
     options: NativeOptions,
     cancellation: Option<CancellationController>,
     logging: Option<&RunLogAttachment>,
+    postcondition_axioms: SharedPostconditionAxioms,
 ) -> Result<ExecutingContext<P>, FerrumError>
 where
     P::Error: std::fmt::Debug,
@@ -460,6 +464,7 @@ where
         identifiers,
     );
     let mut context = ExecutingContext::new(base, factory, options);
+    context.set_postcondition_axioms_store(postcondition_axioms);
     if let Some(logging) = logging {
         logging.attach(
             &mut context,
@@ -703,6 +708,8 @@ struct NativeBackend {
     warnings: Arc<Mutex<Vec<String>>>,
     reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
     logging: Option<RunLogOwner>,
+    // Same owner-thread function postcondition vector survives source verifier resets.
+    postcondition_axioms: SharedPostconditionAxioms,
 }
 impl NativeBackend {
     fn new(config: Config) -> Self {
@@ -714,6 +721,7 @@ impl NativeBackend {
             warnings: Arc::new(Mutex::new(Vec::new())),
             reporter: None,
             logging: None,
+            postcondition_axioms: Rc::new(RefCell::new(Vec::new())),
         }
     }
     /// Return whether all worker contexts are gone and logger close succeeded, independently
@@ -835,6 +843,7 @@ impl SiliconBackend for NativeBackend {
                         make_api_prover,
                         self.cancellation.clone(),
                         self.logging.as_ref().map(RunLogOwner::attachment),
+                        self.postcondition_axioms.clone(),
                     )?))
                 } else {
                     OwnedContext::Api(Box::new(start_context(
@@ -845,6 +854,7 @@ impl SiliconBackend for NativeBackend {
                         options,
                         self.cancellation.clone(),
                         self.logging.as_ref().map(RunLogOwner::attachment).as_ref(),
+                        self.postcondition_axioms.clone(),
                     )?))
                 });
                 return Ok(());
@@ -869,6 +879,7 @@ impl SiliconBackend for NativeBackend {
                 make_stdio_prover,
                 self.cancellation.clone(),
                 self.logging.as_ref().map(RunLogOwner::attachment),
+                self.postcondition_axioms.clone(),
             )?))
         } else {
             OwnedContext::Stdio(Box::new(start_context(
@@ -879,6 +890,7 @@ impl SiliconBackend for NativeBackend {
                 options,
                 self.cancellation.clone(),
                 self.logging.as_ref().map(RunLogOwner::attachment).as_ref(),
+                self.postcondition_axioms.clone(),
             )?))
         });
         Ok(())
@@ -1971,6 +1983,38 @@ mod direct_session_reporter_tests {
                 let mut unsupported = config;
                 unsupported.frontend.ide_mode_advanced = true;
                 assert!(Session::new_with_reporter(unsupported, Arc::new(NoopReporter)).is_err());
+            }
+        }).unwrap().join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod postcondition_owner_tests {
+    use super::*;
+    use silver::{frontend::frontend::FrontendPhases, reporter::reporter::NoopReporter};
+
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn function_postcondition_vector_survives_native_context_reset() {
+        std::thread::Builder::new().stack_size(VERIFICATION_STACK_SIZE).spawn(|| {
+            let z3 = std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+            let mut phases = SilFrontendPhases::new("post.vpr".into(), silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+            let parsed = phases.parse("function f(x: Int): Int ensures result == x { x } method m() { assert f(1) == 1; }").unwrap();
+            let checked = phases.analyze(parsed).unwrap(); let program = phases.translate(checked).unwrap();
+            for workers in [1, 2] {
+                let config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "--numberOfParallelVerifiers".into(), workers.to_string(), "post.vpr".into()]).unwrap();
+                let mut backend = NativeBackend::new(config); backend.reporter = Some(Arc::new(NoopReporter));
+                let mut silicon = Silicon::new(backend); silicon.configure(&[]).unwrap(); silicon.start().unwrap();
+                assert!(matches!(silicon.verify(&program, &[]).unwrap(), SiliconOutcome::BackendResult(VerificationResult::Success)));
+                let first = silicon.backend().postcondition_axioms.borrow().len(); assert!(first > 0);
+                assert!(matches!(silicon.verify(&program, &[]).unwrap(), SiliconOutcome::BackendResult(VerificationResult::Success)));
+                assert_eq!(silicon.backend().postcondition_axioms.borrow().len(), first * 2);
+                let parsed = phases.parse("function bad(x: Int): Int ensures result == x + 1 { x }").unwrap();
+                let checked = phases.analyze(parsed).unwrap();
+                let invalid = phases.translate(checked).unwrap();
+                assert!(matches!(silicon.verify(&invalid, &[]).unwrap(), SiliconOutcome::BackendResult(VerificationResult::Failure(_))));
+                assert_eq!(silicon.backend().postcondition_axioms.borrow().len(), first * 3, "postcondition is retained when phase two fails");
+                silicon.stop().unwrap();
             }
         }).unwrap().join().unwrap();
     }

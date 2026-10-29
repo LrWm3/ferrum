@@ -69,7 +69,7 @@ pub struct FunctionVerificationUnit<D> {
     pub emitted_axioms: Vec<Term>,
     pub fresh_variables: Vec<Term>,
     /// Source reset deliberately leaves this vector intact.
-    pub postcondition_axioms: Vec<Term>,
+    pub postcondition_axioms: std::rc::Rc<std::cell::RefCell<Vec<Term>>>,
 }
 impl<D: Clone> Default for FunctionVerificationUnit<D> {
     fn default() -> Self {
@@ -78,7 +78,7 @@ impl<D: Clone> Default for FunctionVerificationUnit<D> {
             data: vec![],
             emitted_axioms: vec![],
             fresh_variables: vec![],
-            postcondition_axioms: vec![],
+            postcondition_axioms: Default::default(),
         }
     }
 }
@@ -339,6 +339,7 @@ pub trait FunctionVerificationServices<P, D, J, V> {
 #[derive(Debug)]
 pub enum FunctionVerificationError<E> {
     MissingFunction,
+    PostconditionAxiomsBorrowed,
     Data(FunctionDataError),
     Service(E),
     Cleanup {
@@ -440,7 +441,10 @@ impl<D: Clone> FunctionVerificationUnit<D> {
                         .assume_function_axioms(&propagation)
                         .map_err(FunctionVerificationError::Service)?;
                     self.emitted_axioms.extend(propagation);
-                    self.postcondition_axioms.extend(post);
+                    self.postcondition_axioms
+                        .try_borrow_mut()
+                        .map_err(|_| FunctionVerificationError::PostconditionAxiomsBorrowed)?
+                        .extend(post);
                     if function.body.is_none() {
                         phase_one.result
                     } else {
