@@ -280,12 +280,31 @@ pub struct OwnedValueWrapper {
 pub enum OwnedEvaluationReceiver {
     Assignment(crate::rules::executor::OwnedAssignmentValue),
     Join(OwnedJoinedValue),
+    Quantified(OwnedQuantifiedValue),
 }
 #[derive(Clone)]
 pub struct OwnedJoinedValue {
     pub restore: crate::rules::joiner::JoinRestoreState,
     pub mark: crate::decider::path_conditions::Mark,
     pub collector_id: Arc<()>,
+}
+
+/// A quantified body finishes triggers and captures its local path before returning.
+#[derive(Clone)]
+pub struct OwnedQuantifiedValue {
+    pub collector_id: Arc<()>,
+    pub mark: crate::decider::path_conditions::Mark,
+    pub quantifier: crate::state::terms::Quantifier,
+    pub variables: Vec<Term>,
+    pub variable_expressions: Vec<Exp>,
+    pub triggers: Vec<ferrum_silver::ast::expression::Trigger>,
+    pub name: String,
+    pub condition: Term,
+    pub record_possible_triggers: bool,
+    pub error: ferrum_silver::verifier::verification_error::PartialVerificationError,
+    pub prefix: Vec<Term>,
+    pub prefix_debug: Vec<Option<Exp>>,
+    pub remaining: Vec<Exp>,
 }
 
 /// State and value receiver for a direct assignment of an asserting expression.
@@ -540,7 +559,7 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
     ) -> bool {
         match receiver {
             OwnedEvaluationReceiver::Assignment(_) => self.can_transfer_owned_asserting(state),
-            OwnedEvaluationReceiver::Join(_) => false,
+            OwnedEvaluationReceiver::Join(_) | OwnedEvaluationReceiver::Quantified(_) => false,
         }
     }
     fn finish_owned_join_value(
@@ -549,6 +568,15 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
         _term: Term,
         _debug: Option<Exp>,
         _receiver: &OwnedJoinedValue,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_quantified_value(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _receiver: &OwnedQuantifiedValue,
     ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
         None
     }
@@ -3610,6 +3638,9 @@ where
         OwnedEvaluationReceiver::Join(receiver) => {
             context.finish_owned_join_value(state, term, debug, receiver)
         }
+        OwnedEvaluationReceiver::Quantified(receiver) => {
+            context.finish_owned_quantified_value(state, term, debug, receiver)
+        }
     }
     .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
 }
@@ -5346,6 +5377,65 @@ where
     )
 }
 
+/// Evaluate a prefix without folding its optional debug values. The source folds
+/// from the right only after the entire sequence has finished.
+pub(crate) fn evaluate_all_debug_items<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expressions: &[Exp],
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Vec<Term>,
+        Vec<Option<Exp>>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let Some((first, rest)) = expressions.split_first() else {
+        return continuation(context, state, Vec::new(), Vec::new());
+    };
+    evaluate(
+        context,
+        state,
+        first,
+        error,
+        &mut |context, state, term, debug| {
+            evaluate_all_debug_items(
+                context,
+                state,
+                rest,
+                error,
+                &mut |context, state, mut terms, mut debugs| {
+                    terms.insert(0, term.clone());
+                    debugs.insert(0, debug.clone());
+                    continuation(context, state, terms, debugs)
+                },
+            )
+        },
+    )
+}
+
+pub(crate) fn fold_evaluation_debug<E>(
+    items: &[Option<Exp>],
+    debugging: bool,
+) -> Result<Option<Vec<Exp>>, EvaluationError<E>> {
+    let mut result = debugging.then(Vec::new);
+    for item in items.iter().rev() {
+        result = match item {
+            Some(item) => {
+                let mut tail = result.ok_or(EvaluationError::MissingDebugExpression)?;
+                tail.insert(0, item.clone());
+                Some(tail)
+            }
+            None => None,
+        };
+    }
+    Ok(result)
+}
+
 /// Source flattens adjacent conjunctions/disjunctions, then joins the stop and continue paths.
 fn evaluate_short_circuit<C, P, D, J: Clone, V>(
     context: &mut C,
@@ -5432,8 +5522,13 @@ pub struct ScopedQuantifiedResult {
     pub first_expressions: Option<Vec<Exp>>,
     pub second: Option<ScopedQuantifiedBody>,
 }
+#[cfg(test)]
+pub(crate) static TEST_SELECTED_QUANTIFIED_PATH: std::sync::atomic::AtomicI8 =
+    std::sync::atomic::AtomicI8::new(-1);
 #[derive(Clone, Debug)]
 pub struct ScopedQuantifiedBody {
+    #[cfg(test)]
+    pub test_last_negative: bool,
     pub terms: Vec<Term>,
     pub expressions: Option<Vec<Exp>>,
     pub triggers: Vec<crate::state::terms::Trigger>,
@@ -5458,6 +5553,31 @@ pub struct ScopedQuantifiedState<P, D, J> {
 }
 /// Local solver scopes and fresh-variable/trigger facilities for source quantified evaluation.
 pub trait QuantifiedScopeContext<P, D, J, V>: EvaluationContext<P, D, J, V> {
+    /// Optionally evaluate a single quantified body with an owned return receiver.
+    fn evaluate_owned_quantified_body(
+        &mut self,
+        _state: &State<P, D, J>,
+        _expressions: &[Exp],
+        _error: &Self::PartialError,
+        _mark: crate::decider::path_conditions::Mark,
+        _quantifier: crate::state::terms::Quantifier,
+        _variables: &[Term],
+        _variable_expressions: &[Exp],
+        _triggers: &[ferrum_silver::ast::expression::Trigger],
+        _name: &str,
+        _condition: &Term,
+        _record_possible_triggers: bool,
+    ) -> Option<
+        Result<
+            (
+                VerificationResult<V>,
+                Option<(State<P, D, J>, ScopedQuantifiedBody)>,
+            ),
+            EvaluationError<Self::Error>,
+        >,
+    > {
+        None
+    }
     fn fresh_quantified_variable(
         &mut self,
         decl: &ferrum_silver::ast::program::LocalVarDecl,
@@ -5608,6 +5728,30 @@ where
                         .map_err(EvaluationError::Context)?;
                     let mut final_state = state.clone();
                     let mut body = None;
+                    {
+                        if let Some(owned) = context.evaluate_owned_quantified_body(
+                            &state, second, error, mark, quantifier,
+                            &vars, &var_exps, triggers, name, &condition,
+                            original.record_possible_triggers,
+                        ) {
+                            let (result, collected) = owned?;
+                            if !result.continue_verification() {
+                                return Ok(result);
+                            }
+                            if let Some((state, value)) = collected {
+                                final_state = state;
+                                body = Some(value);
+                            }
+                            #[cfg(test)]
+                            if vars.iter().any(|term| matches!(term.kind(), crate::state::terms::TermKind::Var(var) if var.id.name().starts_with("owned_path_marker"))) {
+                                if let Some(body) = &body { TEST_SELECTED_QUANTIFIED_PATH.store(i8::from(body.test_last_negative), std::sync::atomic::Ordering::SeqCst); }
+                            }
+                            let next = done(context, ScopedQuantifiedState {
+                                state: final_state, first_terms, first_expressions, second: body,
+                            })?;
+                            return Ok(result.combine(|| next, false));
+                        }
+                    }
                     let result = evaluate_all(
                         context,
                         state,
@@ -5657,6 +5801,8 @@ where
                                     };
                                     final_state = state;
                                     body = Some(ScopedQuantifiedBody {
+                                        #[cfg(test)]
+                                        test_last_negative: paths.branch_conditions().first().is_some_and(|t| matches!(t.kind(), crate::state::terms::TermKind::Not(_))),
                                         terms: terms.clone(),
                                         expressions: expressions.clone(),
                                         triggers: term_triggers,
@@ -5673,6 +5819,10 @@ where
                     if !result.continue_verification() {
                         return Ok(result);
                     }
+                    #[cfg(test)]
+                    if vars.iter().any(|term| matches!(term.kind(), crate::state::terms::TermKind::Var(var) if var.id.name().starts_with("owned_path_marker"))) {
+                                if let Some(body) = &body { TEST_SELECTED_QUANTIFIED_PATH.store(i8::from(body.test_last_negative), std::sync::atomic::Ordering::SeqCst); }
+                            }
                     let next = done(
                         context,
                         ScopedQuantifiedState {
@@ -5933,6 +6083,29 @@ mod tests {
         ast::{Info, Metadata},
         position::{LineColumn, LineColumnPosition, Position, SourcePosition},
     };
+    #[test]
+    fn quantified_body_debug_fold_preserves_tail_first_errors() {
+        let a = Exp::new(ExpKind::IntLit(1.into()), Default::default());
+        let b = Exp::new(ExpKind::IntLit(2.into()), Default::default());
+        let fold = |items: Vec<Option<Exp>>| fold_evaluation_debug::<()>(&items, true);
+        assert_eq!(
+            fold(vec![Some(a.clone()), Some(b.clone())]).unwrap(),
+            Some(vec![a.clone(), b.clone()])
+        );
+        assert_eq!(
+            fold(vec![None, Some(a.clone()), Some(b.clone())]).unwrap(),
+            None
+        );
+        assert!(matches!(
+            fold(vec![None, Some(a.clone()), None]),
+            Err(EvaluationError::MissingDebugExpression)
+        ));
+        assert!(matches!(
+            fold(vec![Some(a), None, Some(b)]),
+            Err(EvaluationError::MissingDebugExpression)
+        ));
+    }
+
     #[test]
     fn domain_debug_arguments_match_evaluate_all_option_order() {
         let a = Exp::new(ExpKind::IntLit(1.into()), Default::default());

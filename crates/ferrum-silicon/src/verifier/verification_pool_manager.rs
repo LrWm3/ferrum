@@ -1890,6 +1890,13 @@ pub struct NativeJoinOutput<
             >,
         >,
     )>,
+    pub(crate) quantified_entries: Option<(
+        Arc<()>,
+        Vec<(
+            crate::state::state::State<PD, FD, crate::config::JoinMode>,
+            crate::rules::evaluator::ScopedQuantifiedBody,
+        )>,
+    )>,
     pub(crate) phases: Option<(
         Arc<()>,
         Vec<crate::rules::executor::LoopPhase<PD, FD, crate::config::JoinMode>>,
@@ -2121,6 +2128,18 @@ pub(crate) static ASSERT_PROBE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize 
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static ASSERT_PROBE_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static QUANTIFIED_BODY_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static QUANTIFIED_BODY_CANCEL_HOOKS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static QUANTIFIED_BODY_OUTER_COLLECTOR: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static QUANTIFIED_BODY_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static RULE_CONSUMPTION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
@@ -2501,6 +2520,12 @@ where
                     )
                 }) {
                     ASSERT_PROBE_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                if action.frames.iter().any(|frame| matches!(frame,
+                    crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                        terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), ..
+                    } if matches!(frame.receiver, crate::rules::evaluator::OwnedEvaluationReceiver::Quantified(_)))) {
+                    QUANTIFIED_BODY_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
                 RULE_CONSUMPTION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
@@ -4995,6 +5020,382 @@ method bad(b: Bool, x: Ref, y: Ref)
     }
 
     #[test]
+    fn real_stdio_owned_quantified_permission_body_sequence() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+method good(a: Ref, b: Ref, c: Bool, d: Bool)
+  requires a != b && acc(a.f) && acc(b.f)
+{
+  assert forall i: Int :: i == 0 ==> acc((asserting (c ? acc(a.f) : acc(b.f)) in a).f, (asserting (d ? acc(a.f) : acc(b.f)) in 1/2))
+  assert acc(a.f) && acc(b.f)
+}
+method bad() { assert false }
+"#;
+        let prefix = r#"field f: Int
+method good(a: Ref, b: Ref, c: Bool)
+  requires a != b && acc(a.f) && acc(b.f)
+{
+  assert forall i: Int :: i == 0 ==> acc((asserting (c ? acc(a.f) : acc(b.f)) in a).f, 1/2)
+  assert acc(a.f) && acc(b.f)
+}
+method bad() { assert false }
+"#;
+        let suffix = r#"field f: Int
+method good(a: Ref, b: Ref, c: Bool)
+  requires a != b && acc(a.f) && acc(b.f)
+{
+  assert forall i: Int :: i == 0 ==> acc(a.f, (asserting (c ? acc(a.f) : acc(b.f)) in 1/2))
+  assert acc(a.f) && acc(b.f)
+}
+method bad() { assert false }
+"#;
+        let suffix_failure = r#"field f: Int
+method good(a: Ref, b: Ref, c: Bool, d: Bool)
+  requires a != b && acc(a.f) && acc(b.f)
+{
+  assert forall i: Int :: i == 0 ==> acc((asserting (c ? acc(a.f) : acc(b.f)) in a).f, (asserting (d ? acc(a.f) : acc(a.f)) in 1/2))
+}
+method bad(a: Ref, b: Ref, c: Bool, d: Bool)
+  requires a != b && acc(a.f)
+{
+  assert forall i: Int :: i == 0 ==> acc((asserting (c ? acc(a.f) : acc(b.f)) in a).f, (asserting (d ? acc(a.f) : acc(a.f)) in 1/2))
+}
+"#;
+        for workers in [1, 2] {
+            let submitted =
+                QUANTIFIED_BODY_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed =
+                QUANTIFIED_BODY_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|f| **f).count(),
+                1,
+                "workers={workers}, results={fatal:?}"
+            );
+            assert!(
+                QUANTIFIED_BODY_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    >= submitted + 2,
+                "ordered quantified jobs missing"
+            );
+            assert!(
+                QUANTIFIED_BODY_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    >= executed + 2,
+                "ordered quantified executions missing"
+            );
+            for case in [prefix, suffix, suffix_failure] {
+                let submitted =
+                    QUANTIFIED_BODY_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let executed =
+                    QUANTIFIED_BODY_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    case,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(
+                    fatal.iter().filter(|f| **f).count(),
+                    1,
+                    "workers={workers}, results={fatal:?}"
+                );
+                assert!(
+                    QUANTIFIED_BODY_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > submitted
+                );
+                assert!(
+                    QUANTIFIED_BODY_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > executed
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_quantified_under_join() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+method good(c: Bool, a: Ref, b: Ref)
+  requires a != b && acc(a.f) && acc(b.f)
+{
+  assert c ? (exists i: Int :: (asserting (i == 0 ? acc(a.f) : acc(b.f)) in true)) : true
+  assert acc(a.f) && acc(b.f)
+}
+method bad(c: Bool, a: Ref, b: Ref)
+  requires a != b && acc(a.f)
+{
+  assert c ? (exists i: Int :: (asserting (i == 0 ? acc(a.f) : acc(b.f)) in true)) : true
+}
+"#;
+        let nested = r#"field f: Int
+function ident(x: Int): Int { x }
+method good(c: Bool, d: Bool, a: Ref, b: Ref)
+  requires c && a != b && acc(a.f) && acc(b.f)
+{
+  assert c ? (asserting (d ? acc(a.f) : acc(b.f)) in
+    (exists i: Int :: { ident(i) } (asserting (i == 0 ? acc(a.f) : acc(b.f)) in ident(i) == ident(i)))) : true
+  assert acc(a.f) && acc(b.f)
+}
+method bad() { assert false }
+"#;
+        for workers in [1, 2] {
+            let submitted =
+                QUANTIFIED_BODY_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed =
+                QUANTIFIED_BODY_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|f| **f).count(),
+                1,
+                "workers={workers}, results={fatal:?}"
+            );
+            assert!(
+                QUANTIFIED_BODY_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > submitted,
+                "no quantified job under join"
+            );
+            assert!(
+                QUANTIFIED_BODY_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > executed,
+                "no quantified execution under join"
+            );
+            let outer = QUANTIFIED_BODY_OUTER_COLLECTOR.load(std::sync::atomic::Ordering::SeqCst);
+            let submitted =
+                QUANTIFIED_BODY_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                nested,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|f| **f).count(),
+                1,
+                "nested workers={workers}, results={fatal:?}"
+            );
+            assert!(
+                QUANTIFIED_BODY_OUTER_COLLECTOR.load(std::sync::atomic::Ordering::SeqCst) > outer,
+                "outer joined collector was not active"
+            );
+            assert!(
+                QUANTIFIED_BODY_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > submitted,
+                "nested quantified job missing"
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_quantified_body() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+method good(a: Ref, b: Ref)
+  requires a != b && acc(a.f) && acc(b.f)
+{
+  assert exists i: Int :: (asserting (i == 0 ? acc(a.f) : acc(b.f)) in true)
+  assert acc(a.f) && acc(b.f)
+}
+method bad(a: Ref, b: Ref)
+  requires a != b && acc(a.f)
+{
+  assert exists i: Int :: (asserting (i == 0 ? acc(a.f) : acc(b.f)) in true)
+}
+"#;
+        let ordering = r#"field f: Int
+method good(a: Ref, b: Ref)
+ requires a != b && acc(a.f) && acc(b.f)
+{ assert exists owned_path_marker: Int :: (asserting (owned_path_marker == 0 ? acc(a.f) : acc(b.f)) in true) }
+method bad() { assert false }
+"#;
+        let nested = r#"field f: Int
+method nested(a: Ref, b: Ref)
+  requires a != b && acc(a.f) && acc(b.f)
+{
+  assert exists i: Int :: (asserting (i == 0 ? acc(a.f) : acc(b.f)) in
+    (asserting (i == 1 ? acc(a.f) : acc(b.f)) in true))
+  assert acc(a.f) && acc(b.f)
+}
+method bad() { assert false }
+"#;
+        let forperm = r#"field f: Int
+method good(a: Ref, b: Ref, c: Bool)
+  requires a != b && acc(a.f) && acc(b.f)
+{
+  assert forperm r: Ref [r.f] :: (asserting (c ? acc(a.f) : acc(b.f)) in true)
+  assert acc(a.f) && acc(b.f)
+}
+method bad(a: Ref, b: Ref, c: Bool)
+  requires a != b && acc(a.f)
+{
+  assert forperm r: Ref [r.f] :: (asserting (c ? acc(a.f) : acc(b.f)) in false)
+}
+"#;
+        for workers in [1, 2] {
+            let selected = &crate::rules::evaluator::TEST_SELECTED_QUANTIFIED_PATH;
+            selected.store(-1, std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                ordering,
+                workers,
+                make.clone(),
+                false,
+                false,
+                true,
+            );
+            assert_eq!(fatal.iter().filter(|f| **f).count(), 1);
+            let local_path = selected.load(std::sync::atomic::Ordering::SeqCst);
+            selected.store(-1, std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                ordering,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(fatal.iter().filter(|f| **f).count(), 1);
+            let owned_path = selected.load(std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(
+                (local_path, owned_path),
+                (1, 1),
+                "selected paths should both be else"
+            );
+            let submitted =
+                QUANTIFIED_BODY_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed =
+                QUANTIFIED_BODY_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|f| **f).count(),
+                1,
+                "workers={workers}, results={fatal:?}"
+            );
+            assert!(
+                QUANTIFIED_BODY_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > submitted,
+                "no quantified job submitted"
+            );
+            assert!(
+                QUANTIFIED_BODY_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > executed,
+                "no quantified job executed"
+            );
+            let submitted =
+                QUANTIFIED_BODY_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                nested,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|f| **f).count(),
+                1,
+                "nested workers={workers}: {fatal:?}"
+            );
+            assert!(
+                QUANTIFIED_BODY_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    >= submitted + 2,
+                "nested jobs missing"
+            );
+            let submitted =
+                RULE_CONSUMPTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed =
+                RULE_CONSUMPTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                forperm,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|f| **f).count(),
+                1,
+                "forperm workers={workers}: {fatal:?}"
+            );
+            assert!(
+                RULE_CONSUMPTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > submitted,
+                "forperm job missing"
+            );
+            assert!(
+                RULE_CONSUMPTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > executed,
+                "forperm execution missing"
+            );
+        }
+    }
+
+    #[test]
     fn real_stdio_owned_consumer_permission_tails() {
         let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
             return;
@@ -6204,6 +6605,21 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
     }
 
     #[test]
+    fn real_stdio_cancel_after_quantified_suffix_receiver_starts() {
+        cancel_after_owned_receiver_starts(8);
+    }
+
+    #[test]
+    fn real_stdio_cancel_after_quantified_receiver_under_join_starts() {
+        cancel_after_owned_receiver_starts(7);
+    }
+
+    #[test]
+    fn real_stdio_cancel_after_quantified_receiver_starts() {
+        cancel_after_owned_receiver_starts(5);
+    }
+
+    #[test]
     fn real_stdio_cancel_after_owned_right_receiver_starts() {
         cancel_after_owned_receiver_starts(0);
     }
@@ -6246,7 +6662,25 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
             sil_front_end_config::SilFrontendConfig,
             sil_frontend::{SilFrontendPhases, standard_plugin_manager},
         };
-        let source = if kind == 4 {
+        let source = if kind == 8 {
+            r#"field f: Int
+method cancel_quant_suffix(a: Ref, b: Ref, c: Bool, d: Bool)
+ requires a != b && acc(a.f) && acc(b.f)
+{ assert forall i: Int :: i == 0 ==> acc((asserting (c ? acc(a.f) : acc(b.f)) in a).f, (asserting (d ? acc(a.f) : acc(b.f)) in 1/2)); }
+"#
+        } else if kind == 7 {
+            r#"field f: Int
+method cancel_quant_join(c: Bool, a: Ref, b: Ref)
+ requires c && a != b && acc(a.f) && acc(b.f)
+{ assert c ? (exists i: Int :: (asserting (i == 0 ? acc(a.f) : acc(b.f)) in true)) : true; }
+"#
+        } else if kind == 5 {
+            r#"field f: Int
+method cancel_quant(a: Ref, b: Ref)
+ requires a != b && acc(a.f) && acc(b.f)
+{ assert exists i: Int :: (asserting (i == 0 ? acc(a.f) : acc(b.f)) in true); }
+"#
+        } else if kind == 4 {
             r#"field f: Int
 method cancel_join(b: Bool, c: Bool, x: Ref, y: Ref) returns (r: Int)
  requires acc(x.f) && acc(y.f)
@@ -6323,7 +6757,10 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
                     );
                     worker.context.joined_branch_scheduler_enabled = true;
                     worker.set_cancellation(worker_cancel.clone());
-                    if kind == 4 {
+                    if matches!(kind, 5 | 7 | 8) {
+                        worker.context.test_cancel_owned_quantified = Some(worker_cancel.clone());
+                        worker.context.test_cancel_quantified_after_prefix = kind == 8;
+                    } else if kind == 4 {
                         worker.context.test_cancel_owned_join = Some(worker_cancel.clone());
                     } else if kind == 3 {
                         worker.context.test_cancel_owned_boolean = Some(worker_cancel.clone());
@@ -6372,7 +6809,12 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
             let program = phases.translate(checked).unwrap();
             let program = phases.check_consistency(program).unwrap();
             let program = phases.prepare_verification(program).unwrap();
-            let (submission_counter, hook_counter) = if kind == 4 {
+            let (submission_counter, hook_counter) = if matches!(kind, 5 | 7 | 8) {
+                (
+                    &QUANTIFIED_BODY_TEST_SUBMISSIONS,
+                    &QUANTIFIED_BODY_CANCEL_HOOKS,
+                )
+            } else if kind == 4 {
                 (&JOIN_ASSERTING_SUBMISSIONS, &JOIN_ASSERTING_CANCEL_HOOKS)
             } else if kind == 3 {
                 (&BOOLEAN_HEAD_SUBMISSIONS[0], &BOOLEAN_HEAD_CANCEL_HOOKS)

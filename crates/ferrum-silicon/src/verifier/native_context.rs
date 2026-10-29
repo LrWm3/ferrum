@@ -411,6 +411,15 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub(crate) test_cancel_owned_join:
         Option<crate::verifier::verification_pool_manager::CancellationController>,
     #[cfg(test)]
+    pub(crate) test_cancel_owned_quantified:
+        Option<crate::verifier::verification_pool_manager::CancellationController>,
+    #[cfg(test)]
+    pub(crate) test_cancel_quantified_after_prefix: bool,
+    #[cfg(test)]
+    test_in_quantified_worker: bool,
+    #[cfg(test)]
+    test_in_quantified_suffix_worker: bool,
+    #[cfg(test)]
     test_current_permission_heap: Option<(Arc<ListBackedHeap>, Arc<std::sync::atomic::AtomicBool>)>,
     #[cfg(test)]
     executor_debug_for_test: bool,
@@ -424,6 +433,17 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
         std::rc::Rc<
             std::cell::RefCell<
                 Vec<crate::rules::joiner::JoinDataEntry<PD, FD, JoinMode, (Term, Option<Exp>)>>,
+            >,
+        >,
+    )>,
+    quantified_evaluation_collector: Option<(
+        Arc<()>,
+        std::rc::Rc<
+            std::cell::RefCell<
+                Vec<(
+                    State<PD, FD, JoinMode>,
+                    crate::rules::evaluator::ScopedQuantifiedBody,
+                )>,
             >,
         >,
     )>,
@@ -790,12 +810,21 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             #[cfg(test)]
             executor_debug_for_test: false,
             #[cfg(test)]
+            test_cancel_owned_quantified: None,
+            #[cfg(test)]
+            test_cancel_quantified_after_prefix: false,
+            #[cfg(test)]
+            test_in_quantified_worker: false,
+            #[cfg(test)]
+            test_in_quantified_suffix_worker: false,
+            #[cfg(test)]
             test_current_permission_heap: None,
             logging_root: None,
             trace_reporting_enabled: false,
             postcondition_axioms_store: Default::default(),
             loop_phase_collector: None,
             unfold_evaluation_collector: None,
+            quantified_evaluation_collector: None,
             member_log: None,
             decider_log_formatter: None,
             record_factory: None,
@@ -2292,62 +2321,63 @@ where
             let branch_scope = self
                 .open_branch_scope(2, Some(condition.clone()), Some(original.clone()))
                 .map_err(EvaluationError::Context)?;
-            let run =
-                |this: &mut Self,
-                 active: bool,
-                 positive: bool,
-                 action: crate::rules::evaluator::EvaluationBranchAction<Self::PartialError>|
-                 -> Result<
-                    (
-                        VerificationResult<VerificationError>,
-                        Vec<JoinDataEntry<PD, FD, JoinMode, (Term, Option<Exp>)>>,
-                    ),
-                    EvaluationError<Self::Error>,
-                > {
-                    if !active {
-                        return Ok((VerificationResult::unreachable(), Vec::new()));
-                    }
-                    if !positive {
-                        this.update_branch_scope(branch_scope, 1)
-                            .map_err(EvaluationError::Context)?;
-                    }
-                    this.update_branch_scope(branch_scope, 0)
+            let run = |this: &mut Self,
+                       active: bool,
+                       positive: bool,
+                       action: crate::rules::evaluator::EvaluationBranchAction<
+                Self::PartialError,
+            >|
+             -> Result<
+                (
+                    VerificationResult<VerificationError>,
+                    Vec<JoinDataEntry<PD, FD, JoinMode, (Term, Option<Exp>)>>,
+                ),
+                EvaluationError<Self::Error>,
+            > {
+                if !active {
+                    return Ok((VerificationResult::unreachable(), Vec::new()));
+                }
+                if !positive {
+                    this.update_branch_scope(branch_scope, 1)
                         .map_err(EvaluationError::Context)?;
-                    this.base
-                        .decider
-                        .push_scope()
-                        .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
-                    let branch_term = if positive {
-                        condition.clone()
-                    } else {
-                        factory.not(condition.clone())
-                    };
-                    let branch_exp = if positive {
-                        original.clone()
-                    } else {
-                        Exp::new(ExpKind::Not(original.clone()), Metadata::default())
-                    };
-                    let rewritten_exp = if positive {
-                        rewritten.cloned()
-                    } else {
-                        rewritten.map(|e| Exp::new(ExpKind::Not(e.clone()), Metadata::default()))
-                    };
-                    let result = (|| {
-                        this.set_native_branch_condition(branch_term, branch_exp, rewritten_exp)
-                            .map_err(EvaluationError::Context)?;
-                        let branch_state = this
-                            .consolidate_optional(joined_state.clone())
-                            .map_err(EvaluationError::Context)?;
-                        this.execute_identified_evaluation_branch(branch_state, action, &state, mark)
-                    })();
-                    let cleanup = this.base.decider.pop_scope().map_err(NativeError::Decider);
-                    match (result, cleanup) {
-                        (Ok(result), Ok(())) => Ok(result),
-                        (Err(e), Err(cleanup)) => Err(coalesce_evaluation_cleanup(e, cleanup)),
-                        (Err(e), Ok(())) => Err(e),
-                        (Ok(_), Err(cleanup)) => Err(EvaluationError::Context(cleanup)),
-                    }
+                }
+                this.update_branch_scope(branch_scope, 0)
+                    .map_err(EvaluationError::Context)?;
+                this.base
+                    .decider
+                    .push_scope()
+                    .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+                let branch_term = if positive {
+                    condition.clone()
+                } else {
+                    factory.not(condition.clone())
                 };
+                let branch_exp = if positive {
+                    original.clone()
+                } else {
+                    Exp::new(ExpKind::Not(original.clone()), Metadata::default())
+                };
+                let rewritten_exp = if positive {
+                    rewritten.cloned()
+                } else {
+                    rewritten.map(|e| Exp::new(ExpKind::Not(e.clone()), Metadata::default()))
+                };
+                let result = (|| {
+                    this.set_native_branch_condition(branch_term, branch_exp, rewritten_exp)
+                        .map_err(EvaluationError::Context)?;
+                    let branch_state = this
+                        .consolidate_optional(joined_state.clone())
+                        .map_err(EvaluationError::Context)?;
+                    this.execute_identified_evaluation_branch(branch_state, action, &state, mark)
+                })();
+                let cleanup = this.base.decider.pop_scope().map_err(NativeError::Decider);
+                match (result, cleanup) {
+                    (Ok(result), Ok(())) => Ok(result),
+                    (Err(e), Err(cleanup)) => Err(coalesce_evaluation_cleanup(e, cleanup)),
+                    (Err(e), Ok(())) => Err(e),
+                    (Ok(_), Err(cleanup)) => Err(EvaluationError::Context(cleanup)),
+                }
+            };
             // The synchronous else future is lazy and is forced by combine after the then branch.
             let (then_result, mut entries) = run(self, decision.execute_then, true, yes)?;
             let branch_result = if then_result.continue_verification() {
@@ -3479,6 +3509,19 @@ where
         &mut self,
         frame: &crate::rules::evaluator::OwnedAsserting<Self::PartialError>,
     ) {
+        if self.test_in_quantified_worker
+            && matches!(
+                &frame.receiver,
+                crate::rules::evaluator::OwnedEvaluationReceiver::Quantified(q)
+                    if !self.test_cancel_quantified_after_prefix || (self.test_in_quantified_suffix_worker && !q.prefix.is_empty())
+            )
+        {
+            if let Some(cancel) = self.test_cancel_owned_quantified.take() {
+                super::verification_pool_manager::QUANTIFIED_BODY_CANCEL_HOOKS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                cancel.cancel();
+            }
+        }
         if frame.return_frames.iter().any(|f| {
             matches!(
                 f,
@@ -3550,6 +3593,18 @@ where
         use crate::rules::evaluator::OwnedEvaluationReceiver;
         match receiver {
             OwnedEvaluationReceiver::Assignment(_) => self.can_transfer_owned_asserting(state),
+            OwnedEvaluationReceiver::Quantified(quant) => {
+                self.joined_branch_scheduler_enabled
+                    && self.joined_branch_scheduler.is_some()
+                    && self.member_log.is_none()
+                    && state.parallelize_branches
+                    && !state.is_in_package
+                    && !state.exhale_ext
+                    && self
+                        .quantified_evaluation_collector
+                        .as_ref()
+                        .is_some_and(|(id, _)| Arc::ptr_eq(id, &quant.collector_id))
+            }
             OwnedEvaluationReceiver::Join(join) => {
                 self.joined_branch_scheduler_enabled
                     && self.joined_branch_scheduler.is_some()
@@ -3604,6 +3659,126 @@ where
                 });
             Ok(VerificationResult::success())
         })())
+    }
+    fn finish_owned_quantified_value(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        receiver: &crate::rules::evaluator::OwnedQuantifiedValue,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        use crate::rules::evaluator::{self, OwnedEvaluationReceiver, QuantifiedScopeContext};
+        let mut next = receiver.clone();
+        next.prefix.push(term);
+        next.prefix_debug.push(debug);
+        if !next.remaining.is_empty() {
+            let expression = next.remaining.remove(0);
+            let owned = OwnedEvaluationReceiver::Quantified(next.clone());
+            if evaluator::has_owned_asserting_path(&expression)
+                && self.can_transfer_owned_receiver(&state, &owned)
+            {
+                return Some(evaluator::evaluate_owned_received(
+                    self,
+                    state,
+                    &expression,
+                    &next.error,
+                    &owned,
+                    vec![],
+                ));
+            }
+            return Some(evaluator::evaluate(
+                self,
+                state,
+                &expression,
+                &next.error,
+                &mut |ctx, state, term, debug| {
+                    ctx.finish_owned_quantified_value(state, term, debug, &next)
+                        .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
+                },
+            ));
+        }
+        let receiver = &next;
+        let expressions = match evaluator::fold_evaluation_debug::<Self::Error>(
+            &receiver.prefix_debug,
+            self.debugging(),
+        ) {
+            Ok(value) => value,
+            Err(error) => return Some(Err(error)),
+        };
+        let collector = match &self.quantified_evaluation_collector {
+            Some((id, entries)) if Arc::ptr_eq(id, &receiver.collector_id) => entries.clone(),
+            _ => {
+                return Some(Err(EvaluationError::Context(NativeError::Unsupported(
+                    "quantified collector unavailable",
+                ))));
+            }
+        };
+        let factory = self.factory.clone();
+        Some(self.evaluate_triggers(
+            state,
+            &receiver.triggers,
+            &receiver.error,
+            &mut |ctx, state, triggers| {
+                let paths = ctx
+                    .path_after(receiver.mark)
+                    .map_err(EvaluationError::Context)?;
+                let (globals, non_globals) = paths
+                    .quantified(
+                        &factory,
+                        receiver.quantifier,
+                        &receiver.variables,
+                        &triggers,
+                        &format!("{}-aux", receiver.name),
+                        false,
+                        &receiver.condition,
+                    )
+                    .map_err(EvaluationError::Path)?;
+                let auxiliary_debug = if ctx.debugging() {
+                    Some(
+                        ctx.quantified_debug(
+                            &paths,
+                            receiver.quantifier,
+                            &receiver.variables,
+                            &receiver.variable_expressions,
+                            &receiver.triggers,
+                            &triggers,
+                            &receiver.condition,
+                        )
+                        .map_err(EvaluationError::Context)?,
+                    )
+                } else {
+                    None
+                };
+                let possible_triggers = if receiver.record_possible_triggers {
+                    state.possible_triggers.clone()
+                } else {
+                    Default::default()
+                };
+                let body = crate::rules::evaluator::ScopedQuantifiedBody {
+                    terms: receiver.prefix.clone(),
+                    expressions: expressions.clone(),
+                    triggers,
+                    auxiliary_globals: globals,
+                    auxiliary_non_globals: non_globals,
+                    auxiliary_debug,
+                    possible_triggers,
+                    #[cfg(test)]
+                    test_last_negative: paths
+                        .branch_conditions()
+                        .first()
+                        .is_some_and(|t| matches!(t.kind(), crate::state::terms::TermKind::Not(_))),
+                };
+                collector
+                    .try_borrow_mut()
+                    .map_err(|_| {
+                        EvaluationError::Context(NativeError::Unsupported(
+                            "quantified collector borrowed",
+                        ))
+                    })?
+                    .push((state, body));
+                Ok(VerificationResult::success())
+            },
+        ))
     }
     fn try_consume_owned_asserting(
         &mut self,
@@ -5351,7 +5526,7 @@ where
         let joined_asserting = frames.iter().any(|frame| match frame {
             crate::rules::consumer::OwnedConsumptionFrame::Finish {
                 terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), ..
-            } => matches!(&frame.receiver, crate::rules::evaluator::OwnedEvaluationReceiver::Join(_))
+            } => matches!(&frame.receiver, crate::rules::evaluator::OwnedEvaluationReceiver::Join(_) | crate::rules::evaluator::OwnedEvaluationReceiver::Quantified(_))
                 && <Self as EvaluationContext<PD, FD, JoinMode, VerificationError>>::can_transfer_owned_receiver(self, state, &frame.receiver),
             _ => false,
         });
@@ -13354,6 +13529,52 @@ where
             }
             _ => None,
         };
+        let quantified_id =
+            match &branch.action {
+                super::verification_pool_manager::NativeJoinAction::Consumption(action) => {
+                    action.frames.iter().find_map(|f| match f {
+                        crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                            terminal:
+                                crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame),
+                            ..
+                        } => match &frame.receiver {
+                            crate::rules::evaluator::OwnedEvaluationReceiver::Quantified(q) => {
+                                Some(q.collector_id.clone())
+                            }
+                            _ => None,
+                        },
+                        _ => None,
+                    })
+                }
+                _ => None,
+            };
+        #[cfg(test)]
+        if quantified_id.is_some() {
+            super::verification_pool_manager::QUANTIFIED_BODY_TEST_EXECUTIONS
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        #[cfg(test)]
+        let quantified_suffix_job = match &branch.action {
+            super::verification_pool_manager::NativeJoinAction::Consumption(action) => action.frames.iter().any(|frame| matches!(frame,
+                crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                    terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), ..
+                } if matches!(&frame.receiver, crate::rules::evaluator::OwnedEvaluationReceiver::Quantified(q) if !q.prefix.is_empty()))),
+            _ => false,
+        };
+        #[cfg(test)]
+        let previous_in_quantified_suffix_worker = std::mem::replace(
+            &mut self.test_in_quantified_suffix_worker,
+            quantified_suffix_job,
+        );
+        #[cfg(test)]
+        let previous_in_quantified_worker =
+            std::mem::replace(&mut self.test_in_quantified_worker, quantified_id.is_some());
+        let previous_quantified_collector = self.quantified_evaluation_collector.take();
+        let quantified_entries = quantified_id.as_ref().map(|id| {
+            let entries = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            self.quantified_evaluation_collector = Some((id.clone(), entries.clone()));
+            entries
+        });
         let previous_evaluation_collector = self.unfold_evaluation_collector.take();
         let evaluation_entries = evaluation_id.as_ref().map(|id| {
             let entries = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
@@ -13448,7 +13669,10 @@ where
         })();
         let cleanup = match restore {
             Some(restore) => restore
-                .finish(&mut self.base.decider, under_join)
+                .finish(
+                    &mut self.base.decider,
+                    under_join || quantified_id.is_some(),
+                )
                 .map_err(NativeError::Decider),
             None => Ok(crate::rules::brancher::BranchJoinDeclarations::default()),
         };
@@ -13460,6 +13684,7 @@ where
                     declarations,
                     phases: None,
                     evaluation_entries: None,
+                    quantified_entries: None,
                     warnings: Vec::new(),
                 })
             }
@@ -13485,6 +13710,33 @@ where
             (Ok(_), Err(cleanup)) => Err(cleanup),
             (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
                 "joined branch: {primary:?}; worker restore: {cleanup:?}"
+            ))),
+        };
+        #[cfg(test)]
+        {
+            self.test_in_quantified_worker = previous_in_quantified_worker;
+        }
+        #[cfg(test)]
+        {
+            self.test_in_quantified_suffix_worker = previous_in_quantified_suffix_worker;
+        }
+        self.quantified_evaluation_collector = previous_quantified_collector;
+        let quantified_entries = match (quantified_id, quantified_entries) {
+            (Some(id), Some(entries)) => entries
+                .try_borrow_mut()
+                .map(|mut entries| Some((id, entries.drain(..).collect())))
+                .map_err(|_| NativeError::Unsupported("quantified collector borrowed")),
+            _ => Ok(None),
+        };
+        let result = match (result, quantified_entries) {
+            (Ok(mut output), Ok(entries)) => {
+                output.quantified_entries = entries;
+                Ok(output)
+            }
+            (Err(error), Ok(_)) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+            (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
+                "quantified receiver: {primary:?}; cleanup: {cleanup:?}"
             ))),
         };
         self.unfold_evaluation_collector = previous_evaluation_collector;
@@ -16233,6 +16485,108 @@ impl<S: Prover, PD, FD: Clone>
 where
     S::Error: std::fmt::Debug,
 {
+    fn evaluate_owned_quantified_body(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        expressions: &[Exp],
+        error: &Self::PartialError,
+        mark: crate::decider::path_conditions::Mark,
+        quantifier: crate::state::terms::Quantifier,
+        variables: &[Term],
+        variable_expressions: &[Exp],
+        triggers: &[ferrum_silver::ast::expression::Trigger],
+        name: &str,
+        condition: &Term,
+        record_possible_triggers: bool,
+    ) -> Option<
+        Result<
+            (
+                VerificationResult<VerificationError>,
+                Option<(
+                    State<PD, FD, JoinMode>,
+                    crate::rules::evaluator::ScopedQuantifiedBody,
+                )>,
+            ),
+            EvaluationError<Self::Error>,
+        >,
+    > {
+        use crate::rules::evaluator::{self, OwnedEvaluationReceiver, OwnedQuantifiedValue};
+        if !self.joined_branch_scheduler_enabled
+            || self.joined_branch_scheduler.is_none()
+            || self.member_log.is_some()
+            || !state.parallelize_branches
+            || state.is_in_package
+            || state.exhale_ext
+        {
+            return None;
+        }
+        let Some(index) = expressions
+            .iter()
+            .position(evaluator::has_owned_asserting_path)
+        else {
+            return None;
+        };
+        #[cfg(test)]
+        if state.under_join && self.unfold_evaluation_collector.is_some() {
+            super::verification_pool_manager::QUANTIFIED_BODY_OUTER_COLLECTOR
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        let id = Arc::new(());
+        let entries = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let previous = self
+            .quantified_evaluation_collector
+            .replace((id.clone(), entries.clone()));
+        let result = evaluator::evaluate_all_debug_items(
+            self,
+            state.clone(),
+            &expressions[..index],
+            error,
+            &mut |ctx, state, prefix, prefix_debug| {
+                let receiver = OwnedEvaluationReceiver::Quantified(OwnedQuantifiedValue {
+                    collector_id: id.clone(),
+                    mark,
+                    quantifier,
+                    variables: variables.to_vec(),
+                    variable_expressions: variable_expressions.to_vec(),
+                    triggers: triggers.to_vec(),
+                    name: name.to_owned(),
+                    condition: condition.clone(),
+                    record_possible_triggers,
+                    error: error.clone(),
+                    prefix,
+                    prefix_debug,
+                    remaining: expressions[index + 1..].to_vec(),
+                });
+                evaluator::evaluate_owned_received(
+                    ctx,
+                    state,
+                    &expressions[index],
+                    error,
+                    &receiver,
+                    vec![],
+                )
+            },
+        );
+        self.quantified_evaluation_collector = previous;
+        let collected = entries
+            .try_borrow_mut()
+            .map(|mut entries| entries.pop())
+            .map_err(|_| {
+                EvaluationError::Context(NativeError::Unsupported("quantified collector borrowed"))
+            });
+        Some(match (result, collected) {
+            (Ok(result), Ok(data)) => Ok((result, data)),
+            (Err(error), Ok(_)) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+            (Err(primary), Err(cleanup)) => Err(coalesce_evaluation_cleanup(
+                primary,
+                match cleanup {
+                    EvaluationError::Context(error) => error,
+                    _ => unreachable!(),
+                },
+            )),
+        })
+    }
     fn fresh_quantified_variable(
         &mut self,
         decl: &LocalVarDecl,
@@ -17237,8 +17591,21 @@ where
                 }
                 _ => false,
             };
+        let is_quantified = |action: &super::verification_pool_manager::NativeJoinAction<
+            PD,
+            FD,
+        >| {
+            match action {
+            super::verification_pool_manager::NativeJoinAction::Consumption(action) => action.frames.iter().any(|f| matches!(f,
+                crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                    terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), ..
+                } if matches!(frame.receiver, crate::rules::evaluator::OwnedEvaluationReceiver::Quantified(_)))),
+            _ => false,
+        }
+        };
+        let quantified = is_quantified(&yes) && is_quantified(&no);
         let evaluation = is_evaluation(&yes) && is_evaluation(&no);
-        if state.under_join != evaluation {
+        if !quantified && state.under_join != evaluation {
             return Err(ExecutionError::Context(NativeError::Unsupported(
                 "owned continuation join mode",
             )));
@@ -17439,12 +17806,19 @@ where
                 None
             };
             let mut evaluation_output = None;
+            let mut quantified_output = None;
             let other = match waited.result {
                 Ok(mut output) => {
                     self.warnings.append(&mut output.warnings);
                     if evaluation {
                         evaluation_output = Some((
                             output.evaluation_entries.take(),
+                            std::mem::take(&mut output.declarations),
+                        ));
+                    }
+                    if quantified {
+                        quantified_output = Some((
+                            output.quantified_entries.take(),
                             std::mem::take(&mut output.declarations),
                         ));
                     }
@@ -17487,6 +17861,37 @@ where
                             .unwrap()
                             .report_failure(state.current_member.as_ref(), &other)
                             .map_err(ExecutionError::Context)?;
+                    }
+                    if let Some((entries, declarations)) = quantified_output {
+                        declarations
+                            .declare_on(&mut self.base.decider)
+                            .map_err(|e| ExecutionError::Context(NativeError::Decider(e)))?;
+                        let (id, returned) = entries.ok_or_else(|| {
+                            ExecutionError::Context(NativeError::Unsupported(
+                                "missing quantified output",
+                            ))
+                        })?;
+                        let (active_id, active) = self
+                            .quantified_evaluation_collector
+                            .as_ref()
+                            .ok_or_else(|| {
+                                ExecutionError::Context(NativeError::Unsupported(
+                                    "quantified collector unavailable",
+                                ))
+                            })?;
+                        if !Arc::ptr_eq(active_id, &id) {
+                            return Err(ExecutionError::Context(NativeError::Unsupported(
+                                "quantified collector identity mismatch",
+                            )));
+                        }
+                        active
+                            .try_borrow_mut()
+                            .map_err(|_| {
+                                ExecutionError::Context(NativeError::Unsupported(
+                                    "quantified collector borrowed",
+                                ))
+                            })?
+                            .extend(returned);
                     }
                     if let Some((entries, declarations)) = evaluation_output {
                         #[cfg(test)]
@@ -27183,6 +27588,7 @@ mod queued_cfg_isolation_tests {
                                 declarations: Default::default(),
                                 phases: None,
                                 evaluation_entries: None,
+                                quantified_entries: None,
                                 warnings: vec![],
                             },
                         )
@@ -27497,6 +27903,7 @@ mod queued_cfg_isolation_tests {
                                 declarations: Default::default(),
                                 phases: None,
                                 evaluation_entries: None,
+                                quantified_entries: None,
                                 warnings: vec![],
                             },
                         )
