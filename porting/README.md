@@ -1105,3 +1105,8 @@ logger threshold. Stdio renders them only with an open prover log; linked Z3
 skips rendering entirely. Formatting failures remain errors. These rule calls
 run after preamble broadcasting ends; the fallible-comment API still rejects
 broadcast mode and does not implement general comment-broadcast parity.
+
+Owned return frames also cover Boolean negation, subtraction, multiplication,
+equality and ordered comparisons. They preserve source evaluation order and
+reuse the ordinary evaluator constructors. Other expression families retain
+synchronous fallback; this is additional dispatch coverage, not a speed claim.

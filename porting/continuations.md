@@ -177,7 +177,7 @@ cancellation before removing their guard.
 | Inhale/exhale/assert (including disable-subsumption probes), method/call contracts, fold snapshots and statement unfold | Owned rule and caller frames |
 | Loop collection, establishment and backedges | Identified phase outputs and explicit consumption terminals |
 | Function preconditions and cached/uncached expression Unfolding | Owned snapshot/value receivers and identified join outputs |
-| Local assignment with old/labelled-old, integer negation and addition around Asserting | Composable owned return frames; both eligible addition operands can transfer |
+| Local assignment with old/labelled-old, negation, addition, subtraction, multiplication, equality and ordered comparisons around Asserting | Composable owned return frames; both eligible strict operands can transfer |
 | Arbitrary nested value callbacks, other old-expression shapes and custom borrowed entry points | Safe synchronous fallback; not complete parallel source coverage |
 | Active member logs, extended exhale and packaging | Owned dispatch disabled; logger migration remains unfinished |
 
@@ -214,7 +214,8 @@ at submission with and without a latched cancellation. These do not establish
 real simultaneous parent/child execution at every cancellation boundary.
 
 The assignment receiver now carries an immutable vector of typed return frames,
-ordered from inner to outer. Frames now represent old/labelled-old, integer negation and addition. Supported
+ordered from inner to outer. Frames represent old/labelled-old, integer and Boolean negation, addition,
+subtraction, multiplication, equality and ordered comparisons. Supported
 wrapper chains can compose around Asserting while retaining each evaluator entry
 and return action. Addition evaluates its left operand first, then transfers an eligible right
 operand with the left value and remaining return frames retained. Each transfer
@@ -262,3 +263,10 @@ The final inspected follow-up preserves solver errors during summary-alias
 lookup and service errors during mask trigger adaptation and function body/post
 translation. No further reachable loss sites were confirmed in this bounded
 review; uninspected code is not claimed to have exhaustive error-path coverage.
+
+Strict operator returns reuse the ordinary evaluator term/debug constructors.
+Real one/two-worker checks observe both operand submissions and executions;
+source-matched permission failures check left-before-right order and that a
+failed right operand skips the captured tail. Division/remainder, short-circuit
+and conditional expressions, function/field/collection arguments and lets still
+use local callbacks when their exact return action is not represented.

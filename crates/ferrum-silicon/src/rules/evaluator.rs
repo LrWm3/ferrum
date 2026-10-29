@@ -160,6 +160,16 @@ pub struct OwnedOldValueFrame {
 pub enum OwnedEvaluationReturnFrame {
     Old(OwnedOldValueFrame),
     Minus(OwnedValueWrapper),
+    Not(OwnedValueWrapper),
+    StrictLeft {
+        wrapper: OwnedValueWrapper,
+        right: Exp,
+    },
+    StrictRight {
+        wrapper: OwnedValueWrapper,
+        left: Term,
+        left_debug: Option<Exp>,
+    },
     AddLeft {
         wrapper: OwnedValueWrapper,
         right: Exp,
@@ -920,17 +930,33 @@ where
 }
 
 /// Only transfer paths for which every intervening return action is represented.
+fn owned_strict_binary(expression: &Exp) -> Option<(Binary, &Exp, &Exp)> {
+    match expression.kind() {
+        ExpKind::Sub(a, b) => Some((Binary::Sub, a, b)),
+        ExpKind::Mul(a, b) => Some((Binary::Mul, a, b)),
+        ExpKind::EqCmp(a, b) => Some((Binary::Eq, a, b)),
+        ExpKind::LeCmp(a, b) => Some((Binary::Le, a, b)),
+        ExpKind::LtCmp(a, b) => Some((Binary::Lt, a, b)),
+        ExpKind::GeCmp(a, b) => Some((Binary::Ge, a, b)),
+        ExpKind::GtCmp(a, b) => Some((Binary::Gt, a, b)),
+        _ => None,
+    }
+}
+
 pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
     match expression.kind() {
         ExpKind::Asserting(..) => true,
         ExpKind::Old(body)
         | ExpKind::LabelledOld(body, _)
         | ExpKind::DebugLabelledOld(body, _)
-        | ExpKind::Minus(body) => has_owned_asserting_path(body),
+        | ExpKind::Minus(body)
+        | ExpKind::Not(body) => has_owned_asserting_path(body),
         ExpKind::Add(left, right) => {
             has_owned_asserting_path(left) || has_owned_asserting_path(right)
         }
-        _ => false,
+        _ => owned_strict_binary(expression).is_some_and(|(_, left, right)| {
+            has_owned_asserting_path(left) || has_owned_asserting_path(right)
+        }),
     }
 }
 
@@ -1042,6 +1068,42 @@ where
         ExpKind::Minus(body) => {
             frames.insert(0, OwnedEvaluationReturnFrame::Minus(wrapper));
             evaluate_owned_nested(context, state, body, error, receiver, frames)
+        }
+        ExpKind::Not(body) => {
+            frames.insert(0, OwnedEvaluationReturnFrame::Not(wrapper));
+            evaluate_owned_nested(context, state, body, error, receiver, frames)
+        }
+        _ if owned_strict_binary(expression).is_some() => {
+            let (_, left, right) = owned_strict_binary(expression).unwrap();
+            if has_owned_asserting_path(left) {
+                frames.insert(
+                    0,
+                    OwnedEvaluationReturnFrame::StrictLeft {
+                        wrapper,
+                        right: right.clone(),
+                    },
+                );
+                evaluate_owned_nested(context, state, left, error, receiver, frames)
+            } else {
+                evaluate(
+                    context,
+                    state,
+                    left,
+                    error,
+                    &mut |context, state, term, debug| {
+                        let mut next = frames.clone();
+                        next.insert(
+                            0,
+                            OwnedEvaluationReturnFrame::StrictRight {
+                                wrapper: wrapper.clone(),
+                                left: term,
+                                left_debug: debug,
+                            },
+                        );
+                        evaluate_owned_nested(context, state, right, error, receiver, next)
+                    },
+                )
+            }
         }
         ExpKind::Add(left, right) if has_owned_asserting_path(left) => {
             frames.insert(
@@ -1231,6 +1293,76 @@ where
                     Exp::new(ExpKind::Minus(value), wrapper.expression.metadata().clone())
                 });
                 finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+            }
+            OwnedEvaluationReturnFrame::Not(wrapper) => {
+                term = context.factory().not(term);
+                debug = debug.map(|value| {
+                    Exp::new(ExpKind::Not(value), wrapper.expression.metadata().clone())
+                });
+                finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+            }
+            OwnedEvaluationReturnFrame::StrictRight {
+                wrapper,
+                left,
+                left_debug,
+            } => {
+                let operator = owned_strict_binary(&wrapper.expression)
+                    .expect("strict operator frame")
+                    .0;
+                term = operator.build(context.factory(), left.clone(), term);
+                debug = match (left_debug, debug) {
+                    (Some(left), Some(right)) => Some(Exp::new(
+                        operator.expression(left.clone(), right),
+                        wrapper.expression.metadata().clone(),
+                    )),
+                    (None, _) => None,
+                    (Some(_), None) => return Err(EvaluationError::MissingDebugExpression),
+                };
+                finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+            }
+            OwnedEvaluationReturnFrame::StrictLeft { wrapper, right } => {
+                let operator = owned_strict_binary(&wrapper.expression)
+                    .expect("strict operator frame")
+                    .0;
+                if has_owned_asserting_path(right) && context.can_transfer_owned_asserting(&state) {
+                    let mut next = Vec::with_capacity(frames.len() - index);
+                    next.push(OwnedEvaluationReturnFrame::StrictRight {
+                        wrapper: wrapper.clone(),
+                        left: term,
+                        left_debug: debug,
+                    });
+                    next.extend_from_slice(&frames[index + 1..]);
+                    return evaluate_owned_nested(context, state, right, error, receiver, next);
+                }
+                return evaluate(
+                    context,
+                    state,
+                    right,
+                    error,
+                    &mut |context, mut state, right_term, right_debug| {
+                        let value = operator.build(context.factory(), term.clone(), right_term);
+                        let rebuilt = match (&debug, right_debug) {
+                            (Some(left), Some(right)) => Some(Exp::new(
+                                operator.expression(left.clone(), right),
+                                wrapper.expression.metadata().clone(),
+                            )),
+                            (None, _) => None,
+                            (Some(_), None) => return Err(EvaluationError::MissingDebugExpression),
+                        };
+                        finish_owned_wrapper::<C, P, D, J, V>(
+                            context, &mut state, wrapper, &value,
+                        )?;
+                        resume_owned_return_frames(
+                            context,
+                            state,
+                            value,
+                            rebuilt,
+                            &frames[index + 1..],
+                            error,
+                            receiver,
+                        )
+                    },
+                );
             }
             OwnedEvaluationReturnFrame::AddRight {
                 wrapper,

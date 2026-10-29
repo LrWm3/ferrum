@@ -12769,6 +12769,24 @@ where
                         super::verification_pool_manager::RETURN_ADD_RIGHT_EXECUTIONS
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
+                    if frame.return_frames.iter().any(|f| {
+                        matches!(
+                            f,
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::StrictLeft { .. }
+                        )
+                    }) {
+                        super::verification_pool_manager::RETURN_STRICT_LEFT_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if frame.return_frames.iter().any(|f| {
+                        matches!(
+                            f,
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::StrictRight { .. }
+                        )
+                    }) {
+                        super::verification_pool_manager::RETURN_STRICT_RIGHT_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
                     if frame.return_frames.len() >= 2 {
                         super::verification_pool_manager::NESTED_RETURN_EXECUTIONS
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);

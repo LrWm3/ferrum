@@ -1925,6 +1925,18 @@ pub(crate) static LOOP_PHASE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static LOOP_PHASE_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static RETURN_STRICT_LEFT_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static RETURN_STRICT_LEFT_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static RETURN_STRICT_RIGHT_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static RETURN_STRICT_RIGHT_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
 pub(crate) static RETURN_ADD_LEFT_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -2208,6 +2220,12 @@ where
                         }) {
                             RETURN_ADD_RIGHT_SUBMISSIONS
                                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if frame.return_frames.iter().any(|f| matches!(f, crate::rules::evaluator::OwnedEvaluationReturnFrame::StrictLeft { .. })) {
+                            RETURN_STRICT_LEFT_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if frame.return_frames.iter().any(|f| matches!(f, crate::rules::evaluator::OwnedEvaluationReturnFrame::StrictRight { .. })) {
+                            RETURN_STRICT_RIGHT_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         }
                         if frame.return_frames.len() >= 2 {
                             NESTED_RETURN_SUBMISSIONS
@@ -6105,6 +6123,78 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
             drop(context);
             let pool = std::rc::Rc::try_unwrap(pool).ok().unwrap().into_inner();
             assert!(pool.cancel_and_join().is_empty());
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_strict_operators() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int, q: Bool)
+  requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+  ensures acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+{
+  label L;
+  r := old(asserting (b ? acc(x.f) : acc(y.f)) in 7) - old[L](asserting (c ? acc(z.f) : acc(w.f)) in 4);
+  assert r == 3;
+  r := (asserting (b ? acc(x.f) : acc(y.f)) in 7) * (asserting (c ? acc(z.f) : acc(w.f)) in 4);
+  assert r == 28;
+  q := !((asserting (b ? acc(x.f) : acc(y.f)) in 7) == (asserting (c ? acc(z.f) : acc(w.f)) in 4));
+  assert q;
+  q := (asserting (b ? acc(x.f) : acc(y.f)) in 7) <= (asserting (c ? acc(z.f) : acc(w.f)) in 4); assert !q;
+  q := (asserting (b ? acc(x.f) : acc(y.f)) in 7) < (asserting (c ? acc(z.f) : acc(w.f)) in 4); assert !q;
+  q := (asserting (b ? acc(x.f) : acc(y.f)) in 7) >= (asserting (c ? acc(z.f) : acc(w.f)) in 4); assert q;
+  q := (asserting (b ? acc(x.f) : acc(y.f)) in 7) > (asserting (c ? acc(z.f) : acc(w.f)) in 4); assert q;
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before = [
+                RETURN_STRICT_LEFT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                RETURN_STRICT_RIGHT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                RETURN_STRICT_LEFT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                RETURN_STRICT_RIGHT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+            ];
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|value| **value).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            let after = [
+                RETURN_STRICT_LEFT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                RETURN_STRICT_RIGHT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                RETURN_STRICT_LEFT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                RETURN_STRICT_RIGHT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+            ];
+            assert!(
+                before
+                    .iter()
+                    .zip(after)
+                    .all(|(before, after)| after > *before),
+                "strict jobs did not run: {before:?} -> {after:?}"
+            );
         }
     }
 
