@@ -177,7 +177,7 @@ cancellation before removing their guard.
 | Inhale/exhale/assert (including disable-subsumption probes), method/call contracts, fold snapshots and statement unfold | Owned rule and caller frames |
 | Loop collection, establishment and backedges | Identified phase outputs and explicit consumption terminals |
 | Function preconditions and cached/uncached expression Unfolding | Owned snapshot/value receivers and identified join outputs |
-| Local assignment with Let, old/labelled-old, negation, addition, subtraction, multiplication, integer division/remainder, equality, inequality and ordered comparisons around Asserting | Composable owned return frames; both eligible strict operands can transfer |
+| Local assignment with field reads, Let, old/labelled-old, negation, addition, subtraction, multiplication, integer division/remainder, equality, inequality and ordered comparisons around Asserting | Composable owned return frames; both eligible strict operands can transfer |
 | Arbitrary nested value callbacks, other old-expression shapes and custom borrowed entry points | Safe synchronous fallback; not complete parallel source coverage |
 | Active member logs, extended exhale and packaging | Owned dispatch disabled; logger migration remains unfinished |
 
@@ -269,7 +269,7 @@ Strict operator returns reuse the ordinary evaluator term/debug constructors.
 Real one/two-worker checks observe both operand submissions and executions;
 source-matched permission failures check left-before-right order and that a
 failed right operand skips the captured tail. Short-circuit
-and conditional expressions, function/field/collection arguments still
+and conditional expressions, function/collection arguments still
 use local callbacks when their exact return action is not represented.
 
 Owned expression descent rechecks transfer eligibility at every subtree entry.
@@ -318,3 +318,13 @@ operands of each operator. CLI regressions check operand failure order, zero
 divisor errors skipping the caller tail at the default limit, and both divisor
 and tail errors under unlimited reporting. Debug reconstruction and retry levels
 above zero have source comparison but no dedicated runtime regression here.
+
+Field reads now retain an owned receiver return. A shared completion helper keeps
+the ordinary heap lookup, intermediate heap recording and debug labels in source
+order, followed by wrapper restoration and the exact caller continuation. Actual
+one/two-worker jobs cover historical/current values and resources; CLI failures
+check receiver assertions before the field read and field permissions before the
+caller tail. The sequential pinned Silicon reference agrees. Its parallel run of
+the positive fixture fails with a missing solver declaration, so that run is
+inconclusive. Field-specific debug and cancellation hooks are not independently
+exercised by these new fixtures.

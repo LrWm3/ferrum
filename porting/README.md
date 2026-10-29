@@ -1160,3 +1160,9 @@ Owned division/remainder returns retain the nonzero proof and error/continuation
 combination. Real one/two-worker tests prove both operand transfers for each
 operator; source-matched CLI regressions exercise permission ordering, default
 error stopping and unlimited reporting of the divisor plus caller-tail errors.
+
+Owned field receivers complete reads through a helper shared with the ordinary
+evaluator, preserving heap/debug actions and caller restoration. Actual
+one/two-worker and CLI regressions cover mixed old/current values, resources and
+receiver/read/tail failure order. Sequential pinned Silicon agrees; its parallel
+positive run has a solver declaration failure and is inconclusive.

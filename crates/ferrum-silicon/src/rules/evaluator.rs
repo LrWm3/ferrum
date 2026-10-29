@@ -160,6 +160,10 @@ pub struct OwnedOldValueFrame {
 pub enum OwnedEvaluationReturnFrame {
     Old(OwnedOldValueFrame),
     Asserting(OwnedValueWrapper),
+    FieldReceiver {
+        wrapper: OwnedValueWrapper,
+        record_heap: bool,
+    },
     LetValue(OwnedValueWrapper),
     LetBody {
         wrapper: OwnedValueWrapper,
@@ -959,6 +963,7 @@ enum OwnedPathStep {
     Old,
     Minus,
     Not,
+    FieldReceiver,
     LetValue,
     LetBody,
     AddLeft,
@@ -1000,6 +1005,10 @@ fn owned_asserting_path(expression: &Exp) -> Option<Vec<OwnedPathStep>> {
                         work.push(Work::Visit(body, Some(OwnedPathStep::Minus)))
                     }
                     ExpKind::Not(body) => work.push(Work::Visit(body, Some(OwnedPathStep::Not))),
+                    ExpKind::FieldAccess(access) => work.push(Work::Visit(
+                        &access.receiver,
+                        Some(OwnedPathStep::FieldReceiver),
+                    )),
                     ExpKind::Let(_, value, body) => {
                         work.push(Work::Visit(body, Some(OwnedPathStep::LetBody)));
                         work.push(Work::Visit(value, Some(OwnedPathStep::LetValue)));
@@ -1028,6 +1037,7 @@ pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
         | ExpKind::DebugLabelledOld(body, _)
         | ExpKind::Minus(body)
         | ExpKind::Not(body) => has_owned_asserting_path(body),
+        ExpKind::FieldAccess(access) => has_owned_asserting_path(&access.receiver),
         ExpKind::Let(_, value, body) => {
             has_owned_asserting_path(value) || has_owned_asserting_path(body)
         }
@@ -1212,6 +1222,22 @@ where
         (ExpKind::Not(body), OwnedPathStep::Not) => {
             frames.push(OwnedEvaluationReturnFrame::Not(wrapper));
             evaluate_owned_planned(context, state, body, error, receiver, rest, frames)
+        }
+        (ExpKind::FieldAccess(access), OwnedPathStep::FieldReceiver) => {
+            let record_heap = context.debugging() && state.temporary_heap_record.is_some();
+            frames.push(OwnedEvaluationReturnFrame::FieldReceiver {
+                wrapper,
+                record_heap,
+            });
+            evaluate_owned_planned(
+                context,
+                state,
+                &access.receiver,
+                error,
+                receiver,
+                rest,
+                frames,
+            )
         }
         (ExpKind::Let(_, value, _), OwnedPathStep::LetValue) => {
             frames.push(OwnedEvaluationReturnFrame::LetValue(wrapper));
@@ -1514,6 +1540,34 @@ where
                 context
                     .close_evaluation_scope(None)
                     .map_err(EvaluationError::Context)?;
+            }
+            OwnedEvaluationReturnFrame::FieldReceiver {
+                wrapper,
+                record_heap,
+            } => {
+                return finish_field_receiver(
+                    context,
+                    state,
+                    &wrapper.expression,
+                    error,
+                    &term,
+                    debug.as_ref(),
+                    *record_heap,
+                    &mut |context, mut state, value, rebuilt| {
+                        finish_owned_wrapper::<C, P, D, J, V>(
+                            context, &mut state, wrapper, &value,
+                        )?;
+                        resume_owned_return_frames(
+                            context,
+                            state,
+                            value,
+                            rebuilt,
+                            &frames[..index],
+                            error,
+                            receiver,
+                        )
+                    },
+                );
             }
             OwnedEvaluationReturnFrame::LetValue(wrapper) => {
                 return resume_owned_let_value(
@@ -2284,6 +2338,78 @@ where
     )
 }
 
+/// Finish a field read after its receiver has been evaluated, shared by borrowed
+/// and owned return paths so heap recording and debug labels stay identical.
+fn finish_field_receiver<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    receiver: &Term,
+    receiver_exp: Option<&Exp>,
+    record_heap: bool,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let ExpKind::FieldAccess(access) = expression.kind() else {
+        unreachable!("field receiver")
+    };
+    let is_old = state.is_eval_in_old;
+    context.eval_field_access(
+        state,
+        access,
+        receiver,
+        receiver_exp,
+        error,
+        &mut |context, state, snapshot| {
+            let state = if record_heap {
+                context
+                    .record_intermediate_heap(state, expression)
+                    .map_err(EvaluationError::Context)?
+            } else {
+                state
+            };
+            let debug = if context.debugging() {
+                let label = context
+                    .debug_old_label(&state, &expression.metadata().position)
+                    .map_err(EvaluationError::Context)?;
+                let receiver = receiver_exp
+                    .cloned()
+                    .ok_or(EvaluationError::MissingDebugExpression)?;
+                let field_meta = if is_old {
+                    expression.metadata().clone()
+                } else {
+                    Default::default()
+                };
+                let field = ferrum_silver::ast::expression::FieldAccess::new(
+                    receiver,
+                    access.field.clone(),
+                    field_meta.clone(),
+                );
+                let field = Exp::new(ExpKind::FieldAccess(field), field_meta);
+                if is_old {
+                    Some(field)
+                } else {
+                    Some(Exp::new(
+                        ExpKind::DebugLabelledOld(field, label),
+                        expression.metadata().clone(),
+                    ))
+                }
+            } else {
+                None
+            };
+            continuation(context, state, snapshot, debug)
+        },
+    )
+}
+
 #[inline(never)]
 fn evaluate_heap_access_family<C, P, D, J: Clone, V>(
     context: &mut C,
@@ -2310,52 +2436,15 @@ where
             &access.receiver,
             error,
             &mut |context, state, receiver, receiver_exp| {
-                let is_old = state.is_eval_in_old;
-                context.eval_field_access(
+                finish_field_receiver(
+                    context,
                     state,
-                    access,
+                    expression,
+                    error,
                     &receiver,
                     receiver_exp.as_ref(),
-                    error,
-                    &mut |context, state, snapshot| {
-                        let state = if record_heap {
-                            context
-                                .record_intermediate_heap(state, expression)
-                                .map_err(EvaluationError::Context)?
-                        } else {
-                            state
-                        };
-                        let debug = if context.debugging() {
-                            let label = context
-                                .debug_old_label(&state, &expression.metadata().position)
-                                .map_err(EvaluationError::Context)?;
-                            let receiver = receiver_exp
-                                .clone()
-                                .ok_or(EvaluationError::MissingDebugExpression)?;
-                            let field_meta = if is_old {
-                                expression.metadata().clone()
-                            } else {
-                                Default::default()
-                            };
-                            let field = ferrum_silver::ast::expression::FieldAccess::new(
-                                receiver,
-                                access.field.clone(),
-                                field_meta.clone(),
-                            );
-                            let field = Exp::new(ExpKind::FieldAccess(field), field_meta);
-                            if is_old {
-                                Some(field)
-                            } else {
-                                Some(Exp::new(
-                                    ExpKind::DebugLabelledOld(field, label),
-                                    expression.metadata().clone(),
-                                ))
-                            }
-                        } else {
-                            None
-                        };
-                        continuation(context, state, snapshot, debug)
-                    },
+                    record_heap,
+                    continuation,
                 )
             },
         );

@@ -298,3 +298,41 @@ method bad(x: Ref, y: Ref, w: Ref, b: Bool, c: Bool) returns (r: Bool)
         assert!(!stderr.contains("assertion.false"), "{stderr}");
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn field_receiver_failure_precedes_read_and_tail() {
+    let source = r#"field f: Int
+method bad(x: Ref, b: Bool) returns (r: Int) {
+  r := (asserting (b ? false : false) in x).f;
+  assert false;
+}
+"#;
+    for workers in ["1", "2"] {
+        let output = run(source, workers);
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("assertion.false"), "{stderr}");
+        assert!(!stderr.contains("insufficient.permission"), "{stderr}");
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn field_read_failure_skips_caller_tail() {
+    let source = r#"field f: Int
+method bad(x: Ref, y: Ref, z: Ref, b: Bool) returns (r: Int)
+ requires x != z && y != z && acc(x.f) && acc(y.f)
+{
+  r := (asserting (b ? acc(x.f) : acc(y.f)) in z).f;
+  assert false;
+}
+"#;
+    for workers in ["1", "2"] {
+        let output = run(source, workers);
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("insufficient.permission"), "{stderr}");
+        assert!(!stderr.contains("assertion.false"), "{stderr}");
+    }
+}

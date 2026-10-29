@@ -1961,6 +1961,12 @@ pub(crate) static NESTED_RETURN_SUBMISSIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static NESTED_RETURN_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static FIELD_RECEIVER_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static FIELD_RECEIVER_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
 pub(crate) static LET_RECEIVER_CANCEL_HOOKS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -2275,6 +2281,9 @@ where
                             )
                         }) {
                             LET_BODY_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if frame.return_frames.iter().any(|f| matches!(f, crate::rules::evaluator::OwnedEvaluationReturnFrame::FieldReceiver { .. })) {
+                            FIELD_RECEIVER_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         }
                         if frame.return_frames.len() >= 2 {
                             NESTED_RETURN_SUBMISSIONS
@@ -6215,6 +6224,58 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
             drop(context);
             let pool = std::rc::Rc::try_unwrap(pool).ok().unwrap().into_inner();
             assert!(pool.cancel_and_join().is_empty());
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_field_receiver() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(b: Bool, x: Ref, y: Ref) returns (r: Int)
+ requires acc(x.f) && acc(y.f) && x.f == 7 && y.f == 8
+ ensures acc(x.f) && acc(y.f) && x.f == 11 && r == (b ? 7 : 8) + (b ? 11 : 8)
+{
+ label L; x.f := 11;
+ r := old[L]((asserting (b ? acc(x.f) : acc(y.f)) in (b ? x : y)).f)
+      + (asserting (b ? acc(x.f) : acc(y.f)) in (b ? x : y)).f;
+ assert x.f == 11;
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let submitted = FIELD_RECEIVER_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed = FIELD_RECEIVER_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            assert!(
+                FIELD_RECEIVER_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > submitted
+            );
+            assert!(FIELD_RECEIVER_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed);
         }
     }
 

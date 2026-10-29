@@ -12871,6 +12871,9 @@ where
                         super::verification_pool_manager::LET_BODY_EXECUTIONS
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
+                    if frame.return_frames.iter().any(|f| matches!(f, crate::rules::evaluator::OwnedEvaluationReturnFrame::FieldReceiver { .. })) {
+                        super::verification_pool_manager::FIELD_RECEIVER_EXECUTIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
                     if frame.return_frames.len() >= 2 {
                         super::verification_pool_manager::NESTED_RETURN_EXECUTIONS
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
