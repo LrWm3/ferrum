@@ -689,6 +689,29 @@ impl FrontendPhases for SilFrontendPhases {
             diagnostics.extend(fallback_errors);
             diagnostics
         });
+        if !self.respect_function_pre_perm_amounts {
+            let messages = resolver::function_permission_warnings(&input).map_err(|e| {
+                Self::failure(
+                    format!("function permission warnings: {e:?}"),
+                    Self::program_position(&input),
+                )
+            })?;
+            self.typechecking_warnings
+                .extend(messages.into_iter().map(|message| {
+                    FrontendError::new(
+                        FrontendErrorKind::TypecheckerWarning(message.label),
+                        Position::LineColumn(LineColumn::Source(Box::new(message.pos))),
+                    )
+                }));
+            self.typechecking_warnings.sort_by_key(|warning| {
+                warning
+                    .position
+                    .line_column()
+                    .map(|p| (p.line(), p.column()))
+                    .unwrap_or((-1, -1))
+            });
+            self.typechecking_warnings.dedup();
+        }
         if !self.report_typechecking_warnings() {
             return Err(vec![]);
         }
@@ -1037,6 +1060,27 @@ impl FrontendPhases for SilFrontendPhases {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn function_permission_warnings_survive_other_type_errors_but_not_invalid_access() {
+        use super::*;
+        for (source, expected) in [
+            (
+                "field f: Int\nfunction read(r: Ref): Int requires acc(r.f, write) && bad\n",
+                1,
+            ),
+            (
+                "function read(r: Ref): Int requires acc(r.missing, write)\n",
+                0,
+            ),
+        ] {
+            let mut phases =
+                SilFrontendPhases::new("test.vpr".into(), SilverPluginManager::default());
+            let parsed = phases.parse(source).unwrap();
+            assert!(phases.analyze(parsed).is_err());
+            let warnings: Vec<_> = phases.typechecking_warnings.iter().filter(|w| matches!(&w.kind, FrontendErrorKind::TypecheckerWarning(message) if message.starts_with("Function contains specific permission amount"))).collect();
+            assert_eq!(warnings.len(), expected, "{warnings:?}");
+        }
+    }
     use super::*;
     #[test]
     fn consistency_renders_statement_in_formal_reassignment_error() {

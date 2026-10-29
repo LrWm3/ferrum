@@ -2291,6 +2291,80 @@ fn check_program_expression(
 ) -> Result<PTypeHandle, TypeCheckError> {
     check_top_expression(input, expected, warn)
 }
+
+/// Warnings emitted by source typechecking for explicit function permissions.
+/// Traverse in postorder, matching the source operator's child-first checking.
+pub fn function_permission_warnings(
+    program: &super::parse_ast::PProgramHandle,
+) -> Result<super::fast_message::Messages, TypeCheckError> {
+    fn specific(exp: &PExpHandle) -> bool {
+        match &exp.node().read().expect("poisoned parse node").kind {
+            PNodeKind::Expression(expression) => match &expression.kind {
+                PExpressionKind::Wildcard(_) | PExpressionKind::NoPerm(_) => false,
+                PExpressionKind::CondExp { thn, els, .. } => specific(thn) || specific(els),
+                _ => true,
+            },
+            _ => true,
+        }
+    }
+    fn visit(
+        node: &PNodeHandle,
+        out: &mut super::fast_message::Messages,
+    ) -> Result<(), TypeCheckError> {
+        // The source typechecker changes curMember to these nested scopes,
+        // so their contents no longer satisfy curMember.isInstanceOf[PFunction].
+        if matches!(
+            &node.read().expect("poisoned parse node").kind,
+            PNodeKind::Expression(super::parse_ast::PExpression {
+                kind: PExpressionKind::Forall(_)
+                    | PExpressionKind::Exists(_)
+                    | PExpressionKind::ForPerm { .. }
+                    | PExpressionKind::Let { .. },
+                ..
+            })
+        ) {
+            return Ok(());
+        }
+        for child in subnodes(node)
+            .map_err(|_| TypeCheckError::Unsupported("function permission warning traversal"))?
+        {
+            visit(&child, out)?;
+        }
+        let kind = node.read().expect("poisoned parse node").kind.clone();
+        if let PNodeKind::Expression(super::parse_ast::PExpression {
+            kind: PExpressionKind::AccPred { amount, .. },
+            ..
+        }) = kind
+        {
+            if let Some((_, permission)) = amount.inner().second() {
+                let valid = |exp: &PExpHandle| {
+                    matches!(&exp.node().read().expect("poisoned parse node").kind,
+                    PNodeKind::Expression(e) if e.typ.is_valid_or_undeclared())
+                };
+                if valid(amount.inner().first()) && valid(permission) && specific(permission) {
+                    out.extend(super::fast_message::message_for_node(permission.node(),
+                        "Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise.", true, false)
+                        .map_err(|_| TypeCheckError::Unsupported("function permission warning position"))?);
+                }
+            }
+        }
+        Ok(())
+    }
+    let mut result = Vec::new();
+    for member in program.all_members() {
+        let is_function = matches!(
+            &member.node().read().expect("poisoned parse node").kind,
+            PNodeKind::Member(PMember {
+                kind: PMemberKind::Function { .. },
+                ..
+            })
+        );
+        if is_function {
+            visit(member.node(), &mut result)?;
+        }
+    }
+    Ok(super::fast_message::sortmessages(result))
+}
 /// Source restrictions on permissions in specifications and wands in function
 /// preconditions/predicate bodies. Inhale-exhale nodes shield their children only
 /// for the specification permission check, not for the separate wand check.
