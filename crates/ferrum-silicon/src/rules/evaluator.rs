@@ -160,6 +160,13 @@ pub struct OwnedOldValueFrame {
 pub enum OwnedEvaluationReturnFrame {
     Old(OwnedOldValueFrame),
     Asserting(OwnedValueWrapper),
+    DomainArg {
+        wrapper: OwnedValueWrapper,
+        function: ferrum_silver::ast::program::DomainFunc,
+        index: usize,
+        terms: Vec<Term>,
+        debug_args: Vec<Option<Exp>>,
+    },
     FieldReceiver {
         wrapper: OwnedValueWrapper,
         record_heap: bool,
@@ -966,6 +973,7 @@ enum OwnedPathStep {
     FieldReceiver,
     LetValue,
     LetBody,
+    DomainArg(usize),
     AddLeft,
     AddRight,
     StrictLeft,
@@ -1009,6 +1017,11 @@ fn owned_asserting_path(expression: &Exp) -> Option<Vec<OwnedPathStep>> {
                         &access.receiver,
                         Some(OwnedPathStep::FieldReceiver),
                     )),
+                    ExpKind::DomainFuncApp(_, args, _) | ExpKind::BackendFuncApp(_, args) => {
+                        for (index, arg) in args.iter().enumerate().rev() {
+                            work.push(Work::Visit(arg, Some(OwnedPathStep::DomainArg(index))));
+                        }
+                    }
                     ExpKind::Let(_, value, body) => {
                         work.push(Work::Visit(body, Some(OwnedPathStep::LetBody)));
                         work.push(Work::Visit(value, Some(OwnedPathStep::LetValue)));
@@ -1038,6 +1051,9 @@ pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
         | ExpKind::Minus(body)
         | ExpKind::Not(body) => has_owned_asserting_path(body),
         ExpKind::FieldAccess(access) => has_owned_asserting_path(&access.receiver),
+        ExpKind::DomainFuncApp(_, args, _) | ExpKind::BackendFuncApp(_, args) => {
+            args.iter().any(has_owned_asserting_path)
+        }
         ExpKind::Let(_, value, body) => {
             has_owned_asserting_path(value) || has_owned_asserting_path(body)
         }
@@ -1239,6 +1255,29 @@ where
                 frames,
             )
         }
+        (
+            ExpKind::DomainFuncApp(name, _, _) | ExpKind::BackendFuncApp(name, _),
+            OwnedPathStep::DomainArg(index),
+        ) => {
+            let function = state
+                .program
+                .find_domain_function_optionally(name)
+                .cloned()
+                .ok_or_else(|| EvaluationError::MissingDomainFunction(name.clone()))?;
+            evaluate_owned_domain_arguments(
+                context,
+                state,
+                &wrapper,
+                &function,
+                0,
+                Vec::new(),
+                Vec::new(),
+                &frames,
+                error,
+                receiver,
+                Some((*index, rest)),
+            )
+        }
         (ExpKind::Let(_, value, _), OwnedPathStep::LetValue) => {
             frames.push(OwnedEvaluationReturnFrame::LetValue(wrapper));
             evaluate_owned_planned(context, state, value, error, receiver, rest, frames)
@@ -1415,6 +1454,164 @@ pub(crate) fn test_capture_old_returns(enabled: bool) -> Vec<OldReturnSnapshot> 
     OLD_RETURN_SNAPSHOTS.with(|slot| slot.replace(enabled.then(Vec::new)).unwrap_or_default())
 }
 
+/// Complete a resolved domain/backend application after its arguments.
+fn complete_domain_application<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    function: &ferrum_silver::ast::program::DomainFunc,
+    terms: Vec<Term>,
+    debug_args: Option<Vec<Exp>>,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let (name, substitutions, backend) = match expression.kind() {
+        ExpKind::DomainFuncApp(name, _, substitutions) => (name, Some(substitutions), false),
+        ExpKind::BackendFuncApp(name, _) => (name, None, true),
+        _ => unreachable!("domain application frame"),
+    };
+    let argument_sorts: Vec<_> = terms.iter().map(|term| term.sort().clone()).collect();
+    let result_type = expression.typ().map_err(EvaluationError::ExpressionType)?;
+    let result_sort = context
+        .to_sort(&result_type)
+        .map_err(EvaluationError::Context)?;
+    let function = context
+        .domain_function(
+            function,
+            &state.program,
+            &argument_sorts,
+            &result_sort,
+            backend,
+        )
+        .map_err(EvaluationError::Context)?;
+    let term = context.factory().app(function, terms);
+    let debug = if context.debugging() {
+        let args = debug_args.ok_or(EvaluationError::MissingDebugExpression)?;
+        let kind = if backend {
+            ExpKind::BackendFuncApp(name.clone(), args)
+        } else {
+            ExpKind::DomainFuncApp(
+                name.clone(),
+                args,
+                substitutions.expect("domain substitutions").clone(),
+            )
+        };
+        Some(Exp::with_extra(
+            kind,
+            expression.metadata().clone(),
+            expression.0.extra.clone(),
+        ))
+    } else {
+        None
+    };
+    continuation(context, state, term, debug)
+}
+
+fn rebuild_domain_debug_arguments<E>(
+    debugging: bool,
+    values: Vec<Option<Exp>>,
+) -> Result<Option<Vec<Exp>>, EvaluationError<E>> {
+    let mut debug = debugging.then(Vec::new);
+    for value in values.into_iter().rev() {
+        debug = if let Some(value) = value {
+            let mut tail = debug.ok_or(EvaluationError::MissingDebugExpression)?;
+            tail.insert(0, value);
+            Some(tail)
+        } else {
+            None
+        };
+    }
+    Ok(debug)
+}
+
+/// Evaluate domain arguments left-to-right while retaining the complete prefix.
+fn evaluate_owned_domain_arguments<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    wrapper: &OwnedValueWrapper,
+    function: &ferrum_silver::ast::program::DomainFunc,
+    index: usize,
+    terms: Vec<Term>,
+    debug_args: Vec<Option<Exp>>,
+    frames: &[OwnedEvaluationReturnFrame],
+    error: &C::PartialError,
+    receiver: &crate::rules::executor::OwnedAssignmentValue,
+    selected: Option<(usize, &[OwnedPathStep])>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let args = match wrapper.expression.kind() {
+        ExpKind::DomainFuncApp(_, args, _) | ExpKind::BackendFuncApp(_, args) => args,
+        _ => unreachable!("domain argument frame"),
+    };
+    if index == args.len() {
+        let debug = rebuild_domain_debug_arguments(context.debugging(), debug_args)?;
+        return complete_domain_application(
+            context,
+            state,
+            &wrapper.expression,
+            function,
+            terms,
+            debug,
+            &mut |context, mut state, term, debug| {
+                finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+                resume_owned_return_frames(context, state, term, debug, frames, error, receiver)
+            },
+        );
+    }
+    let argument = &args[index];
+    let planned = match selected {
+        Some((target, path)) if target == index => Some(path.to_vec()),
+        Some(_) => None,
+        None if context.can_transfer_owned_asserting(&state) => owned_asserting_path(argument),
+        None => None,
+    };
+    if let Some(path) = planned {
+        let mut next = frames.to_vec();
+        next.push(OwnedEvaluationReturnFrame::DomainArg {
+            wrapper: wrapper.clone(),
+            function: function.clone(),
+            index,
+            terms,
+            debug_args,
+        });
+        return evaluate_owned_planned(context, state, argument, error, receiver, &path, next);
+    }
+    evaluate(
+        context,
+        state,
+        argument,
+        error,
+        &mut |context, state, term, debug| {
+            let mut next_terms = terms.clone();
+            next_terms.push(term);
+            let mut next_debug = debug_args.clone();
+            next_debug.push(debug);
+            evaluate_owned_domain_arguments(
+                context,
+                state,
+                wrapper,
+                function,
+                index + 1,
+                next_terms,
+                next_debug,
+                frames,
+                error,
+                receiver,
+                selected,
+            )
+        },
+    )
+}
+
 /// Bind a completed Let value, then evaluate its body with an owned return frame.
 fn resume_owned_let_value<C, P, D, J: Clone, V>(
     context: &mut C,
@@ -1572,6 +1769,31 @@ where
                             receiver,
                         )
                     },
+                );
+            }
+            OwnedEvaluationReturnFrame::DomainArg {
+                wrapper,
+                function,
+                index: argument_index,
+                terms,
+                debug_args,
+            } => {
+                let mut terms = terms.clone();
+                terms.push(term);
+                let mut debug_args = debug_args.clone();
+                debug_args.push(debug);
+                return evaluate_owned_domain_arguments(
+                    context,
+                    state,
+                    wrapper,
+                    function,
+                    argument_index + 1,
+                    terms,
+                    debug_args,
+                    &frames[..index],
+                    error,
+                    receiver,
+                    None,
                 );
             }
             OwnedEvaluationReturnFrame::LetValue(wrapper) => {
@@ -2900,7 +3122,7 @@ where
         ExpKind::BackendFuncApp(name, args) => Some((name, args, None, true)),
         _ => None,
     };
-    if let Some((name, args, substitutions, backend)) = domain_application {
+    if let Some((name, args, _, _)) = domain_application {
         let function = state
             .program
             .find_domain_function_optionally(name)
@@ -2912,44 +3134,19 @@ where
             args,
             &|_| error.clone(),
             &mut |context, state, terms, debug_args| {
-                let argument_sorts: Vec<_> = terms.iter().map(|t| t.sort().clone()).collect();
-                let result_type = expression.typ().map_err(EvaluationError::ExpressionType)?;
-                let result_sort = context
-                    .to_sort(&result_type)
-                    .map_err(EvaluationError::Context)?;
-                let function = context
-                    .domain_function(
-                        &function,
-                        &state.program,
-                        &argument_sorts,
-                        &result_sort,
-                        backend,
-                    )
-                    .map_err(EvaluationError::Context)?;
-                let term = factory.app(function, terms);
-                let debug = if context.debugging() {
-                    let args = debug_args.ok_or(EvaluationError::MissingDebugExpression)?;
-                    let kind = if backend {
-                        ExpKind::BackendFuncApp(name.clone(), args)
-                    } else {
-                        ExpKind::DomainFuncApp(
-                            name.clone(),
-                            args,
-                            substitutions.expect("domain substitutions").clone(),
-                        )
-                    };
-                    Some(Exp::with_extra(
-                        kind,
-                        expression.metadata().clone(),
-                        expression.0.extra.clone(),
-                    ))
-                } else {
-                    None
-                };
-                continuation(context, state, term, debug)
+                complete_domain_application(
+                    context,
+                    state,
+                    expression,
+                    &function,
+                    terms,
+                    debug_args,
+                    continuation,
+                )
             },
         );
     }
+
     if let ExpKind::Asserting(assertion, body) = expression.kind() {
         let original_store = state.g.clone();
         let original_heap = state.h.clone();
@@ -4344,6 +4541,29 @@ mod tests {
         ast::{Info, Metadata},
         position::{LineColumn, LineColumnPosition, Position, SourcePosition},
     };
+    #[test]
+    fn domain_debug_arguments_match_evaluate_all_option_order() {
+        let a = Exp::new(ExpKind::IntLit(1.into()), Default::default());
+        let b = Exp::new(ExpKind::IntLit(2.into()), Default::default());
+        let rebuild = |values| rebuild_domain_debug_arguments::<()>(true, values);
+        assert_eq!(
+            rebuild(vec![Some(a.clone()), Some(b.clone())]).unwrap(),
+            Some(vec![a.clone(), b.clone()])
+        );
+        assert_eq!(rebuild(vec![None, Some(b.clone())]).unwrap(), None);
+        assert!(matches!(
+            rebuild(vec![Some(a.clone()), None]),
+            Err(EvaluationError::MissingDebugExpression)
+        ));
+        assert!(matches!(
+            rebuild(vec![None, Some(a), None]),
+            Err(EvaluationError::MissingDebugExpression)
+        ));
+        assert_eq!(
+            rebuild_domain_debug_arguments::<()>(false, vec![]).unwrap(),
+            None
+        );
+    }
     #[test]
     fn selected_path_visits_deep_wrappers_once() {
         let yes = Exp::new(ExpKind::TrueLit, Default::default());

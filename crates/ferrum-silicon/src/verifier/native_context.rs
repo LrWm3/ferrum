@@ -12889,6 +12889,17 @@ where
                     if frame.return_frames.iter().any(|f| matches!(f, crate::rules::evaluator::OwnedEvaluationReturnFrame::FieldReceiver { .. })) {
                         super::verification_pool_manager::FIELD_RECEIVER_EXECUTIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
+                    for argument in frame.return_frames.iter().filter_map(|f| match f {
+                        crate::rules::evaluator::OwnedEvaluationReturnFrame::DomainArg {
+                            index,
+                            ..
+                        } => Some(*index),
+                        _ => None,
+                    }) {
+                        super::verification_pool_manager::DOMAIN_ARG_EXECUTIONS
+                            [usize::from(argument != 0)]
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
                     if frame.return_frames.len() >= 2 {
                         super::verification_pool_manager::NESTED_RETURN_EXECUTIONS
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -27756,6 +27767,56 @@ mod queued_cfg_isolation_tests {
             source.context.evaluator_debug_for_test = false;
         }
         source.context.base.decider.pop_scope().unwrap();
+        // Synthetic unresolved domain application: resolver failure must precede
+        // evaluating the asserting argument or submitting any continuation.
+        {
+            let waited = std::rc::Rc::new(std::cell::Cell::new(0));
+            let capture = std::rc::Rc::new(std::cell::RefCell::new(None));
+            source.context.joined_branch_scheduler_enabled = true;
+            source.context.joined_branch_scheduler = Some(std::rc::Rc::new(OldProbe {
+                waited: waited.clone(),
+                cancellation: None,
+                kind: 0,
+                capture: Some(capture.clone()),
+            }));
+            let arg = Exp::new(
+                ExpKind::Asserting(
+                    Exp::new(ExpKind::FalseLit, Default::default()),
+                    Exp::new(ExpKind::IntLit(1.into()), Default::default()),
+                ),
+                Default::default(),
+            );
+            let rhs = Exp::new(
+                ExpKind::DomainFuncApp(
+                    "missing_domain_function".into(),
+                    vec![arg],
+                    Default::default(),
+                ),
+                Default::default(),
+            );
+            let mut input = state.clone();
+            input.under_join = false;
+            input.parallelize_branches = true;
+            input.method_cfg = Some(Arc::new(cfg.clone()));
+            let mut recv = receiver.clone();
+            recv.rhs = rhs.clone();
+            let result = crate::rules::evaluator::evaluate_owned_nested(
+                &mut source.context,
+                input,
+                &rhs,
+                &partial,
+                &recv,
+                vec![],
+            );
+            assert!(
+                matches!(result, Err(EvaluationError::MissingDomainFunction(ref name)) if name == "missing_domain_function")
+            );
+            assert_eq!(waited.get(), 0);
+            assert!(
+                capture.borrow().is_none(),
+                "argument must not be evaluated after resolution fails"
+            );
+        }
         // Capture a real AssertProbe consumption job using the same source Q.
         let captured_probe = std::rc::Rc::new(std::cell::RefCell::new(None));
         let waited = std::rc::Rc::new(std::cell::Cell::new(0));

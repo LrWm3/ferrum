@@ -177,7 +177,7 @@ cancellation before removing their guard.
 | Inhale/exhale/assert (including disable-subsumption probes), method/call contracts, fold snapshots and statement unfold | Owned rule and caller frames |
 | Loop collection, establishment and backedges | Identified phase outputs and explicit consumption terminals |
 | Function preconditions and cached/uncached expression Unfolding | Owned snapshot/value receivers and identified join outputs |
-| Local assignment with field reads, Let, old/labelled-old, negation, addition, subtraction, multiplication, integer division/remainder, equality, inequality and ordered comparisons around Asserting | Composable owned return frames; both eligible strict operands can transfer |
+| Assignment values with field reads, Let, old/labelled-old, strict operators and domain/backend arguments around Asserting | Composable owned return frames; both eligible strict operands can transfer |
 | Arbitrary nested value callbacks, other old-expression shapes and custom borrowed entry points | Safe synchronous fallback; not complete parallel source coverage |
 | Active member logs, extended exhale and packaging | Owned dispatch disabled; logger migration remains unfinished |
 
@@ -269,7 +269,7 @@ Strict operator returns reuse the ordinary evaluator term/debug constructors.
 Real one/two-worker checks observe both operand submissions and executions;
 source-matched permission failures check left-before-right order and that a
 failed right operand skips the captured tail. Short-circuit
-and conditional expressions, function/collection arguments still
+and conditional expressions, ordinary function/collection arguments still
 use local callbacks when their exact return action is not represented.
 
 Owned expression descent rechecks transfer eligibility at every subtree entry.
@@ -330,3 +330,12 @@ caller tail. The sequential pinned Silicon reference agrees. Its parallel run of
 the positive fixture fails with a missing solver declaration, so that run is
 inconclusive. Field-specific debug and cancellation hooks are not independently
 exercised by these new fixtures.
+
+Domain/backend function arguments retain their ordered value/debug prefix and
+resolved declaration in an owned return frame. Actual one/two-worker tests cover
+first/later arguments and an initial synchronous prefix, with CLI controls for
+argument failure order and skipped caller tails. A shared completion helper keeps
+ordinary term/debug construction. The synthetic unresolved-function check follows
+current Rust resolution-before-arguments order; pinned Scala resolves afterward.
+Valid frontend inputs resolve these names before verification. Ordinary function
+applications and CurrentPerm arguments remain separate receiver families.

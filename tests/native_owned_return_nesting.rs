@@ -336,3 +336,40 @@ method bad(x: Ref, y: Ref, z: Ref, b: Bool) returns (r: Int)
         assert!(!stderr.contains("assertion.false"), "{stderr}");
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn domain_argument_failure_order_and_tail() {
+    for (declaration, name) in [
+        ("domain D { function f(a: Int, b: Int): Int }", "f"),
+        (
+            "domain Ops { function sum(a: Int, b: Int): Int interpretation \"+\" }",
+            "sum",
+        ),
+    ] {
+        let first = format!(
+            r#"{declaration}
+field val: Int
+method bad(x: Ref, y: Ref, b: Bool, c: Bool) returns (r: Int) requires x != y
+{{ r := {name}((asserting (b ? acc(x.val) : acc(y.val)) in 1), (asserting (c ? false : false) in 2)); }}
+"#
+        );
+        let later = format!(
+            r#"{declaration}
+field val: Int
+method bad(x: Ref, y: Ref, w: Ref, b: Bool, c: Bool) returns (r: Int)
+ requires w != x && w != y && acc(x.val) && acc(y.val)
+{{ r := {name}((asserting (b ? acc(x.val) : acc(y.val)) in 1), (asserting (c ? acc(w.val) : acc(w.val)) in 2)); assert false; }}
+"#
+        );
+        for source in [&first, &later] {
+            for workers in ["1", "2"] {
+                let output = run(source, workers);
+                assert!(!output.status.success());
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                assert!(stderr.contains("insufficient.permission"), "{stderr}");
+                assert!(!stderr.contains("assertion.false"), "{stderr}");
+            }
+        }
+    }
+}

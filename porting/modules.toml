@@ -1647,7 +1647,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Evaluator.scala"
 destination = "crates/ferrum-silicon/src/rules/evaluator.rs"
 status = "skeleton"
-remaining = ["Owned function snapshots, Unfolding collectors, nested asserting bodies and Let/old/strict-operator assignment return frames run worker branches. Other expression receiver families, full diagnostics and broader compatibility remain."]
+remaining = ["Owned function snapshots, Unfolding collectors, nested asserting bodies and Let/old/strict-operator/field/domain-argument assignment return frames run worker branches. Other expression receiver families, full diagnostics and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"

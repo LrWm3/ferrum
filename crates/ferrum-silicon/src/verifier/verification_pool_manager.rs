@@ -1970,6 +1970,12 @@ pub(crate) static FIELD_RECEIVER_EXECUTIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static LET_RECEIVER_CANCEL_HOOKS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static DOMAIN_ARG_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 2] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
+#[cfg(test)]
+pub(crate) static DOMAIN_ARG_EXECUTIONS: [std::sync::atomic::AtomicUsize; 2] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
+#[cfg(test)]
 pub(crate) static LET_VALUE_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -2284,6 +2290,16 @@ where
                         }
                         if frame.return_frames.iter().any(|f| matches!(f, crate::rules::evaluator::OwnedEvaluationReturnFrame::FieldReceiver { .. })) {
                             FIELD_RECEIVER_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        for argument in frame.return_frames.iter().filter_map(|f| match f {
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::DomainArg {
+                                index,
+                                ..
+                            } => Some(*index),
+                            _ => None,
+                        }) {
+                            DOMAIN_ARG_SUBMISSIONS[usize::from(argument != 0)]
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         }
                         if frame.return_frames.len() >= 2 {
                             NESTED_RETURN_SUBMISSIONS
@@ -6429,6 +6445,141 @@ method bad() { assert false; }
                     && after[1] - before[1] > after[3] - before[3],
                 "outer jobs did not execute: {before:?} -> {after:?}"
             );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_domain_later_argument_only() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let sources = [
+            r#"// owned_return_tail_check
+domain D { function f(a: Int, b: Int): Int }
+field val: Int
+method good(c: Bool, z: Ref, w: Ref) returns (r: Int)
+ requires acc(z.val) && acc(w.val) ensures r == f(7, 2)
+{ r := f(7, (asserting (c ? acc(z.val) : acc(w.val)) in 2)); }
+method bad() { assert false; }
+"#,
+            r#"// owned_return_tail_check
+domain Ops { function sum(a: Int, b: Int): Int interpretation "+" }
+field val: Int
+method good(c: Bool, z: Ref, w: Ref) returns (r: Int)
+ requires acc(z.val) && acc(w.val) ensures r == 9
+{ r := sum(7, (asserting (c ? acc(z.val) : acc(w.val)) in 2)); }
+method bad() { assert false; }
+"#,
+        ];
+        for source in sources {
+            for workers in [1, 2] {
+                let submitted = DOMAIN_ARG_SUBMISSIONS[1].load(std::sync::atomic::Ordering::SeqCst);
+                let executed = DOMAIN_ARG_EXECUTIONS[1].load(std::sync::atomic::Ordering::SeqCst);
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(
+                    fatal.iter().filter(|v| **v).count(),
+                    1,
+                    "workers={workers}: {fatal:?}"
+                );
+                assert!(
+                    DOMAIN_ARG_SUBMISSIONS[1].load(std::sync::atomic::Ordering::SeqCst) > submitted
+                );
+                assert!(
+                    DOMAIN_ARG_EXECUTIONS[1].load(std::sync::atomic::Ordering::SeqCst) > executed
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_domain_and_backend_arguments() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let sources = [
+            r#"// owned_return_tail_check
+domain D { function f(a: Int, b: Int): Int }
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val) && r == f(1, 2)
+{ r := f((asserting (b ? acc(x.val) : acc(y.val)) in 1), (asserting (c ? acc(z.val) : acc(w.val)) in 2)); }
+method bad() { assert false; }
+"#,
+            r#"// owned_return_tail_check
+domain Ops { function sum(a: Int, b: Int): Int interpretation "+" }
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val) && r == 3
+{ r := sum((asserting (b ? acc(x.val) : acc(y.val)) in 1), (asserting (c ? acc(z.val) : acc(w.val)) in 2)); }
+method bad() { assert false; }
+"#,
+        ];
+        for source in sources {
+            for workers in [1, 2] {
+                let before = [
+                    DOMAIN_ARG_SUBMISSIONS[0].load(std::sync::atomic::Ordering::SeqCst),
+                    DOMAIN_ARG_EXECUTIONS[0].load(std::sync::atomic::Ordering::SeqCst),
+                    DOMAIN_ARG_SUBMISSIONS[1].load(std::sync::atomic::Ordering::SeqCst),
+                    DOMAIN_ARG_EXECUTIONS[1].load(std::sync::atomic::Ordering::SeqCst),
+                ];
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(
+                    fatal.iter().filter(|v| **v).count(),
+                    1,
+                    "workers={workers}: {fatal:?}"
+                );
+                let after = [
+                    DOMAIN_ARG_SUBMISSIONS[0].load(std::sync::atomic::Ordering::SeqCst),
+                    DOMAIN_ARG_EXECUTIONS[0].load(std::sync::atomic::Ordering::SeqCst),
+                    DOMAIN_ARG_SUBMISSIONS[1].load(std::sync::atomic::Ordering::SeqCst),
+                    DOMAIN_ARG_EXECUTIONS[1].load(std::sync::atomic::Ordering::SeqCst),
+                ];
+                assert!(
+                    before
+                        .iter()
+                        .zip(after)
+                        .all(|(before, after)| after > *before),
+                    "domain argument jobs did not run: {before:?} -> {after:?}"
+                );
+            }
         }
     }
 

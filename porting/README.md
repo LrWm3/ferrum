@@ -1187,3 +1187,9 @@ Real-Z3 checks cover positions, event order, repeated resets and reporter
 rejection; a direct check retains the structural native Reporter error. Worker
 delivery with parallel branching enabled is exercised, without claiming that
 a specific captured branch was submitted or executed.
+
+Owned domain/backend function arguments retain ordered values and debug options
+through worker transfers. Actual one/two-worker, failure-order and skipped-tail
+checks pass, with shared ordinary completion. An invalid internal-AST name lookup
+check preserves current Rust ordering, which differs from Scala; valid frontend
+programs resolve the declaration before verification.
