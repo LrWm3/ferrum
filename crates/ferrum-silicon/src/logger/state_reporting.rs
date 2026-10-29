@@ -539,6 +539,9 @@ impl ScheduledStateReporter {
             let interval = std::time::Duration::from_millis(registry.poll_interval_ms as u64);
             let spawned = std::thread::Builder::new()
                 .name("silicon-state-reporter".into())
+                // The source launcher supplies -Xss128m and this thread traverses
+                // the same recursive state/AST structures as verification workers.
+                .stack_size(128 * 1024 * 1024)
                 .spawn(move || {
                     loop {
                         match receiver.recv_timeout(interval) {

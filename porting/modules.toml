@@ -2608,3 +2608,8 @@ remaining = ["Lazy member and actual contributor traces are connected with docum
 destination = "crates/ferrum-silicon/src/logger/run_owner.rs"
 status = "skeleton"
 remaining = ["Explicit run ownership, worker attachment and timeout reuse are connected. Native statistics formatting is a documented adaptation; public configuration remains incomplete."]
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/tests/state_report_stack.rs"
+status = "wired"
+role = "assembly"

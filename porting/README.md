@@ -881,3 +881,11 @@ snapshots and expression result collectors. See [continuations.md](continuations
 for exact coverage, safe synchronous fallbacks and cleanup behavior. Earlier
 progress entries describing a blanket public gate are superseded by this change.
 No comparative speedup has been measured; diagnostics work remains separate.
+
+Diagnostics resumed with a reporter-thread stack overflow found while rendering
+a stalled verification. The reporter now reserves the same 128 MiB stack as the
+verification workers and pinned JVM launcher. A real-Z3 integration regression
+holds a query during nested evaluation until the actual state callback releases
+it, checks reporter-error delivery and shuts down the solver. The same fixture
+aborts with the former default stack and passes with the explicit stack size.
+Public advanced logging and state-report configuration remain gated.
