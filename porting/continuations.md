@@ -177,7 +177,7 @@ cancellation before removing their guard.
 | Inhale/exhale/assert (including disable-subsumption probes), method/call contracts, fold snapshots and statement unfold | Owned rule and caller frames |
 | Loop collection, establishment and backedges | Identified phase outputs and explicit consumption terminals |
 | Function preconditions and cached/uncached expression Unfolding | Owned snapshot/value receivers and identified join outputs |
-| Local assignment with Let, old/labelled-old, negation, addition, subtraction, multiplication, equality, inequality and ordered comparisons around Asserting | Composable owned return frames; both eligible strict operands can transfer |
+| Local assignment with Let, old/labelled-old, negation, addition, subtraction, multiplication, integer division/remainder, equality, inequality and ordered comparisons around Asserting | Composable owned return frames; both eligible strict operands can transfer |
 | Arbitrary nested value callbacks, other old-expression shapes and custom borrowed entry points | Safe synchronous fallback; not complete parallel source coverage |
 | Active member logs, extended exhale and packaging | Owned dispatch disabled; logger migration remains unfinished |
 
@@ -216,7 +216,7 @@ real simultaneous parent/child execution at every cancellation boundary.
 The assignment receiver now carries an immutable vector of typed return frames,
 stored outermost first and resumed from the end. Frames represent asserting-body
 returns, old/labelled-old, integer and Boolean negation, addition,
-subtraction, multiplication, equality, inequality and ordered comparisons. Supported
+subtraction, multiplication, integer division/remainder, equality, inequality and ordered comparisons. Supported
 wrapper chains can compose around Asserting while retaining each evaluator entry
 and return action. Addition evaluates its left operand first, then transfers an eligible right
 operand with the left value and remaining return frames retained. Each transfer
@@ -268,7 +268,7 @@ review; uninspected code is not claimed to have exhaustive error-path coverage.
 Strict operator returns reuse the ordinary evaluator term/debug constructors.
 Real one/two-worker checks observe both operand submissions and executions;
 source-matched permission failures check left-before-right order and that a
-failed right operand skips the captured tail. Division/remainder, short-circuit
+failed right operand skips the captured tail. Short-circuit
 and conditional expressions, function/field/collection arguments still
 use local callbacks when their exact return action is not represented.
 
@@ -310,3 +310,11 @@ solver-state inspection at that hook.
 Inequality uses the same strict return frames and ordinary term/debug constructors.
 Actual one/two-worker jobs cover both operands; source-matched permission failures
 check left-before-right order and a failed right operand skipping the caller tail.
+
+Integer division and remainder preserve the ordinary nonzero proof after both
+operands, divisor error attribution, retry guard, and result combination when
+verification continues after an error. Actual one/two-worker jobs exercise both
+operands of each operator. CLI regressions check operand failure order, zero
+divisor errors skipping the caller tail at the default limit, and both divisor
+and tail errors under unlimited reporting. Debug reconstruction and retry levels
+above zero have source comparison but no dedicated runtime regression here.

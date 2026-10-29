@@ -942,6 +942,8 @@ fn owned_strict_binary(expression: &Exp) -> Option<(Binary, &Exp, &Exp)> {
     match expression.kind() {
         ExpKind::Sub(a, b) => Some((Binary::Sub, a, b)),
         ExpKind::Mul(a, b) => Some((Binary::Mul, a, b)),
+        ExpKind::Div(a, b) => Some((Binary::Div, a, b)),
+        ExpKind::Mod(a, b) => Some((Binary::Mod, a, b)),
         ExpKind::EqCmp(a, b) => Some((Binary::Eq, a, b)),
         ExpKind::NeCmp(a, b) => Some((Binary::Ne, a, b)),
         ExpKind::LeCmp(a, b) => Some((Binary::Le, a, b)),
@@ -1590,6 +1592,21 @@ where
                 let operator = owned_strict_binary(&wrapper.expression)
                     .expect("strict operator frame")
                     .0;
+                if matches!(operator, Binary::Div | Binary::Mod) {
+                    return finish_owned_divmod(
+                        context,
+                        state,
+                        operator,
+                        wrapper,
+                        left.clone(),
+                        left_debug.clone(),
+                        term,
+                        debug,
+                        &frames[..index],
+                        error,
+                        receiver,
+                    );
+                }
                 term = operator.build(context.factory(), left.clone(), term);
                 debug = match (left_debug, debug) {
                     (Some(left), Some(right)) => Some(Exp::new(
@@ -1620,6 +1637,21 @@ where
                     right,
                     error,
                     &mut |context, mut state, right_term, right_debug| {
+                        if matches!(operator, Binary::Div | Binary::Mod) {
+                            return finish_owned_divmod(
+                                context,
+                                state,
+                                operator,
+                                wrapper,
+                                term.clone(),
+                                debug.clone(),
+                                right_term,
+                                right_debug,
+                                &frames[..index],
+                                error,
+                                receiver,
+                            );
+                        }
                         let value = operator.build(context.factory(), term.clone(), right_term);
                         let rebuilt = match (&debug, right_debug) {
                             (Some(left), Some(right)) => Some(Exp::new(
@@ -1717,6 +1749,82 @@ where
     context
         .finish_owned_assignment_value(state, term, debug, receiver)
         .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
+}
+
+fn finish_owned_divmod<C, P, D, J: Clone, V>(
+    context: &mut C,
+    mut state: State<P, D, J>,
+    operator: Binary,
+    wrapper: &OwnedValueWrapper,
+    left: Term,
+    left_debug: Option<Exp>,
+    right: Term,
+    right_debug: Option<Exp>,
+    frames: &[OwnedEvaluationReturnFrame],
+    error: &C::PartialError,
+    receiver: &crate::rules::executor::OwnedAssignmentValue,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let factory = context.factory().clone();
+    let result = operator.build(&factory, left, right.clone());
+    let right_for_check = right_debug.clone();
+    let rebuilt = match (&left_debug, right_debug) {
+        (Some(left), Some(right)) => Some(Exp::new(
+            operator.expression(left.clone(), right),
+            wrapper.expression.metadata().clone(),
+        )),
+        (None, _) => None,
+        (Some(_), None) => return Err(EvaluationError::MissingDebugExpression),
+    };
+    let (_, _, original_right) = owned_strict_binary(&wrapper.expression).expect("divisor frame");
+    let nonzero = factory.not(factory.equals(right, factory.int_literal(0)));
+    if !context
+        .assert_goal(&nonzero)
+        .map_err(EvaluationError::Context)?
+    {
+        let zero = Exp::new(ExpKind::IntLit(0.into()), Default::default());
+        let original_test = context.debugging().then(|| {
+            Exp::new(
+                ExpKind::NeCmp(original_right.clone(), zero.clone()),
+                original_right.metadata().clone(),
+            )
+        });
+        let rewritten_test = if context.debugging() {
+            let divisor = right_for_check.ok_or(EvaluationError::MissingDebugExpression)?;
+            Some(Exp::new(
+                ExpKind::NeCmp(divisor, zero),
+                original_right.metadata().clone(),
+            ))
+        } else {
+            None
+        };
+        let failure = context
+            .division_failure(
+                &state,
+                error,
+                original_right,
+                &nonzero,
+                rewritten_test.as_ref(),
+            )
+            .map_err(EvaluationError::Context)?;
+        if state.retry_level == 0 && context.report_further_errors() {
+            context
+                .assume_nonzero(&nonzero, original_test.as_ref(), rewritten_test.as_ref())
+                .map_err(EvaluationError::Context)?;
+            if failure.continue_verification() {
+                finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &result)?;
+                let next = resume_owned_return_frames(
+                    context, state, result, rebuilt, frames, error, receiver,
+                )?;
+                return Ok(failure.combine(|| next, false));
+            }
+        }
+        return Ok(failure);
+    }
+    finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &result)?;
+    resume_owned_return_frames(context, state, result, rebuilt, frames, error, receiver)
 }
 
 fn finish_owned_wrapper<C, P, D, J: Clone, V>(

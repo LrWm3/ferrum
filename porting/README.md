@@ -1155,3 +1155,8 @@ its Let-specific runtime coverage remains incomplete.
 Owned strict return frames now also cover inequality. Actual one/two-worker jobs
 check both operand receivers; CLI regressions retain permission-error order and
 skip the caller tail after a failed operand.
+
+Owned division/remainder returns retain the nonzero proof and error/continuation
+combination. Real one/two-worker tests prove both operand transfers for each
+operator; source-matched CLI regressions exercise permission ordering, default
+error stopping and unlimited reporting of the divisor plus caller-tail errors.

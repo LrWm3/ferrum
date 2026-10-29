@@ -3,13 +3,20 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 fn run(source: &str, workers: &str) -> std::process::Output {
+    run_with_limit(source, workers, None)
+}
+fn run_with_limit(source: &str, workers: &str, limit: Option<&str>) -> std::process::Output {
     let path = std::env::temp_dir().join(format!(
         "ferrum-return-order-{}-{}.vpr",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
     std::fs::write(&path, source).unwrap();
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_ferrum"))
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_ferrum"));
+    if let Some(limit) = limit {
+        command.args(["--numberOfErrorsToReport", limit]);
+    }
+    let output = command
         .arg("--z3Exe")
         .arg(std::env::var_os("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3"))
         .args([
@@ -201,6 +208,77 @@ method bad(x: Ref, y: Ref, b: Bool, c: Bool) returns (r: Bool)
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains("insufficient.permission"), "{stderr}");
         assert!(!stderr.contains("assertion.false"), "{stderr}");
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn divmod_left_permission_failure_precedes_divisor_check() {
+    for operator in ["/", "%"] {
+        let source = format!(
+            r#"field f: Int
+method bad(x: Ref, y: Ref, b: Bool) returns (r: Int)
+ requires x != y
+{{ r := (asserting (b ? acc(x.f) : acc(y.f)) in 1) {operator} 0; }}
+"#
+        );
+        for workers in ["1", "2"] {
+            let output = run(&source, workers);
+            assert!(!output.status.success());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("insufficient.permission"), "{stderr}");
+            assert!(!stderr.contains("division.by.zero"), "{stderr}");
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn divmod_zero_failure_prevents_tail_at_default_limit() {
+    for operator in ["/", "%"] {
+        let source = format!(
+            r#"field f: Int
+method bad(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+{{ r := (asserting (b ? acc(x.f) : acc(y.f)) in 1) {operator} (asserting (c ? acc(z.f) : acc(w.f)) in 0); assert false; }}
+"#
+        );
+        for workers in ["1", "2"] {
+            let output = run(&source, workers);
+            assert!(!output.status.success());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("division.by.zero"), "{stderr}");
+            assert!(
+                stderr.contains("Divisor (asserting"),
+                "divisor attribution missing: {stderr}"
+            );
+            assert!(!stderr.contains("assertion.false"), "{stderr}");
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn divmod_report_further_errors_keeps_tail_failure() {
+    for operator in ["/", "%"] {
+        let source = format!(
+            r#"field f: Int
+method bad(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref, d: Int) returns (r: Int)
+ requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+{{ r := (asserting (b ? acc(x.f) : acc(y.f)) in 1) {operator} (asserting (c ? acc(z.f) : acc(w.f)) in d); assert false; }}
+"#
+        );
+        for workers in ["1", "2"] {
+            let output = run_with_limit(&source, workers, Some("0"));
+            assert!(!output.status.success());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("division.by.zero"), "{stderr}");
+            assert!(
+                stderr.contains("Divisor (asserting"),
+                "divisor attribution missing: {stderr}"
+            );
+            assert!(stderr.contains("assertion.false"), "{stderr}");
+        }
     }
 }
 
