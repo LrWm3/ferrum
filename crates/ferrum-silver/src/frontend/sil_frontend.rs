@@ -2004,6 +2004,26 @@ mod tests {
         );
     }
     #[test]
+    fn declaration_errors_do_not_report_assignment_target_as_ordinary_value() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("method m(this: Ref) returns (this: Ref) {\n  this := this\n}\n")
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "duplicate identifier `this` at test.vpr@1.30 and at test.vpr@1.10 (test.vpr@1.30--1.34)",
+                "ambiguous identifier `this` (test.vpr@2.11--2.15)",
+            ]
+        );
+    }
+    #[test]
     fn macro_expansion_rejects_non_resource_in_resource_position() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));

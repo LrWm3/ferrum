@@ -280,6 +280,15 @@ pub fn value_identifier_messages(
         ) {
             return Ok(());
         }
+        // Assignment targets use a context-specific declaration filter and
+        // diagnostics in the statement checker. Treat only the RHS as an
+        // ordinary value expression here.
+        if let PNodeKind::Statement(super::parse_ast::PStatement {
+            kind: PStatementKind::Assign { rhs, .. },
+        }) = &kind
+        {
+            return visit(rhs.node(), messages);
+        }
         if let PNodeKind::Expression(super::parse_ast::PExpression {
             kind: PExpressionKind::IdnUse { idnref },
             ..
