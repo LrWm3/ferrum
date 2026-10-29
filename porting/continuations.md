@@ -257,3 +257,8 @@ consolidation and mask/wand operations preserve the inspected nested
 Service/Solver/Fresh/Render errors. The full real-Z3 library suite passes; these
 additional resource mappings have source/type review but no per-site injected
 failures. Pure transformation errors retain their existing diagnostic formatting.
+
+The final inspected follow-up preserves solver errors during summary-alias
+lookup and service errors during mask trigger adaptation and function body/post
+translation. No further reachable loss sites were confirmed in this bounded
+review; uninspected code is not claimed to have exhaustive error-path coverage.

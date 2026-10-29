@@ -16006,7 +16006,10 @@ where
                     Ok(Some(frame))
                 },
             )
-            .map_err(|e| NativeError::Execution(format!("mask trigger adaptation: {e:?}")));
+            .map_err(|e| match e {
+                crate::supporters::functions::mask_heap_function_encoding::MaskTriggerAdaptationError::Frame(error) => error,
+                other => NativeError::Execution(format!("mask trigger adaptation: {other:?}")),
+            });
         }
         Ok(terms)
     }
@@ -18223,15 +18226,23 @@ where
             check_inner_contexts: false,
         };
         if body {
-            let translated = replacing
-                .translate_body(&translator)
-                .map_err(|e| NativeError::Execution(format!("function body translation: {e:?}")))?;
+            let translated = replacing.translate_body(&translator).map_err(|e| match e {
+                crate::supporters::expression_translator::ExpressionTranslationError::Service(
+                    error,
+                )
+                | crate::supporters::expression_translator::ExpressionTranslationError::Render(
+                    error,
+                ) => error,
+                other => NativeError::Execution(format!("function body translation: {other:?}")),
+            })?;
             Ok((vec![], translated))
         } else {
             let posts = replacing
                 .translate_postconditions(&translator, &data.program_function.posts)
-                .map_err(|e| {
-                    NativeError::Execution(format!("function postcondition translation: {e:?}"))
+                .map_err(|e| match e {
+                    crate::supporters::expression_translator::ExpressionTranslationError::Service(error)
+                    | crate::supporters::expression_translator::ExpressionTranslationError::Render(error) => error,
+                    other => NativeError::Execution(format!("function postcondition translation: {other:?}")),
                 })?;
             Ok((posts, None))
         }
@@ -21720,8 +21731,12 @@ where
                 ResourceKey::Wand(w) => ChunkIdentifier::Wand(w.clone()),
             };
             if let Some(index) =
-                crate::rules::chunk_supporter::find_chunk(self, &heap, &identifier, args)
-                    .map_err(|e| NativeError::Chunk(format!("summary alias: {e:?}")))?
+                crate::rules::chunk_supporter::find_chunk(self, &heap, &identifier, args).map_err(
+                    |e| match e {
+                        crate::rules::chunk_supporter::ChunkSupportError::Solver(error) => error,
+                        other => NativeError::Chunk(format!("summary alias: {other:?}")),
+                    },
+                )?
             {
                 let (_, permission, snapshot) = view(&chunks[index]);
                 if self
