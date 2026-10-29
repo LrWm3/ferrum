@@ -2635,3 +2635,8 @@ remaining = ["Hierarchical levels, owner attachment, member events and recursive
 destination = "tests/native_domain_axiom_closure.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "tests/native_block_events.rs"
+status = "wired"
+role = "assembly"

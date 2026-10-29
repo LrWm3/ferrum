@@ -2479,7 +2479,9 @@ where
     S::Error: std::fmt::Debug,
 {
     let outer_warnings = std::mem::take(&mut context.warnings);
+    let previous_reporter = context.replace_preprocessing_reporter(task.reporter.clone());
     let result = execute_native_worker_task_inner(context, task);
+    context.replace_preprocessing_reporter(previous_reporter);
     let inner_warnings = std::mem::replace(&mut context.warnings, outer_warnings);
     context.warnings.extend(inner_warnings);
     result

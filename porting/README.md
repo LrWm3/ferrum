@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 414 mapped and assembly modules. `described` files
+The Cargo workspace now has 415 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
@@ -1034,3 +1034,9 @@ that the induced axiom is available without proving its unconstrained converse.
 Unresolved function-expression warnings print source expressions and positions,
 matching Silicon. They no longer recursively dump the entire parse-node graph.
 A dead recursive-call fixture checks the warning and successful verification.
+
+`generateBlockMessages` now emits reached, failure and processed events through
+method workers, with task-local reporter installation and restoration across
+cooperative reentry. Real-solver tests cover one/two workers, branch parallelism,
+API reuse and reporting errors. Path completion is shared within one native run;
+Silicon uses a process-global set. Both retain the source callback order.

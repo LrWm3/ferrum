@@ -60,6 +60,8 @@ use std::{
 
 #[derive(Clone, Debug)]
 pub struct NativeOptions {
+    pub generate_block_messages: bool,
+    path_complete: Arc<std::sync::Mutex<std::collections::HashMap<i32, String>>>,
     pub unsafe_wildcard_optimization: bool,
     pub disable_subsumption: bool,
     pub join_mode: JoinMode,
@@ -122,7 +124,7 @@ impl NativeOptions {
     pub fn from_config(
         config: &crate::config::Config,
     ) -> Result<Self, NativeError<crate::decider::prover_std_io::ProverError>> {
-        if config.enable_debugging || config.generate_block_messages {
+        if config.enable_debugging {
             return Err(NativeError::Unsupported(
                 "requested verifier configuration is not connected",
             ));
@@ -157,6 +159,8 @@ impl NativeOptions {
             .saturation_weights
             .timeouts(config.prover_saturation_timeout);
         Ok(Self {
+            generate_block_messages: config.generate_block_messages,
+            path_complete: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             unsafe_wildcard_optimization: config.unsafe_wildcard_optimization,
             disable_subsumption: config.disable_subsumption,
             join_mode: config.more_joins,
@@ -1230,6 +1234,12 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
     ) {
         self.preprocessing_reporter = reporter;
     }
+    pub(crate) fn replace_preprocessing_reporter(
+        &mut self,
+        reporter: Option<Arc<dyn ferrum_silver::reporter::reporter::Reporter>>,
+    ) -> Option<Arc<dyn ferrum_silver::reporter::reporter::Reporter>> {
+        std::mem::replace(&mut self.preprocessing_reporter, reporter)
+    }
     /// Install the same latched cancellation controller used by the session and workers.
     pub fn set_cancellation(
         &mut self,
@@ -1503,6 +1513,25 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
                 .is_expected()
                 .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?
         {
+            if self.options.generate_block_messages {
+                if let (Some(member), Some((label, path_id))) =
+                    (&state.current_member, &state.current_block)
+                {
+                    if let Some(reporter) = &self.preprocessing_reporter {
+                        reporter
+                            .report(ferrum_silver::reporter::message::Message::BlockFailure {
+                                method_name: member.name().to_string(),
+                                label: label.clone(),
+                                path_id: *path_id,
+                            })
+                            .map_err(|error| {
+                                NativeError::Diagnostic(format!(
+                                    "block failure reporter: {error:?}"
+                                ))
+                            })?;
+                    }
+                }
+            }
             self.base.errors_reported.fetch_add(1, Ordering::SeqCst);
         }
         let (unwrapped, example_transformer) = error.unwrap_example_transformer();
@@ -10177,7 +10206,42 @@ where
         path_id: i32,
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
         self.checkpoint()?;
-        Ok(state)
+        if !self.options.generate_block_messages || !state.is_method_verification() {
+            return Ok(state);
+        }
+        let Some(ferrum_silver::cfg::block::Element::Statement(statement)) =
+            block.elements().into_iter().next()
+        else {
+            return Ok(state);
+        };
+        let ferrum_silver::ast::statement::StmtKind::Label(label) = statement.kind() else {
+            return Ok(state);
+        };
+        let Some(ferrum_silver::ast::program::Member::Method(method)) = &state.current_member
+        else {
+            return Err(NativeError::Unsupported(
+                "block event without current method",
+            ));
+        };
+        let method_name = method.name.clone();
+        if let Some(reporter) = &self.preprocessing_reporter {
+            reporter
+                .report(ferrum_silver::reporter::message::Message::BlockReached {
+                    method_name: method_name.clone(),
+                    label: label.name.clone(),
+                    path_id,
+                })
+                .map_err(|error| {
+                    NativeError::Diagnostic(format!("block reached reporter: {error:?}"))
+                })?;
+        }
+        self.options
+            .path_complete
+            .lock()
+            .map_err(|_| NativeError::Diagnostic("poisoned block path set".into()))?
+            .entry(path_id)
+            .or_insert(method_name);
+        Ok(state.set_current_block((label.name.clone(), path_id)))
     }
     fn block_finished(
         &mut self,
@@ -10185,6 +10249,43 @@ where
         path_id: i32,
         result: &VerificationResult<VerificationError>,
     ) -> Result<(), Self::Error> {
+        if !self.options.generate_block_messages {
+            return Ok(());
+        }
+        let Some(ferrum_silver::cfg::block::Element::Statement(statement)) =
+            block.elements().into_iter().next()
+        else {
+            return Ok(());
+        };
+        if !matches!(
+            statement.kind(),
+            ferrum_silver::ast::statement::StmtKind::Label(_)
+        ) {
+            return Ok(());
+        }
+        let mut paths = self
+            .options
+            .path_complete
+            .lock()
+            .map_err(|_| NativeError::Diagnostic("poisoned block path set".into()))?;
+        if let Some(method_name) = paths.remove(&path_id) {
+            let outcome = result.with_kind(|kind| match kind {
+                crate::interfaces::verification::ResultKind::Success => "Success",
+                crate::interfaces::verification::ResultKind::Unreachable => "Unreachable",
+                crate::interfaces::verification::ResultKind::Failure(_) => "Failure",
+            });
+            if let Some(reporter) = &self.preprocessing_reporter {
+                reporter
+                    .report(ferrum_silver::reporter::message::Message::PathProcessed {
+                        method_name,
+                        path_id,
+                        result: outcome.into(),
+                    })
+                    .map_err(|error| {
+                        NativeError::Diagnostic(format!("path processed reporter: {error:?}"))
+                    })?;
+            }
+        }
         Ok(())
     }
     fn outgoing_edges(
@@ -24305,12 +24406,30 @@ mod queued_cfg_isolation_tests {
                         .errors_reported
                         .store(7, std::sync::atomic::Ordering::SeqCst);
                     self.parent_ready.send(()).unwrap();
+                    let outer_reporter: Arc<dyn ferrum_silver::reporter::reporter::Reporter> =
+                        Arc::new(ferrum_silver::reporter::reporter::NoopReporter);
+                    let child_reporter: Arc<dyn ferrum_silver::reporter::reporter::Reporter> =
+                        Arc::new(ferrum_silver::reporter::reporter::NoopReporter);
+                    let previous_reporter = self
+                        .native
+                        .context
+                        .replace_preprocessing_reporter(Some(outer_reporter.clone()));
                     let waited = queue.wait_cooperatively_with(future, |work| match work {
-                        Job::Intervening(task) => {
+                        Job::Intervening(mut task) => {
+                            task.reporter = Some(child_reporter.clone());
                             let output = execute_intervening_native_worker_task(
                                 &mut self.native.context,
                                 task,
-                            )?;
+                            );
+                            assert!(
+                                self.native
+                                    .context
+                                    .preprocessing_reporter
+                                    .as_ref()
+                                    .is_some_and(|reporter| Arc::ptr_eq(reporter, &outer_reporter)),
+                                "nested task failed to restore suspended reporter"
+                            );
+                            let output = output?;
                             let NativeWorkerOutput::Member(results) = output else {
                                 return Err(NativeError::Unsupported(
                                     "unexpected intervening output",
@@ -24322,6 +24441,9 @@ mod queued_cfg_isolation_tests {
                         }
                         _ => Err(NativeError::Unsupported("unexpected cooperative task")),
                     });
+                    self.native
+                        .context
+                        .replace_preprocessing_reporter(previous_reporter);
                     assert!(waited.executed_other_task);
                     assert!(!waited.awaited_executed_on_current_worker);
                     assert!(
