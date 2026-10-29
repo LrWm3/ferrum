@@ -600,65 +600,134 @@ pub fn apply_wand<P, D, J: Clone, V, C: WandApplicationServices<P, D, J, V>>(
     >,
 ) -> Result<crate::interfaces::verification::VerificationResult<V>, WandApplicationError<C::Error>>
 {
-    use crate::state::terms::{Sort, TermKind};
+    if !matches!(
+        wand.kind(),
+        ferrum_silver::ast::expression::ExpKind::MagicWand(..)
+    ) {
+        return Err(WandApplicationError::InvalidWand);
+    }
+    context.consume_wand_assertion(state, wand, error, &mut |context, state, snapshot| {
+        apply_wand_after_consume(factory, context, state, wand, snapshot, error, continuation)
+    })
+}
+
+pub(crate) fn apply_wand_after_consume<
+    P,
+    D,
+    J: Clone,
+    V,
+    C: WandApplicationServices<P, D, J, V>,
+>(
+    factory: &TermFactory,
+    context: &mut C,
+    state_after_wand: State<P, D, J>,
+    wand: &Exp,
+    wand_snapshot: Option<Term>,
+    error: &C::VerificationError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<
+        crate::interfaces::verification::VerificationResult<V>,
+        WandApplicationError<C::Error>,
+    >,
+) -> Result<crate::interfaces::verification::VerificationResult<V>, WandApplicationError<C::Error>>
+{
     use ferrum_silver::ast::expression::ExpKind;
     let ExpKind::MagicWand(lhs, rhs) = wand.kind() else {
         return Err(WandApplicationError::InvalidWand);
     };
+    let wand_snapshot = wand_snapshot.ok_or(WandApplicationError::MissingSnapshot)?;
+    let reference_state = state_after_wand.clone();
     context.consume_wand_assertion(
-        state,
-        wand,
+        state_after_wand,
+        lhs,
         error,
-        &mut |context, state_after_wand, wand_snapshot| {
-            let wand_snapshot = wand_snapshot.ok_or(WandApplicationError::MissingSnapshot)?;
-            let original_store = state_after_wand.g.clone();
-            let original_old = state_after_wand.old_heaps.clone();
-            let reference_state = state_after_wand.clone();
-            context.consume_wand_assertion(
-                state_after_wand,
-                lhs,
+        &mut |context, state, lhs_snapshot| {
+            apply_wand_after_lhs(
+                factory,
+                context,
+                state,
+                &reference_state,
+                &wand_snapshot,
+                lhs_snapshot,
+                rhs,
                 error,
-                &mut |context, mut state, lhs_snapshot| {
-                    let lhs_snapshot = lhs_snapshot.ok_or(WandApplicationError::MissingSnapshot)?;
-                    if lhs_snapshot.sort() != &Sort::Snap {
-                        return Err(WandApplicationError::InvalidLhsSort);
-                    }
-                    let old_heap = context
-                        .wand_evaluation_heap(&reference_state)
-                        .map_err(WandApplicationError::Service)?;
-                    state.old_heaps = original_old.clone();
-                    state.old_heaps.insert("lhs".into(), old_heap);
-                    let old_conserving = state.conserving_snapshot_generation;
-                    let snapshot = context
-                        .applied_wand_snapshot(factory, &wand_snapshot, lhs_snapshot.clone())
-                        .map_err(WandApplicationError::Service)?;
-                    if let TermKind::MwsfLookup(mwsf, _) = snapshot.kind() {
-                        context
-                            .assume_wand_token(
-                                &factory.magic_wand_token(mwsf.clone(), lhs_snapshot),
-                            )
-                            .map_err(WandApplicationError::Service)?;
-                    }
-                    state.conserving_snapshot_generation = true;
-                    context.produce_wand_rhs(
-                        state,
-                        rhs,
-                        &snapshot,
-                        error,
-                        &mut |context, mut state| {
-                            state.g = original_store.clone();
-                            state.conserving_snapshot_generation = old_conserving;
-                            let mut state = context
-                                .consolidate_wand_state(state)
-                                .map_err(WandApplicationError::Service)?;
-                            state.old_heaps = original_old.clone();
-                            continuation(context, state)
-                        },
-                    )
-                },
+                continuation,
             )
         },
     )
+}
+
+pub(crate) fn apply_wand_after_lhs<P, D, J: Clone, V, C: WandApplicationServices<P, D, J, V>>(
+    factory: &TermFactory,
+    context: &mut C,
+    state: State<P, D, J>,
+    reference_state: &State<P, D, J>,
+    wand_snapshot: &Term,
+    lhs_snapshot: Option<Term>,
+    rhs: &Exp,
+    error: &C::VerificationError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<
+        crate::interfaces::verification::VerificationResult<V>,
+        WandApplicationError<C::Error>,
+    >,
+) -> Result<crate::interfaces::verification::VerificationResult<V>, WandApplicationError<C::Error>>
+{
+    let original_store = reference_state.g.clone();
+    let original_old = reference_state.old_heaps.clone();
+    let (state, snapshot, old_conserving) = prepare_wand_rhs(
+        factory,
+        context,
+        state,
+        reference_state,
+        wand_snapshot,
+        lhs_snapshot,
+    )?;
+    context.produce_wand_rhs(state, rhs, &snapshot, error, &mut |context, mut state| {
+        state.g = original_store.clone();
+        state.conserving_snapshot_generation = old_conserving;
+        let mut state = context
+            .consolidate_wand_state(state)
+            .map_err(WandApplicationError::Service)?;
+        state.old_heaps = original_old.clone();
+        continuation(context, state)
+    })
+}
+
+pub(crate) fn prepare_wand_rhs<P, D, J: Clone, V, C: WandApplicationServices<P, D, J, V>>(
+    factory: &TermFactory,
+    context: &mut C,
+    mut state: State<P, D, J>,
+    reference_state: &State<P, D, J>,
+    wand_snapshot: &Term,
+    lhs_snapshot: Option<Term>,
+) -> Result<(State<P, D, J>, Term, bool), WandApplicationError<C::Error>> {
+    use crate::state::terms::{Sort, TermKind};
+    let original_old = reference_state.old_heaps.clone();
+    let lhs_snapshot = lhs_snapshot.ok_or(WandApplicationError::MissingSnapshot)?;
+    if lhs_snapshot.sort() != &Sort::Snap {
+        return Err(WandApplicationError::InvalidLhsSort);
+    }
+    let old_heap = context
+        .wand_evaluation_heap(&reference_state)
+        .map_err(WandApplicationError::Service)?;
+    state.old_heaps = original_old.clone();
+    state.old_heaps.insert("lhs".into(), old_heap);
+    let old_conserving = state.conserving_snapshot_generation;
+    let snapshot = context
+        .applied_wand_snapshot(factory, &wand_snapshot, lhs_snapshot.clone())
+        .map_err(WandApplicationError::Service)?;
+    if let TermKind::MwsfLookup(mwsf, _) = snapshot.kind() {
+        context
+            .assume_wand_token(&factory.magic_wand_token(mwsf.clone(), lhs_snapshot))
+            .map_err(WandApplicationError::Service)?;
+    }
+    state.conserving_snapshot_generation = true;
+    Ok((state, snapshot, old_conserving))
 }
 
 pub trait WandPackagingFinalization<P, D, J> {
