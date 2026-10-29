@@ -144,8 +144,9 @@ the affected suite; the initial full matrix retains its original binaries and
 results. The recorded rerun is
 `/tmp/ferrum-prusti-stage3/map-fix/hash/results.json`, SHA-256
 `a1c246c5a32f49a22c43ec047709bf52505b81691f529d0d81aa716a34f7ebc6`.
-Other suites are audited for the same consistency failure before finalizing
-the affected-fixture coverage.
+The completed initial native matrix was audited for the same consistency
+failure: all 22 matching logs are in the hash suite. Its complete corrected
+rerun therefore covers all observed occurrences of this defect.
 
 The complete adapter library test run also exposed an obsolete fake-solver
 handshake. The source-compatible version query reads its response directly;
@@ -217,6 +218,8 @@ The final matrix counts and any confirmed port defects remain to be recorded.
 
 Investigation of the native outer-watchdog cases exposed exponential expansion
 of nested cleanup diagnostics. The [cancellation follow-up](cancellation-cleanup.md)
-records the controlled AST stack, correction and library checks. Updated Prusti
-builds and affected-case reruns remain pending; the initial matrix keeps its
-original binaries and evidence.
+records the controlled AST stack, correction and library checks. Integration
+`3f623122a` now passes both updated production builds and all 17 adapter tests.
+Its uninstrumented short-budget cancellation control returns the verifier-timeout
+diagnostic without the outer watchdog. Original-budget serial retries remain
+pending; the initial matrix keeps its original binaries and evidence.

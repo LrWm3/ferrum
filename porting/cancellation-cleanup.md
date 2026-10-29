@@ -69,6 +69,31 @@ AST stack is retained in
 `220da7de557fc75b673e454a3b7286d484eb00cc5c95a602078184401a0bc66d`;
 its `capture.json` records observed solver exit and active owner CPU.
 
-Prusti rebuilds and affected-fixture reruns are pending. This regression and
-stack identify the cleanup defect; they do not by themselves establish that all
-original matrix watchdog cases are resolved.
+## Updated Prusti integration and cancellation control
+
+Prusti integration `3f623122a0b1473c44d15c4d1a11200addb8a030` on
+`codex/stage3-cleanup-fix` pins all three Ferrum crates to
+`5cbb29be28b45194e555d2e173ed39b1a64a80de`. It inherits the map correction and
+adapter test repair from `a4d66141e`. Both locked production configurations and
+their launchers build successfully, and all 17 real-Z3 adapter tests pass.
+The only source changes are the Ferrum revision pins and corresponding lockfile
+entries; the original unrelated dependency selections are retained.
+
+The native driver SHA-256 is
+`25c71082a95b5cdd6247359988ed6c3a6ef0ec5bf91b9691576e72f85c212977`;
+the dual driver SHA-256 is
+`bc291ff24b99077857359724e857c401b32c8f124f479ac8a245bafa9e6c053f`.
+
+An uninstrumented run of `mut_native_resource_into_iter_pass` with the updated
+native driver and a 60-second verifier limit returns the actual Prusti
+verification-timeout diagnostic, exits 101 and does not reach the 300-second
+outer watchdog. Rust compilation and runtime controls pass separately. The
+positive proof fixture remains unsuccessful under this short budget; successful
+timeout reporting is not a proof success. The run occurs alongside the initial
+JVM matrix and is not quiet timing or original-budget parity evidence.
+
+Its complete launch, hashes and results are retained under
+`/tmp/ferrum-prusti-stage3/cleanup-fix-control60`. The proof log SHA-256 is
+`2b8a48ba68ed2c8e83addba7e6a7d0c45c69a690e6da508545fe922ba0bbc822`.
+The original 180-second serial retries remain pending; this control does not
+establish that every original matrix watchdog case is resolved.
