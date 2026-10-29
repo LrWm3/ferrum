@@ -279,6 +279,8 @@ pub struct OwnedValueWrapper {
 #[derive(Clone)]
 pub enum OwnedEvaluationReceiver {
     Assignment(crate::rules::executor::OwnedAssignmentValue),
+    FieldAssignment(crate::rules::executor::OwnedFieldAssignment),
+    CallArgument(crate::rules::executor::OwnedCallArgument),
     Join(OwnedJoinedValue),
     Quantified(OwnedQuantifiedValue),
 }
@@ -558,7 +560,9 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
         receiver: &OwnedEvaluationReceiver,
     ) -> bool {
         match receiver {
-            OwnedEvaluationReceiver::Assignment(_) => self.can_transfer_owned_asserting(state),
+            OwnedEvaluationReceiver::Assignment(_)
+            | OwnedEvaluationReceiver::FieldAssignment(_)
+            | OwnedEvaluationReceiver::CallArgument(_) => self.can_transfer_owned_asserting(state),
             OwnedEvaluationReceiver::Join(_) | OwnedEvaluationReceiver::Quantified(_) => false,
         }
     }
@@ -585,6 +589,24 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
         _state: &State<P, D, J>,
         _assertion: &Exp,
         _frame: &OwnedAsserting<Self::PartialError>,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_call_argument(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _frame: &crate::rules::executor::OwnedCallArgument,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_field_assignment(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _receiver: &crate::rules::executor::OwnedFieldAssignment,
     ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
         None
     }
@@ -3634,6 +3656,12 @@ where
     match receiver {
         OwnedEvaluationReceiver::Assignment(receiver) => {
             context.finish_owned_assignment_value(state, term, debug, receiver)
+        }
+        OwnedEvaluationReceiver::CallArgument(receiver) => {
+            context.finish_owned_call_argument(state, term, debug, receiver)
+        }
+        OwnedEvaluationReceiver::FieldAssignment(receiver) => {
+            context.finish_owned_field_assignment(state, term, debug, receiver)
         }
         OwnedEvaluationReceiver::Join(receiver) => {
             context.finish_owned_join_value(state, term, debug, receiver)

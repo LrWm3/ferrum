@@ -112,6 +112,31 @@ pub struct OwnedAssignmentValue {
     pub tail: CfgStatementTail,
 }
 
+/// The two expression returns in a field assignment, including its exact CFG suffix.
+#[derive(Clone)]
+pub enum OwnedFieldAssignment {
+    Receiver {
+        statement: Stmt,
+        debug_snapshot: Option<DebugStatementSnapshot>,
+        tail: CfgStatementTail,
+    },
+    Value {
+        statement: Stmt,
+        receiver: StoreValue,
+        tail: CfgStatementTail,
+    },
+}
+
+/// An evaluated prefix of a method call's arguments and its exact caller.
+#[derive(Clone)]
+pub struct OwnedCallArgument {
+    pub statement: Stmt,
+    pub method: ferrum_silver::ast::program::Method,
+    pub index: usize,
+    pub values: Vec<StoreValue>,
+    pub tail: CfgStatementTail,
+}
+
 /// Owned post-precondition caller for an ordinary-heap method call.
 #[derive(Clone)]
 pub struct MethodCallPreFrame {
@@ -183,6 +208,15 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
         _statement: &Stmt,
         _rhs: &Exp,
         _receiver: &OwnedAssignmentValue,
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
+    }
+    fn try_evaluate_owned_field_assignment(
+        &mut self,
+        _state: &State<P, D, J>,
+        _statement: &Stmt,
+        _expression: &Exp,
+        _receiver: &OwnedFieldAssignment,
     ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
         None
     }
@@ -389,6 +423,49 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
     }
     fn close_call_scope(&mut self, _id: Option<i32>) -> Result<(), Self::Error> {
         Ok(())
+    }
+    fn evaluate_call_argument(
+        &mut self,
+        state: State<P, D, J>,
+        call: &Stmt,
+        argument: &Exp,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<P, D, J>,
+            StoreValue,
+        )
+            -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
+    ) -> Result<VerificationResult<V>, ExecutionError<Self::Error>> {
+        self.evaluate_call_arguments(
+            state,
+            call,
+            std::slice::from_ref(argument),
+            &mut |context, state, terms, debug| {
+                continuation(
+                    context,
+                    state,
+                    (
+                        terms[0].clone(),
+                        debug.and_then(|values| values.into_iter().next()),
+                    ),
+                )
+            },
+        )
+    }
+    fn try_execute_owned_call_arguments(
+        &mut self,
+        _state: &State<P, D, J>,
+        _frame: &OwnedCallArgument,
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
+    }
+    fn try_evaluate_owned_call_argument(
+        &mut self,
+        _state: &State<P, D, J>,
+        _expression: &Exp,
+        _frame: &OwnedCallArgument,
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
     }
     fn evaluate_call_arguments(
         &mut self,
@@ -675,93 +752,103 @@ where
             let state = context
                 .start_key_heap(state, statement, debug_snapshot.as_ref())
                 .map_err(ExecutionError::Context)?;
-            context.evaluate_call_arguments(state,statement,args,&mut |context,state,terms,debug_args| {
-                context.close_call_scope(parameters_scope).map_err(ExecutionError::Context)?;
-                let pre_scope = context.open_call_comment_scope(&state, "Precondition").map_err(ExecutionError::Context)?;
-                let caller = state.clone();
-                let values = terms.iter().enumerate().map(|(i,term)| {
-                    let debug = if context.debugging() { Some(debug_args.as_ref().and_then(|es| es.get(i)).cloned().ok_or(ExecutionError::MissingDebugExpression)?) } else { None };
-                    Ok((term.clone(),debug))
-                }).collect::<Result<Vec<_>,ExecutionError<C::Error>>>()?;
-                let bindings = method.formal_args.iter().zip(values).map(|(decl,value)| (AbstractLocalVar::new(Exp::new(ExpKind::LocalVar(decl.local_var()),decl.meta.clone())),value));
-                let mut pre_state = state; pre_state.g = Arc::new(crate::state::store::MapBackedStore::from_bindings(bindings)); pre_state.record_visited = true;
-                let mut needs_old = false;
-                if original_exhale_ext {
-                    for post in &method.posts {
-                        if ferrum_silver::ast::utility::visitor::exists_defined(&ferrum_silver::ast::utility::nodes::Node::Exp(post.clone()),&ferrum_silver::ast::utility::nodes::subnodes,&mut |node| matches!(node, ferrum_silver::ast::utility::nodes::Node::Exp(exp) if matches!(exp.kind(),ExpKind::Old(..)))).map_err(ExecutionError::Traversal)? { needs_old = true; break; }
-                    }
+            if let Some(tail) = owned_tail.filter(|_| {
+                !original_exhale_ext
+                    && context.statement_scope_transferable(scope)
+                    && context.owned_call_scopes_transferable(call_scope, parameters_scope)
+            }) {
+                let frame = OwnedCallArgument {
+                    statement: statement.clone(),
+                    method: method.clone(),
+                    index: 0,
+                    values: Vec::new(),
+                    tail: tail.clone(),
+                };
+                if let Some(result) = context.try_execute_owned_call_arguments(&state, &frame) {
+                    return result;
                 }
-                if let Some(tail) = owned_tail.filter(|_| !original_exhale_ext && !needs_old && context.statement_scope_transferable(scope) && context.owned_call_scopes_transferable(call_scope, pre_scope)) {
-                    let frame = MethodCallPreFrame { statement: statement.clone(), method: method.clone(), targets: targets.clone(), caller_store: caller.g.clone(), caller_heap: caller.h.clone(), caller_old_heaps: caller.old_heaps.clone(), caller_record_visited: caller.record_visited, tail: tail.clone() };
-                    if let Some(result) = context.try_consume_owned_call_preconditions(&pre_state, &frame) { return result; }
-                }
-                context.consume_call_preconditions(pre_state,&caller.g,statement,&method,needs_old,&mut |context,mut state,snapshot| {
-                    context.close_call_scope(pre_scope).map_err(ExecutionError::Context)?;
-                    let post_scope = context.open_call_comment_scope(&state, "Postcondition").map_err(ExecutionError::Context)?;
-                    let mut returns = Vec::new();
-                    for decl in &method.formal_returns {
-                        let var = decl.local_var(); let value = context.fresh_local(&var).map_err(ExecutionError::Context)?;
-                        returns.push((AbstractLocalVar::new(Exp::new(ExpKind::LocalVar(var),decl.meta.clone())),value));
-                    }
-                    let output_store = crate::state::store::MapBackedStore::from_bindings(returns);
-                    let old_heap = if needs_old {
-                        let snapshot = snapshot.as_ref().ok_or(ExecutionError::MissingCallSnapshot)?;
-                        match context.reconstruct_pre_heap(&state,statement,&method,snapshot).map_err(ExecutionError::Context)? { Some(heap) => heap, None => context.evaluation_heap(&caller).map_err(ExecutionError::Context)? }
-                    } else { context.evaluation_heap(&caller).map_err(ExecutionError::Context)? };
-                    state.old_heaps.insert("old".into(),old_heap);
-                    state.g = Arc::new(state.g.with_store(&output_store));
-                    context.produce_call_postconditions(state,statement,&method,&mut |context,mut state| {
-                        context.close_call_scope(post_scope).map_err(ExecutionError::Context)?;
-                        context.saturate_after_inhale().map_err(ExecutionError::Context)?;
-                        use crate::state::store::Store;
-                        let mut outputs = Vec::new();
-                        for (target,decl) in targets.iter().zip(&method.formal_returns) {
-                            let source = AbstractLocalVar::new(Exp::new(ExpKind::LocalVar(decl.local_var()),decl.meta.clone()));
-                            let value = state.g.values().iter().find(|(key,_)| key == &source).map(|(_,value)| value.clone()).ok_or(ExecutionError::MissingReturnValue)?;
-                            let target = AbstractLocalVar::new(Exp::new(ExpKind::LocalVar(target.clone()),target.meta.clone())); outputs.push((target,value));
-                        }
-                        state.g = Arc::new(caller.g.with_store(&crate::state::store::MapBackedStore::from_bindings(outputs)));
-                        state.old_heaps = caller.old_heaps.clone(); state.record_visited = caller.record_visited;
-                        context.close_call_scope(call_scope).map_err(ExecutionError::Context)?;
-                        let state = context.finish_key_heap(state).map_err(ExecutionError::Context)?;
-                        finish(context,state)
-                    })
-                })
-            })
+            }
+            context.evaluate_call_arguments(
+                state,
+                statement,
+                args,
+                &mut |context, state, terms, debug_args| {
+                    finish_method_call_arguments(
+                        context,
+                        state,
+                        statement,
+                        &method,
+                        targets,
+                        terms,
+                        debug_args,
+                        original_exhale_ext,
+                        call_scope,
+                        parameters_scope,
+                        scope,
+                        owned_tail,
+                        &mut finish,
+                    )
+                },
+            )
         }
+
         StmtKind::FieldAssign { lhs, rhs } => {
             if state.exhale_ext {
                 return Err(ExecutionError::FieldAssignmentDuringExtendedExhale);
             }
-            context.evaluate_assignment(state, statement, &lhs.receiver, &mut |context,
-                                                                               state,
-                                                                               (
-                receiver,
-                receiver_exp,
-            )| {
-                let state = context
-                    .start_key_heap(state, statement, debug_snapshot.as_ref())
-                    .map_err(ExecutionError::Context)?;
-                context.evaluate_assignment(state, statement, rhs, &mut |context, state, value| {
-                    let rhs_exp = value.1.clone();
-                    let (snapshot, _) =
-                        ssaify(context, &lhs.field.name, &lhs.field.typ, rhs, value)?;
-                    context.assign_field(
+            let tail = owned_tail.filter(|_| context.statement_scope_transferable(scope));
+            if let Some(tail) = tail {
+                let receiver = OwnedFieldAssignment::Receiver {
+                    statement: statement.clone(),
+                    debug_snapshot: debug_snapshot.clone(),
+                    tail: tail.clone(),
+                };
+                if let Some(result) = context.try_evaluate_owned_field_assignment(
+                    &state,
+                    statement,
+                    &lhs.receiver,
+                    &receiver,
+                ) {
+                    return result;
+                }
+            }
+            context.evaluate_assignment(
+                state,
+                statement,
+                &lhs.receiver,
+                &mut |context, state, receiver| {
+                    let state = context
+                        .start_key_heap(state, statement, debug_snapshot.as_ref())
+                        .map_err(ExecutionError::Context)?;
+                    if let Some(tail) = tail {
+                        let target = OwnedFieldAssignment::Value {
+                            statement: statement.clone(),
+                            receiver: receiver.clone(),
+                            tail: tail.clone(),
+                        };
+                        if let Some(result) = context
+                            .try_evaluate_owned_field_assignment(&state, statement, rhs, &target)
+                        {
+                            return result;
+                        }
+                    }
+                    context.evaluate_assignment(
                         state,
                         statement,
-                        receiver.clone(),
-                        receiver_exp.clone(),
-                        snapshot,
-                        rhs_exp,
-                        &mut |context, state| {
-                            let state = context
-                                .finish_key_heap(state)
-                                .map_err(ExecutionError::Context)?;
-                            finish(context, state)
+                        rhs,
+                        &mut |context, state, value| {
+                            finish_field_assignment(
+                                context,
+                                state,
+                                statement,
+                                receiver.clone(),
+                                value,
+                                &mut finish,
+                            )
                         },
                     )
-                })
-            })
+                },
+            )
         }
         StmtKind::Assert(assertion)
             if matches!(assertion.kind(), ExpKind::FalseLit) && !state.is_in_package =>
@@ -1397,6 +1484,366 @@ where
         Some(terminal),
         continuation,
     )
+}
+
+fn finish_method_call_arguments<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    statement: &Stmt,
+    method: &ferrum_silver::ast::program::Method,
+    targets: &[ferrum_silver::ast::expression::LocalVar],
+    terms: Vec<TermValue>,
+    debug_args: Option<Vec<Exp>>,
+    original_exhale_ext: bool,
+    call_scope: Option<i32>,
+    parameters_scope: Option<i32>,
+    scope: Option<i32>,
+    owned_tail: Option<&CfgStatementTail>,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: ExecutionContext<P, D, J, V>,
+{
+    context
+        .close_call_scope(parameters_scope)
+        .map_err(ExecutionError::Context)?;
+    let pre_scope = context
+        .open_call_comment_scope(&state, "Precondition")
+        .map_err(ExecutionError::Context)?;
+    let caller = state.clone();
+    let values = terms
+        .iter()
+        .enumerate()
+        .map(|(i, term)| {
+            let debug = if context.debugging() {
+                Some(
+                    debug_args
+                        .as_ref()
+                        .and_then(|es| es.get(i))
+                        .cloned()
+                        .ok_or(ExecutionError::MissingDebugExpression)?,
+                )
+            } else {
+                None
+            };
+            Ok((term.clone(), debug))
+        })
+        .collect::<Result<Vec<_>, ExecutionError<C::Error>>>()?;
+    let bindings = method.formal_args.iter().zip(values).map(|(decl, value)| {
+        (
+            AbstractLocalVar::new(Exp::new(
+                ExpKind::LocalVar(decl.local_var()),
+                decl.meta.clone(),
+            )),
+            value,
+        )
+    });
+    let mut pre_state = state;
+    pre_state.g = Arc::new(crate::state::store::MapBackedStore::from_bindings(bindings));
+    pre_state.record_visited = true;
+    let mut needs_old = false;
+    if original_exhale_ext {
+        for post in &method.posts {
+            if ferrum_silver::ast::utility::visitor::exists_defined(&ferrum_silver::ast::utility::nodes::Node::Exp(post.clone()),&ferrum_silver::ast::utility::nodes::subnodes,&mut |node| matches!(node, ferrum_silver::ast::utility::nodes::Node::Exp(exp) if matches!(exp.kind(),ExpKind::Old(..)))).map_err(ExecutionError::Traversal)? { needs_old = true; break; }
+        }
+    }
+    if let Some(tail) = owned_tail.filter(|_| {
+        !original_exhale_ext
+            && !needs_old
+            && context.statement_scope_transferable(scope)
+            && context.owned_call_scopes_transferable(call_scope, pre_scope)
+    }) {
+        let frame = MethodCallPreFrame {
+            statement: statement.clone(),
+            method: method.clone(),
+            targets: targets.to_vec(),
+            caller_store: caller.g.clone(),
+            caller_heap: caller.h.clone(),
+            caller_old_heaps: caller.old_heaps.clone(),
+            caller_record_visited: caller.record_visited,
+            tail: tail.clone(),
+        };
+        if let Some(result) = context.try_consume_owned_call_preconditions(&pre_state, &frame) {
+            return result;
+        }
+    }
+    context.consume_call_preconditions(
+        pre_state,
+        &caller.g,
+        statement,
+        &method,
+        needs_old,
+        &mut |context, mut state, snapshot| {
+            context
+                .close_call_scope(pre_scope)
+                .map_err(ExecutionError::Context)?;
+            let post_scope = context
+                .open_call_comment_scope(&state, "Postcondition")
+                .map_err(ExecutionError::Context)?;
+            let mut returns = Vec::new();
+            for decl in &method.formal_returns {
+                let var = decl.local_var();
+                let value = context.fresh_local(&var).map_err(ExecutionError::Context)?;
+                returns.push((
+                    AbstractLocalVar::new(Exp::new(ExpKind::LocalVar(var), decl.meta.clone())),
+                    value,
+                ));
+            }
+            let output_store = crate::state::store::MapBackedStore::from_bindings(returns);
+            let old_heap = if needs_old {
+                let snapshot = snapshot
+                    .as_ref()
+                    .ok_or(ExecutionError::MissingCallSnapshot)?;
+                match context
+                    .reconstruct_pre_heap(&state, statement, &method, snapshot)
+                    .map_err(ExecutionError::Context)?
+                {
+                    Some(heap) => heap,
+                    None => context
+                        .evaluation_heap(&caller)
+                        .map_err(ExecutionError::Context)?,
+                }
+            } else {
+                context
+                    .evaluation_heap(&caller)
+                    .map_err(ExecutionError::Context)?
+            };
+            state.old_heaps.insert("old".into(), old_heap);
+            state.g = Arc::new(state.g.with_store(&output_store));
+            context.produce_call_postconditions(
+                state,
+                statement,
+                &method,
+                &mut |context, mut state| {
+                    context
+                        .close_call_scope(post_scope)
+                        .map_err(ExecutionError::Context)?;
+                    context
+                        .saturate_after_inhale()
+                        .map_err(ExecutionError::Context)?;
+                    use crate::state::store::Store;
+                    let mut outputs = Vec::new();
+                    for (target, decl) in targets.iter().zip(&method.formal_returns) {
+                        let source = AbstractLocalVar::new(Exp::new(
+                            ExpKind::LocalVar(decl.local_var()),
+                            decl.meta.clone(),
+                        ));
+                        let value = state
+                            .g
+                            .values()
+                            .iter()
+                            .find(|(key, _)| key == &source)
+                            .map(|(_, value)| value.clone())
+                            .ok_or(ExecutionError::MissingReturnValue)?;
+                        let target = AbstractLocalVar::new(Exp::new(
+                            ExpKind::LocalVar(target.clone()),
+                            target.meta.clone(),
+                        ));
+                        outputs.push((target, value));
+                    }
+                    state.g =
+                        Arc::new(caller.g.with_store(
+                            &crate::state::store::MapBackedStore::from_bindings(outputs),
+                        ));
+                    state.old_heaps = caller.old_heaps.clone();
+                    state.record_visited = caller.record_visited;
+                    context
+                        .close_call_scope(call_scope)
+                        .map_err(ExecutionError::Context)?;
+                    let state = context
+                        .finish_key_heap(state)
+                        .map_err(ExecutionError::Context)?;
+                    continuation(context, state)
+                },
+            )
+        },
+    )
+}
+
+pub(crate) fn execute_owned_call_arguments<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    frame: &OwnedCallArgument,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    let StmtKind::MethodCall { args, targets, .. } = frame.statement.kind() else {
+        unreachable!()
+    };
+    if let Some(expression) = args.get(frame.index) {
+        if let Some(result) = context.try_evaluate_owned_call_argument(&state, expression, frame) {
+            return result;
+        }
+        return context.evaluate_call_argument(
+            state,
+            &frame.statement,
+            expression,
+            &mut |context, state, value| {
+                execute_owned_call_argument_value(context, state, value, frame)
+            },
+        );
+    }
+    let mut debug = context.debugging().then(Vec::new);
+    for (_, expression) in frame.values.iter().rev() {
+        debug = if let Some(expression) = expression {
+            let mut rest = debug.ok_or(ExecutionError::MissingDebugExpression)?;
+            rest.insert(0, expression.clone());
+            Some(rest)
+        } else {
+            None
+        };
+    }
+    let terms = frame.values.iter().map(|(term, _)| term.clone()).collect();
+    finish_method_call_arguments(
+        context,
+        state,
+        &frame.statement,
+        &frame.method,
+        targets,
+        terms,
+        debug,
+        false,
+        None,
+        None,
+        None,
+        Some(&frame.tail),
+        &mut |context, state| {
+            let state = context
+                .move_to_reserve_heap(state)
+                .map_err(ExecutionError::Context)?;
+            context
+                .close_statement_scope(None)
+                .map_err(ExecutionError::Context)?;
+            execute_cfg_statement_tail(context, state, &frame.tail)
+        },
+    )
+}
+
+pub(crate) fn execute_owned_call_argument_value<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    value: StoreValue,
+    frame: &OwnedCallArgument,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    let mut next = frame.clone();
+    next.index += 1;
+    next.values.push(value);
+    execute_owned_call_arguments(context, state, &next)
+}
+
+fn finish_field_assignment<C, P, D, J, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    statement: &Stmt,
+    receiver: StoreValue,
+    value: StoreValue,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: ExecutionContext<P, D, J, V>,
+{
+    let StmtKind::FieldAssign { lhs, rhs } = statement.kind() else {
+        unreachable!()
+    };
+    let rhs_exp = value.1.clone();
+    let (snapshot, _) = ssaify(context, &lhs.field.name, &lhs.field.typ, rhs, value)?;
+    context.assign_field(
+        state,
+        statement,
+        receiver.0,
+        receiver.1,
+        snapshot,
+        rhs_exp,
+        &mut |context, state| {
+            let state = context
+                .finish_key_heap(state)
+                .map_err(ExecutionError::Context)?;
+            continuation(context, state)
+        },
+    )
+}
+
+pub(crate) fn execute_owned_field_assignment<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    value: StoreValue,
+    receiver: &OwnedFieldAssignment,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    match receiver {
+        OwnedFieldAssignment::Receiver {
+            statement,
+            debug_snapshot,
+            tail,
+        } => {
+            let StmtKind::FieldAssign { rhs, .. } = statement.kind() else {
+                unreachable!()
+            };
+            let state = context
+                .start_key_heap(state, statement, debug_snapshot.as_ref())
+                .map_err(ExecutionError::Context)?;
+            let next = OwnedFieldAssignment::Value {
+                statement: statement.clone(),
+                receiver: value.clone(),
+                tail: tail.clone(),
+            };
+            if let Some(result) =
+                context.try_evaluate_owned_field_assignment(&state, statement, rhs, &next)
+            {
+                return result;
+            }
+            context.evaluate_assignment(state, statement, rhs, &mut |context, state, rhs_value| {
+                finish_field_assignment(
+                    context,
+                    state,
+                    statement,
+                    value.clone(),
+                    rhs_value,
+                    &mut |context, state| {
+                        let state = context
+                            .move_to_reserve_heap(state)
+                            .map_err(ExecutionError::Context)?;
+                        context
+                            .close_statement_scope(None)
+                            .map_err(ExecutionError::Context)?;
+                        execute_cfg_statement_tail(context, state, tail)
+                    },
+                )
+            })
+        }
+        OwnedFieldAssignment::Value {
+            statement,
+            receiver,
+            tail,
+        } => finish_field_assignment(
+            context,
+            state,
+            statement,
+            receiver.clone(),
+            value,
+            &mut |context, state| {
+                let state = context
+                    .move_to_reserve_heap(state)
+                    .map_err(ExecutionError::Context)?;
+                context
+                    .close_statement_scope(None)
+                    .map_err(ExecutionError::Context)?;
+                execute_cfg_statement_tail(context, state, tail)
+            },
+        ),
+    }
 }
 
 pub(crate) fn execute_owned_assignment_value<C, P, D, J: Clone, V>(

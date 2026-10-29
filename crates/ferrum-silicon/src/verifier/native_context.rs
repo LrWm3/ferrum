@@ -2541,6 +2541,50 @@ where
             }
         }
     }
+    fn finish_owned_call_argument(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        frame: &crate::rules::executor::OwnedCallArgument,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        Some(
+            crate::rules::executor::execute_owned_call_argument_value(
+                self,
+                state,
+                (term, debug),
+                frame,
+            )
+            .map_err(|e| match e {
+                ExecutionError::Context(error) => EvaluationError::Context(error),
+                other => EvaluationError::Context(NativeError::Execution(format!(
+                    "owned call argument: {other:?}"
+                ))),
+            }),
+        )
+    }
+    fn finish_owned_field_assignment(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        receiver: &crate::rules::executor::OwnedFieldAssignment,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        Some(
+            crate::rules::executor::execute_owned_field_assignment(
+                self,
+                state,
+                (term, debug),
+                receiver,
+            )
+            .map_err(|e| match e {
+                ExecutionError::Context(error) => EvaluationError::Context(error),
+                other => EvaluationError::Context(NativeError::Execution(format!(
+                    "owned field assignment: {other:?}"
+                ))),
+            }),
+        )
+    }
     fn finish_owned_assignment_value(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -3592,7 +3636,9 @@ where
     ) -> bool {
         use crate::rules::evaluator::OwnedEvaluationReceiver;
         match receiver {
-            OwnedEvaluationReceiver::Assignment(_) => self.can_transfer_owned_asserting(state),
+            OwnedEvaluationReceiver::Assignment(_)
+            | OwnedEvaluationReceiver::FieldAssignment(_)
+            | OwnedEvaluationReceiver::CallArgument(_) => self.can_transfer_owned_asserting(state),
             OwnedEvaluationReceiver::Quantified(quant) => {
                 self.joined_branch_scheduler_enabled
                     && self.joined_branch_scheduler.is_some()
@@ -9434,6 +9480,41 @@ where
             }),
         )
     }
+    fn try_evaluate_owned_field_assignment(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        statement: &Stmt,
+        expression: &Exp,
+        receiver: &crate::rules::executor::OwnedFieldAssignment,
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+        use crate::rules::consumer::ConsumptionContext;
+        if !crate::rules::evaluator::has_owned_asserting_path(expression)
+            || !self.supports_owned_consumption(state)
+        {
+            return None;
+        }
+        let partial = PartialVerificationError::for_kind(VerificationErrorKind::AssignmentFailed(
+            statement.clone(),
+        ));
+        let receiver =
+            crate::rules::evaluator::OwnedEvaluationReceiver::FieldAssignment(receiver.clone());
+        Some(
+            crate::rules::evaluator::evaluate_owned_received(
+                self,
+                state.clone(),
+                expression,
+                &partial,
+                &receiver,
+                vec![],
+            )
+            .map_err(|e| match e {
+                EvaluationError::Context(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Evaluation(format!(
+                    "owned field assignment: {other:?}"
+                ))),
+            }),
+        )
+    }
     fn evaluate_assignment(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -10246,6 +10327,106 @@ where
     }
     fn close_call_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
         self.close_logged_scope(id)
+    }
+    fn evaluate_call_argument(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        call: &Stmt,
+        argument: &Exp,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            StoreValue,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ExecutionError<Self::Error>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
+        let partial =
+            PartialVerificationError::for_kind(VerificationErrorKind::CallFailed(call.clone()));
+        let mut callback_error = None;
+        let result = crate::rules::evaluator::evaluate(
+            self,
+            state,
+            argument,
+            &partial,
+            &mut |ctx, state, term, debug| match continuation(ctx, state, (term, debug)) {
+                Ok(value) => Ok(value),
+                Err(error) => {
+                    callback_error = Some(error);
+                    Err(EvaluationError::Context(NativeError::ContinuationAbort))
+                }
+            },
+        );
+        recover_callback_error!(
+            callback_error,
+            result,
+            EvaluationError,
+            ExecutionError,
+            Context
+        );
+        result.map_err(|e| match e {
+            EvaluationError::Context(error) => ExecutionError::Context(error),
+            other => ExecutionError::Context(NativeError::Evaluation(format!("{other:?}"))),
+        })
+    }
+    fn try_execute_owned_call_arguments(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        frame: &crate::rules::executor::OwnedCallArgument,
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+        use crate::rules::consumer::ConsumptionContext;
+        let ferrum_silver::ast::statement::StmtKind::MethodCall { args, .. } =
+            frame.statement.kind()
+        else {
+            unreachable!()
+        };
+        if !args
+            .iter()
+            .any(crate::rules::evaluator::has_owned_asserting_path)
+            || !self.supports_owned_consumption(state)
+        {
+            return None;
+        }
+        Some(crate::rules::executor::execute_owned_call_arguments(
+            self,
+            state.clone(),
+            frame,
+        ))
+    }
+    fn try_evaluate_owned_call_argument(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        expression: &Exp,
+        frame: &crate::rules::executor::OwnedCallArgument,
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+        use crate::rules::consumer::ConsumptionContext;
+        if !crate::rules::evaluator::has_owned_asserting_path(expression)
+            || !self.supports_owned_consumption(state)
+        {
+            return None;
+        }
+        let error = PartialVerificationError::for_kind(VerificationErrorKind::CallFailed(
+            frame.statement.clone(),
+        ));
+        let receiver =
+            crate::rules::evaluator::OwnedEvaluationReceiver::CallArgument(frame.clone());
+        Some(
+            crate::rules::evaluator::evaluate_owned_received(
+                self,
+                state.clone(),
+                expression,
+                &error,
+                &receiver,
+                vec![],
+            )
+            .map_err(|e| match e {
+                EvaluationError::Context(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Evaluation(format!(
+                    "owned call argument: {other:?}"
+                ))),
+            }),
+        )
     }
     fn evaluate_call_arguments(
         &mut self,
@@ -13172,6 +13353,24 @@ where
                         )
                     }) {
                         super::verification_pool_manager::LET_BODY_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if let crate::rules::evaluator::OwnedEvaluationReceiver::CallArgument(frame) =
+                        &frame.receiver
+                    {
+                        super::verification_pool_manager::CALL_ARG_EXECUTIONS
+                            [usize::from(frame.index != 0)]
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if let crate::rules::evaluator::OwnedEvaluationReceiver::FieldAssignment(
+                        receiver,
+                    ) = &frame.receiver
+                    {
+                        let stage = usize::from(matches!(
+                            receiver,
+                            crate::rules::executor::OwnedFieldAssignment::Value { .. }
+                        ));
+                        super::verification_pool_manager::FIELD_ASSIGN_EXECUTIONS[stage]
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
                     if frame.return_frames.iter().any(|f| matches!(f, crate::rules::evaluator::OwnedEvaluationReturnFrame::FieldReceiver { .. })) {
