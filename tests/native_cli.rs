@@ -836,3 +836,34 @@ fn forperm_matches_nonquantified_magic_wand_chunks() {
         1,
     );
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn wand_proof_cfg_executes_conditional_branches_and_uses_their_footprints() {
+    let prefix = r#"
+        field f: Int
+        method m(x: Ref, y: Ref, b: Bool)
+          requires acc(x.f) && acc(y.f)
+        {
+          package true --* true {
+            if (b) { exhale acc(x.f) } else { exhale acc(y.f) }
+          }
+    "#;
+    let positive = format!("{prefix} if (b) {{ assert acc(y.f) }} else {{ assert acc(x.f) }} }}");
+    let negative = format!("{prefix} if (b) {{ assert acc(x.f) }} }}");
+    let false_proof = "method m(b: Bool) { package true --* true { if (b) { assert false } } }";
+    for workers in ["1", "2"] {
+        for (source, expected) in [(&positive as &str, 0), (&negative, 1), (false_proof, 1)] {
+            let output = run(source, &["--numberOfParallelVerifiers", workers]);
+            assert_eq!(
+                output.status.code(),
+                Some(expected),
+                "workers={workers}; {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            if expected == 1 {
+                assert!(String::from_utf8_lossy(&output.stderr).contains("assert.failed"));
+            }
+        }
+    }
+}

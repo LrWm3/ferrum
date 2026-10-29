@@ -1019,3 +1019,9 @@ Quantified merging substitutes source debug variables and preserves the distinct
 snapshot-equation groups. Predicate snapshots, arguments and summary binders carry
 the source debug types. A real-solver greedy quantified merge fixture exercises
 the replacement hook; public interactive debugging remains gated.
+
+Wand proof execution selects the reserve proof CFG for outgoing edges during
+extended exhale, as in Silicon. The previous method-CFG lookup could skip
+conditional proof branches and incorrectly accept invalid proofs. Real-solver
+checks now execute those branches, reject consumed permissions and false proof
+assertions, and preserve valid unconsumed branch footprints with one/two workers.

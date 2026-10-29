@@ -10188,10 +10188,17 @@ where
         block: &SilverBlock,
     ) -> Result<Vec<SilverEdge>, Self::Error> {
         {
-            let cfg = state
-                .method_cfg
-                .as_ref()
-                .ok_or(NativeError::Unsupported("missing CFG"))?;
+            let cfg = if state.exhale_ext {
+                state
+                    .reserve_cfgs
+                    .first()
+                    .ok_or(NativeError::Unsupported("missing wand proof CFG"))?
+            } else {
+                state
+                    .method_cfg
+                    .as_ref()
+                    .ok_or(NativeError::Unsupported("missing CFG"))?
+            };
             Ok(cfg.graph().out_edges(block).into_iter().cloned().collect())
         }
     }
@@ -21686,6 +21693,59 @@ mod worker_analysis_contract_tests {
             .unwrap()
             .join()
             .unwrap();
+    }
+    #[test]
+    fn extended_exhale_requires_a_proof_cfg() {
+        use super::*;
+        use crate::{
+            config::Config, decider::z3_prover_std_io, rules::executor::CfgContext,
+            state::terms::TermOptions, verifier::verification_pool_manager::native_method_worker,
+        };
+        let config = Config::default();
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let prover = z3_prover_std_io::new(
+            "missing-proof".into(),
+            z3_prover_std_io::settings("z3".into()),
+            factory.clone(),
+            |_| {},
+        );
+        let identifiers = prover.identifier_factory();
+        let mut worker = native_method_worker(
+            "missing-proof".into(),
+            prover,
+            identifiers,
+            factory.clone(),
+            NativeOptions::from_config(&config).unwrap(),
+            &config,
+        );
+        let program = ferrum_silver::ast::program::Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Default::default(),
+        );
+        let mut state = State::new(
+            program,
+            Default::default(),
+            Default::default(),
+            config.more_joins,
+            &factory,
+            false,
+            false,
+        );
+        state.exhale_ext = true;
+        let block = ferrum_silver::cfg::block::Block::statement(vec![]);
+        assert!(matches!(
+            worker.context.outgoing_edges(&state, &block),
+            Err(NativeError::Unsupported("missing wand proof CFG"))
+        ));
     }
     #[test]
     fn member_scope_is_set_on_failure_and_history() {
