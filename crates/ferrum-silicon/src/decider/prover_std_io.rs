@@ -124,6 +124,7 @@ pub enum ProverError {
     Model(String),
     InvalidLifecycle(&'static str),
     UnsupportedPlatform,
+    UnsupportedConfiguration(String),
 }
 impl std::fmt::Display for ProverError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -136,6 +137,7 @@ impl std::fmt::Display for ProverError {
             ),
             Self::Model(message) => write!(f, "Invalid prover model: {message}"),
             Self::InvalidLifecycle(message) => f.write_str(message),
+            Self::UnsupportedConfiguration(message) => f.write_str(message),
             Self::UnsupportedPlatform => {
                 f.write_str("merged solver stdout/stderr requires the native Unix process adapter")
             }
@@ -494,6 +496,11 @@ impl ProverLike for ProverStdIo {
         Ok(())
     }
     fn set_option(&mut self, name: &str, value: &str) -> Result<String, Self::Error> {
+        if crate::config::disables_global_declarations(&self.profile.name, name, value) {
+            return Err(ProverError::UnsupportedConfiguration(
+                crate::config::global_declarations_error(name),
+            ));
+        }
         self.write_line(&format!("(get-option :{name})"))?;
         let old = self.read_line()?;
         if old == "unsupported" {
@@ -913,6 +920,49 @@ mod cancellation_tests {
         stopped.unwrap();
         assert!(!handle.cancel().unwrap());
         std::fs::remove_file(script).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod global_declarations_guard_tests {
+    use super::*;
+    use crate::interfaces::decider::prover::ProverLike;
+    use crate::state::terms::TermOptions;
+
+    #[test]
+    fn stdio_guard_rejects_before_solver_io_for_each_profile() {
+        for (profile, key) in [
+            (crate::decider::z3_prover_std_io::profile(), "global-decls"),
+            (
+                crate::decider::z3_prover_std_io::profile(),
+                "global-declarations",
+            ),
+            (
+                crate::decider::cvc5_prover_std_io::profile(),
+                "global-declarations",
+            ),
+        ] {
+            let factory = TermFactory::new(TermOptions {
+                use_flyweight: false,
+                use_old_axiomatization: false,
+                mask_heap_mode: false,
+            });
+            let mut prover = ProverStdIo::new(
+                "guard".into(),
+                ProverSettings::new("unused".into(), 10000),
+                profile,
+                factory,
+                |_| {},
+            );
+            assert!(matches!(
+                prover.set_option(key, "false"),
+                Err(ProverError::UnsupportedConfiguration(_))
+            ));
+            assert!(!matches!(
+                prover.set_option(key, "true"),
+                Err(ProverError::UnsupportedConfiguration(_))
+            ));
+        }
     }
 }
 

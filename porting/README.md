@@ -1210,3 +1210,9 @@ The composed continuation checkpoint passes 213 library tests, the explicit
 cooperative restoration regression and 18 real-Z3 CLI continuation cases. Both
 the original mask-alias reproducer and CurrentPerm mask fixture also pass linked
 Z3 4.16 with one/two workers. These are compatibility checks, not speedup evidence.
+
+Native configuration now rejects disabling the required global-declaration mode
+at startup or through member annotations, before changing decider option state.
+Both Z3 spellings and the documented cvc5 spelling are covered; linked Z3 options
+are unchanged. Explicit true passes the guard, but runtime solver restrictions
+still apply. Tests cover rejection, allowed startup and recovery on the next run.

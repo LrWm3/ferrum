@@ -493,6 +493,19 @@ fn parse_exhale(value: &str) -> Result<ExhaleMode, ConfigError> {
         _ => Err(ConfigError("unexpected arguments".into())),
     }
 }
+pub(crate) fn disables_global_declarations(prover: &str, option: &str, value: &str) -> bool {
+    let required = match prover {
+        "Z3" => matches!(option, "global-decls" | "global-declarations"),
+        "cvc5" => option == "global-declarations",
+        _ => false,
+    };
+    required && value.trim().eq_ignore_ascii_case("false")
+}
+pub(crate) fn global_declarations_error(option: &str) -> String {
+    format!(
+        "Unsupported prover configuration: {option}=false disables global declarations required by verification"
+    )
+}
 pub fn parse_smt_options(value: &str) -> Result<BTreeMap<String, String>, ConfigError> {
     let mut options = BTreeMap::new();
     for pair in value.split(' ').map(str::trim).filter(|p| !p.is_empty()) {
@@ -712,6 +725,13 @@ impl Config {
                 self.prover
             ));
         }
+        // Both stdio backends require globally scoped declarations for the
+        // verifier's push/pop and branch replay protocols.
+        for (option, value) in &self.prover_config_args {
+            if disables_global_declarations(&self.prover, option, value) {
+                return fail(global_declarations_error(option));
+            }
+        }
         if self.timeout < 0 {
             return fail(format!(
                 "Timeout must be non-negative, but {} was provided",
@@ -815,6 +835,42 @@ mod tests {
                 .map(|s| (*s).to_owned())
                 .collect::<Vec<_>>(),
         )
+    }
+    #[test]
+    fn global_declaration_guard_only_rejects_disabling_the_active_stdio_option() {
+        for (prover, key) in [
+            ("Z3", "global-decls"),
+            ("Z3", "global-declarations"),
+            ("cvc5", "global-declarations"),
+        ] {
+            let disabled = format!("{key}=false timeout=19");
+            let error = parse(&["--prover", prover, "--proverConfigArgs", &disabled]).unwrap_err();
+            assert!(
+                error.to_string().contains("global declarations required"),
+                "{error}"
+            );
+            let enabled = format!("{key}=true timeout=19");
+            assert!(parse(&["--prover", prover, "--proverConfigArgs", &enabled]).is_ok());
+        }
+        assert!(parse(&["--prover", "Z3", "--proverConfigArgs", "smt.random_seed=1"]).is_ok());
+        assert!(
+            parse(&[
+                "--prover",
+                "Z3-API",
+                "--proverConfigArgs",
+                "global-decls=false"
+            ])
+            .is_ok()
+        );
+        let mut manual = Config::default();
+        manual
+            .prover_config_args
+            .insert("global-decls".into(), " false ".into());
+        assert!(manual.validate().is_err());
+        manual
+            .prover_config_args
+            .insert("global-decls".into(), "true".into());
+        assert!(manual.validate().is_ok());
     }
     #[test]
     fn preserves_timeout_precedence_and_supplied_defaults() {

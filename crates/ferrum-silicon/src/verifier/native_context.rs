@@ -318,6 +318,7 @@ pub enum NativeError<E> {
     HeapDependency(String),
     Diagnostic(String),
     Reporter(ferrum_silver::reporter::reporter::ReportError),
+    UnsupportedConfiguration(String),
     Evaluation(String),
     Consumption(String),
     Production(String),
@@ -343,6 +344,19 @@ pub enum NativeError<E> {
         cleanup: DeciderError<E>,
     },
     Unsupported(&'static str),
+}
+fn validate_member_prover_options<E>(
+    prover: &str,
+    options: &crate::package::Map<String, String>,
+) -> Result<(), NativeError<E>> {
+    for (option, value) in options {
+        if crate::config::disables_global_declarations(prover, option, value) {
+            return Err(NativeError::UnsupportedConfiguration(
+                crate::config::global_declarations_error(option),
+            ));
+        }
+    }
+    Ok(())
 }
 /// Non-owning handle: function units own the data, while recorders can refer back
 /// to it without creating a cycle when the data retains phase recordings.
@@ -11840,6 +11854,7 @@ where
         &mut self,
         options: crate::package::Map<String, String>,
     ) -> Result<(), Self::Error> {
+        validate_member_prover_options(self.base.decider.prover.name(), &options)?;
         self.base
             .decider
             .set_options(options)
@@ -18497,6 +18512,7 @@ where
             },
         )
         .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+        validate_member_prover_options(self.base.decider.prover.name(), &options)?;
         self.base
             .decider
             .set_options(options)

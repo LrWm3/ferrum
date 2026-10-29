@@ -356,3 +356,11 @@ regressions pass with the alias replay fix above through stdio and linked Z3.
 MagicWand accesses retain local
 callbacks, and CurrentPerm-specific debug reconstruction has source comparison
 rather than a dedicated runtime fixture.
+
+Startup and method/function options now reject disabling global declarations,
+which branch replay and scoped verification require. Both accepted Z3 spellings
+are checked, along with the documented cvc5 setting. Member options are checked
+before changing decider state; direct stdio setters reject before solver I/O.
+Explicit true passes this guard, while the solver may still reject changing it
+after initialization. Real-Z3 checks cover both spellings and session reuse;
+cvc5 coverage is configuration/service checks without a local cvc5 executable.

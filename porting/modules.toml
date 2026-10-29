@@ -2675,3 +2675,8 @@ role = "assembly"
 destination = "tests/native_mask_alias_replay.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "tests/native_global_declarations.rs"
+status = "wired"
+role = "assembly"
