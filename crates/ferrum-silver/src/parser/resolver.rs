@@ -64,7 +64,7 @@ pub struct Declaration {
     pub backward: bool,
     pub overrides: bool,
 }
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct DeclarationMap {
     pub decls: HashMap<String, Vec<Declaration>>,
     unique: HashMap<String, (bool, Declaration)>,
@@ -233,24 +233,109 @@ impl From<UnexpectedPosition> for NameAnalysisError {
 pub struct NameAnalyser {
     pub messages: Vec<FastMessage>,
     pub global: DeclarationMap,
+    scopes: HashMap<usize, (PNodeHandle, DeclarationMap)>,
 }
 impl Default for NameAnalyser {
     fn default() -> Self {
         Self {
             messages: Vec::new(),
             global: DeclarationMap::new(false, true),
+            scopes: HashMap::new(),
         }
     }
 }
 impl NameAnalyser {
     pub fn reset(&mut self) {
         self.global.clear();
+        self.scopes.clear();
     }
     pub fn run(&mut self, root: &PNodeHandle) -> Result<bool, NameAnalysisError> {
         let mut global = std::mem::replace(&mut self.global, DeclarationMap::new(false, true));
-        let result = visit_names(root, &mut global, &mut self.messages);
+        let result = visit_names(
+            root,
+            &mut global,
+            &mut self.messages,
+            &mut self.scopes,
+            true,
+        );
         self.global = global;
         result?;
+        Ok(self.messages.iter().all(|message| !message.error))
+    }
+    /// Rebuild scope declarations without altering existing resolved references.
+    pub fn collect_scopes(&mut self, root: &PNodeHandle) -> Result<(), NameAnalysisError> {
+        self.reset();
+        self.messages.clear();
+        let mut global = DeclarationMap::new(false, true);
+        let result = visit_names(
+            root,
+            &mut global,
+            &mut self.messages,
+            &mut self.scopes,
+            false,
+        );
+        self.global = global;
+        result
+    }
+    /// Resolve a new expression using the map retained for a parsed source scope.
+    pub fn run_in_scope(
+        &mut self,
+        root: &PNodeHandle,
+        scope: &PNodeHandle,
+    ) -> Result<bool, NameAnalysisError> {
+        let key = std::sync::Arc::as_ptr(scope) as usize;
+        let (retained_scope, mut declarations) = self
+            .scopes
+            .remove(&key)
+            .ok_or(NameAnalysisError::Unsupported("unknown debugger scope"))?;
+        let result = visit_names(
+            root,
+            &mut declarations,
+            &mut self.messages,
+            &mut self.scopes,
+            true,
+        );
+        self.scopes.insert(key, (retained_scope, declarations));
+        result?;
+        // Resolve names absent from the current scope against enclosing scopes,
+        // nearest first, then global siblings. Do not mutate the original parse tree.
+        let mut outer = Vec::new();
+        let mut cursor = super::parse_ast::get_enclosing_scope(scope);
+        while let Some(parent) = cursor {
+            if let Some((_, map)) = self.scopes.get(&(std::sync::Arc::as_ptr(&parent) as usize)) {
+                outer.push(map);
+            }
+            cursor = super::parse_ast::get_enclosing_scope(&parent);
+        }
+        outer.push(&self.global);
+        fn resolve_outer(
+            node: &PNodeHandle,
+            maps: &[&DeclarationMap],
+        ) -> Result<(), NameAnalysisError> {
+            let name = match &node.read().expect("poisoned parse node").kind {
+                PNodeKind::IdnRef(reference) if reference.declarations.is_empty() => {
+                    Some(reference.name.clone())
+                }
+                _ => None,
+            };
+            if let Some(name) = name {
+                for map in maps {
+                    if let Some(declarations) = map.decls.get(&name) {
+                        with_reference(node, |reference| {
+                            for declaration in declarations {
+                                reference.new_decl(&declaration.node);
+                            }
+                        });
+                        break;
+                    }
+                }
+            }
+            for child in subnodes(node)? {
+                resolve_outer(&child, maps)?;
+            }
+            Ok(())
+        }
+        resolve_outer(root, &outer)?;
         Ok(self.messages.iter().all(|message| !message.error))
     }
     pub fn global_definitions(&self, name: &str) -> Vec<PNodeHandle> {
@@ -487,6 +572,8 @@ fn visit_names(
     node: &PNodeHandle,
     current: &mut DeclarationMap,
     messages: &mut Vec<FastMessage>,
+    scopes: &mut HashMap<usize, (PNodeHandle, DeclarationMap)>,
+    resolve_references: bool,
 ) -> Result<(), NameAnalysisError> {
     let kind = node.read().expect("poisoned parse node").kind.clone();
     if matches!(
@@ -595,7 +682,7 @@ fn visit_names(
             PExpressionKind::Let { .. } => scope = Some(DeclarationMap::new(false, false)),
             _ => {}
         },
-        PNodeKind::IdnRef(_) => current.new_ref(node.clone()),
+        PNodeKind::IdnRef(_) if resolve_references => current.new_ref(node.clone()),
         PNodeKind::DomainMember(super::parse_ast::PDomainMember::Axiom { .. }) => scope = Some(DeclarationMap::new(true, false)),
         PNodeKind::DomainMember(super::parse_ast::PDomainMember::Function { idndef, .. }) => {
             add_named_declaration(current, node, idndef, DeclarationVisibility::Global, DeclarationUniqueness::Global, true, messages)?;
@@ -626,7 +713,19 @@ fn visit_names(
     let children = subnodes(node)?;
     if let Some(mut child) = scope {
         for child_node in children {
-            visit_names(&child_node, &mut child, messages)?;
+            visit_names(
+                &child_node,
+                &mut child,
+                messages,
+                scopes,
+                resolve_references,
+            )?;
+        }
+        if !resolve_references {
+            scopes.insert(
+                std::sync::Arc::as_ptr(node) as usize,
+                (node.clone(), child.clone()),
+            );
         }
         for (declaration, old) in current.merge(child, |_| false) {
             let idndef = declaration_identifier(&declaration.node)
@@ -635,7 +734,7 @@ fn visit_names(
         }
     } else {
         for child_node in children {
-            visit_names(&child_node, current, messages)?;
+            visit_names(&child_node, current, messages, scopes, resolve_references)?;
         }
     }
     Ok(())
@@ -932,6 +1031,12 @@ pub fn check_expression(
                 return Err(TypeCheckError::Unsupported(
                     "`result` can only be used in function postconditions",
                 ));
+            }
+            (expression.typ, vec![PTypeSubstitution::default()])
+        }
+        PExpressionKind::VersionedIdnUse { .. } => {
+            if !expression.typ.is_valid_or_undeclared() {
+                return Err(TypeCheckError::Unsupported("unresolved debugger variable type"));
             }
             (expression.typ, vec![PTypeSubstitution::default()])
         }
@@ -1238,6 +1343,9 @@ pub fn check_expression(
                 let bindings = [("#T0".into(), receiver_signature.substitute(&substitution)), ("#R".into(), result_type)].into_iter().collect();
                 check_operator(input, Some(vec![PTypeSubstitution::new(bindings, false)]), vec![receiver], expected, false)?
             } else { check_operator(input, None, vec![receiver], expected, false)? }
+        }
+        PExpressionKind::DebugLabelledOldExp { exp, .. } => {
+            check_operator(input, None, vec![exp], expected, false)?
         }
         PExpressionKind::OldExp { exp, .. } => {
             check_operator(input, None, vec![exp.inner().clone()], expected, false)?
@@ -3103,6 +3211,49 @@ mod custom_expression_extension_tests {
         assert!(matches!(
             crate::parser::translator::translate_expression(&expression),
             Err(TranslationError::Unsupported(_))
+        ));
+    }
+}
+
+#[cfg(test)]
+mod debugger_scope_tests {
+    use super::*;
+    use crate::parser::fast_parser;
+
+    #[test]
+    fn retained_member_scope_resolves_new_expressions() {
+        let program =
+            fast_parser::parse_program("method m(x: Int) { assert x > 0 }", "scope.vpr").unwrap();
+        super::super::parse_ast::init_properties(program.node()).unwrap();
+        let member = program.all_members()[0].node().clone();
+        let mut names = NameAnalyser::default();
+        assert!(names.run(program.node()).unwrap());
+        names.collect_scopes(program.node()).unwrap();
+        let input = fast_parser::parse_expression("x > 1", "userInput")
+            .unwrap()
+            .expression;
+        assert!(names.run_in_scope(input.node(), &member).unwrap());
+        check_top_expression(&input, None, |_, _| {}).unwrap();
+        fn find_seqn(node: &PNodeHandle) -> Option<PNodeHandle> {
+            if matches!(&node.read().unwrap().kind, PNodeKind::Statement(statement) if matches!(statement.kind, PStatementKind::Seqn { .. }))
+            {
+                return Some(node.clone());
+            }
+            subnodes(node).ok()?.iter().find_map(find_seqn)
+        }
+        let body = find_seqn(&member).unwrap();
+        let nested = fast_parser::parse_expression("x > 1", "userInput")
+            .unwrap()
+            .expression;
+        assert!(names.run_in_scope(nested.node(), &body).unwrap());
+        check_top_expression(&nested, None, |_, _| {}).unwrap();
+        let unknown = fast_parser::parse_expression("missing > 1", "userInput")
+            .unwrap()
+            .expression;
+        assert!(names.run_in_scope(unknown.node(), &member).unwrap());
+        assert!(matches!(
+            check_top_expression(&unknown, None, |_, _| {}),
+            Err(TypeCheckError::Mismatches(errors)) if errors.iter().any(|error| matches!(error, TypeCheckError::UnresolvedValue { name, .. } if name == "missing"))
         ));
     }
 }

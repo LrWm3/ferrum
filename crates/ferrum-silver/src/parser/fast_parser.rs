@@ -83,6 +83,15 @@ pub fn parse_expression(
     source: &str,
     file: impl AsRef<Path>,
 ) -> Result<ParsedExpression, SyntaxError> {
+    parse_expression_with_features(source, file, &[])
+}
+
+/// Parse a complete expression with explicitly selected extensions.
+pub fn parse_expression_with_features(
+    source: &str,
+    file: impl AsRef<Path>,
+    features: &[ParserFeature],
+) -> Result<ParsedExpression, SyntaxError> {
     let mut parser = ExpressionParser {
         source,
         positions: PositionIndex::new(source),
@@ -90,7 +99,7 @@ pub fn parse_expression(
         cursor: 0,
         warnings: Vec::new(),
         in_macro_body: false,
-        features: &[],
+        features,
     };
     let result = parser.expression(0)?;
     parser.trivia()?;
@@ -142,6 +151,8 @@ pub enum ParserFeature {
     Arp,
     Termination,
     Adt,
+    /// Silicon debugger versioned identifiers and debug old labels.
+    Debugger,
     /// Register a keyword followed by one parenthesized expression.
     ExpressionGroup {
         keyword: &'static str,
@@ -169,7 +180,8 @@ impl PartialEq for ParserFeature {
             | (Self::Sif, Self::Sif)
             | (Self::Arp, Self::Arp)
             | (Self::Termination, Self::Termination)
-            | (Self::Adt, Self::Adt) => true,
+            | (Self::Adt, Self::Adt)
+            | (Self::Debugger, Self::Debugger) => true,
             (
                 Self::ExpressionGroup {
                     keyword: a,
@@ -2585,6 +2597,91 @@ impl ExpressionParser<'_> {
             }
             return Ok(expression);
         }
+        if self.features.contains(&ParserFeature::Debugger) {
+            let end = self.identifier_end(start);
+            if end > start
+                && self
+                    .source
+                    .as_bytes()
+                    .get(start)
+                    .is_some_and(|b| b.is_ascii_alphabetic() || matches!(b, b'_' | b'$'))
+                && self.source.as_bytes().get(end) == Some(&b'@')
+            {
+                let mut version_end = end + 1;
+                while self
+                    .source
+                    .as_bytes()
+                    .get(version_end)
+                    .is_some_and(u8::is_ascii_digit)
+                {
+                    version_end += 1;
+                }
+                if version_end > end + 1 {
+                    self.cursor = version_end;
+                    let expression = self.expr_node(
+                        PExpressionKind::VersionedIdnUse {
+                            idnref: PIdnRef::new(&self.source[start..end]),
+                            version: self.source[end + 1..version_end].into(),
+                            separator: "@".into(),
+                        },
+                        self.position(start),
+                        self.position(version_end),
+                    );
+                    return self.suffix(expression);
+                }
+            }
+            if self.source[start..].starts_with("old") && end == start + 3 {
+                let saved = self.cursor;
+                self.cursor = end;
+                if self.take("[")?.is_some() {
+                    self.trivia()?;
+                    let label_start = self.cursor;
+                    if self.source[label_start..].starts_with("debug@") {
+                        self.cursor += 6;
+                        let version_start = self.cursor;
+                        while self
+                            .source
+                            .as_bytes()
+                            .get(self.cursor)
+                            .copied()
+                            .is_some_and(|b| b.is_ascii_alphanumeric() || b"#$_.:".contains(&b))
+                        {
+                            self.cursor += 1;
+                        }
+                        if self.cursor == version_start {
+                            return Err(self.error("empty debug old version"));
+                        }
+                        let label = self.expr_node(
+                            PExpressionKind::VersionedIdnUse {
+                                idnref: PIdnRef::new("debug"),
+                                version: self.source[version_start..self.cursor].into(),
+                                separator: "@".into(),
+                            },
+                            self.position(label_start),
+                            self.position(self.cursor),
+                        );
+                        self.take("]")?
+                            .ok_or_else(|| self.error("expected ']' after debug old label"))?;
+                        self.take("(")?
+                            .ok_or_else(|| self.error("expected '(' after debug old label"))?;
+                        let exp = self.expression(0)?;
+                        self.take(")")?
+                            .ok_or_else(|| self.error("expected ')' after debug old expression"))?;
+                        let expression = self.expr_node(
+                            PExpressionKind::DebugLabelledOldExp {
+                                op: PReserved::new(PKwOp::Old, self.span(start, end)),
+                                label,
+                                exp,
+                            },
+                            self.position(start),
+                            self.position(self.cursor),
+                        );
+                        return self.suffix(expression);
+                    }
+                }
+                self.cursor = saved;
+            }
+        }
         let end = self.identifier_end(start);
         let expression_factory = self.features.iter().find_map(|feature| match feature {
             ParserFeature::ExpressionGroup { keyword, factory }
@@ -4067,5 +4164,39 @@ mod tests {
         assert_eq!(q.vars.len(), 2);
         assert_eq!(q.triggers.len(), 2);
         assert!(parse_expression("forall :: true", "test.vpr").is_err());
+    }
+}
+
+#[cfg(test)]
+mod debugger_parser_tests {
+    use super::*;
+    #[test]
+    fn debugger_syntax_is_recursive_and_opt_in() {
+        let input = "x@12 && old[debug@heap.1](y@3 == x@12)";
+        assert!(parse_expression(input, "debug.vpr").is_err());
+        let parsed =
+            parse_expression_with_features(input, "debug.vpr", &[ParserFeature::Debugger]).unwrap();
+        let tree = format!("{:?}", parsed.expression);
+        assert!(tree.contains("VersionedIdnUse"));
+        assert!(tree.contains("DebugLabelledOldExp"));
+        assert!(
+            parse_expression_with_features("1@2", "debug.vpr", &[ParserFeature::Debugger]).is_err()
+        );
+        assert!(
+            parse_expression_with_features(
+                "old[debug@](true)",
+                "debug.vpr",
+                &[ParserFeature::Debugger]
+            )
+            .is_err()
+        );
+        assert!(
+            parse_expression_with_features(
+                "old[foo](true)",
+                "debug.vpr",
+                &[ParserFeature::Debugger]
+            )
+            .is_ok()
+        );
     }
 }

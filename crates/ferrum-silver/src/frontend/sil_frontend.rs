@@ -291,6 +291,8 @@ pub struct SilFrontendPhases {
     pub select: Option<String>,
     /// Reformatter parsing retains macro definitions and calls.
     pub expand_macros: bool,
+    /// Keep parsed source scopes for an interactive debugger session.
+    pub retain_source_program: bool,
     phase_reporter: Option<std::sync::Arc<dyn crate::reporter::reporter::Reporter>>,
     phase_report_error: Option<crate::reporter::reporter::ReportError>,
     pub parsing_warnings: Vec<ParseReport>,
@@ -309,6 +311,7 @@ impl SilFrontendPhases {
             respect_function_pre_perm_amounts: false,
             select: None,
             expand_macros: true,
+            retain_source_program: false,
             phase_reporter: None,
             phase_report_error: None,
             parsing_warnings: vec![],
@@ -766,7 +769,12 @@ impl FrontendPhases for SilFrontendPhases {
                 )
             })?;
         }
-        let result = translator::translate_program_core(&input).map_err(|e| match e {
+        let result = if self.retain_source_program {
+            translator::translate_program_core_preserving_source(&input)
+        } else {
+            translator::translate_program_core(&input)
+        }
+        .map_err(|e| match e {
             translator::TranslationError::Positioned { message, position } => {
                 Self::failure(message.into(), position)
             }
@@ -903,10 +911,20 @@ impl FrontendPhases for SilFrontendPhases {
         }
     }
     fn prepare_verification(&mut self, input: Program) -> Result<Program, Vec<AbstractError>> {
+        let source = if self.retain_source_program {
+            input.source_program().cloned()
+        } else {
+            None
+        };
+        let restore_source = |program: Program| match (&source, program.source_program()) {
+            (Some(source), None) => program.with_source_program(source.clone()),
+            _ => program,
+        };
         let mut program = self
             .plugins
             .before_method_filter(input)
             .ok_or_else(|| self.plugins.errors().to_vec())?;
+        program = restore_source(program);
         if let Some(selection) = &self.select {
             let mut names: Vec<_> = selection.split(',').collect();
             if !selection.is_empty() {
@@ -940,6 +958,7 @@ impl FrontendPhases for SilFrontendPhases {
                 }
             };
         }
+        let program = restore_source(program);
         self.plugins
             .before_verify(program)
             .map_err(|e| {
@@ -949,6 +968,7 @@ impl FrontendPhases for SilFrontendPhases {
                 )
             })?
             .ok_or_else(|| self.plugins.errors().to_vec())
+            .map(restore_source)
     }
     fn map_verification(
         &mut self,
@@ -3692,5 +3712,32 @@ method chainParen2(i1: Int, i2: Int, i3: Int, i4: Int)
             crate::frontend::frontend::DefaultState::ConsistencyCheck
         );
         assert!(frontend.program.is_some());
+    }
+}
+
+#[cfg(test)]
+mod debugger_source_retention_tests {
+    use super::*;
+    #[test]
+    fn selected_empty_program_keeps_source_only_when_requested() {
+        let parsed =
+            crate::parser::fast_parser::parse_program("method m() { assert true }", "source.vpr")
+                .unwrap();
+        crate::parser::parse_ast::init_properties(parsed.node()).unwrap();
+        let mut names = crate::parser::resolver::NameAnalyser::default();
+        names.run(parsed.node()).unwrap();
+        crate::parser::resolver::check_program_core(&parsed, &mut |_, _| {}).unwrap();
+        let program =
+            crate::parser::translator::translate_program_core_preserving_source(&parsed).unwrap();
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("source.vpr"), SilverPluginManager::default());
+        phases.select = Some("missing".into());
+        phases.retain_source_program = true;
+        let result = phases.prepare_verification(program.clone()).unwrap();
+        assert!(result.methods.is_empty());
+        assert!(result.source_program().is_some());
+        phases.retain_source_program = false;
+        let result = phases.prepare_verification(program).unwrap();
+        assert!(result.source_program().is_none());
     }
 }

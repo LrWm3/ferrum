@@ -270,6 +270,18 @@ pub fn translate_type(typ: &PTypeHandle) -> Result<Type, TranslationError> {
 pub fn translate_expression(input: &PExpHandle) -> Result<Exp, TranslationError> {
     translate_expression_with_fields(input, None)
 }
+/// Translate an expression in a program's field environment.
+pub fn translate_expression_in_program(
+    input: &PExpHandle,
+    program: &crate::ast::program::Program,
+) -> Result<Exp, TranslationError> {
+    let fields = program
+        .fields
+        .iter()
+        .map(|field| (field.name.clone(), field.clone()))
+        .collect();
+    translate_expression_with_fields(input, Some(&fields))
+}
 fn translate_expression_with_fields(
     input: &PExpHandle,
     fields: Option<&std::collections::HashMap<String, crate::ast::program::Field>>,
@@ -309,6 +321,19 @@ fn translate_expression_with_fields(
         PExpressionKind::FullPerm(_) => ExpKind::FullPerm,
         PExpressionKind::Wildcard(_) => ExpKind::WildcardPerm,
         PExpressionKind::Epsilon(_) => ExpKind::EpsilonPerm,
+        PExpressionKind::VersionedIdnUse { idnref, version, separator } => {
+            ExpKind::LocalVarWithVersion(format!("{}{separator}{version}", idnref.name), translate_type(&expression.typ)?)
+        }
+        PExpressionKind::DebugLabelledOldExp { label, exp, .. } => {
+            let name = match &label.node().read().expect("poisoned parse node").kind {
+                PNodeKind::Expression(e) => match &e.kind {
+                    PExpressionKind::VersionedIdnUse { idnref, version, separator } => format!("{}{separator}{version}", idnref.name),
+                    _ => return Err(TranslationError::Unsupported("expected debug old label")),
+                },
+                _ => return Err(TranslationError::Unsupported("expected debug old label")),
+            };
+            ExpKind::DebugLabelledOld(translate_expression_with_fields(&exp, fields)?, name)
+        }
         PExpressionKind::IdnUse { idnref } => {
             let refs = PIdnRef::decls(&idnref, |_| true);
             let name = match &idnref.read().expect("poisoned parse node").kind {
@@ -1500,6 +1525,12 @@ fn specification_expressions(
         .into_iter()
         .map(|spec| translate_expression_with_fields(spec.exp(), Some(fields)))
         .collect()
+}
+/// Translate and retain the parse tree for debugger scope lookup.
+pub fn translate_program_core_preserving_source(
+    input: &super::parse_ast::PProgramHandle,
+) -> Result<crate::ast::program::Program, TranslationError> {
+    Ok(translate_program_core(input)?.with_source_program(input.clone()))
 }
 /// Translate the supported core program after successful name and type analysis. Unsupported
 /// members or impure-assume rewrites fail explicitly; no verifier result is synthesized here.

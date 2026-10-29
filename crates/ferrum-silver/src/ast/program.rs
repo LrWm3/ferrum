@@ -554,6 +554,7 @@ pub struct ProgramContents {
 #[derive(Debug)]
 struct ProgramData {
     contents: ProgramContents,
+    source_program: Option<crate::parser::parse_ast::PProgramHandle>,
     magic_wand_structures: Mutex<Option<Vec<Exp>>>,
     ground_type_instances: Mutex<Option<std::collections::HashSet<Type>>>,
 }
@@ -592,6 +593,7 @@ impl Program {
     pub fn from_contents(contents: ProgramContents) -> Self {
         Self(Arc::new(ProgramData {
             contents,
+            source_program: None,
             magic_wand_structures: Mutex::new(None),
             ground_type_instances: Mutex::new(None),
         }))
@@ -600,7 +602,22 @@ impl Program {
     pub fn copy_with(&self, edit: impl FnOnce(&mut ProgramContents)) -> Self {
         let mut contents = self.0.contents.clone();
         edit(&mut contents);
-        Self::from_contents(contents)
+        let mut result = Self::from_contents(contents);
+        Arc::get_mut(&mut result.0)
+            .expect("fresh program")
+            .source_program = self.0.source_program.clone();
+        result
+    }
+    /// Retain the parsed source tree for interactive debugger scope lookup.
+    pub fn with_source_program(&self, source: crate::parser::parse_ast::PProgramHandle) -> Self {
+        let mut result = self.copy_with(|_| {});
+        Arc::get_mut(&mut result.0)
+            .expect("fresh program")
+            .source_program = Some(source);
+        result
+    }
+    pub fn source_program(&self) -> Option<&crate::parser::parse_ast::PProgramHandle> {
+        self.0.source_program.as_ref()
     }
     pub fn same_node(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
