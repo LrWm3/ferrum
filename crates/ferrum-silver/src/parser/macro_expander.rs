@@ -2051,6 +2051,14 @@ pub fn expand_global_expression_macros(
         node: &PNodeHandle,
         pos: &super::parse_ast_keyword::Span,
     ) -> Result<(), MacroError> {
+        // Silver's adaptation follows direct product children. Quantifier
+        // triggers are held in a sequence, so their original positions survive.
+        if matches!(
+            &node.read().expect("poisoned parse node").kind,
+            PNodeKind::Trigger { .. }
+        ) {
+            return Ok(());
+        }
         for child in subnodes(node).map_err(|e| MacroError {
             message: format!("macro position traversal: {e:?}"),
             pos: pos.clone(),

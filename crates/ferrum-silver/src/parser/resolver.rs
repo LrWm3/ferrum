@@ -1661,15 +1661,11 @@ fn ensure_nonabstract_predicate_access(
     let PExpressionKind::Call { idnref, .. } = kind else {
         return Err(TypeCheckError::Unsupported("expected predicate access"));
     };
+    let original = super::parse_ast::PIdnRef::decls(&idnref, |_| true);
     let predicates = super::parse_ast::PIdnRef::decls(
         &idnref,
         |node| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Member(member) if matches!(member.kind, PMemberKind::Predicate { .. })),
     );
-    if predicates.len() != 1 {
-        return Err(TypeCheckError::Unsupported(
-            "undefined or ambiguous predicate access",
-        ));
-    }
     super::parse_ast::PIdnRef::filter_decls(
         &idnref,
         std::sync::Arc::new(
@@ -1677,6 +1673,23 @@ fn ensure_nonabstract_predicate_access(
         ),
         |_| true,
     );
+    if predicates.len() != 1 {
+        let name = match &idnref.read().expect("poisoned parse node").kind {
+            PNodeKind::IdnRef(id) => id.name.clone(),
+            _ => return Err(TypeCheckError::Unsupported("predicate identifier")),
+        };
+        let message = if original.is_empty() {
+            format!("undeclared predicate `{name}`")
+        } else if predicates.is_empty() {
+            format!("expected predicate access `{name}")
+        } else {
+            format!("ambiguous predicate access `{name}")
+        };
+        return Err(TypeCheckError::PositionedMessage {
+            node: idnref,
+            message,
+        });
+    }
     let has_body = matches!(&predicates[0].read().expect("poisoned parse node").kind, PNodeKind::Member(member) if matches!(&member.kind, PMemberKind::Predicate { body: Some(_), .. }));
     if !has_body {
         return Err(TypeCheckError::Unsupported(if fold {
@@ -1979,6 +1992,7 @@ pub fn check_top_expression(
     let candidates = input
         .type_subs_distinct()
         .ok_or(TypeCheckError::Unsupported("expression substitutions"))?;
+    let first_unfiltered = candidates.first().cloned();
     let candidates = if let Some(expected) = expected {
         candidates
             .into_iter()
@@ -1987,38 +2001,53 @@ pub fn check_top_expression(
     } else {
         candidates
     };
-    let Some(mut chosen) = candidates.into_iter().next() else {
+    fn ground_candidate(
+        mut chosen: PTypeSubstitution,
+        node: &PNodeHandle,
+        warn: &mut impl FnMut(&PNodeHandle, &str),
+    ) -> Result<PTypeSubstitution, TypeCheckError> {
+        let keys = chosen.key_set();
+        let mut free = std::collections::HashSet::new();
+        for (_, value) in chosen.iter() {
+            free.extend(
+                value
+                    .free_type_variables()
+                    .into_iter()
+                    .filter(|key| !keys.contains(key)),
+            );
+        }
+        for variable in free {
+            warn(
+                node,
+                "unconstrained type parameter, substituting default type Int",
+            );
+            chosen = chosen
+                .add(
+                    &p_type_var(variable),
+                    &type_from_signature(&super::parse_ast_keyword::SignatureType::Int),
+                )
+                .map_err(|_| TypeCheckError::Unsupported("default type substitution"))?;
+        }
+        Ok(chosen)
+    }
+    let Some(chosen) = candidates.into_iter().next() else {
+        let reported_actual = if actual.is_ground() {
+            actual
+        } else if let Some(first) = first_unfiltered {
+            actual.substitute(&ground_candidate(first, input.node(), &mut warn)?)
+        } else {
+            actual
+        };
         return match expected {
             Some(expected) => Err(TypeCheckError::Incompatible {
                 expression: input.node().clone(),
-                actual,
+                actual: reported_actual,
                 expected: expected.clone(),
             }),
             None => Err(TypeCheckError::Unsupported("no type substitution")),
         };
     };
-    let keys = chosen.key_set();
-    let mut free = std::collections::HashSet::new();
-    for (_, value) in chosen.iter() {
-        free.extend(
-            value
-                .free_type_variables()
-                .into_iter()
-                .filter(|key| !keys.contains(key)),
-        );
-    }
-    for variable in free {
-        warn(
-            input.node(),
-            "unconstrained type parameter, substituting default type Int",
-        );
-        chosen = chosen
-            .add(
-                &p_type_var(variable),
-                &type_from_signature(&super::parse_ast_keyword::SignatureType::Int),
-            )
-            .map_err(|_| TypeCheckError::Unsupported("default type substitution"))?;
-    }
+    let chosen = ground_candidate(chosen, input.node(), &mut warn)?;
     input
         .force_substitution(&chosen)
         .map_err(|_| TypeCheckError::Unsupported("extension substitution"))?;
@@ -2952,9 +2981,19 @@ pub fn check_statement_core(
             }
         }
         ref kind @ (S::Fold { ref exp, .. } | S::Unfold { ref exp, .. }) => {
-            ensure_nonabstract_predicate_access(exp, matches!(kind, S::Fold { .. }))?;
+            let mut errors = Vec::new();
+            retain_type_mismatches(
+                &mut errors,
+                ensure_nonabstract_predicate_access(exp, matches!(kind, S::Fold { .. })),
+            )?;
             let predicate = type_from_signature(&SignatureType::Predicate);
-            check_program_expression(exp, Some(&predicate), &mut *warn)?;
+            retain_type_mismatches(
+                &mut errors,
+                check_program_expression(exp, Some(&predicate), &mut *warn),
+            )?;
+            if !errors.is_empty() {
+                return Err(TypeCheckError::Mismatches(errors));
+            }
         }
         S::Quasihavoc { lhs, exp, .. } | S::Quasihavocall { lhs, exp, .. } => {
             if let Some((guard, _)) = lhs {
@@ -3122,14 +3161,23 @@ pub fn check_statement_core(
                 if local
                     && matches!(&rhs.node().read().expect("poisoned parse node").kind, PNodeKind::Expression(e) if matches!(e.kind, PExpressionKind::NewExp { .. }))
                 {
-                    let name = match &node.read().expect("poisoned parse node").kind {
-                        PNodeKind::IdnRef(id) => id.name.clone(),
-                        _ => return Err(TypeCheckError::Unsupported("assignment identifier")),
-                    };
-                    errors.push(TypeCheckError::PositionedMessage {
-                        node,
-                        message: format!("undeclared identifier `{name}`"),
-                    });
+                    let reference = type_from_signature(&SignatureType::Ref);
+                    match check_program_expression(target, Some(&reference), &mut *warn) {
+                        Err(TypeCheckError::UnresolvedValue {
+                            name,
+                            identifier,
+                            ambiguous,
+                        }) => errors.push(TypeCheckError::PositionedMessage {
+                            node: identifier,
+                            message: if ambiguous {
+                                format!("ambiguous identifier `{name}`")
+                            } else {
+                                format!("undeclared identifier `{name}`")
+                            },
+                        }),
+                        result => retain_type_mismatches(&mut errors, result)?,
+                    }
+                    retain_type_mismatches(&mut errors, check_new_fields(&rhs))?;
                     return Err(TypeCheckError::Mismatches(errors));
                 }
                 match check_program_expression(&rhs, None, &mut *warn) {

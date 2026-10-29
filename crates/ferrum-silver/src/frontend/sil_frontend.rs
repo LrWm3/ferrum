@@ -480,7 +480,11 @@ impl FrontendPhases for SilFrontendPhases {
                 );
         }
         let mut errors = Vec::new();
+        let mut name_messages = Vec::new();
         for message in crate::parser::fast_message::sortmessages(analyser.messages) {
+            if message.error {
+                name_messages.push(message.clone());
+            }
             let position = Position::LineColumn(LineColumn::Source(Box::new(message.pos)));
             let kind = if message.error {
                 FrontendErrorKind::TypecheckerError(message.label)
@@ -494,12 +498,6 @@ impl FrontendPhases for SilFrontendPhases {
                 self.typechecking_warnings.push(diagnostic);
             }
         }
-        if !ok {
-            if !self.report_typechecking_warnings() {
-                return Err(vec![]);
-            }
-            return Err(errors);
-        }
         let checking = resolver::check_program_core(&input, &mut |node, text| {
             let position = node.read().expect("poisoned parse node").pos.0.clone();
             self.typechecking_warnings.push(FrontendError::new(
@@ -512,7 +510,7 @@ impl FrontendPhases for SilFrontendPhases {
                 resolver::TypeCheckError::Mismatches(errors) => errors.as_slice(),
                 _ => std::slice::from_ref(&e),
             };
-            let mut messages = Vec::new();
+            let mut messages = name_messages.clone();
             let mut fallback_errors = Vec::new();
             let mut identifier_messages_added = false;
             for error in errors {
@@ -695,6 +693,9 @@ impl FrontendPhases for SilFrontendPhases {
             return Err(vec![]);
         }
         checking?;
+        if !ok {
+            return Err(errors);
+        }
         Ok(input)
     }
     fn translate(&mut self, input: Self::Analyzed) -> Result<Program, Vec<AbstractError>> {
@@ -2742,6 +2743,25 @@ mod tests {
         );
     }
     #[test]
+    fn macro_trigger_retains_definition_site_diagnostic_position() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let source = "field v: Int\ndefine wand(x) acc(x.v) --* acc(x.v)\ndefine all(xs) forall x: Ref :: { wand(x) } x in xs ==> wand(x)\nfunction f(xs: Set[Ref]): Int\n  requires all(xs)\n";
+        let parsed = phases.parse(source).unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "magic wands are not supported in function preconditions or predicates (test.vpr@3.35--3.42)",
+                "magic wands are not supported in function preconditions or predicates (test.vpr@5.12--5.19)",
+            ]
+        );
+    }
+    #[test]
     fn bad_field_receiver_does_not_hide_rhs_receiver_error() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
@@ -2799,6 +2819,84 @@ mod tests {
                 "expected an assignable identifier `r` as lhs (test.vpr@5.3--5.4)",
                 "undeclared identifier `r` (test.vpr@5.3--5.4)",
             ]
+        );
+    }
+    #[test]
+    fn unfold_nonpredicate_reports_both_contextual_errors() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("function f(r: Ref): Bool { true }\nmethod m(r: Ref) {\n  unfold f(r)\n}\n")
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "expected predicate access `f (test.vpr@3.10--3.11)",
+                "undeclared call `f`, expected function or predicate (test.vpr@3.10--3.11)",
+            ]
+        );
+    }
+    #[test]
+    fn ambiguous_new_target_keeps_target_and_field_errors() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("method m() returns (x: Ref, x: Ref) {\n  x := new(missing)\n}\n")
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "duplicate identifier `x` at test.vpr@1.29 and at test.vpr@1.21 (test.vpr@1.29--1.30)",
+                "ambiguous identifier `x`, expected single parameter or local variable (test.vpr@2.3--2.4)",
+                "ambiguous identifier `x` (test.vpr@2.3--2.4)",
+                "undeclared field `missing` (test.vpr@2.12--2.19)",
+            ]
+        );
+    }
+    #[test]
+    fn nonassignable_new_target_keeps_missing_field_error() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("method m(r: Ref) {\n  r := new(missing)\n}\n")
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "expected an assignable identifier `r` as lhs (test.vpr@2.3--2.4)",
+                "undeclared identifier `r` (test.vpr@2.3--2.4)",
+                "undeclared field `missing` (test.vpr@2.12--2.19)",
+            ]
+        );
+    }
+    #[test]
+    fn mismatch_reports_first_grounded_actual_candidate() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("predicate p(r: Ref) { true }\nmethod m(r: Ref) {\n  assert forperm x: Ref [p(x)] :: acc(p(x), 1/2)\n}\n").unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec!["found incompatible type `<predicate>`, expected `Bool` (test.vpr@3.35--3.49)"]
         );
     }
     #[test]
