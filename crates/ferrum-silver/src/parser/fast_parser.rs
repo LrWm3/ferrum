@@ -219,7 +219,7 @@ pub fn parse_program_with_features(
     file: impl AsRef<Path>,
     features: &[ParserFeature],
 ) -> Result<PProgramHandle, SyntaxError> {
-    let program = parse_file_with_features(source, file.as_ref(), features)?;
+    let program = parse_file_with_features(source, file.as_ref(), features, false)?;
     if program.all_members().iter().any(|member| {
         matches!(
             &member.node().read().expect("poisoned parse node").kind,
@@ -246,6 +246,7 @@ fn parse_file_with_features(
     source: &str,
     file: &Path,
     features: &[ParserFeature],
+    recover_members: bool,
 ) -> Result<PProgramHandle, SyntaxError> {
     let mut parser = ExpressionParser {
         source,
@@ -257,12 +258,58 @@ fn parse_file_with_features(
         features,
     };
     let mut members = Vec::new();
+    let mut errors = Vec::new();
+    let mut log_failure = true;
     loop {
-        parser.trivia()?;
+        if let Err(error) = parser.trivia() {
+            if !recover_members {
+                return Err(error);
+            }
+            let duplicate = errors.last().is_some_and(|previous: &ParseReport| {
+                previous.message() == error.message && previous.pos() == &error.position
+            });
+            if !duplicate {
+                errors.push(ParseReport::Error(ParseError::new(
+                    error.message,
+                    error.position,
+                )));
+            }
+            break;
+        }
         if parser.cursor == source.len() {
             break;
         }
-        members.push(parser.member()?);
+        let start = parser.cursor;
+        let warning_count = parser.warnings.len();
+        match parser.member() {
+            Ok(member) => {
+                members.push(member);
+                log_failure = true;
+            }
+            Err(error) if !recover_members => return Err(error),
+            Err(error) => {
+                parser.warnings.truncate(warning_count);
+                if parser.cursor > start {
+                    log_failure = true;
+                } else {
+                    // Backtracking may restore an earlier cursor. Always move
+                    // forward from this attempt's start, on a UTF-8 boundary.
+                    parser.cursor = start;
+                    if let Some(ch) = source[start..].chars().next() {
+                        parser.cursor += ch.len_utf8();
+                    } else {
+                        break;
+                    }
+                }
+                if log_failure {
+                    errors.push(ParseReport::Error(ParseError::new(
+                        error.message,
+                        error.position,
+                    )));
+                    log_failure = false;
+                }
+            }
+        }
     }
     let mut offsets = Vec::new();
     if !source.is_empty() {
@@ -289,10 +336,9 @@ fn parse_file_with_features(
         PProgram {
             imported: Vec::new(),
             members,
-            local_errors: parser
-                .warnings
+            local_errors: errors
                 .into_iter()
-                .map(|w| ParseReport::Warning(w))
+                .chain(parser.warnings.into_iter().map(ParseReport::Warning))
                 .collect(),
             offsets,
             raw_program: source.into(),
@@ -352,7 +398,7 @@ pub fn parse_program_with_imports(
         load: &mut impl FnMut(&Path, bool) -> Result<String, String>,
         before_parse: &mut impl FnMut(String) -> Result<String, String>,
     ) -> Result<PProgramHandle, SyntaxError> {
-        let program = parse_file_with_features(source, file, features)?;
+        let program = parse_file_with_features(source, file, features, true)?;
         let members = match &program.node().read().expect("poisoned parse node").kind {
             PNodeKind::Program(p) => p.members.clone(),
             _ => unreachable!(),
@@ -4251,6 +4297,51 @@ mod debugger_parser_tests {
 #[cfg(test)]
 mod wand_statement_precedence_tests {
     use super::*;
+    #[test]
+    fn import_parser_recovers_multiple_bad_members_without_duplicate_noise() {
+        let input =
+            "method bad(x: Rational) { 0 }\nmethod good() { assert true }\nmethod other(] : Int)\n";
+        let program = parse_program_with_imports(
+            input,
+            "recovery.vpr",
+            &[],
+            &mut |_, _| Err("unexpected import".into()),
+            &mut Ok,
+        )
+        .unwrap();
+        let errors = program.errors();
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert_eq!(program.all_members().len(), 1);
+        assert!(parse_program(input, "recovery.vpr").is_err());
+        let unicode = parse_program_with_imports(
+            "❤ method m() {}",
+            "recovery.vpr",
+            &[],
+            &mut |_, _| Err("unexpected import".into()),
+            &mut Ok,
+        )
+        .unwrap();
+        assert_eq!(unicode.errors().len(), 1);
+        assert_eq!(unicode.all_members().len(), 1);
+        let comment = parse_program_with_imports(
+            "method bad() { 0 }\n/* unclosed",
+            "recovery.vpr",
+            &[],
+            &mut |_, _| Err("unexpected import".into()),
+            &mut Ok,
+        )
+        .unwrap();
+        assert_eq!(comment.errors().len(), 2);
+        let comment_in_member = parse_program_with_imports(
+            "method bad() { /* unclosed",
+            "recovery.vpr",
+            &[],
+            &mut |_, _| Err("unexpected import".into()),
+            &mut Ok,
+        )
+        .unwrap();
+        assert_eq!(comment_in_member.errors().len(), 1);
+    }
     #[test]
     fn abstract_function_member_ends_at_last_specification() {
         let text = "function f(x: Int): Bool\n  requires x > 0 ==> f(x-1)\n\nfunction g(): Bool\n";
