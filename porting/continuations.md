@@ -177,7 +177,7 @@ cancellation before removing their guard.
 | Inhale/exhale/assert (including disable-subsumption probes), method/call contracts, fold snapshots and statement unfold | Owned rule and caller frames |
 | Loop collection, establishment and backedges | Identified phase outputs and explicit consumption terminals |
 | Function preconditions and cached/uncached expression Unfolding | Owned snapshot/value receivers and identified join outputs |
-| Assignment values with field reads, Let, old/labelled-old, strict operators and domain/backend arguments around Asserting | Composable owned return frames; both eligible strict operands can transfer |
+| Assignment values with field reads, Let, old/labelled-old, strict operators, domain/backend arguments and field/predicate CurrentPerm arguments around Asserting | Composable owned return frames; both eligible strict operands can transfer |
 | Arbitrary nested value callbacks, other old-expression shapes and custom borrowed entry points | Safe synchronous fallback; not complete parallel source coverage |
 | Active member logs, extended exhale and packaging | Owned dispatch disabled; logger migration remains unfinished |
 
@@ -337,8 +337,7 @@ first/later arguments and an initial synchronous prefix, with CLI controls for
 argument failure order and skipped caller tails. A shared completion helper keeps
 ordinary term/debug construction. The synthetic unresolved-function check follows
 current Rust resolution-before-arguments order; pinned Scala resolves afterward.
-Valid frontend inputs resolve these names before verification. Ordinary function
-applications and CurrentPerm arguments remain separate receiver families.
+Valid frontend inputs resolve these names before verification. Ordinary function applications remain a separate receiver family.
 
 Mask alias replay now follows a shared term representation only when that alias
 is declared in the receiving solver. Macro bodies exclude self/forward aliases;
@@ -347,3 +346,13 @@ shared term. Stdio restart clears declaration history and failed emission
 invalidates it conservatively. Actual one/two-worker mask-heap replay, linked
 conversion and a 12-level reused-mask size regression pass. These paths require
 the source global-declaration setting to remain enabled.
+
+CurrentPerm field receivers and predicate arguments use the shared ordered
+argument frames, retaining the partial/current heap selected before evaluation.
+Actual one/two-worker tests check argument transfers and permission values, and
+CLI tests check failure order and skipped tails. A synthetic local probe verifies
+the saved partial-heap identity; it submits no sibling. Mask-mode one/two-worker
+regressions pass with the alias replay fix above through stdio and linked Z3.
+MagicWand accesses retain local
+callbacks, and CurrentPerm-specific debug reconstruction has source comparison
+rather than a dedicated runtime fixture.

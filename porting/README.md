@@ -1200,3 +1200,13 @@ Converters now use only locally available aliases, excluding self/forward
 references during macro expansion. Prior aliases keep reused definitions compact.
 Stdio restart and failed emission clear stale availability; both transports and
 the original one/two-worker failure fixture pass their focused checks.
+
+Owned CurrentPerm field/predicate arguments preserve the heap selected before
+evaluating the arguments. Actual worker, permission-order, partial-heap identity
+and mask-mode regressions pass; the mask replay fix is a required dependency.
+MagicWand accesses retain synchronous callbacks.
+
+The composed continuation checkpoint passes 213 library tests, the explicit
+cooperative restoration regression and 18 real-Z3 CLI continuation cases. Both
+the original mask-alias reproducer and CurrentPerm mask fixture also pass linked
+Z3 4.16 with one/two workers. These are compatibility checks, not speedup evidence.

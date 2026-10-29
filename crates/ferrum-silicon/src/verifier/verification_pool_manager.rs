@@ -1970,6 +1970,12 @@ pub(crate) static FIELD_RECEIVER_EXECUTIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static LET_RECEIVER_CANCEL_HOOKS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static PERM_ARG_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 2] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
+#[cfg(test)]
+pub(crate) static PERM_ARG_EXECUTIONS: [std::sync::atomic::AtomicUsize; 2] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
+#[cfg(test)]
 pub(crate) static DOMAIN_ARG_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 2] =
     [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
 #[cfg(test)]
@@ -2300,6 +2306,11 @@ where
                         }) {
                             DOMAIN_ARG_SUBMISSIONS[usize::from(argument != 0)]
                                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        for argument in frame.return_frames.iter().filter_map(|f| match f {
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::CurrentPermArg { index, .. } => Some(*index), _ => None,
+                        }) {
+                            PERM_ARG_SUBMISSIONS[usize::from(argument != 0)].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         }
                         if frame.return_frames.len() >= 2 {
                             NESTED_RETURN_SUBMISSIONS
@@ -6445,6 +6456,81 @@ method bad() { assert false; }
                     && after[1] - before[1] > after[3] - before[3],
                 "outer jobs did not execute: {before:?} -> {after:?}"
             );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_current_permission_arguments() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let sources = [
+            r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, x: Ref, y: Ref) returns (r: Perm)
+ requires acc(x.val) && acc(y.val) ensures r == write && acc(x.val) && acc(y.val)
+{ r := perm((asserting (b ? acc(x.val) : acc(y.val)) in x).val); }
+method bad() { assert false; }
+"#,
+            r#"// owned_return_tail_check
+field val: Int
+predicate P(a: Ref, b: Ref) { true }
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Perm)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val) && acc(P(x, z))
+ ensures r == write && acc(P(x, z))
+{ r := perm(P((asserting (b ? acc(x.val) : acc(y.val)) in x), (asserting (c ? acc(z.val) : acc(w.val)) in z))); }
+method bad() { assert false; }
+"#,
+        ];
+        for (kind, source) in sources.into_iter().enumerate() {
+            for workers in [1, 2] {
+                let before = [
+                    PERM_ARG_SUBMISSIONS[0].load(std::sync::atomic::Ordering::SeqCst),
+                    PERM_ARG_EXECUTIONS[0].load(std::sync::atomic::Ordering::SeqCst),
+                    PERM_ARG_SUBMISSIONS[1].load(std::sync::atomic::Ordering::SeqCst),
+                    PERM_ARG_EXECUTIONS[1].load(std::sync::atomic::Ordering::SeqCst),
+                ];
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(
+                    fatal.iter().filter(|v| **v).count(),
+                    1,
+                    "workers={workers}: {fatal:?}"
+                );
+                let after = [
+                    PERM_ARG_SUBMISSIONS[0].load(std::sync::atomic::Ordering::SeqCst),
+                    PERM_ARG_EXECUTIONS[0].load(std::sync::atomic::Ordering::SeqCst),
+                    PERM_ARG_SUBMISSIONS[1].load(std::sync::atomic::Ordering::SeqCst),
+                    PERM_ARG_EXECUTIONS[1].load(std::sync::atomic::Ordering::SeqCst),
+                ];
+                assert!(
+                    after[0] > before[0] && after[1] > before[1],
+                    "first arg transfer: {before:?} -> {after:?}"
+                );
+                if kind == 1 {
+                    assert!(
+                        after[2] > before[2] && after[3] > before[3],
+                        "later arg transfer: {before:?} -> {after:?}"
+                    );
+                }
+            }
         }
     }
 

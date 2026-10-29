@@ -391,6 +391,8 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub(crate) test_cancel_owned_let:
         Option<crate::verifier::verification_pool_manager::CancellationController>,
     #[cfg(test)]
+    test_current_permission_heap: Option<(Arc<ListBackedHeap>, Arc<std::sync::atomic::AtomicBool>)>,
+    #[cfg(test)]
     executor_debug_for_test: bool,
     /// Owner-local symbolic logger and record constructor. Both are inactive until
     /// the verification lifecycle explicitly installs a member log.
@@ -763,6 +765,8 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             test_cancel_owned_let: None,
             #[cfg(test)]
             executor_debug_for_test: false,
+            #[cfg(test)]
+            test_current_permission_heap: None,
             logging_root: None,
             trace_reporting_enabled: false,
             postcondition_axioms_store: Default::default(),
@@ -2730,6 +2734,13 @@ where
             EvaluationError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
+        #[cfg(test)]
+        if let Some((expected, matched)) = &self.test_current_permission_heap {
+            matched.store(
+                Arc::ptr_eq(expected, &heap),
+                std::sync::atomic::Ordering::SeqCst,
+            );
+        }
         if self.options.mask_heap_mode {
             let amount = crate::rules::mask_heap_supporter::current_permission::<
                 NativeError<S::Error>,
@@ -12897,6 +12908,17 @@ where
                         _ => None,
                     }) {
                         super::verification_pool_manager::DOMAIN_ARG_EXECUTIONS
+                            [usize::from(argument != 0)]
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    for argument in frame.return_frames.iter().filter_map(|f| match f {
+                        crate::rules::evaluator::OwnedEvaluationReturnFrame::CurrentPermArg {
+                            index,
+                            ..
+                        } => Some(*index),
+                        _ => None,
+                    }) {
+                        super::verification_pool_manager::PERM_ARG_EXECUTIONS
                             [usize::from(argument != 0)]
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
@@ -27767,6 +27789,72 @@ mod queued_cfg_isolation_tests {
             source.context.evaluator_debug_for_test = false;
         }
         source.context.base.decider.pop_scope().unwrap();
+        // Internal state probe: CurrentPerm must use the partial heap selected
+        // before evaluating its argument, not the current evaluation heap.
+        {
+            let waited = std::rc::Rc::new(std::cell::Cell::new(0));
+            source.context.joined_branch_scheduler_enabled = true;
+            source.context.joined_branch_scheduler = Some(std::rc::Rc::new(OldProbe {
+                waited: waited.clone(),
+                cancellation: None,
+                kind: 0,
+                capture: None,
+            }));
+            let field =
+                ferrum_silver::ast::program::Field::new(ferrum_silver::ast::program::FieldData {
+                    name: "syntheticField".into(),
+                    typ: ferrum_silver::ast::r#type::Type::Int,
+                    meta: Default::default(),
+                });
+            let arg = Exp::new(
+                ExpKind::Asserting(
+                    Exp::new(ExpKind::TrueLit, Default::default()),
+                    Exp::new(ExpKind::NullLit, Default::default()),
+                ),
+                Default::default(),
+            );
+            let access = Exp::new(
+                ExpKind::FieldAccess(ferrum_silver::ast::expression::FieldAccess::new(
+                    arg,
+                    field,
+                    Default::default(),
+                )),
+                Default::default(),
+            );
+            let rhs = Exp::new(ExpKind::CurrentPerm(access), Default::default());
+            let mut input = state.clone();
+            input.under_join = false;
+            input.parallelize_branches = true;
+            input.method_cfg = Some(Arc::new(cfg.clone()));
+            let partial_heap = Arc::new(ListBackedHeap::new());
+            assert!(!Arc::ptr_eq(&partial_heap, &input.h));
+            input.partially_consumed_heap = Some(partial_heap.clone());
+            let matched = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            source.context.test_current_permission_heap = Some((partial_heap, matched.clone()));
+            let mut recv = receiver.clone();
+            recv.rhs = rhs.clone();
+            recv.lhs = ferrum_silver::ast::expression::LocalVar::new(
+                "permResult".into(),
+                ferrum_silver::ast::r#type::Type::Perm,
+                Default::default(),
+            );
+            let result = crate::rules::evaluator::evaluate_owned_nested(
+                &mut source.context,
+                input,
+                &rhs,
+                &partial,
+                &recv,
+                vec![],
+            )
+            .unwrap();
+            assert!(!result.is_fatal());
+            assert!(
+                matched.load(std::sync::atomic::Ordering::SeqCst),
+                "expected pre-argument partial heap"
+            );
+            assert_eq!(waited.get(), 0);
+            source.context.test_current_permission_heap = None;
+        }
         // Synthetic unresolved domain application: resolver failure must precede
         // evaluating the asserting argument or submitting any continuation.
         {

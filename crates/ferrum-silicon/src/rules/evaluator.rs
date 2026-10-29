@@ -171,6 +171,16 @@ pub enum OwnedEvaluationReturnFrame {
         wrapper: OwnedValueWrapper,
         record_heap: bool,
     },
+    CurrentPermArg {
+        wrapper: OwnedValueWrapper,
+        access: Exp,
+        resource: crate::state::terms::ResourceKey,
+        heap: Arc<ListBackedHeap>,
+        args: Vec<Exp>,
+        index: usize,
+        terms: Vec<Term>,
+        debug_args: Vec<Option<Exp>>,
+    },
     LetValue(OwnedValueWrapper),
     LetBody {
         wrapper: OwnedValueWrapper,
@@ -974,6 +984,7 @@ enum OwnedPathStep {
     LetValue,
     LetBody,
     DomainArg(usize),
+    CurrentPermArg(usize),
     AddLeft,
     AddRight,
     StrictLeft,
@@ -1017,6 +1028,21 @@ fn owned_asserting_path(expression: &Exp) -> Option<Vec<OwnedPathStep>> {
                         &access.receiver,
                         Some(OwnedPathStep::FieldReceiver),
                     )),
+                    ExpKind::CurrentPerm(access) => match access.kind() {
+                        ExpKind::FieldAccess(field) => work.push(Work::Visit(
+                            &field.receiver,
+                            Some(OwnedPathStep::CurrentPermArg(0)),
+                        )),
+                        ExpKind::PredicateAccess(predicate) => {
+                            for (index, arg) in predicate.args.iter().enumerate().rev() {
+                                work.push(Work::Visit(
+                                    arg,
+                                    Some(OwnedPathStep::CurrentPermArg(index)),
+                                ));
+                            }
+                        }
+                        _ => (),
+                    },
                     ExpKind::DomainFuncApp(_, args, _) | ExpKind::BackendFuncApp(_, args) => {
                         for (index, arg) in args.iter().enumerate().rev() {
                             work.push(Work::Visit(arg, Some(OwnedPathStep::DomainArg(index))));
@@ -1051,6 +1077,13 @@ pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
         | ExpKind::Minus(body)
         | ExpKind::Not(body) => has_owned_asserting_path(body),
         ExpKind::FieldAccess(access) => has_owned_asserting_path(&access.receiver),
+        ExpKind::CurrentPerm(access) => match access.kind() {
+            ExpKind::FieldAccess(field) => has_owned_asserting_path(&field.receiver),
+            ExpKind::PredicateAccess(predicate) => {
+                predicate.args.iter().any(has_owned_asserting_path)
+            }
+            _ => false,
+        },
         ExpKind::DomainFuncApp(_, args, _) | ExpKind::BackendFuncApp(_, args) => {
             args.iter().any(has_owned_asserting_path)
         }
@@ -1264,11 +1297,37 @@ where
                 .find_domain_function_optionally(name)
                 .cloned()
                 .ok_or_else(|| EvaluationError::MissingDomainFunction(name.clone()))?;
-            evaluate_owned_domain_arguments(
+            evaluate_owned_arguments(
                 context,
                 state,
                 &wrapper,
-                &function,
+                &OwnedArgumentsTerminal::Domain(function),
+                0,
+                Vec::new(),
+                Vec::new(),
+                &frames,
+                error,
+                receiver,
+                Some((*index, rest)),
+            )
+        }
+        (ExpKind::CurrentPerm(access), OwnedPathStep::CurrentPermArg(index)) => {
+            let heap = state
+                .partially_consumed_heap
+                .clone()
+                .unwrap_or_else(|| state.h.clone());
+            let (resource, args) = current_permission_resource(&state, access)?;
+            let terminal = OwnedArgumentsTerminal::CurrentPerm {
+                access: access.clone(),
+                resource,
+                heap,
+                args,
+            };
+            evaluate_owned_arguments(
+                context,
+                state,
+                &wrapper,
+                &terminal,
                 0,
                 Vec::new(),
                 Vec::new(),
@@ -1454,6 +1513,82 @@ pub(crate) fn test_capture_old_returns(enabled: bool) -> Vec<OldReturnSnapshot> 
     OLD_RETURN_SNAPSHOTS.with(|slot| slot.replace(enabled.then(Vec::new)).unwrap_or_default())
 }
 
+fn current_permission_resource<P, D, J, E>(
+    state: &State<P, D, J>,
+    access: &Exp,
+) -> Result<(crate::state::terms::ResourceKey, Vec<Exp>), EvaluationError<E>> {
+    use crate::state::{chunks::MagicWandIdentifier, terms::ResourceKey};
+    match access.kind() {
+        ExpKind::FieldAccess(field) => Ok((
+            ResourceKey::Field(Arc::new(field.field.clone())),
+            vec![field.receiver.clone()],
+        )),
+        ExpKind::PredicateAccess(predicate) => {
+            let name = &predicate.predicate_name;
+            let decl = state
+                .program
+                .predicates
+                .iter()
+                .find(|p| &p.name == name)
+                .ok_or_else(|| EvaluationError::MissingPredicate(name.clone()))?;
+            Ok((
+                ResourceKey::Predicate(Arc::new(decl.clone())),
+                predicate.args.clone(),
+            ))
+        }
+        ExpKind::MagicWand(..) => {
+            let wand = MagicWandIdentifier::new(access.clone(), &state.program)
+                .map_err(EvaluationError::Wand)?;
+            let args = access
+                .magic_wand_subexpressions(&state.program)
+                .map_err(EvaluationError::Wand)?;
+            Ok((ResourceKey::Wand(wand), args))
+        }
+        _ => Err(EvaluationError::InvalidResourceAccess),
+    }
+}
+
+fn complete_current_permission<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    heap: Arc<ListBackedHeap>,
+    access: &Exp,
+    resource: &crate::state::terms::ResourceKey,
+    terms: Vec<Term>,
+    debug_args: Option<Vec<Exp>>,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let record = context.debugging() && state.temporary_heap_record.is_some();
+    let state = if record {
+        context
+            .record_intermediate_heap(state, expression)
+            .map_err(EvaluationError::Context)?
+    } else {
+        state
+    };
+    context.eval_current_permission(
+        state,
+        heap,
+        access,
+        resource,
+        &terms,
+        debug_args.as_deref(),
+        &mut |context, state, term| {
+            let debug = context.debugging().then(|| expression.clone());
+            continuation(context, state, term, debug)
+        },
+    )
+}
+
 /// Complete a resolved domain/backend application after its arguments.
 fn complete_domain_application<C, P, D, J: Clone, V>(
     context: &mut C,
@@ -1531,12 +1666,23 @@ fn rebuild_domain_debug_arguments<E>(
     Ok(debug)
 }
 
-/// Evaluate domain arguments left-to-right while retaining the complete prefix.
-fn evaluate_owned_domain_arguments<C, P, D, J: Clone, V>(
+#[derive(Clone)]
+enum OwnedArgumentsTerminal {
+    Domain(ferrum_silver::ast::program::DomainFunc),
+    CurrentPerm {
+        access: Exp,
+        resource: crate::state::terms::ResourceKey,
+        heap: Arc<ListBackedHeap>,
+        args: Vec<Exp>,
+    },
+}
+
+/// Evaluate owned argument lists left-to-right while retaining their complete prefix.
+fn evaluate_owned_arguments<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
     wrapper: &OwnedValueWrapper,
-    function: &ferrum_silver::ast::program::DomainFunc,
+    terminal: &OwnedArgumentsTerminal,
     index: usize,
     terms: Vec<Term>,
     debug_args: Vec<Option<Exp>>,
@@ -1548,24 +1694,46 @@ fn evaluate_owned_domain_arguments<C, P, D, J: Clone, V>(
 where
     C: EvaluationContext<P, D, J, V>,
 {
-    let args = match wrapper.expression.kind() {
-        ExpKind::DomainFuncApp(_, args, _) | ExpKind::BackendFuncApp(_, args) => args,
-        _ => unreachable!("domain argument frame"),
+    let args = match terminal {
+        OwnedArgumentsTerminal::Domain(_) => match wrapper.expression.kind() {
+            ExpKind::DomainFuncApp(_, args, _) | ExpKind::BackendFuncApp(_, args) => args,
+            _ => unreachable!("domain argument frame"),
+        },
+        OwnedArgumentsTerminal::CurrentPerm { args, .. } => args,
     };
     if index == args.len() {
         let debug = rebuild_domain_debug_arguments(context.debugging(), debug_args)?;
-        return complete_domain_application(
-            context,
-            state,
-            &wrapper.expression,
-            function,
-            terms,
-            debug,
-            &mut |context, mut state, term, debug| {
-                finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
-                resume_owned_return_frames(context, state, term, debug, frames, error, receiver)
-            },
-        );
+        let mut done = |context: &mut C, mut state, term, debug| {
+            finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+            resume_owned_return_frames(context, state, term, debug, frames, error, receiver)
+        };
+        return match terminal {
+            OwnedArgumentsTerminal::Domain(function) => complete_domain_application(
+                context,
+                state,
+                &wrapper.expression,
+                function,
+                terms,
+                debug,
+                &mut done,
+            ),
+            OwnedArgumentsTerminal::CurrentPerm {
+                access,
+                resource,
+                heap,
+                ..
+            } => complete_current_permission(
+                context,
+                state,
+                &wrapper.expression,
+                heap.clone(),
+                access,
+                resource,
+                terms,
+                debug,
+                &mut done,
+            ),
+        };
     }
     let argument = &args[index];
     let planned = match selected {
@@ -1576,12 +1744,29 @@ where
     };
     if let Some(path) = planned {
         let mut next = frames.to_vec();
-        next.push(OwnedEvaluationReturnFrame::DomainArg {
-            wrapper: wrapper.clone(),
-            function: function.clone(),
-            index,
-            terms,
-            debug_args,
+        next.push(match terminal {
+            OwnedArgumentsTerminal::Domain(function) => OwnedEvaluationReturnFrame::DomainArg {
+                wrapper: wrapper.clone(),
+                function: function.clone(),
+                index,
+                terms,
+                debug_args,
+            },
+            OwnedArgumentsTerminal::CurrentPerm {
+                access,
+                resource,
+                heap,
+                args,
+            } => OwnedEvaluationReturnFrame::CurrentPermArg {
+                wrapper: wrapper.clone(),
+                access: access.clone(),
+                resource: resource.clone(),
+                heap: heap.clone(),
+                args: args.clone(),
+                index,
+                terms,
+                debug_args,
+            },
         });
         return evaluate_owned_planned(context, state, argument, error, receiver, &path, next);
     }
@@ -1595,11 +1780,11 @@ where
             next_terms.push(term);
             let mut next_debug = debug_args.clone();
             next_debug.push(debug);
-            evaluate_owned_domain_arguments(
+            evaluate_owned_arguments(
                 context,
                 state,
                 wrapper,
-                function,
+                terminal,
                 index + 1,
                 next_terms,
                 next_debug,
@@ -1782,11 +1967,45 @@ where
                 terms.push(term);
                 let mut debug_args = debug_args.clone();
                 debug_args.push(debug);
-                return evaluate_owned_domain_arguments(
+                return evaluate_owned_arguments(
                     context,
                     state,
                     wrapper,
-                    function,
+                    &OwnedArgumentsTerminal::Domain(function.clone()),
+                    argument_index + 1,
+                    terms,
+                    debug_args,
+                    &frames[..index],
+                    error,
+                    receiver,
+                    None,
+                );
+            }
+            OwnedEvaluationReturnFrame::CurrentPermArg {
+                wrapper,
+                access,
+                resource,
+                heap,
+                args,
+                index: argument_index,
+                terms,
+                debug_args,
+            } => {
+                let mut terms = terms.clone();
+                terms.push(term);
+                let mut debug_args = debug_args.clone();
+                debug_args.push(debug);
+                let terminal = OwnedArgumentsTerminal::CurrentPerm {
+                    access: access.clone(),
+                    resource: resource.clone(),
+                    heap: heap.clone(),
+                    args: args.clone(),
+                };
+                return evaluate_owned_arguments(
+                    context,
+                    state,
+                    wrapper,
+                    &terminal,
                     argument_index + 1,
                     terms,
                     debug_args,
@@ -2683,68 +2902,32 @@ where
         );
     }
     if let ExpKind::CurrentPerm(access) = expression.kind() {
-        use crate::state::{chunks::MagicWandIdentifier, terms::ResourceKey};
-        let (resource, args) = match access.kind() {
-            ExpKind::FieldAccess(field) => (
-                ResourceKey::Field(Arc::new(field.field.clone())),
-                vec![field.receiver.clone()],
-            ),
-            ExpKind::PredicateAccess(predicate) => {
-                let name = &predicate.predicate_name;
-                let decl = state
-                    .program
-                    .predicates
-                    .iter()
-                    .find(|p| &p.name == name)
-                    .ok_or_else(|| EvaluationError::MissingPredicate(name.clone()))?;
-                (
-                    ResourceKey::Predicate(Arc::new(decl.clone())),
-                    predicate.args.clone(),
-                )
-            }
-            ExpKind::MagicWand(..) => {
-                let wand = MagicWandIdentifier::new(access.clone(), &state.program)
-                    .map_err(EvaluationError::Wand)?;
-                let args = access
-                    .magic_wand_subexpressions(&state.program)
-                    .map_err(EvaluationError::Wand)?;
-                (ResourceKey::Wand(wand), args)
-            }
-            _ => return Err(EvaluationError::InvalidResourceAccess),
-        };
         let heap = state
             .partially_consumed_heap
             .clone()
             .unwrap_or_else(|| state.h.clone());
+        let (resource, args) = current_permission_resource(&state, access)?;
         return evaluate_all(
             context,
             state,
             &args,
             &|_| error.clone(),
             &mut |context, state, terms, debug_args| {
-                let record = context.debugging() && state.temporary_heap_record.is_some();
-                let state = if record {
-                    context
-                        .record_intermediate_heap(state, expression)
-                        .map_err(EvaluationError::Context)?
-                } else {
-                    state
-                };
-                context.eval_current_permission(
+                complete_current_permission(
+                    context,
                     state,
+                    expression,
                     heap.clone(),
                     access,
                     &resource,
-                    &terms,
-                    debug_args.as_deref(),
-                    &mut |context, state, term| {
-                        let debug = context.debugging().then(|| expression.clone());
-                        continuation(context, state, term, debug)
-                    },
+                    terms,
+                    debug_args,
+                    continuation,
                 )
             },
         );
     }
+
     context.evaluate_special(state, expression, error, continuation)
 }
 

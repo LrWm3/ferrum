@@ -373,3 +373,69 @@ method bad(x: Ref, y: Ref, w: Ref, b: Bool, c: Bool) returns (r: Int)
         }
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn current_permission_arguments_failure_order_and_tail() {
+    let first = r#"field val: Int
+predicate P(a: Ref, b: Ref) { true }
+method bad(x: Ref, y: Ref, b: Bool, c: Bool) returns (r: Perm) requires x != y
+{ r := perm(P((asserting (b ? acc(x.val) : acc(y.val)) in x), (asserting (c ? false : false) in y))); }
+"#;
+    let later = r#"field val: Int
+predicate P(a: Ref, b: Ref) { true }
+method bad(x: Ref, y: Ref, w: Ref, b: Bool, c: Bool) returns (r: Perm)
+ requires w != x && w != y && acc(x.val) && acc(y.val)
+{ r := perm(P((asserting (b ? acc(x.val) : acc(y.val)) in x), (asserting (c ? acc(w.val) : acc(w.val)) in w))); assert false; }
+"#;
+    for source in [first, later] {
+        for workers in ["1", "2"] {
+            let output = run(source, workers);
+            assert!(!output.status.success());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("insufficient.permission"), "{stderr}");
+            assert!(!stderr.contains("assertion.false"), "{stderr}");
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn current_permission_mask_heap_parallel_arguments() {
+    let source = r#"field val: Int
+predicate P(a: Ref, b: Ref) { true }
+method field_case(b: Bool, x: Ref, y: Ref) returns (r: Perm)
+ requires acc(x.val) && acc(y.val) ensures r == write && acc(x.val) && acc(y.val)
+{ r := perm((asserting (b ? acc(x.val) : acc(y.val)) in x).val); }
+method pred_case(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Perm)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val) && acc(P(x, z))
+ ensures r == write && acc(P(x, z))
+{ r := perm(P((asserting (b ? acc(x.val) : acc(y.val)) in x), (asserting (c ? acc(z.val) : acc(w.val)) in z))); }
+"#;
+    let path = std::env::temp_dir().join(format!(
+        "ferrum-permission-mask-{}-{}.vpr",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::write(&path, source).unwrap();
+    for workers in ["1", "2"] {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_ferrum"))
+            .arg("--z3Exe")
+            .arg(std::env::var_os("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3"))
+            .args([
+                "--parallelizeBranches",
+                "--numberOfParallelVerifiers",
+                workers,
+                "--maskHeapMode",
+            ])
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    std::fs::remove_file(path).unwrap();
+}
