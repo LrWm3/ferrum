@@ -12,7 +12,7 @@ code. A gate cannot be removed merely because a public option can be parsed.
 Port gaps remain open until connected and checked; source restrictions and
 intentional native API/rendering adaptations must be identified separately.
 
-## 1. Diagnostics and reporting — in progress
+## 1. Diagnostics and reporting — complete
 
 - Reconcile source messages and positions, including the outstanding termination
   clause spans and collection-expression parentheses in the earlier diagnostic
@@ -27,13 +27,13 @@ intentional native API/rendering adaptations must be identified separately.
   and meaningful scripted debugger sessions against the pinned source where
   applicable. Document deliberate formatting differences explicitly.
 
-Initial audit found that native debugging is still gated and ordinary failure
-contexts do not carry the proof obligation required for replay. General logging
-already implements levels and ancestry internally, but public activation and
-event parity still need reconciliation. The historical ADT discriminator outcome
+The initial audit found that native debugging was gated and ordinary failure
+contexts did not carry the proof obligation required for replay. General logging
+implemented levels and ancestry internally, but public activation and event
+delivery still needed reconciliation. The historical ADT discriminator outcome
 mismatch in `silver/0236.vpr` is carried forward for semantic investigation.
 
-### Checked progress through `08ff634`
+### Earlier checkpoint at `08ff634`
 
 Failure contexts now carry detached proof obligations, retained source scopes,
 declarations, assumptions and predicate/function registries. Owner-thread stream
@@ -59,7 +59,27 @@ failure exits are not agreement. The final integrated diagnostic comparison is
 still pending. Later stages below remain pending, and no performance claim is
 made from these checks.
 
-## 2. Advanced features and hardening — pending
+### Completed diagnostics/reporting checkpoint
+
+Public native debugging is enabled after source-goal/state capture, joined and
+quantified metadata, wand packaging, linked solver settings, and cleanup checks.
+The final assembled library run passed all **810 tests** with real Z3 enabled:
+21 root-library, 365 Silicon, and 424 Silver tests. A separate **15-test** public
+pass covers the debugger, stdio/linked exceptions, statistics, domain logs and
+cycle diagnostics. The workspace all-target check passes without the linked
+feature, and all workspace targets compile with `native-z3`. Production profiles
+remain unchanged. The broader compatibility stage is still ahead.
+
+The manifest-verified diagnostic review has 132 exact line lists, 22 differing
+lists, four multiline reviews and 17 unavailable comparisons out of 175 selected
+historical cases. Documented rendering adaptations are separate from the semantic
+issues and timeouts carried into later stages; none are counted as agreement.
+See [the diagnostic review](diagnostic-audit-c51.md) and [debugger/reporting
+validation](debugger-validation.md) for scope, commands and reproduced source
+limitations. The latter records native EOF/collection presentation, source
+simplified-unfold failure, source sequence replay behavior and API solver settings.
+
+## 2. Advanced features and hardening — in progress
 
 - Audit reachable unsupported extension/configuration paths against the source
   and connect missing native services; keep genuine source restrictions explicit.
@@ -72,6 +92,14 @@ made from these checks.
 - Exercise cancellation, worker interleaving, collector isolation, cleanup errors
   and session reuse in the newly connected paths. Check failure behavior as well
   as successful transfers.
+
+The confirmed semantic investigations are generic-domain type grounding in
+`0236`, annotated Boolean operator inference in `0950`, the empty-result path
+when heap-trigger argument evaluation fails in `0652`, and first-match termination
+metadata in the two `specOrder` cases. Internal logger reuse and newly connected
+debugger cancellation/interleaving paths need focused checks. Recursive stack
+usage requires representative subprocess measurements and fixes at observed
+failure paths, without changing the production optimization policy.
 
 ## 3. Fresh Prusti verification — pending
 

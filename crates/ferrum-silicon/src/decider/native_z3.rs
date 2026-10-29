@@ -377,7 +377,7 @@ impl LinkedZ3 {
             };
             this.checked()?;
             if source_options {
-                this.set_source_solver_options(&[], false)?;
+                this.set_source_solver_options(&[], false, false)?;
             }
             *this
                 .context
@@ -391,7 +391,17 @@ impl LinkedZ3 {
         &self,
         custom: &[(String, String)],
         disable_nonlinear: bool,
-    ) -> Result<Vec<String>, NativeZ3Error> {
+        record: bool,
+    ) -> Result<
+        (
+            Vec<String>,
+            Vec<(
+                String,
+                crate::interfaces::decider::prover::DebugZ3OptionValue,
+            )>,
+        ),
+        NativeZ3Error,
+    > {
         struct Params {
             context: Rc<Context>,
             raw: Raw,
@@ -438,6 +448,7 @@ impl LinkedZ3 {
         let descrs = unsafe { Z3_solver_get_param_descrs(c, self.solver) };
         self.checked()?;
         let mut warnings = Vec::new();
+        let mut accepted = Vec::new();
         for (original, value) in custom {
             let key = original.strip_prefix("smt.").unwrap_or(original);
             let name = self.symbol(key)?;
@@ -479,12 +490,23 @@ impl LinkedZ3 {
                 }
             }
             self.checked()?;
+            if record {
+                use crate::interfaces::decider::prover::DebugZ3OptionValue as V;
+                let typed = match kind {
+                    0 => V::Unsigned(value.parse::<i32>().map_err(|_| invalid())? as u32),
+                    1 => V::Boolean(value.eq_ignore_ascii_case("true")),
+                    2 => V::Double(value.parse().map_err(|_| invalid())?),
+                    4 => V::Symbol(value.clone()),
+                    _ => continue,
+                };
+                accepted.push((key.to_owned(), typed));
+            }
         }
         unsafe { Z3_solver_set_params(c, self.solver, raw) };
         self.checked()?;
-        Ok(warnings)
+        Ok((warnings, accepted))
     }
-    fn randomize_seed(&self) -> Result<(), NativeZ3Error> {
+    fn randomize_seed(&self) -> Result<u32, NativeZ3Error> {
         use std::hash::{BuildHasher, Hasher};
         let seed = (std::collections::hash_map::RandomState::new()
             .build_hasher()
@@ -505,7 +527,7 @@ impl LinkedZ3 {
             self.checked()
         })();
         unsafe { Z3_params_dec_ref(c, params) };
-        result
+        result.map(|()| seed)
     }
     /// Linked library version; this may differ from the configured stdio executable.
     pub fn library_version() -> (u32, u32, u32, u32) {
@@ -1750,7 +1772,13 @@ impl crate::interfaces::decider::prover::TextEmitter for LinkedZ3Prover {
                 .iter()
                 .all(|s| s.starts_with("(set-option :RANDOMIZE_SEEDS") || expected.contains(s))
         {
-            self.active()?.converter.context.randomize_seed()?;
+            let seed = self.active()?.converter.context.randomize_seed()?;
+            if self.options.debug {
+                self.active()?.record_debug_option(
+                    "random_seed".into(),
+                    crate::interfaces::decider::prover::DebugZ3OptionValue::Unsigned(seed),
+                );
+            }
             return Ok(());
         }
         Err(LinkedProverError::Unsupported("custom Z3 API settings"))
@@ -1837,9 +1865,10 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
             }
         }
         let driver = LinkedZ3::create(true, &context_options, self.interrupt.clone())?;
-        let warnings = driver.set_source_solver_options(
+        let (warnings, accepted) = driver.set_source_solver_options(
             &self.options.custom_options,
             self.options.disable_nonlinear,
+            self.options.debug,
         )?;
         for warning in warnings {
             self.report_warning(warning);
@@ -1851,6 +1880,9 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
         let mut session = super::z3_prover_api::Z3ApiSession::new(converter, self.options.timeout);
         if self.options.debug {
             session.enable_debug_replay();
+            for (name, value) in accepted {
+                session.record_debug_option(name, value);
+            }
         }
         self.session = Some(session);
         self.identifiers.start();
@@ -2664,20 +2696,30 @@ mod tests {
                 ("qi.eager_threshold".into(), "5.5".into()),
             ],
             true,
+            false,
         )
         .unwrap();
         assert_eq!(z.check().unwrap(), SatResult::Sat);
         assert!(
-            z.set_source_solver_options(&[("mbqi".into(), "wrong".into())], false)
+            z.set_source_solver_options(&[("mbqi".into(), "wrong".into())], false, false)
                 .is_err()
         );
         assert!(
-            z.set_source_solver_options(&[("random_seed".into(), "2147483648".into())], false)
-                .is_err()
+            z.set_source_solver_options(
+                &[("random_seed".into(), "2147483648".into())],
+                false,
+                false
+            )
+            .is_err()
         );
         assert_eq!(
-            z.set_source_solver_options(&[("ferrum_unknown_option".into(), "true".into())], false)
-                .unwrap(),
+            z.set_source_solver_options(
+                &[("ferrum_unknown_option".into(), "true".into())],
+                false,
+                false
+            )
+            .unwrap()
+            .0,
             vec!["Z3 error: unknown parameterferrum_unknown_option"]
         );
     }

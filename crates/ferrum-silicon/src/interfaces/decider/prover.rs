@@ -76,8 +76,21 @@ pub enum CommentError<E> {
 /// API-only ordered transport journal required to replay declarations interleaved with SMT preamble text.
 #[derive(Clone, Debug)]
 pub enum DebugReplayEvent {
+    /// A successfully applied, typed Z3 API solver parameter.
+    Z3Option {
+        name: String,
+        value: DebugZ3OptionValue,
+    },
     Emit(String),
     Declare(Declaration),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum DebugZ3OptionValue {
+    Unsigned(u32),
+    Boolean(bool),
+    Double(f64),
+    Symbol(String),
 }
 
 /// Stateful solver operations. Concrete implementations own the process/API

@@ -319,17 +319,6 @@ where
         solver: &str,
         args: Option<&str>,
     ) -> Result<(), String> {
-        // The linked API applies these directly and does not include them in
-        // captured emits. Until we can replay accepted options and the actual
-        // seed, reject rather than change the proof configuration silently.
-        if verifier.snapshot.prover_name == "Z3-API"
-            && (!self.config.prover_config_args.is_empty() || self.config.prover_randomize_seeds)
-        {
-            return Err(
-                "Z3-API debugger replay does not support custom prover options or randomized seeds"
-                    .into(),
-            );
-        }
         let profile = match solver {
             "Z3" => crate::decider::z3_prover_std_io::profile(),
             "cvc5" => crate::decider::cvc5_prover_std_io::profile(),
@@ -445,6 +434,49 @@ where
             if let Some(events) = events {
                 for event in events {
                     match event {
+                        crate::interfaces::decider::prover::DebugReplayEvent::Z3Option { name, value } => {
+                            use crate::interfaces::decider::prover::DebugZ3OptionValue as V;
+                            if r.context.base.decider.prover.name() != "Z3" { return Err(format!("Z3 API option {name} cannot be replayed with the selected solver")); }
+                            if !name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')) { return Err(format!("Z3 API option {name:?} cannot be represented in SMT-LIB")); }
+                            // Solver descriptors accept bare parameter names; SMT-LIB
+                            // exposes some under :smt and others globally. Probe the
+                            // fresh solver before assertions, then set only a supported
+                            // spelling. Unknown or unsupported keys stay explicit.
+                            let candidates = [format!("smt.{name}"), name.clone()];
+                            let mut selected = None;
+                            for candidate in candidates {
+                                // Z3 writes diagnostic comments to stderr, which shares
+                                // our protocol stream. An echo marks the end of both
+                                // the reply and those comments before any next command.
+                                let prover = &mut r.context.base.decider.prover;
+                                prover.write_line(&format!("(get-option :{candidate})")).map_err(display)?;
+                                prover.write_line("(echo \"ferrum.option.probe.done\")").map_err(display)?;
+                                let mut supported = false;
+                                let mut rejected = false;
+                                loop {
+                                    let reply = prover.read_line().map_err(display)?;
+                                    if reply == "ferrum.option.probe.done" { break; }
+                                    if reply == "unsupported" || reply.starts_with("(error") { rejected = true; }
+                                    else if !reply.starts_with(';') { supported = true; }
+                                }
+                                if supported && !rejected { selected = Some(candidate); break; }
+                            }
+                            let name = selected.ok_or_else(|| format!("Z3 API option {name} cannot be mapped to a supported SMT-LIB option"))?;
+                            let value = match value {
+                                V::Unsigned(v) => v.to_string(), V::Boolean(v) => v.to_string(),
+                                V::Double(v) if v.is_finite() => {
+                                    // SMT option numerals do not accept Rust's exponent spelling.
+                                    // 324 decimal places retain every finite f64, including subnormals.
+                                    let mut decimal = format!("{v:.324}");
+                                    while decimal.ends_with('0') { decimal.pop(); }
+                                    if decimal.ends_with('.') { decimal.push('0'); }
+                                    decimal
+                                },
+                                V::Symbol(v) if !v.is_empty() && v.chars().all(|c| !c.is_control() && c != '|' && c != '\\') => format!("|{v}|"),
+                                _ => return Err(format!("Z3 API option {name} has a value that cannot be represented in SMT-LIB")),
+                            };
+                            r.context.base.decider.prover.emit(&format!("(set-option :{name} {value})")).map_err(|e| format!("cannot replay effective Z3 API option {name}: {}", display(e)))?;
+                        }
                         crate::interfaces::decider::prover::DebugReplayEvent::Emit(text) => {
                             r.context.base.decider.prover.emit(&text).map_err(display)?
                         }

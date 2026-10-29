@@ -1,5 +1,5 @@
 //! Ferrum public debugger validation assembly described in PLAN.md.
-//! Public debugger CLI and stream regressions. Run after the debugger gate opens.
+//! Public debugger CLI and stream regressions.
 use ferrum::{
     RunOutcome, run_file,
     silicon::{
@@ -75,14 +75,24 @@ fn streams(
     )
 }
 fn run_cli(path: &std::path::Path, z3: &std::path::Path, input: &[u8]) -> std::process::Output {
+    run_cli_with_options(path, z3, input, "1", &[])
+}
+fn run_cli_with_options(
+    path: &std::path::Path,
+    z3: &std::path::Path,
+    input: &[u8],
+    workers: &str,
+    options: &[&str],
+) -> std::process::Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_ferrum"))
         .args([
             "--enableDebugging",
             "--numberOfParallelVerifiers",
-            "1",
+            workers,
             "--z3Exe",
         ])
         .arg(z3)
+        .args(options)
         .arg(path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -92,8 +102,50 @@ fn run_cli(path: &std::path::Path, z3: &std::path::Path, input: &[u8]) -> std::p
     child.stdin.take().unwrap().write_all(input).unwrap();
     child.wait_with_output().unwrap()
 }
+
 #[test]
-#[ignore = "requires real Z3; set FERRUM_TEST_Z3; debugger gate must be connected"]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3; native-z3 requires the pinned library"]
+fn public_debugger_replays_worker_and_reporting_configurations() {
+    let z3 = PathBuf::from(std::env::var_os("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3"));
+    let file = Temp::new("vpr");
+    std::fs::write(
+        &file.0,
+        "field f: Int method m(r: Ref) requires acc(r.f) { assert r.f > 0 }",
+    )
+    .unwrap();
+    let check = |workers: &str, options: &[&str]| {
+        let out = run_cli_with_options(&file.0, &z3, b"p\naf\nr.f > 0\np\nq\n", workers, options);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "stdout={stdout} stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let proofs: Vec<_> = stdout
+            .lines()
+            .filter(|line| line.starts_with("PASS: Proving") || line.starts_with("FAIL: Proving"))
+            .collect();
+        assert_eq!(
+            proofs,
+            [
+                "FAIL: Proving obligation failed.",
+                "PASS: Proving obligation was successful."
+            ],
+            "{stdout}"
+        );
+        assert!(!stdout.contains("Error while"), "{stdout}");
+    };
+    check("1", &["--ideModeAdvanced"]);
+    check("2", &["--parallelizeBranches"]);
+    #[cfg(feature = "native-z3")]
+    {
+        check("1", &["--prover", "Z3-API"]);
+        check("2", &["--prover", "Z3-API", "--parallelizeBranches"]);
+    }
+}
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn public_cli_success_and_failing_session() {
     let z3 = PathBuf::from(std::env::var_os("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3"));
     let good = Temp::new("vpr");
@@ -143,7 +195,7 @@ fn public_cli_success_and_failing_session() {
 }
 #[cfg(target_os = "linux")]
 #[test]
-#[ignore = "requires real Z3; set FERRUM_TEST_Z3; debugger gate must be connected"]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn stream_selection_eof_independent_sessions_and_cleanup() {
     std::thread::Builder::new().stack_size(128 * 1024 * 1024).spawn(|| {
         use std::os::unix::fs::PermissionsExt;
@@ -200,7 +252,7 @@ fn stream_selection_eof_independent_sessions_and_cleanup() {
 }
 
 #[test]
-#[ignore = "requires real Z3; set FERRUM_TEST_Z3; debugger gate must be connected"]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn public_cli_replays_field_expression() {
     let z3 = PathBuf::from(std::env::var_os("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3"));
     let file = Temp::new("vpr");

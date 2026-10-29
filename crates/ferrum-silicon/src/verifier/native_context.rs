@@ -206,11 +206,6 @@ impl NativeOptions {
     pub fn from_config(
         config: &crate::config::Config,
     ) -> Result<Self, NativeError<crate::decider::prover_std_io::ProverError>> {
-        if config.enable_debugging {
-            return Err(NativeError::Unsupported(
-                "requested verifier configuration is not connected",
-            ));
-        }
         fn method_pattern(
             pattern: &str,
         ) -> Result<regex::Regex, NativeError<crate::decider::prover_std_io::ProverError>> {
@@ -1793,6 +1788,48 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         self.base
             .decider
             .assume([(term.clone(), None)], false, false)
+            .map_err(NativeError::Decider)
+    }
+    fn assume_internal_debug(
+        &mut self,
+        terms: &[Term],
+        description: &str,
+        internal: bool,
+        definition: bool,
+    ) -> Result<(), NativeError<S::Error>> {
+        if !self.base.decider.debug_mode {
+            return self
+                .base
+                .decider
+                .assume_terms(
+                    &self.factory,
+                    terms.iter().cloned(),
+                    None,
+                    false,
+                    definition,
+                )
+                .map_err(NativeError::Decider);
+        }
+        let debug = crate::debugger::debug_exp::DebugExp::create(
+            Some(description.into()),
+            None,
+            None,
+            None,
+            internal,
+            Default::default(),
+            false,
+            &|e: &Exp| Ok::<_, std::convert::Infallible>(e.clone()),
+        )
+        .expect("infallible description");
+        self.base
+            .decider
+            .assume_terms(
+                &self.factory,
+                terms.iter().cloned(),
+                Some(&debug),
+                false,
+                definition,
+            )
             .map_err(NativeError::Decider)
     }
     fn assume_joined_debug<T>(
@@ -10943,6 +10980,14 @@ where
         let formals = state
             .formal_arg_vars(&source_resource, &self.base.symbol_converter, &self.factory)
             .map_err(|e| ChunkExecutionError::Context(NativeError::Diagnostic(format!("{e:?}"))))?;
+        let debug_formals = if self.base.decider.debug_mode {
+            Some(state.formal_arg_decls(&source_resource).map_err(|e| {
+                ChunkExecutionError::Context(NativeError::Diagnostic(format!("{e:?}")))
+            })?)
+        } else {
+            None
+        };
+        let debug_mode = self.base.decider.debug_mode;
         let factory = self.factory.clone();
         let next = crate::rules::quantified_chunk_support::produce_single_quantified_location(
             &factory,
@@ -10951,14 +10996,14 @@ where
             resource,
             source_resource,
             formals,
-            None,
+            debug_formals,
             args.to_vec(),
             debug_args.map(|items| items.to_vec()),
             snapshot,
             permission,
             debug_permission,
             merge_and_trigger,
-            false,
+            debug_mode,
         )
         .map_err(|e| match e {
             crate::rules::quantified_chunk_support::SingleLocationProductionError::Service(
@@ -11926,7 +11971,12 @@ where
         )
     }
     fn assume_havoc_axiom(&mut self, axiom: &Term) -> Result<(), Self::Error> {
-        self.assume_term(axiom)
+        self.base
+            .decider
+            .prover
+            .comment(&mut || "axiomatized snapshot map after havoc".into())
+            .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+        self.assume_internal_debug(std::slice::from_ref(axiom), "havoc new axiom", true, false)
     }
     fn next_havoc_axiom_id(&mut self) -> u64 {
         self.havoc_counter = self.havoc_counter.wrapping_add(1);
@@ -13588,8 +13638,20 @@ where
                             "havocall precondition: {e:?}"
                         )))
                     })?;
-                    ctx.assume_term(&precondition)
-                        .map_err(EvaluationError::Context)?;
+                    ctx.base
+                        .decider
+                        .prover
+                        .comment(&mut || "Check havocall receiver injectivity".into())
+                        .map_err(|e| {
+                            EvaluationError::Context(NativeError::Decider(DeciderError::Prover(e)))
+                        })?;
+                    ctx.assume_internal_debug(
+                        std::slice::from_ref(&precondition),
+                        "QP receiver injectivity check is well-defined",
+                        true,
+                        false,
+                    )
+                    .map_err(EvaluationError::Context)?;
                     let proven = ctx
                         .base
                         .decider
@@ -13627,18 +13689,18 @@ where
                             "havocall inverses: {e:?}"
                         )))
                     })?;
+                    let comment = "Definitional axioms for havocall inverse functions";
                     ctx.base
                         .decider
-                        .assume(
-                            inverse
-                                .definitional_axioms()
-                                .into_iter()
-                                .cloned()
-                                .map(|t| (t, None)),
-                            false,
-                            false,
-                        )
-                        .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
+                        .prover
+                        .comment(&mut || comment.into())
+                        .map_err(|e| {
+                            EvaluationError::Context(NativeError::Decider(DeciderError::Prover(e)))
+                        })?;
+                    let axioms: Vec<_> =
+                        inverse.definitional_axioms().into_iter().cloned().collect();
+                    ctx.assume_internal_debug(&axioms, comment, true, false)
+                        .map_err(EvaluationError::Context)?;
                     let helper = crate::rules::havoc_supporter::HavocHelperData::All {
                         inverse_functions: inverse,
                         codomain_vars: formals,
@@ -21023,10 +21085,13 @@ where
         expressions: &[Exp],
         axioms: &[Term],
     ) -> Result<(), Self::Error> {
-        for term in axioms {
-            self.assume_term(term)?;
-        }
-        Ok(())
+        let rendered = expressions
+            .iter()
+            .map(ferrum_silver::ast::pretty::pretty_printer::pretty_expression)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| NativeError::Diagnostic(format!("heap trigger expressions: {e:?}")))?
+            .join(", ");
+        self.assume_internal_debug(axioms, &format!("Heap Triggers ({rendered})"), false, false)
     }
 }
 #[allow(unused_variables)]
@@ -23694,7 +23759,7 @@ where
     S::Error: std::fmt::Debug,
 {
     fn assume_quantified_alias(&mut self, assertion: &Term) -> Result<(), Self::Error> {
-        self.assume_term(assertion)
+        self.assume_internal_debug(std::slice::from_ref(assertion), "Chunks alias", true, false)
     }
 }
 
@@ -24008,9 +24073,22 @@ where
     S::Error: std::fmt::Debug,
 {
     fn assume_singleton_value(&mut self, definition: &Term) -> Result<(), Self::Error> {
+        let debug = self.base.decider.debug_mode.then(|| {
+            crate::debugger::debug_exp::DebugExp::create(
+                Some("Definitional axioms for singleton-SM's value".into()),
+                None,
+                None,
+                None,
+                true,
+                Default::default(),
+                false,
+                &|e: &Exp| Ok::<_, std::convert::Infallible>(e.clone()),
+            )
+            .expect("infallible debug description")
+        });
         self.base
             .decider
-            .assume([(definition.clone(), None)], false, true)
+            .assume([(definition.clone(), debug)], false, true)
             .map_err(NativeError::Decider)
     }
     fn next_quantified_tag(&mut self) -> i32 {
@@ -26425,10 +26503,7 @@ where
         self.base.decider.check_timeout.unwrap_or(0)
     }
     fn assume_wand_snapshot_definition(&mut self, definition: &Term) -> Result<(), Self::Error> {
-        self.base
-            .decider
-            .assume([(definition.clone(), None)], false, true)
-            .map_err(NativeError::Decider)
+        self.assume_internal_debug(std::slice::from_ref(definition), "Snapshots", true, true)
     }
     fn wand_smoke_check(&mut self) -> Result<bool, Self::Error> {
         self.base
@@ -26540,9 +26615,18 @@ where
     type Error = NativeError<S::Error>;
 
     fn fresh_unknown_lhs(&mut self) -> Result<Term, Self::Error> {
+        let debug_type = self.base.decider.debug_mode.then(|| {
+            ferrum_silver::parser::parse_ast::PTypeHandle::new(
+                ferrum_silver::parser::parse_ast::PTypeKind::Unknown,
+                (
+                    ferrum_silver::ast::position::Position::NoPosition,
+                    ferrum_silver::ast::position::Position::NoPosition,
+                ),
+            )
+        });
         self.base
             .decider
-            .fresh_variable(&self.factory, "snap", &Sort::Snap, false, None)
+            .fresh_variable(&self.factory, "snap", &Sort::Snap, false, debug_type)
             .map_err(NativeError::Decider)
     }
     fn empty_package_heap(
@@ -26552,17 +26636,20 @@ where
         Ok(Arc::new(self.native_empty_heap(&state.program, true)?))
     }
     fn assume_package_token_axiom(&mut self, axiom: &Term) -> Result<(), Self::Error> {
-        self.assume_term(axiom)
+        self.assume_internal_debug(
+            std::slice::from_ref(axiom),
+            "Path conditions recorded while packaging the magic wand",
+            true,
+            false,
+        )
     }
     fn assume_package_definitions(&mut self, definitions: &[Term]) -> Result<(), Self::Error> {
-        self.base
-            .decider
-            .assume(
-                definitions.iter().cloned().map(|term| (term, None)),
-                false,
-                true,
-            )
-            .map_err(NativeError::Decider)
+        self.assume_internal_debug(
+            definitions,
+            "Definitions recorded while packaging the magic wand",
+            true,
+            true,
+        )
     }
     fn consolidate_package_branches(
         &mut self,
@@ -26633,10 +26720,13 @@ where
                 crate::rules::quantified_chunk_support::SingletonMapError::Fresh(error) => error,
                 other => NativeError::Chunk(format!("wand singleton map: {other:?}")),
             })?;
+            let comment = "Definitional axioms for singleton-SM's value";
             self.base
                 .decider
-                .assume([(definition, None)], false, true)
-                .map_err(NativeError::Decider)?;
+                .prover
+                .comment(&mut || comment.into())
+                .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+            self.assume_internal_debug(std::slice::from_ref(&definition), comment, true, true)?;
             return crate::rules::quantified_chunk_support::singleton_quantified_chunk(
                 &factory,
                 &key,
@@ -26879,7 +26969,12 @@ where
         })
     }
     fn assume_package_snapshot_definition(&mut self, definition: &Term) -> Result<(), Self::Error> {
-        self.assume_term(definition)
+        self.assume_internal_debug(
+            std::slice::from_ref(definition),
+            "Magic wand snapshot definition",
+            true,
+            true,
+        )
     }
 }
 type NativePackageResult<E> = Result<
@@ -27034,9 +27129,22 @@ where
             if let (Some(tagged), Some(definitions)) =
                 (summary.tagged_snapshot, summary.definitions)
             {
+                let debug = self.base.decider.debug_mode.then(|| {
+                    crate::debugger::debug_exp::DebugExp::create(
+                        Some("Snapshot".into()),
+                        None,
+                        None,
+                        None,
+                        true,
+                        Default::default(),
+                        false,
+                        &|e: &Exp| Ok::<_, std::convert::Infallible>(e.clone()),
+                    )
+                    .expect("infallible debug description")
+                });
                 self.base
                     .decider
-                    .assume([(factory.and(definitions.clone()), None)], false, true)
+                    .assume([(factory.and(definitions.clone()), debug)], false, true)
                     .map_err(NativeError::Decider)?;
                 if matches!(tagged, TaggedSummarisingSnapshot::Fresh(_)) {
                     state.function_recorder = state.function_recorder.record_fvf_and_domain(
@@ -27178,9 +27286,22 @@ where
                 permission_exp: None,
             },
         );
+        let debug = self.base.decider.debug_mode.then(|| {
+            crate::debugger::debug_exp::DebugExp::create(
+                Some("Snapshot".into()),
+                None,
+                None,
+                None,
+                true,
+                Default::default(),
+                false,
+                &|e: &Exp| Ok::<_, std::convert::Infallible>(e.clone()),
+            )
+            .expect("infallible debug description")
+        });
         self.base
             .decider
-            .assume([(factory.and(definitions.clone()), None)], false, true)
+            .assume([(factory.and(definitions.clone()), debug)], false, true)
             .map_err(NativeError::Decider)?;
         if matches!(tagged, TaggedSummarisingSnapshot::Fresh(_)) {
             state.function_recorder = state.function_recorder.record_fvf_and_domain(
@@ -28073,6 +28194,150 @@ mod worker_analysis_contract_tests {
             assert!(replay.context.function_handles.get(&"f".to_owned()).unwrap().0.upgrade().is_some());
             assert!(replay.context.active_program.is_some());
             replay.context.stop().unwrap();
+        }).unwrap().join().unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn wand_heap_and_alias_assumptions_retain_source_metadata() {
+        use super::*;
+        use crate::rules::{
+            evaluator::TriggerEvaluationContext,
+            heap_supporter::HeapExecutionContext,
+            magic_wand_supporter::{
+                WandHeapServices, WandPackageServices, WandPackagingFinalization,
+            },
+            predicate_supporter::PredicateTreeServices,
+            quantified_chunk_support::CompleteQuantifiedChunkSolver,
+        };
+        use crate::{
+            config::Config, decider::z3_prover_std_io, state::terms::TermOptions,
+            verifier::verification_pool_manager::native_method_worker,
+        };
+        let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+        let config = Config::parse(&[
+            "--ignoreFile".into(),
+            "--z3Exe".into(),
+            z3.clone(),
+            "debug.vpr".into(),
+        ])
+        .unwrap();
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: config.use_flyweight(),
+            use_old_axiomatization: config.use_old_axiomatization,
+            mask_heap_mode: config.mask_heap_mode,
+        });
+        let mut settings = z3_prover_std_io::settings(z3.into());
+        settings.debug = true;
+        let prover = z3_prover_std_io::new("metadata".into(), settings, factory.clone(), |_| {});
+        let ids = prover.identifier_factory();
+        let mut worker = native_method_worker(
+            "metadata".into(),
+            prover,
+            ids,
+            factory.clone(),
+            NativeOptions::from_config(&config).unwrap(),
+            &config,
+        );
+        worker.context.start(None, &[]).unwrap();
+        let mut terms = Vec::new();
+        for _ in 0..8 {
+            terms.push(
+                worker
+                    .context
+                    .base
+                    .decider
+                    .fresh_variable(&factory, "metadata", &Sort::Bool, false, None)
+                    .unwrap(),
+            );
+        }
+        worker.context.base.decider.debug_mode = true;
+        worker.context.assume_havoc_axiom(&terms[0]).unwrap();
+        worker.context.assume_quantified_alias(&terms[1]).unwrap();
+        worker
+            .context
+            .assume_package_token_axiom(&terms[2])
+            .unwrap();
+        worker
+            .context
+            .assume_package_definitions(&[terms[3].clone()])
+            .unwrap();
+        worker
+            .context
+            .assume_package_snapshot_definition(&terms[4])
+            .unwrap();
+        let expression = Exp::new(ExpKind::TrueLit, Default::default());
+        worker
+            .context
+            .assume_heap_trigger_axioms(&[expression], &[terms[5].clone()])
+            .unwrap();
+        worker
+            .context
+            .assume_wand_snapshot_definition(&terms[6])
+            .unwrap();
+        worker
+            .context
+            .assume_predicate_contents(&[terms[7].clone()])
+            .unwrap();
+        let recorded = worker.context.base.decider.pcs.recorded().assumption_exps();
+        for (name, term) in [
+            "havoc new axiom",
+            "Chunks alias",
+            "Path conditions recorded while packaging the magic wand",
+            "Definitions recorded while packaging the magic wand",
+            "Magic wand snapshot definition",
+            "Heap Triggers (true)",
+            "Snapshots",
+            "Assumption from unfolded predicate body",
+        ]
+        .into_iter()
+        .zip(terms)
+        {
+            assert!(
+                recorded
+                    .iter()
+                    .any(|entry| entry.description() == Some(name) && entry.term() == Some(&term)),
+                "missing {name}"
+            );
+        }
+        worker.context.stop().unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn wand_package_metadata_survives_failure_and_replay() {
+        std::thread::Builder::new().stack_size(128 * 1024 * 1024).spawn(|| {
+            use super::*;
+            use crate::{config::Config, debugger::native_failure::NativeDebugFailureContext, decider::z3_prover_std_io, interfaces::verification::ResultKind, state::terms::TermOptions, verifier::verification_pool_manager::native_method_worker};
+            use ferrum_silver::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
+            let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+            let config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "debug.vpr".into()]).unwrap();
+            let factory = TermFactory::new(TermOptions { use_flyweight: config.use_flyweight(), use_old_axiomatization: config.use_old_axiomatization, mask_heap_mode: config.mask_heap_mode });
+            let mut settings = z3_prover_std_io::settings(z3.into()); settings.debug = true;
+            let prover = z3_prover_std_io::new("joined".into(), settings, factory.clone(), |_| {});
+            let ids = prover.identifier_factory();
+            let mut worker = native_method_worker("joined".into(), prover, ids, factory.clone(), NativeOptions::from_config(&config).unwrap(), &config);
+            let mut phases = SilFrontendPhases::new("debug.vpr".into(), ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+            let parsed = phases.parse("field f: Int method m(x: Ref) requires acc(x.f) { package (true --* acc(x.f)) assert false }").unwrap();
+            let analyzed = phases.analyze(parsed).unwrap();
+            let program = phases.translate(analyzed).unwrap();
+            worker.context.start(None, &[]).unwrap(); worker.context.base.decider.debug_mode = true;
+            worker.context.set_debug_failure_factory(Arc::new(|state, record, owners| Ok(Arc::new(NativeDebugFailureContext::capture_native(state, record, owners)?))));
+            let results = worker.context.verify_program(&program, &[]).unwrap();
+            worker.context.stop().unwrap();
+            let failure = results.iter().find_map(|r| r.with_kind(|k| match k { ResultKind::Failure(e) => e.failure_contexts.first().cloned(), _ => None })).expect("failure context");
+            type Captured = NativeDebugFailureContext<crate::supporters::predicate_verification_unit::PredicateData, NativeFunctionData>;
+            let captured = (failure.as_ref() as &dyn std::any::Any).downcast_ref::<Captured>().unwrap();
+            let entries = &captured.obligation.assumptions;
+            assert!(entries.iter().any(|entry| entry.description() == Some("Path conditions recorded while packaging the magic wand")), "missing package path conditions");
+            use crate::debugger::{native_debugger::{NativeDebuggerServices, NativeReplayVerifier}, silicon_debugger::{ProofObligation, SiliconDebugger}};
+            let saved = &captured.obligation;
+            let obligation = ProofObligation { state: saved.state.clone(), verifier: NativeReplayVerifier::captured(saved.verifier.clone()), prover_emits: saved.prover_emits.clone(), preamble_assumptions: saved.preamble_assumptions.clone(), branch_conditions: saved.branch_conditions.clone(), branch_condition_exps: saved.branch_condition_exps.clone(), assumptions: saved.assumptions.clone(), assertion: saved.assertion.clone(), assertion_exp: saved.assertion_exp.clone(), timeout: saved.timeout, print_config: saved.print_config.clone(), original_error_reason: saved.original_error_reason.clone() };
+            let options = NativeOptions::from_config(&config).unwrap();
+            let mut services = NativeDebuggerServices::new(config, options, factory.clone(), |_: &str| Err("unused parser".into()), |ctx: &mut NativeContext, state: &NativeState| captured.prepare_runtime_with_state(ctx, state));
+            let mut debugger = SiliconDebugger::default();
+            let mut live = debugger.initialize(&factory, &mut services, &obligation, "Z3", None).unwrap();
+            assert!(!debugger.prove(&mut services, &mut live).unwrap(), "replay should preserve failed assertion");
+            live.verifier.close().unwrap();
+
         }).unwrap().join().unwrap();
     }
     #[test]
@@ -29811,11 +30076,36 @@ where
         }))
     }
     fn assume_predicate_contents(&mut self, assumptions: &[Term]) -> Result<(), Self::Error> {
+        let debug = if self.base.decider.debug_mode {
+            Some(
+                crate::debugger::debug_exp::DebugExp::create(
+                    Some("Assumption from unfolded predicate body".into()),
+                    None,
+                    None,
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &|e: &Exp| Ok::<_, std::convert::Infallible>(e.clone()),
+                )
+                .expect("infallible description"),
+            )
+        } else {
+            None
+        };
         self.base
             .decider
-            .assume(assumptions.iter().cloned().map(|t| (t, None)), false, false)
+            .assume(
+                assumptions
+                    .iter()
+                    .cloned()
+                    .map(|term| (term, debug.clone())),
+                false,
+                false,
+            )
             .map_err(NativeError::Decider)
     }
+
     fn quantify_predicate_leaf_chunk(
         &mut self,
         state: &State<PD, FD, JoinMode>,

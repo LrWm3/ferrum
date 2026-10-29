@@ -89,7 +89,7 @@ empty model string. Stop attempts all cleanup even when a flush fails. Non-Unix
 process creation remains unsupported until a merged-stream adapter is supplied.
 
 Solver profiles and settings are explicit constructor inputs; configuration and
-reporter adapters remain to be connected. SMT output uses equivalent token syntax
+reporter adapters are connected by the native runtime. SMT output uses equivalent token syntax
 without reproducing the source pretty-printer's line wrapping. Empty-binder
 quantifiers retain the source warning-and-body behavior with a typed warning;
 exact diagnostic term formatting remains a gap. Assertion timing comments use
@@ -178,8 +178,8 @@ and focused solver checks do not establish complete native API parity.
 Debug tokens retain the source ASCII grammar. `debug@` is lexically accepted
 upstream but its split-index construction fails; native construction reports a
 specific error. Debugger input/worker/solver services propagate typed failures;
-native stream sessions now capture and replay detached failure contexts. Public
-activation remains gated while the final resource-metadata paths are checked.
+native stream sessions capture and replay detached failure contexts through the
+public debugging option. Scope and validation are recorded in `debugger-validation.md`.
 The dormant flyweight annotation has an explicit native pool rather than a new
 procedural macro. Concurrent creation returns the canonical stored handle.
 
@@ -310,19 +310,21 @@ actual StdIo path and plugin/reporting failure combination.
 
 Pinned Silicon FunctionVerificationUnit.reset retains postConditionAxioms when
 DefaultMainVerifier resets its existing function supporter. Ferrum currently
-constructs a fresh context, factory and function unit for each native session
-run, so its internal trace contains current-run function postconditions only.
-The trace uses the actual ordered domain contributor axioms, excluding
-uniqueness and collection preamble blocks, and the main function unit records.
-Cross-run trace compatibility remains incomplete; prior terms are not copied
-across unrelated factories. Public advanced reporting stays gated.
+constructs fresh execution contexts for native session runs, while an owned
+postcondition-axiom vector retains the source trace history across resets. The
+trace uses ordered domain-contributor axioms, excluding uniqueness and collection
+preamble blocks, and the main function unit records. Public advanced reporting
+is connected; reset, phase-two failures, reporter errors and retained vectors are
+covered by real-solver tests. These checks do not establish every trace ordering
+across concurrent internal embeddings.
 
 Parallel trace callers must install the shared run logger and a local record
 factory in every worker. Ferrum checks their identity before traced method/CFG
 execution and rejects missing setup. This is an explicit assembly requirement
 when a logger owner is explicitly installed. The native factory now propagates
-that owner to main and workers; source-compatible decider formatting and public
-logging configuration remain incomplete.
+that owner to main and workers, with source decider formatting and public
+logging configuration connected. Active internal member-log migration remains
+part of the subsequent hardening pass.
 
 Run logger shutdown waits for native worker threads before closing the shared
 root. An extra internal pool `Rc` makes explicit stop retain the context and
@@ -419,7 +421,8 @@ reads, assignments, current permissions, and resource triggers retain source
 debug descriptions and rewritten expressions. The assembled Silicon suite passed
 358 tests with real stdio and linked Z3, including multi-entry capture/replay and
 independent sessions. A source domain-log event also passes its DEBUG/INFO checks.
-Final snapshot-definition and packaged-wand follow-ups remain before activation.
+The final snapshot-definition and packaged-wand follow-ups are connected; see
+`debugger-validation.md` for the subsequent 810-library/15-public test checkpoint.
 
 Scala collection implementation classes are erased by the Rust representation;
 debugger sequences use canonical `List(...)` presentation. End-of-input closes
@@ -435,7 +438,8 @@ for prove/add-assumption/reset/replace and FAIL in an independent session. Reset
 retains the source's mutated initial-worker behavior. The pinned Java-API
 interactive replay stalled in the corresponding bounded source probe, so this
 working native transport path is an explicit extension, not claimed source
-transcript parity. Custom API prover options and randomized seeds are rejected
-for debugger replay until their effective values can be restored. Nonlinear
-arithmetic settings are restored; cvc5 replacement has not been exercised because
-that executable is unavailable in the validation environment.
+transcript parity. Effective accepted API option values and the actual selected random seed are
+now retained and replayed in order. Unknown settings retain source warning-and-skip
+behavior. Unsupported key/value mappings and Z3-specific settings with cvc5 fail
+explicitly. Nonlinear arithmetic settings are restored; cvc5 replacement remains
+untested because that executable is unavailable in the validation environment.

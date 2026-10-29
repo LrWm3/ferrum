@@ -255,6 +255,17 @@ impl<C: NativeZ3Solver> Z3ApiSession<C> {
     pub fn debug_replay_events(&self) -> &[crate::interfaces::decider::prover::DebugReplayEvent] {
         &self.debug_replay
     }
+    pub fn record_debug_option(
+        &mut self,
+        name: String,
+        value: crate::interfaces::decider::prover::DebugZ3OptionValue,
+    ) {
+        if self.debug_replay_enabled {
+            self.debug_replay.push(
+                crate::interfaces::decider::prover::DebugReplayEvent::Z3Option { name, value },
+            );
+        }
+    }
     pub fn record_fresh_declaration(&mut self, declaration: Declaration) {
         self.debug_replay
             .push(crate::interfaces::decider::prover::DebugReplayEvent::Declare(declaration));

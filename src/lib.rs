@@ -2721,15 +2721,27 @@ mod direct_session_reporter_tests {
                 let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
                 let mut session = Session::new_with_reporter(config.clone(), reporter.clone()).unwrap();
                 assert!(matches!(session.verify(&program, &[]).unwrap(), VerificationResult::Success));
-                assert!(matches!(reporter.get_new_message().unwrap(), Message::EntitySuccess { concerning, .. } if concerning.name() == "m"));
+                let mut configuration_reports = 0;
+                let entity = loop {
+                    let message = reporter.get_new_message().unwrap();
+                    if matches!(message, Message::Simple { kind: silver::reporter::message::SimpleMessageKind::ConfigurationConfirmation, .. }) {
+                        configuration_reports += 1;
+                    } else {
+                        break message;
+                    }
+                };
+                assert!(configuration_reports > 0);
+                assert!(matches!(entity, Message::EntitySuccess { concerning, .. } if concerning.name() == "m"));
                 assert!(matches!(reporter.get_new_message().unwrap(), Message::VerificationTermination));
                 session.stop().unwrap();
                 let mut session = Session::new_with_reporter(config.clone(), Arc::new(RejectEntity)).unwrap();
                 assert!(session.verify(&program, &[]).is_err());
                 session.stop().unwrap();
-                let mut unsupported = config;
-                unsupported.enable_debugging = true;
-                assert!(Session::new_with_reporter(unsupported, Arc::new(NoopReporter)).is_err());
+                let mut debug_config = config;
+                debug_config.enable_debugging = true;
+                let mut session = Session::new_with_reporter(debug_config, Arc::new(NoopReporter)).unwrap();
+                assert!(matches!(session.verify(&program, &[]).unwrap(), VerificationResult::Success));
+                session.stop().unwrap();
             }
         }).unwrap().join().unwrap();
     }
@@ -2927,9 +2939,10 @@ mod configured_logging_setup_tests {
         owner.close().unwrap();
     }
     #[test]
-    fn configured_logging_requires_reporter_and_does_not_bypass_debug() {
+    fn configured_logging_requires_reporter_with_debugging() {
         let mut config = Config::default();
         config.frontend.ide_mode_advanced = true;
+        config.enable_debugging = true;
         let factory = TermFactory::new(TermOptions {
             use_flyweight: false,
             use_old_axiomatization: false,
@@ -2938,10 +2951,7 @@ mod configured_logging_setup_tests {
         assert!(
             configured_run_log_owner(&config, None, factory, Arc::new(Mutex::new(vec![]))).is_err()
         );
-        config.enable_debugging = true;
-        let mut backend = NativeBackend::new(config);
-        backend.reporter = Some(Arc::new(NoopReporter));
-        assert!(backend.start().is_err());
+        assert!(NativeOptions::from_config(&config).is_ok());
     }
 }
 
