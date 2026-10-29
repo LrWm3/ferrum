@@ -1009,3 +1009,8 @@ state events at their source rule boundaries, including owned consumption paths.
 Stdio prover startup forwards configuration confirmation to the reporter before
 logging; a reporting failure aborts startup before spawning the solver. Public
 general-log activation and remaining solver/version events are still pending.
+
+Compound expression spans preserve parenthesized operands at the same grammar
+boundaries as Silver: equality/Boolean expressions start at their full parse,
+arithmetic/comparison folds retain the left operand start, and compound ends
+include a grouped right operand. The inner expression keeps its own span.

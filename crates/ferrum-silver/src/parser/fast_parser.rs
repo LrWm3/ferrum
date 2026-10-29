@@ -586,6 +586,8 @@ impl ExpressionParser<'_> {
         PExpHandle::new(PExpression::from_kind(kind), (start, end))
     }
     fn expression(&mut self, minimum: u8) -> Result<PExpHandle, SyntaxError> {
+        self.trivia()?;
+        let expression_start = self.position(self.cursor);
         let mut left = self.atom()?;
         let mut comparison_middle: Option<(usize, u8)> = None;
         loop {
@@ -600,20 +602,8 @@ impl ExpressionParser<'_> {
                     .take(":")?
                     .ok_or_else(|| self.error("expected ':' in conditional expression"))?;
                 let els = self.expression(1)?;
-                let begin = left
-                    .node()
-                    .read()
-                    .expect("poisoned parse node")
-                    .pos
-                    .0
-                    .clone();
-                let end = els
-                    .node()
-                    .read()
-                    .expect("poisoned parse node")
-                    .pos
-                    .1
-                    .clone();
+                let begin = expression_start.clone();
+                let end = self.position(self.cursor);
                 left = self.expr_node(
                     PExpressionKind::CondExp {
                         cond: left,
@@ -647,20 +637,19 @@ impl ExpressionParser<'_> {
                 precedence + 1
             };
             let right = self.expression(right_minimum)?;
-            let begin = left
-                .node()
-                .read()
-                .expect("poisoned parse node")
-                .pos
-                .0
-                .clone();
-            let end = right
-                .node()
-                .read()
-                .expect("poisoned parse node")
-                .pos
-                .1
-                .clone();
+            // Source equality/Boolean/wand rules position the complete parse,
+            // whereas arithmetic/comparison folds retain the left operand start.
+            let begin = if precedence <= 7 {
+                expression_start.clone()
+            } else {
+                left.node()
+                    .read()
+                    .expect("poisoned parse node")
+                    .pos
+                    .0
+                    .clone()
+            };
+            let end = self.position(self.cursor);
             if comparison {
                 if let Some((middle_start, middle_minimum)) = comparison_middle {
                     // Parse a fresh copy of the middle operand, matching deepCopyAll's
@@ -3756,6 +3745,22 @@ mod tests {
             "{error:?}"
         );
         assert!(parse_program("method m() { define inner {} inner }", "test.vpr").is_ok());
+    }
+    #[test]
+    fn compound_spans_follow_source_parenthesis_boundaries() {
+        for (source, begin, end) in [
+            ("(x)", 2, 3),
+            ("(x) + (y)", 2, 10),
+            ("(x) < (y)", 2, 10),
+            ("(x) == (y)", 1, 11),
+            ("((x)) && ((y))", 1, 15),
+            ("(x) ? (y) : (z)", 1, 16),
+        ] {
+            let parsed = parse_expression(source, "test.vpr").unwrap();
+            let span = parsed.expression.node().read().unwrap().pos.clone();
+            assert_eq!(span.0.line_column().unwrap().column(), begin, "{source}");
+            assert_eq!(span.1.line_column().unwrap().column(), end, "{source}");
+        }
     }
     #[test]
     fn assignment_and_call_spans_exclude_trailing_trivia() {
