@@ -1299,10 +1299,16 @@ pub fn check_expression(
         }
         PExpressionKind::Applying { wand, exp, .. } => {
             let is_wand = matches!(&wand.node().read().expect("poisoned parse node").kind, PNodeKind::Expression(e) if matches!(e.kind, PExpressionKind::MagicWandExp { .. }));
+            let mut errors = Vec::new();
+            let result = match check_operator(input, None, vec![wand.clone(), exp], expected, false) {
+                Ok(result) => Some(result),
+                Err(error) => { retain_type_mismatches(&mut errors, Err::<(), _>(error))?; None },
+            };
             if !is_wand {
-                return Err(TypeCheckError::Unsupported("expected magic wand"));
+                errors.push(TypeCheckError::Positioned { node: wand.node().clone(), message: "expected magic wand" });
             }
-            check_operator(input, None, vec![wand, exp], expected, false)?
+            if !errors.is_empty() { return Err(TypeCheckError::Mismatches(errors)); }
+            result.expect("successful applying expression typecheck")
         }
         PExpressionKind::Asserting { assertion, exp, .. } => {
             check_operator(input, None, vec![assertion, exp], expected, false)?
@@ -1344,7 +1350,18 @@ pub fn check_expression(
                 };
                 let bindings = [("#T0".into(), receiver_signature.substitute(&substitution)), ("#R".into(), result_type)].into_iter().collect();
                 check_operator(input, Some(vec![PTypeSubstitution::new(bindings, false)]), vec![receiver], expected, false)?
-            } else { check_operator(input, None, vec![receiver], expected, false)? }
+            } else {
+                let fields = super::parse_ast::PIdnRef::decls(&idnref, |node| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Declaration(d) if matches!(d.kind, PDeclarationKind::Field { .. })));
+                if fields.len() != 1 {
+                    // Silver skips the field-specific check when its receiver
+                    // already has an invalid type.
+                    check_expression(&receiver, None)?;
+                    let name = match &idnref.read().expect("poisoned parse node").kind { PNodeKind::IdnRef(id) => id.name.clone(), _ => return Err(TypeCheckError::Unsupported("field identifier")) };
+                    let message = if fields.is_empty() { format!("undeclared field `{name}`") } else { format!("ambiguous field `{name}`") };
+                    return Err(TypeCheckError::PositionedMessage { node: idnref, message });
+                }
+                check_operator(input, None, vec![receiver], expected, false)?
+            }
         }
         PExpressionKind::DebugLabelledOldExp { exp, .. } => {
             check_operator(input, None, vec![exp], expected, false)?
@@ -2590,16 +2607,6 @@ pub fn check_program_core(
                             }) = &kind
                             {
                                 let unsupported = match expression {
-                                    // The ADT plugin classifies destructors and discriminators
-                                    // before resolution. These are pure ADT operations, not
-                                    // heap field accesses, and must still be type-checked below.
-                                    PExpressionKind::FieldAccess { idnref, .. } => !matches!(
-                                        &idnref.read().expect("poisoned parse node").kind,
-                                        PNodeKind::IdnRef(id)
-                                            if matches!(id.declaration_class,
-                                                super::parse_ast::PDeclarationClass::AdtField
-                                                | super::parse_ast::PDeclarationClass::AdtConstructor)
-                                    ),
                                     PExpressionKind::AccPred { .. }
                                     | PExpressionKind::Extension(_) => true,
                                     _ => false,
@@ -2967,17 +2974,27 @@ pub fn check_statement_core(
         }
         ref kind @ (S::PackageWand { ref exp, .. } | S::ApplyWand { ref exp, .. }) => {
             let is_wand = matches!(&exp.node().read().expect("poisoned parse node").kind, PNodeKind::Expression(e) if matches!(e.kind, PExpressionKind::MagicWandExp { .. }));
-            if !is_wand {
-                return Err(TypeCheckError::Unsupported("expected magic wand"));
-            }
+            let mut errors = Vec::new();
             let wand = type_from_signature(&SignatureType::Wand);
-            check_program_expression(&exp, Some(&wand), &mut *warn)?;
+            retain_type_mismatches(
+                &mut errors,
+                check_program_expression(exp, Some(&wand), &mut *warn),
+            )?;
+            if !is_wand {
+                errors.push(TypeCheckError::Positioned {
+                    node: exp.node().clone(),
+                    message: "expected magic wand",
+                });
+            }
             if let S::PackageWand {
                 proof_script: Some(proof),
                 ..
             } = kind
             {
-                check_statement_core(proof, &mut *warn)?;
+                retain_type_mismatches(&mut errors, check_statement_core(proof, &mut *warn))?;
+            }
+            if !errors.is_empty() {
+                return Err(TypeCheckError::Mismatches(errors));
             }
         }
         ref kind @ (S::Fold { ref exp, .. } | S::Unfold { ref exp, .. }) => {

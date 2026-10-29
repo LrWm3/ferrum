@@ -2900,6 +2900,82 @@ mod tests {
         );
     }
     #[test]
+    fn missing_fields_report_the_identifier_and_continue_siblings() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("method m(x: Ref) {\n  assert x.a == 1\n  assert x.b == 2\n}\n")
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "undeclared field `a` (test.vpr@2.12--2.13)",
+                "undeclared field `b` (test.vpr@3.12--3.13)",
+            ]
+        );
+    }
+    #[test]
+    fn axiom_field_access_reaches_source_consistency_check() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("field val: Int\ndomain D { axiom { forall r: Ref :: r.val != 0 } }\n")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let errors = phases.check_consistency(program).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "Consistency error: Axioms can never contain location accesses. (test.vpr@2.20--2.47)"
+            ]
+        );
+    }
+    #[test]
+    fn apply_and_package_report_nonsyntactic_wands() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("predicate p() { true }\nmethod m() {\n  apply unfolding p() in true --* true\n  package unfolding p() in true --* true\n}\n").unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "expected magic wand (test.vpr@3.9--3.39)",
+                "expected magic wand (test.vpr@4.11--4.41)",
+            ]
+        );
+    }
+    #[test]
+    fn invalid_field_receiver_suppresses_dependent_field_error() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("predicate p(x: Ref) {\n  acc(missing.bad)\n}\n")
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec!["undeclared identifier `missing` (test.vpr@2.7--2.14)"]
+        );
+    }
+    #[test]
     fn forbidden_wands_report_each_source_expression() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
