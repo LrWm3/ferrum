@@ -8559,7 +8559,9 @@ where
         receiver: &crate::rules::executor::OwnedAssignmentValue,
     ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
         use crate::rules::consumer::ConsumptionContext;
-        if !matches!(rhs.kind(), ExpKind::Asserting(..)) || !self.supports_owned_consumption(state)
+        let old = matches!(rhs.kind(), ExpKind::Old(body) | ExpKind::LabelledOld(body, _) | ExpKind::DebugLabelledOld(body, _) if matches!(body.kind(), ExpKind::Asserting(..)));
+        if !(matches!(rhs.kind(), ExpKind::Asserting(..)) || old)
+            || !self.supports_owned_consumption(state)
         {
             return None;
         }
@@ -8567,13 +8569,24 @@ where
             statement.clone(),
         ));
         Some(
-            crate::rules::evaluator::evaluate_owned_asserting(
-                self,
-                state.clone(),
-                rhs,
-                &partial,
-                receiver,
-            )
+            (if old {
+                crate::rules::evaluator::evaluate_owned_old_asserting(
+                    self,
+                    state.clone(),
+                    rhs,
+                    &partial,
+                    receiver,
+                )
+            } else {
+                crate::rules::evaluator::evaluate_owned_asserting(
+                    self,
+                    state.clone(),
+                    rhs,
+                    &partial,
+                    receiver,
+                    None,
+                )
+            })
             .map_err(|e| match e {
                 EvaluationError::Context(error) => ExecutionError::Context(error),
                 other => ExecutionError::Context(NativeError::Evaluation(format!(
@@ -12036,6 +12049,19 @@ where
         if let super::verification_pool_manager::NativeJoinAction::Consumption(action) =
             &branch.action
         {
+            for f in &action.frames {
+                if let crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                    terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame),
+                    ..
+                } = f
+                {
+                    if let Some(old) = &frame.old_frame {
+                        super::verification_pool_manager::OLD_ASSERTING_EXECUTIONS
+                            [usize::from(old.kind != 0)]
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                }
+            }
             if action.frames.iter().any(|f| {
                 matches!(
                     f,
@@ -25051,7 +25077,7 @@ mod queued_cfg_isolation_tests {
             path_id: None,
             terminal: crate::rules::executor::CfgContinuationTerminal::Standalone,
         };
-        let action = CfgJoinBranch::for_test(edge, join);
+        let action = CfgJoinBranch::for_test(edge, join.clone());
         for use_cfg in [false, true] {
             let started = Arc::new((Mutex::new(false), Condvar::new()));
             let inspect_started = started.clone();
@@ -25787,6 +25813,220 @@ mod queued_cfg_isolation_tests {
             "cancelled then must still drain submitted else"
         );
         source.context.cancellation = None;
+
+        // An old-wrapped asserting assignment owns the exact continuation captured
+        // by the scheduler. Inject cancellation or a service error after capture.
+        struct OldProbe {
+            waited: std::rc::Rc<std::cell::Cell<usize>>,
+            cancellation:
+                Option<crate::verifier::verification_pool_manager::CancellationController>,
+        }
+        struct OldFuture {
+            waited: std::rc::Rc<std::cell::Cell<usize>>,
+            fail: bool,
+        }
+        impl
+            crate::verifier::verification_pool_manager::NativeJoinFuture<
+                ProverStdIo,
+                crate::supporters::predicate_verification_unit::PredicateData,
+                NativeFunctionData,
+            > for OldFuture
+        {
+            fn wait(
+                self: Box<Self>,
+                _: &mut NativeVerifierContext<
+                    ProverStdIo,
+                    crate::supporters::predicate_verification_unit::PredicateData,
+                    NativeFunctionData,
+                >,
+            ) -> crate::verifier::verification_pool_manager::CooperativeWait<
+                crate::verifier::verification_pool_manager::NativeJoinOutput,
+                NativeError<
+                    <ProverStdIo as crate::interfaces::decider::prover::TextEmitter>::Error,
+                >,
+            > {
+                self.waited.set(self.waited.get() + 1);
+                crate::verifier::verification_pool_manager::CooperativeWait {
+                    result: if self.fail {
+                        Err(
+                            crate::verifier::verification_pool_manager::ThreadPoolError::Worker(
+                                NativeError::Diagnostic("old worker service failed".into()),
+                            ),
+                        )
+                    } else {
+                        Ok(
+                            crate::verifier::verification_pool_manager::NativeJoinOutput {
+                                result: VerificationResult::success(),
+                                entries: vec![],
+                                declarations: Default::default(),
+                                phases: None,
+                                evaluation_entries: None,
+                                warnings: vec![],
+                            },
+                        )
+                    },
+                    executed_other_task: false,
+                    awaited_executed_on_current_worker: true,
+                }
+            }
+        }
+        impl
+            crate::verifier::verification_pool_manager::NativeJoinScheduler<
+                ProverStdIo,
+                crate::supporters::predicate_verification_unit::PredicateData,
+                NativeFunctionData,
+            > for OldProbe
+        {
+            fn report_failure(
+                &self,
+                _: Option<&ferrum_silver::ast::program::Member>,
+                _: &VerificationResult<VerificationError>,
+            ) -> Result<
+                (),
+                NativeError<
+                    <ProverStdIo as crate::interfaces::decider::prover::TextEmitter>::Error,
+                >,
+            > {
+                Ok(())
+            }
+            fn submit(
+                &self,
+                job: NativeJoinJob,
+            ) -> Result<
+                Box<
+                    dyn crate::verifier::verification_pool_manager::NativeJoinFuture<
+                            ProverStdIo,
+                            crate::supporters::predicate_verification_unit::PredicateData,
+                            NativeFunctionData,
+                        >,
+                >,
+                crate::verifier::verification_pool_manager::ThreadPoolError<
+                    NativeError<
+                        <ProverStdIo as crate::interfaces::decider::prover::TextEmitter>::Error,
+                    >,
+                >,
+            > {
+                let crate::verifier::verification_pool_manager::NativeJoinAction::Consumption(
+                    action,
+                ) = &job.action
+                else {
+                    panic!("expected old assertion consumption")
+                };
+                assert!(action.frames.iter().any(|frame| matches!(frame, crate::rules::consumer::OwnedConsumptionFrame::Finish { terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), .. } if frame.old_frame.is_some())));
+                if let Some(cancel) = &self.cancellation {
+                    cancel.cancel();
+                }
+                Ok(Box::new(OldFuture {
+                    waited: self.waited.clone(),
+                    fail: self.cancellation.is_none(),
+                }))
+            }
+        }
+        let local = ferrum_silver::ast::expression::LocalVar::new(
+            "oldBranchInput".into(),
+            ferrum_silver::ast::r#type::Type::Bool,
+            Default::default(),
+        );
+        let local_exp = Exp::new(ExpKind::LocalVar(local), Default::default());
+        let variable = factory.var(
+            crate::state::identifiers::Identifier::new("oldBranchInput"),
+            Sort::Bool,
+            false,
+        );
+        let declaration = factory.function_decl_target(
+            crate::state::terms::ApplicationTarget::Variable(variable.clone()),
+        );
+        source
+            .context
+            .base
+            .decider
+            .declare_fresh_functions([declaration])
+            .unwrap();
+        let yes = Exp::new(ExpKind::TrueLit, Default::default());
+        let predicate = ferrum_silver::ast::expression::PredicateAccess::new(
+            vec![],
+            "P".into(),
+            Default::default(),
+        );
+        let access = ferrum_silver::ast::statement::PredicateAccessPredicate::new(
+            predicate,
+            None,
+            Default::default(),
+        );
+        let no = Exp::new(
+            ExpKind::PredicateAccessPredicate(access),
+            Default::default(),
+        );
+        let assertion = Exp::new(
+            ExpKind::CondExp(local_exp.clone(), yes, no),
+            Default::default(),
+        );
+        let body = Exp::new(ExpKind::IntLit(1.into()), Default::default());
+        let inner = Exp::new(ExpKind::Asserting(assertion, body), Default::default());
+        let rhs = Exp::new(ExpKind::Old(inner), Default::default());
+        let lhs = ferrum_silver::ast::expression::LocalVar::new(
+            "r".into(),
+            ferrum_silver::ast::r#type::Type::Int,
+            Default::default(),
+        );
+        let receiver = crate::rules::executor::OwnedAssignmentValue {
+            lhs,
+            rhs: rhs.clone(),
+            tail: crate::rules::executor::test_statement_tail(join.clone()),
+        };
+        let partial = PartialVerificationError::for_kind(VerificationErrorKind::Internal(None));
+        for cancel in [false, true] {
+            let controller =
+                crate::verifier::verification_pool_manager::CancellationController::default();
+            let waited = std::rc::Rc::new(std::cell::Cell::new(0));
+            source.context.joined_branch_scheduler_enabled = true;
+            source.context.joined_branch_scheduler = Some(std::rc::Rc::new(OldProbe {
+                waited: waited.clone(),
+                cancellation: cancel.then(|| controller.clone()),
+            }));
+            if cancel {
+                source.context.set_cancellation(controller);
+            }
+            let mut old_state = state.clone();
+            old_state.under_join = false;
+            old_state.parallelize_branches = true;
+            old_state.method_cfg = Some(Arc::new(cfg.clone()));
+            old_state
+                .old_heaps
+                .insert("old".into(), old_state.h.clone());
+            old_state.g = Arc::new(old_state.g.with_binding(
+                crate::state::store::AbstractLocalVar::new(local_exp.clone()),
+                (variable.clone(), None),
+            ));
+            let depth = source.context.base.decider.prover.push_pop_scope_depth();
+            let options = source.context.base.decider.options().clone();
+            let result = crate::rules::evaluator::evaluate_owned_old_asserting(
+                &mut source.context,
+                old_state,
+                &rhs,
+                &partial,
+                &receiver,
+            );
+            assert!(result.is_err(), "old receiver unexpectedly succeeded");
+            if cancel {
+                assert!(matches!(
+                    result,
+                    Err(EvaluationError::Context(NativeError::Cancelled))
+                ));
+            } else {
+                assert!(
+                    matches!(result, Err(EvaluationError::Context(NativeError::Diagnostic(ref message))) if message == "old worker service failed"),
+                    "{result:?}"
+                );
+            }
+            assert_eq!(waited.get(), 1);
+            assert_eq!(
+                source.context.base.decider.prover.push_pop_scope_depth(),
+                depth
+            );
+            assert_eq!(source.context.base.decider.options(), &options);
+            source.context.cancellation = None;
+        }
         source.stop().unwrap();
     }
 }

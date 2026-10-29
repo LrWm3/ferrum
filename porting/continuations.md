@@ -138,8 +138,14 @@ Actual Z3 tests exercise conditional precondition jobs and the expected bad
 application while checking returned values. A direct local assignment with an
 Asserting RHS also owns its state/value receiver: it restores the assertion heap,
 evaluates the body, restores the outer evaluation heap/reserves and performs SSA
-assignment before resuming the statement tail. Nested arbitrary expression
-callbacks without an explicit receiver remain synchronous. Active member logging,
+assignment before resuming the statement tail. A direct old or labelled-old wrapper around that Asserting RHS retains an owned
+old-state frame. Its return restores the partial heap, trigger map and old-state
+flag in source order before restoring the outer evaluation heap and assigning.
+Real jobs check historical values, current resources, missing labels and an
+else-only permission failure. Injected service errors and cancellation after
+submission check draining and parent solver restoration. Cancellation inside
+these particular running frames still needs a targeted regression. Nested
+arbitrary expression callbacks without an explicit receiver remain synchronous. Active member logging,
 packaging and extended exhale still disable owned dispatch. Generic borrowed callback entry
 points remain local; parallelism is enabled only where an exact owned terminal
 or collector represents Q. Direct evaluator branches explicitly disable
@@ -163,8 +169,8 @@ cancellation before removing their guard.
 | Inhale/exhale/assert (including disable-subsumption probes), method/call contracts, fold snapshots and statement unfold | Owned rule and caller frames |
 | Loop collection, establishment and backedges | Identified phase outputs and explicit consumption terminals |
 | Function preconditions and cached/uncached expression Unfolding | Owned snapshot/value receivers and identified join outputs |
-| Direct local assignment of an Asserting expression | Owned evaluation restoration and assignment receiver |
-| Arbitrary nested value callbacks, old/labelled-old wrappers and custom borrowed entry points | Safe synchronous fallback; not complete parallel source coverage |
+| Direct local assignment of Asserting, including one old/labelled-old wrapper | Owned evaluation and old-state restoration and assignment receiver |
+| Arbitrary nested value callbacks, other old-expression shapes and custom borrowed entry points | Safe synchronous fallback; not complete parallel source coverage |
 | Active member logs, extended exhale and packaging | Owned dispatch disabled; logger migration remains unfinished |
 
 Upstream explicitly disables direct evaluator and joined producer/consumer forks.

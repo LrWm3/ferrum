@@ -139,6 +139,22 @@ pub enum EvaluationBranchAction<E> {
     },
 }
 
+/// The exact old-expression return actions surrounding an owned inner value.
+#[derive(Clone)]
+pub struct OwnedOldValueFrame {
+    pub expression: Exp,
+    pub label: String,
+    pub kind: u8,
+    pub heap: Arc<crate::state::heap::ListBackedHeap>,
+    pub partial_heap: Option<Arc<crate::state::heap::ListBackedHeap>>,
+    pub possible_triggers: crate::state::package::OrderedMap<Exp, Term>,
+    pub record_possible_triggers: bool,
+    pub is_eval_in_old: bool,
+    pub program: ferrum_silver::ast::program::Program,
+    pub evaluation_heap: Arc<crate::state::heap::ListBackedHeap>,
+    pub evaluation_reserve: Vec<Arc<crate::state::heap::ListBackedHeap>>,
+    pub evaluation_exhale: bool,
+}
 /// State and value receiver for a direct assignment of an asserting expression.
 #[derive(Clone)]
 pub struct OwnedAsserting<E> {
@@ -151,6 +167,7 @@ pub struct OwnedAsserting<E> {
     pub body: Exp,
     pub error: E,
     pub receiver: crate::rules::executor::OwnedAssignmentValue,
+    pub old_frame: Option<OwnedOldValueFrame>,
 }
 
 /// Explicit ownership token for a value-producing outer join.
@@ -828,6 +845,7 @@ pub(crate) fn evaluate_owned_asserting<C, P, D, J: Clone, V>(
     expression: &Exp,
     error: &C::PartialError,
     receiver: &crate::rules::executor::OwnedAssignmentValue,
+    old_frame: Option<OwnedOldValueFrame>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
     C: EvaluationContext<P, D, J, V>,
@@ -841,6 +859,9 @@ where
     if scope.is_some() {
         return Err(EvaluationError::OwnedSchedulerUnavailable);
     }
+    context
+        .log_evaluation(&state, expression)
+        .map_err(EvaluationError::Context)?;
     let outer_heap = state.h.clone();
     let outer_reserve = state.reserve_heaps.clone();
     let outer_exhale = state.exhale_ext;
@@ -860,12 +881,94 @@ where
         body: body.clone(),
         error: error.clone(),
         receiver: receiver.clone(),
+        old_frame,
     };
     context
         .try_consume_owned_asserting(&state, assertion, &frame)
         .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
 }
 
+/// Enter a source old wrapper whose inner asserting value has an owned assignment receiver.
+pub(crate) fn evaluate_owned_old_asserting<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    receiver: &crate::rules::executor::OwnedAssignmentValue,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let (body, label, kind) = match expression.kind() {
+        ExpKind::Old(body) => (body, "old".to_string(), 0),
+        ExpKind::LabelledOld(body, label) => (body, label.clone(), 1),
+        ExpKind::DebugLabelledOld(body, label) => (
+            body,
+            label.split('#').next().unwrap_or(label).to_string(),
+            2,
+        ),
+        _ => return Err(EvaluationError::OwnedSchedulerUnavailable),
+    };
+    if !matches!(body.kind(), ExpKind::Asserting(..)) {
+        return Err(EvaluationError::OwnedSchedulerUnavailable);
+    }
+    let scope = context
+        .open_evaluation_scope(&state, expression)
+        .map_err(EvaluationError::Context)?;
+    if scope.is_some() {
+        return Err(EvaluationError::OwnedSchedulerUnavailable);
+    }
+    context
+        .log_evaluation(&state, expression)
+        .map_err(EvaluationError::Context)?;
+    let evaluation_heap = state.h.clone();
+    let evaluation_reserve = state.reserve_heaps.clone();
+    let evaluation_exhale = state.exhale_ext;
+    let mut state = state;
+    state.h = context
+        .eval_heap(&state)
+        .map_err(EvaluationError::Context)?;
+    state.reserve_heaps.clear();
+    state.exhale_ext = false;
+    let Some(old_heap) = state.old_heaps.get(&label).cloned() else {
+        if kind == 0 {
+            return Err(EvaluationError::MissingOldState(label));
+        }
+        let labelled = if kind == 2 {
+            Exp::new(
+                ExpKind::LabelledOld(body.clone(), label.clone()),
+                expression.metadata().clone(),
+            )
+        } else {
+            expression.clone()
+        };
+        return context
+            .missing_label_failure(&state, error, &labelled, &label)
+            .map_err(EvaluationError::Context);
+    };
+    let frame = OwnedOldValueFrame {
+        expression: expression.clone(),
+        label,
+        kind,
+        heap: state.h.clone(),
+        partial_heap: state.partially_consumed_heap.clone(),
+        possible_triggers: state.possible_triggers.clone(),
+        record_possible_triggers: state.record_possible_triggers,
+        is_eval_in_old: state.is_eval_in_old,
+        program: state.program.clone(),
+        evaluation_heap,
+        evaluation_reserve,
+        evaluation_exhale,
+    };
+    state.h = old_heap;
+    state.partially_consumed_heap = None;
+    state.is_eval_in_old = true;
+    state.possible_triggers = Default::default();
+    let state = context
+        .consolidate_old(state)
+        .map_err(EvaluationError::Context)?;
+    evaluate_owned_asserting(context, state, body, error, receiver, Some(frame))
+}
 /// Resume an asserting RHS after consuming its assertion.
 pub(crate) fn complete_owned_asserting<C, P, D, J: Clone, V>(
     context: &mut C,
@@ -894,6 +997,59 @@ where
             context
                 .close_evaluation_scope(None)
                 .map_err(EvaluationError::Context)?;
+            let debug = if let Some(old) = &frame.old_frame {
+                let mut triggers = old.possible_triggers.clone();
+                if old.record_possible_triggers {
+                    for (exp, value) in state.possible_triggers.iter() {
+                        let wrapped = if old.label == "old" {
+                            ExpKind::Old(exp.clone())
+                        } else {
+                            ExpKind::LabelledOld(exp.clone(), old.label.clone())
+                        };
+                        triggers.insert(Exp::new(wrapped, exp.metadata().clone()), value.clone());
+                    }
+                    for (exp, value) in state.possible_triggers.iter() {
+                        if !context
+                            .is_heap_dependent(exp, &old.program)
+                            .map_err(EvaluationError::Context)?
+                        {
+                            triggers.insert(exp.clone(), value.clone());
+                        }
+                    }
+                }
+                state.h = old.heap.clone();
+                state.partially_consumed_heap = old.partial_heap.clone();
+                state.possible_triggers = triggers;
+                state.is_eval_in_old = old.is_eval_in_old;
+                let wrapped = if old.kind == 2 {
+                    Some(old.expression.clone())
+                } else {
+                    debug.map(|e| {
+                        Exp::new(
+                            if old.kind == 0 {
+                                ExpKind::Old(e)
+                            } else {
+                                ExpKind::LabelledOld(e, old.label.clone())
+                            },
+                            old.expression.metadata().clone(),
+                        )
+                    })
+                };
+                if state.record_possible_triggers {
+                    context
+                        .record_possible_trigger(&mut state, &old.expression, &term)
+                        .map_err(EvaluationError::Context)?;
+                }
+                state.h = old.evaluation_heap.clone();
+                state.reserve_heaps = old.evaluation_reserve.clone();
+                state.exhale_ext = old.evaluation_exhale;
+                context
+                    .close_evaluation_scope(None)
+                    .map_err(EvaluationError::Context)?;
+                wrapped
+            } else {
+                debug
+            };
             context
                 .finish_owned_assignment_value(state, term, debug, &frame.receiver)
                 .ok_or(EvaluationError::OwnedSchedulerUnavailable)?

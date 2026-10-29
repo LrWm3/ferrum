@@ -568,7 +568,8 @@ where
                 .start_key_heap(state, statement, debug_snapshot.as_ref())
                 .map_err(ExecutionError::Context)?;
             if let Some(tail) = owned_tail.filter(|_| {
-                matches!(rhs.kind(), ExpKind::Asserting(..))
+                (matches!(rhs.kind(), ExpKind::Asserting(..))
+                    || matches!(rhs.kind(), ExpKind::Old(body) | ExpKind::LabelledOld(body, _) | ExpKind::DebugLabelledOld(body, _) if matches!(body.kind(), ExpKind::Asserting(..))))
                     && !state.exhale_ext
                     && context.statement_scope_transferable(scope)
             }) {
@@ -1571,6 +1572,20 @@ pub struct CfgStatementTail {
     enclosing: Vec<OwnedStatementFrame>,
     successor: OwnedStatementSuccessor,
     terminal: CfgContinuationTerminal,
+}
+
+#[cfg(test)]
+pub(crate) fn test_statement_tail(block: SilverBlock) -> CfgStatementTail {
+    CfgStatementTail {
+        remaining: StatementSequenceFrame::new(&[]),
+        enclosing: vec![],
+        successor: OwnedStatementSuccessor::Block(CfgSuccessorFrame {
+            block,
+            join_point: None,
+            path_id: 0,
+        }),
+        terminal: CfgContinuationTerminal::Standalone,
+    }
 }
 
 fn execute_cfg_successor_frame<C, P, D, J: Clone, V>(

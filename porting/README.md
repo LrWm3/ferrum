@@ -1051,3 +1051,10 @@ unwinding remain enabled. Two Prusti mutable-iterator programs overflowed the
 128 MiB verifier stack at optimization level 0 and passed with these overrides
 on the same source revision. This mitigates those cases; it does not establish
 a general stack bound.
+
+Direct assignments of old/labelled-old Asserting values now retain owned old-state
+return frames. Actual worker checks preserve historical values, current resources
+and label/permission failures; injected service errors and cancellation after
+submission check draining and solver restoration. Other nested expression shapes
+continue synchronously. The internal DebugLabelledOld path has no direct real-job
+fixture, and public interactive debugging remains gated.

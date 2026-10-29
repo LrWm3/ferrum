@@ -1916,6 +1916,12 @@ pub(crate) static ASSERTING_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static ASSERTING_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static OLD_ASSERTING_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 2] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
+#[cfg(test)]
+pub(crate) static OLD_ASSERTING_EXECUTIONS: [std::sync::atomic::AtomicUsize; 2] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
+#[cfg(test)]
 pub(crate) static FUNCTION_PRE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -2143,6 +2149,18 @@ where
                 RULE_PRODUCTION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
             NativeJoinAction::Consumption(action) => {
+                for f in &action.frames {
+                    if let crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                        terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame),
+                        ..
+                    } = f
+                    {
+                        if let Some(old) = &frame.old_frame {
+                            OLD_ASSERTING_SUBMISSIONS[usize::from(old.kind != 0)]
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                    }
+                }
                 if action.frames.iter().any(|f| {
                     matches!(
                         f,
@@ -4186,6 +4204,22 @@ mod thread_pool_tests {
             .collect::<Vec<_>>();
         if !disable_subsumption {
             assert_eq!(failures.len(), 1);
+            if source.contains("r := old[L](asserting (b ? acc(x.f) : acc(y.f)) in 1)") {
+                assert!(
+                    failures[0]
+                        .iter()
+                        .any(|error| error.full_id().contains("insufficient.permission")),
+                    "{failures:?}"
+                );
+            }
+            if source.contains("if (b) { label L; }") {
+                assert!(
+                    failures[0]
+                        .iter()
+                        .any(|error| error.full_id().contains("labelled.state.not.reached")),
+                    "{failures:?}"
+                );
+            }
             if source.contains("if (b) { assert false; } else { assert false; }") {
                 assert_eq!(
                     failures[0].len(),
@@ -5901,6 +5935,98 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
                 ASSERTING_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > submitted
             );
             assert!(ASSERTING_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed);
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_old_asserting_assignment() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+method good(b: Bool, x: Ref, y: Ref) returns (r: Int)
+  requires acc(x.f) && acc(y.f) && x.f == 7 && y.f == 8
+  ensures acc(x.f) && acc(y.f) && (b ? r == 7 : r == 8)
+{
+  x.f := 11;
+  r := old(asserting (b ? acc(x.f) : acc(y.f)) in (b ? x.f : y.f));
+}
+method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
+  requires x != y && acc(x.f)
+{
+  r := old(asserting (b ? acc(x.f) : acc(y.f)) in 1);
+}
+"#;
+        let labelled_source = r#"field f: Int
+method labelled(b: Bool, x: Ref, y: Ref) returns (r: Int)
+  requires acc(x.f) && acc(y.f) && x.f == 7 && y.f == 8
+  ensures acc(x.f) && acc(y.f) && (b ? r == 11 : r == 8)
+{
+  x.f := 11;
+  label L;
+  x.f := 12;
+  r := old[L](asserting (b ? acc(x.f) : acc(y.f)) in (b ? x.f : y.f));
+  assert x.f == 12;
+}
+method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
+  requires x != y && acc(x.f)
+{
+  label L;
+  r := old[L](asserting (b ? acc(x.f) : acc(y.f)) in 1);
+}
+"#;
+        let missing_label_source = r#"field f: Int
+method bad(b: Bool, c: Bool, x: Ref, y: Ref) returns (r: Int)
+  requires acc(x.f) && acc(y.f)
+{
+  if (b) { label L; }
+  r := old[L](asserting (c ? acc(x.f) : acc(y.f)) in 1);
+}
+"#;
+        for (kind, source, failures) in [
+            (0, source, 1),
+            (1, labelled_source, 1),
+            (1, missing_label_source, 1),
+        ] {
+            for workers in [1, 2] {
+                let submitted =
+                    OLD_ASSERTING_SUBMISSIONS[kind].load(std::sync::atomic::Ordering::SeqCst);
+                let executed =
+                    OLD_ASSERTING_EXECUTIONS[kind].load(std::sync::atomic::Ordering::SeqCst);
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(
+                    fatal.iter().filter(|fatal| **fatal).count(),
+                    failures,
+                    "{fatal:?}"
+                );
+                assert!(
+                    OLD_ASSERTING_SUBMISSIONS[kind].load(std::sync::atomic::Ordering::SeqCst)
+                        > submitted
+                );
+                assert!(
+                    OLD_ASSERTING_EXECUTIONS[kind].load(std::sync::atomic::Ordering::SeqCst)
+                        > executed
+                );
+            }
         }
     }
 
