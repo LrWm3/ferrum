@@ -846,7 +846,14 @@ impl FrontendPhases for SilFrontendPhases {
                 program.meta.position.clone(),
             ));
         }
-        let errors = errors.into_inner();
+        let mut errors = errors.into_inner();
+        // These validations correspond to the translator's FastMessages in
+        // Silver, which the frontend exposes as typechecker errors.
+        for error in &mut errors {
+            if let FrontendErrorKind::ConsistencyError(message) = &error.kind {
+                error.kind = FrontendErrorKind::TypecheckerError(message.clone());
+            }
+        }
         if !errors.is_empty() {
             return Err(errors.into_iter().map(AbstractError::Frontend).collect());
         }
@@ -3189,6 +3196,16 @@ method chainParen2(i1: Int, i2: Int, i3: Int, i4: Int)
         let analyzed = phases.analyze(parsed).unwrap();
         let errors = phases.translate(analyzed).unwrap_err();
         assert!(
+            errors.iter().all(|e| matches!(
+                e,
+                AbstractError::Frontend(FrontendError {
+                    kind: FrontendErrorKind::TypecheckerError(_),
+                    ..
+                })
+            )),
+            "{errors:?}"
+        );
+        assert!(
             errors.iter().any(|e| e
                 .readable_message()
                 .unwrap()
@@ -3210,6 +3227,16 @@ method chainParen2(i1: Int, i2: Int, i3: Int, i4: Int)
             .unwrap();
         let analyzed = phases.analyze(parsed).unwrap();
         let errors = phases.translate(analyzed).unwrap_err();
+        assert!(
+            errors.iter().all(|e| matches!(
+                e,
+                AbstractError::Frontend(FrontendError {
+                    kind: FrontendErrorKind::TypecheckerError(_),
+                    ..
+                })
+            )),
+            "{errors:?}"
+        );
         let mut valid =
             SilFrontendPhases::new(PathBuf::from("valid.vpr"), SilverPluginManager::new(vec![]));
         let parsed = valid.parse("domain D { function f(i: Int): Int } method m() { assert (forall i: Int :: {f(i)} true) }").unwrap();
