@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 411 mapped and assembly modules. `described` files
+The Cargo workspace now has 412 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
@@ -966,3 +966,12 @@ call diagnostics retain identifier positions. Method-assignment arity diagnostic
 are partially reconstructed. ADT constructors are accepted in domain axioms as
 in the source; ordinary functions with preconditions remain rejected. CLI
 consistency selects the SMTLIB backend interpretation before starting a solver.
+
+Resource properties have a paired term/debug interpreter that evaluates Check
+once and preserves distinct ForEach tuples. Ordinary verification keeps the
+existing term-only path. Quantified production retains argument/permission
+expressions, auxiliary debug groups and source prover comments. Real solver
+checks cover field and quantified function contracts. Singleton quantified wands
+now participate in ordinary resource properties (upstream silicon/0678b).
+Quantified consumption, paired wand debug values and public debugger activation
+remain separate work.

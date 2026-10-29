@@ -1575,7 +1575,7 @@ repository = "silicon"
 upstream = "src/main/scala/resources/NonQuantifiedPropertyInterpreter.scala"
 destination = "crates/ferrum-silicon/src/resources/non_quantified_property_interpreter.rs"
 status = "skeleton"
-remaining = ["Proof-based Check and source chunk permutations exist; debug-expression reconstruction remains."]
+remaining = ["Proof-based Check and distinct chunk tuples include paired debug expressions; singleton quantified-wand debug operands and broad parity remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1594,14 +1594,14 @@ repository = "silicon"
 upstream = "src/main/scala/resources/PropertyInterpreter.scala"
 destination = "crates/ferrum-silicon/src/resources/property_interpreter.rs"
 status = "skeleton"
-remaining = ["Typed resource property evaluation exists; debug-expression reconstruction and source rendering remain."]
+remaining = ["Term traversal and paired debug assembly exist; source rendering and broad compatibility remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/resources/QuantifiedPropertyInterpreter.scala"
 destination = "crates/ferrum-silicon/src/resources/quantified_property_interpreter.rs"
 status = "skeleton"
-remaining = ["Conditional Check, substitutions and triggers exist; debug-expression reconstruction remains."]
+remaining = ["Source quantified term/debug construction is connected internally; value-access debug is explicitly unsupported as upstream and public debugger remains gated."]
 
 [[modules]]
 repository = "silicon"
@@ -2618,3 +2618,9 @@ role = "assembly"
 destination = "tests/native_logging_api.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/resources/debug_property_interpreter.rs"
+status = "skeleton"
+role = "assembly"
+remaining = ["Paired source traversal is connected for internal debug profiles; public debugger and broad source parity remain incomplete."]

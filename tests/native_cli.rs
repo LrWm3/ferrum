@@ -802,3 +802,17 @@ fn backend_type_interpretation_is_checked_before_solver_start() {
     );
     assert!(stderr.contains("@1.1"), "{stderr}");
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn singleton_quantified_wand_resource_properties_verify() {
+    let source = r#"
+        field f: Int
+        method mWand(r: Ref)
+            requires acc(r.f) --* false
+        {
+            assume exists x: Ref :: { acc(x.f) --* false } perm(acc(x.f) --* false) > none
+        }
+    "#;
+    check(source, 0);
+}

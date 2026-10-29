@@ -45,6 +45,9 @@ pub enum QuantifiedPropertyError {
     Transform(UnsupportedTriggerTransform),
     ZeroDenominator,
     InvalidQuantifier,
+    MissingDebugExpression,
+    DebugSubstitution,
+    DebugValueUnsupported,
 }
 struct Context<'a, Q> {
     chunk: &'a Q,
@@ -131,4 +134,131 @@ pub fn build_for_chunk<Q: QuantifiedChunk>(
             None,
         )
         .map_err(QuantifiedPropertyError::Transform)
+}
+
+struct DebugContext<'a> {
+    args: &'a [Term],
+    args_exp: &'a [ferrum_silver::ast::expression::Exp],
+    permission: &'a Term,
+    permission_exp: &'a ferrum_silver::ast::expression::Exp,
+    args_used: bool,
+}
+impl super::debug_property_interpreter::DebugPropertyContext for &mut DebugContext<'_> {
+    type Error = QuantifiedPropertyError;
+    fn permission(
+        &mut self,
+        _: &ChunkPlaceholder,
+    ) -> Result<super::debug_property_interpreter::Pair, Self::Error> {
+        Ok((self.permission.clone(), self.permission_exp.clone()))
+    }
+    fn value(
+        &mut self,
+        _: &ChunkPlaceholder,
+    ) -> Result<super::debug_property_interpreter::Pair, Self::Error> {
+        Err(QuantifiedPropertyError::DebugValueUnsupported)
+    }
+    fn arguments(
+        &mut self,
+        _: &ChunkPlaceholder,
+    ) -> Result<(Vec<Term>, Vec<ferrum_silver::ast::expression::Exp>), Self::Error> {
+        self.args_used = true;
+        Ok((self.args.to_vec(), self.args_exp.to_vec()))
+    }
+    fn check(&mut self, _: &Term) -> Result<Option<bool>, Self::Error> {
+        Ok(None)
+    }
+    fn for_each(
+        &mut self,
+        _: &TermFactory,
+        _: &[ChunkPlaceholder],
+        _: &BooleanExpression,
+    ) -> Result<super::debug_property_interpreter::Pair, PropertyError<Self::Error>> {
+        Err(PropertyError::Context(
+            QuantifiedPropertyError::ForEachUnsupported,
+        ))
+    }
+}
+/// Source quantified property construction, including the corresponding forall expression.
+pub fn build_debug_for_chunk<Q: QuantifiedChunk>(
+    factory: &TermFactory,
+    chunk: &Q,
+    property: &Property,
+    qvars: Vec<Term>,
+    qvars_exp: &[ferrum_silver::ast::program::LocalVarDecl],
+    args: &[Term],
+    args_exp: &[ferrum_silver::ast::expression::Exp],
+    permission: &Term,
+    permission_exp: &ferrum_silver::ast::expression::Exp,
+    condition: &Term,
+    condition_exp: &ferrum_silver::ast::expression::Exp,
+    triggers: Vec<Trigger>,
+    qid_prefix: &str,
+) -> Result<(Term, ferrum_silver::ast::expression::Exp), QuantifiedPropertyError> {
+    use ferrum_silver::ast::{
+        ast::Metadata,
+        expression::{Exp, ExpKind},
+    };
+    let mut context = DebugContext {
+        args,
+        args_exp,
+        permission,
+        permission_exp,
+        args_used: false,
+    };
+    let (body, body_exp) = super::debug_property_interpreter::DebugPropertyInterpreter {
+        factory,
+        context: &mut context,
+    }
+    .boolean(&property.expression)
+    .map_err(|e| match e {
+        PropertyError::Context(e) => e,
+        PropertyError::ZeroDenominator => QuantifiedPropertyError::ZeroDenominator,
+        PropertyError::InvalidQuantifier => QuantifiedPropertyError::InvalidQuantifier,
+    })?;
+    let substitutions: HashMap<_, _> = chunk
+        .quantified_vars(factory)
+        .into_iter()
+        .zip(args.iter().cloned())
+        .collect();
+    let body = factory
+        .replace(&body, &substitutions)
+        .map_err(QuantifiedPropertyError::Transform)?;
+    let names = chunk
+        .quantified_var_exps()
+        .ok_or(QuantifiedPropertyError::MissingDebugExpression)?
+        .into_iter()
+        .map(|v| v.name.clone())
+        .collect::<Vec<_>>();
+    let body_exp = crate::utils::ast::replace_vars_in_exp(&body_exp, &names, args_exp)
+        .map_err(|_| QuantifiedPropertyError::DebugSubstitution)?;
+    let guard = if context.args_used {
+        condition.clone()
+    } else {
+        factory.boolean(true)
+    };
+    let guard_exp = if context.args_used {
+        condition_exp.clone()
+    } else {
+        Exp::new(ExpKind::TrueLit, condition_exp.metadata().clone())
+    };
+    let term = factory
+        .quantification(
+            Quantifier::Forall,
+            qvars,
+            factory.implies(guard, body),
+            triggers,
+            format!("{qid_prefix}-{}", property.name),
+            false,
+            None,
+        )
+        .map_err(QuantifiedPropertyError::Transform)?;
+    let exp = Exp::new(
+        ExpKind::Forall(
+            qvars_exp.to_vec(),
+            vec![],
+            Exp::new(ExpKind::Implies(guard_exp, body_exp), Metadata::default()),
+        ),
+        Metadata::default(),
+    );
+    Ok((term, exp))
 }

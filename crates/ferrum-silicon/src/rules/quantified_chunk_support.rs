@@ -2893,10 +2893,12 @@ pub trait GeneralQuantifiedProduction<P, D, J, V>: InverseFunctionServices {
         state: &crate::state::state::State<P, D, J>,
         term: &Term,
     ) -> Result<Term, Self::Error>;
+    fn quantified_prover_comment(&mut self, comment: &str) -> Result<(), Self::Error>;
     fn assume_quantified_terms(
         &mut self,
         terms: &[Term],
         definitions: bool,
+        debug: Option<&crate::debugger::debug_exp::DebugExp>,
     ) -> Result<(), Self::Error>;
     fn assert_quantified_goal(&mut self, goal: &Term) -> Result<bool, Self::Error>;
     fn quantified_production_failure(
@@ -2917,6 +2919,7 @@ pub trait GeneralQuantifiedProduction<P, D, J, V>: InverseFunctionServices {
         qvars: &[Term],
         triggers: &[crate::state::terms::Trigger],
         qid: &str,
+        debug: Option<QuantifiedPropertyDebug<'_>>,
     ) -> Result<(), Self::Error>;
     fn merge_produced_quantified_chunk(
         &mut self,
@@ -2968,6 +2971,12 @@ pub enum GeneralProductionOutcome<P, D, J, V> {
     Produced(crate::state::state::State<P, D, J>),
     Failed(crate::interfaces::verification::VerificationResult<V>),
 }
+pub struct QuantifiedPropertyDebug<'a> {
+    pub qvar_exps: Option<&'a [LocalVarDecl]>,
+    pub arg_exps: Option<&'a [Exp]>,
+    pub permission_exp: Option<&'a Exp>,
+    pub condition_exp: Option<&'a Exp>,
+}
 pub struct GeneralProductionInput {
     pub qvars: Vec<Term>,
     pub qvar_exps: Option<Vec<LocalVarDecl>>,
@@ -2978,6 +2987,14 @@ pub struct GeneralProductionInput {
     pub triggers: Vec<crate::state::terms::Trigger>,
     pub aux_globals: Vec<Term>,
     pub aux_non_globals: Vec<Term>,
+    pub auxiliary_debug: Option<(
+        crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<
+            crate::debugger::debug_exp::DebugExp,
+        >,
+        crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<
+            crate::debugger::debug_exp::DebugExp,
+        >,
+    )>,
     pub condition: Term,
     pub condition_exp: Option<Exp>,
     pub args: Vec<Term>,
@@ -3092,7 +3109,7 @@ pub fn produce_general_quantified<
             condition: input.condition.clone(),
             condition_exp: input.condition_exp.clone(),
             permission: gain.clone(),
-            permission_exp: gain_exp,
+            permission_exp: gain_exp.clone(),
             inverses: vec![],
             singleton_args: None,
             singleton_arg_exps: None,
@@ -3160,7 +3177,16 @@ pub fn produce_general_quantified<
             .map_err(GeneralProductionError::Service)?;
     }
     context
-        .assume_quantified_terms(&input.aux_globals, false)
+        .quantified_prover_comment("Nested auxiliary terms: globals")
+        .map_err(GeneralProductionError::Service)?;
+    let global_debug = input.auxiliary_debug.as_ref().map(|(global, _)| {
+        crate::debugger::debug_exp::DebugExp::group(
+            "Nested auxiliary terms: globals".into(),
+            global.clone(),
+        )
+    });
+    context
+        .assume_quantified_terms(&input.aux_globals, false, global_debug.as_ref())
         .map_err(GeneralProductionError::Service)?;
     let mut auxiliary = Vec::new();
     for term in &input.aux_non_globals {
@@ -3190,7 +3216,16 @@ pub fn produce_general_quantified<
         );
     }
     context
-        .assume_quantified_terms(&auxiliary, false)
+        .quantified_prover_comment("Nested auxiliary terms: non-globals")
+        .map_err(GeneralProductionError::Service)?;
+    let local_debug = input.auxiliary_debug.as_ref().map(|(_, local)| {
+        crate::debugger::debug_exp::DebugExp::group(
+            "Nested auxiliary terms: non-globals".into(),
+            local.clone(),
+        )
+    });
+    context
+        .assume_quantified_terms(&auxiliary, false, local_debug.as_ref())
         .map_err(GeneralProductionError::Service)?;
     let nonnegative = factory.implies(
         input.condition.clone(),
@@ -3273,16 +3308,19 @@ pub fn produce_general_quantified<
         )
         .map_err(GeneralProductionError::Transform)?;
     let axioms: Vec<_> = inverse.definitional_axioms().into_iter().cloned().collect();
+    context
+        .quantified_prover_comment("Definitional axioms for inverse functions")
+        .map_err(GeneralProductionError::Service)?;
     let transformed = axioms
         .iter()
         .map(|a| context.transform_precondition(&state, a))
         .collect::<Result<Vec<_>, _>>()
         .map_err(GeneralProductionError::Service)?;
     context
-        .assume_quantified_terms(&transformed, true)
+        .assume_quantified_terms(&transformed, true, None)
         .map_err(GeneralProductionError::Service)?;
     context
-        .assume_quantified_terms(&axioms, true)
+        .assume_quantified_terms(&axioms, true, None)
         .map_err(GeneralProductionError::Service)?;
     context
         .assume_quantified_properties(
@@ -3294,6 +3332,12 @@ pub fn produce_general_quantified<
             &effective_vars,
             &effective_triggers,
             &input.qid,
+            input.debugging.then(|| QuantifiedPropertyDebug {
+                qvar_exps: input.qvar_exps.as_deref(),
+                arg_exps: input.arg_exps.as_deref(),
+                permission_exp: gain_exp.as_ref(),
+                condition_exp: input.condition_exp.as_ref(),
+            }),
         )
         .map_err(GeneralProductionError::Service)?;
     let (mut recorder, heap) = context

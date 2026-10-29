@@ -3801,7 +3801,14 @@ where
         &self.factory
     }
     fn debugging(&self) -> bool {
-        false
+        #[cfg(test)]
+        {
+            self.evaluator_debug_for_test
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
     fn unsafe_wildcard_optimization(&self) -> bool {
         self.options.unsafe_wildcard_optimization
@@ -4317,6 +4324,7 @@ where
             triggers: data.triggers.clone(),
             aux_globals: data.auxiliary_globals.clone(),
             aux_non_globals: data.auxiliary_non_globals.clone(),
+            auxiliary_debug: data.auxiliary_debug.clone(),
             condition: data.condition.clone(),
             condition_exp: data.condition_exp.clone(),
             args: data.arguments.clone(),
@@ -4324,7 +4332,16 @@ where
             snapshot_map,
             permission: data.permission.clone(),
             permission_exp: data.permission_exp.clone(),
-            debugging: false,
+            debugging: {
+                #[cfg(test)]
+                {
+                    self.evaluator_debug_for_test
+                }
+                #[cfg(not(test))]
+                {
+                    false
+                }
+            },
         };
         let factory = self.factory.clone();
         match crate::rules::quantified_chunk_support::produce_general_quantified(
@@ -4803,7 +4820,14 @@ where
         &self.factory
     }
     fn debugging(&self) -> bool {
-        false
+        #[cfg(test)]
+        {
+            self.evaluator_debug_for_test
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
     fn unsafe_wildcard_optimization(&self) -> bool {
         self.options.unsafe_wildcard_optimization
@@ -5708,6 +5732,7 @@ where
             triggers: data.triggers.clone(),
             aux_globals: data.auxiliary_globals.clone(),
             aux_non_globals: data.auxiliary_non_globals.clone(),
+            auxiliary_debug: data.auxiliary_debug.clone(),
             condition: data.condition.clone(),
             condition_exp: data.condition_exp.clone(),
             args: data.arguments.clone(),
@@ -6424,6 +6449,7 @@ where
             Chunk::MagicWand(c) => c.resource_id(),
             Chunk::QuantifiedField(c) if c.singleton_rcvr_ref().is_some() => c.resource_id(),
             Chunk::QuantifiedPredicate(c) if c.singleton_args_ref().is_some() => c.resource_id(),
+            Chunk::QuantifiedMagicWand(c) if c.singleton_args_ref().is_some() => c.resource_id(),
             _ => return Err(NativeError::Unsupported("quantified resource properties")),
         };
         let factory = self.factory.clone();
@@ -6432,21 +6458,60 @@ where
             .description()
             .instance_properties(state.may_assume_upper_bounds())
         {
-            let term = crate::resources::non_quantified_property_interpreter::build(
-                &factory,
-                &chunks,
-                id,
-                Some(chunk),
-                &property,
-                |term| {
-                    self.base
-                        .decider
-                        .check(term, self.base.decider.check_timeout)
-                        .map_err(NativeError::Decider)
-                },
-            )
-            .map_err(|e| NativeError::ResourceProperty(format!("{e:?}")))?;
-            self.assume_term(&term)?;
+            let debug_mode = self.base.decider.debug_mode;
+            let check = |term: &Term| {
+                self.base
+                    .decider
+                    .check(term, self.base.decider.check_timeout)
+                    .map_err(NativeError::Decider)
+            };
+            if debug_mode {
+                let (term, exp) =
+                    crate::resources::non_quantified_property_interpreter::build_debug(
+                        &factory,
+                        &chunks,
+                        id,
+                        Some(chunk),
+                        &property,
+                        check,
+                    )
+                    .map_err(|e| NativeError::ResourceProperty(format!("{e:?}")))?;
+                let simplify = |e: &Exp| {
+                    ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                        Ok::<_, std::convert::Infallible>(true)
+                    })
+                };
+                let debug = crate::debugger::debug_exp::DebugExp::create(
+                    None,
+                    Some(exp.clone()),
+                    Some(exp),
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .map_err(|e| {
+                    NativeError::Diagnostic(format!(
+                        "resource property debug simplification: {e:?}"
+                    ))
+                })?;
+                self.base
+                    .decider
+                    .assume([(term, Some(debug))], false, false)
+                    .map_err(NativeError::Decider)?;
+            } else {
+                let term = crate::resources::non_quantified_property_interpreter::build(
+                    &factory,
+                    &chunks,
+                    id,
+                    Some(chunk),
+                    &property,
+                    check,
+                )
+                .map_err(|e| NativeError::ResourceProperty(format!("{e:?}")))?;
+                self.assume_term(&term)?;
+            }
         }
         Ok(())
     }
@@ -6633,21 +6698,50 @@ where
                 .description()
                 .delayed_properties(state.may_assume_upper_bounds())
             {
-                let term = crate::resources::non_quantified_property_interpreter::build(
-                    &factory,
-                    &chunks,
-                    id,
-                    None,
-                    &property,
-                    |term| {
-                        self.base
-                            .decider
-                            .check(term, self.base.decider.check_timeout)
-                            .map_err(NativeError::Decider)
-                    },
-                )
-                .map_err(|e| NativeError::ResourceProperty(format!("{e:?}")))?;
-                self.assume_term(&term)?;
+                let debug_mode = self.base.decider.debug_mode;
+                let check = |term: &Term| {
+                    self.base
+                        .decider
+                        .check(term, self.base.decider.check_timeout)
+                        .map_err(NativeError::Decider)
+                };
+                if debug_mode {
+                    let (term, exp) =
+                        crate::resources::non_quantified_property_interpreter::build_debug(
+                            &factory, &chunks, id, None, &property, check,
+                        )
+                        .map_err(|e| NativeError::ResourceProperty(format!("{e:?}")))?;
+                    let simplify = |e: &Exp| {
+                        ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                            Ok::<_, std::convert::Infallible>(true)
+                        })
+                    };
+                    let debug = crate::debugger::debug_exp::DebugExp::create(
+                        None,
+                        Some(exp.clone()),
+                        Some(exp),
+                        None,
+                        false,
+                        Default::default(),
+                        false,
+                        &simplify,
+                    )
+                    .map_err(|e| {
+                        NativeError::Diagnostic(format!(
+                            "resource property debug simplification: {e:?}"
+                        ))
+                    })?;
+                    self.base
+                        .decider
+                        .assume([(term, Some(debug))], false, false)
+                        .map_err(NativeError::Decider)?;
+                } else {
+                    let term = crate::resources::non_quantified_property_interpreter::build(
+                        &factory, &chunks, id, None, &property, check,
+                    )
+                    .map_err(|e| NativeError::ResourceProperty(format!("{e:?}")))?;
+                    self.assume_term(&term)?;
+                }
             }
         }
         Ok(())
@@ -12005,7 +12099,16 @@ where
             analysis.function_handles.clone(),
             self.options.join_mode,
             &self.factory,
-            false,
+            {
+                #[cfg(test)]
+                {
+                    self.evaluator_debug_for_test
+                }
+                #[cfg(not(test))]
+                {
+                    false
+                }
+            },
             self.options.respect_function_pre_permission_amounts,
         );
         state.qp_fields = program.fields.clone();
@@ -12045,7 +12148,16 @@ where
             analysis.function_handles.clone(),
             joins,
             &self.factory,
-            false,
+            {
+                #[cfg(test)]
+                {
+                    self.evaluator_debug_for_test
+                }
+                #[cfg(not(test))]
+                {
+                    false
+                }
+            },
             self.options.respect_function_pre_permission_amounts,
         );
         if self.options.unsafe_wildcard_optimization {
@@ -18344,15 +18456,53 @@ where
         })
         .map_err(|e| NativeError::Chunk(format!("quantified precondition: {e:?}")))
     }
+    fn quantified_prover_comment(&mut self, comment: &str) -> Result<(), Self::Error> {
+        self.base
+            .decider
+            .prover
+            .comment(&mut || comment.to_owned())
+            .map_err(|error| NativeError::Decider(DeciderError::Prover(error)))
+    }
     fn assume_quantified_terms(
         &mut self,
         terms: &[Term],
         definitions: bool,
+        debug: Option<&crate::debugger::debug_exp::DebugExp>,
     ) -> Result<(), Self::Error> {
-        self.base
-            .decider
-            .assume(terms.iter().cloned().map(|t| (t, None)), false, definitions)
-            .map_err(NativeError::Decider)
+        if definitions && self.base.decider.debug_mode {
+            let debug = crate::debugger::debug_exp::DebugExp::create(
+                Some("Definitional axioms for inverse functions".into()),
+                None,
+                None,
+                None,
+                true,
+                Default::default(),
+                false,
+                &|e: &Exp| Ok::<_, std::convert::Infallible>(e.clone()),
+            )
+            .expect("infallible debug expression");
+            self.base
+                .decider
+                .assume_terms(
+                    &self.factory,
+                    terms.iter().cloned(),
+                    Some(&debug),
+                    false,
+                    true,
+                )
+                .map_err(NativeError::Decider)
+        } else {
+            self.base
+                .decider
+                .assume_terms(
+                    &self.factory,
+                    terms.iter().cloned(),
+                    debug,
+                    false,
+                    definitions,
+                )
+                .map_err(NativeError::Decider)
+        }
     }
     fn assert_quantified_goal(&mut self, goal: &Term) -> Result<bool, Self::Error> {
         self.base
@@ -18397,6 +18547,7 @@ where
         qvars: &[Term],
         triggers: &[crate::state::terms::Trigger],
         qid: &str,
+        debug: Option<crate::rules::quantified_chunk_support::QuantifiedPropertyDebug<'_>>,
     ) -> Result<(), Self::Error> {
         use crate::interfaces::state::chunks::GeneralChunk;
         let factory = self.factory.clone();
@@ -18416,6 +18567,71 @@ where
             _ => return Err(NativeError::Unsupported("quantified property chunk")),
         };
         for property in properties {
+            if let Some(debug) = &debug {
+                let qvar_exps = debug.qvar_exps.ok_or(NativeError::Unsupported(
+                    "missing quantified property variable expressions",
+                ))?;
+                let arg_exps = debug.arg_exps.ok_or(NativeError::Unsupported(
+                    "missing quantified property argument expressions",
+                ))?;
+                let permission_exp = debug.permission_exp.ok_or(NativeError::Unsupported(
+                    "missing quantified property permission expression",
+                ))?;
+                let condition_exp = debug.condition_exp.ok_or(NativeError::Unsupported(
+                    "missing quantified property condition expression",
+                ))?;
+                macro_rules! interpret {
+                    ($chunk:expr) => {
+                        crate::resources::quantified_property_interpreter::build_debug_for_chunk(
+                            &factory,
+                            $chunk,
+                            &property,
+                            qvars.to_vec(),
+                            qvar_exps,
+                            args,
+                            arg_exps,
+                            permission,
+                            permission_exp,
+                            condition,
+                            condition_exp,
+                            triggers.to_vec(),
+                            qid,
+                        )
+                    };
+                }
+                let (term, exp) = match chunk {
+                    Chunk::QuantifiedField(c) => interpret!(c),
+                    Chunk::QuantifiedPredicate(c) => interpret!(c),
+                    Chunk::QuantifiedMagicWand(c) => interpret!(c),
+                    _ => unreachable!(),
+                }
+                .map_err(|e| NativeError::ResourceProperty(format!("{e:?}")))?;
+                let simplify = |e: &Exp| {
+                    ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                        Ok::<_, std::convert::Infallible>(true)
+                    })
+                };
+                let debug = crate::debugger::debug_exp::DebugExp::create(
+                    None,
+                    Some(exp.clone()),
+                    Some(exp),
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .map_err(|e| {
+                    NativeError::Diagnostic(format!(
+                        "quantified property debug simplification: {e:?}"
+                    ))
+                })?;
+                self.base
+                    .decider
+                    .assume([(term, Some(debug))], false, false)
+                    .map_err(NativeError::Decider)?;
+                continue;
+            }
             let term = match chunk {
                 Chunk::QuantifiedField(c) => {
                     crate::resources::quantified_property_interpreter::build_for_chunk(
@@ -18536,7 +18752,7 @@ where
     }
     fn consume_assume_terms(&mut self, terms: &[Term]) -> Result<(), Self::Error> {
         crate::rules::quantified_chunk_support::GeneralQuantifiedProduction::assume_quantified_terms(
-            self, terms, false,
+            self, terms, false, None,
         )
     }
     fn consume_assert_goal(&mut self, term: &Term) -> Result<bool, Self::Error> {
@@ -20507,6 +20723,234 @@ mod worker_analysis_contract_tests {
                 );
                 let parsed = phases
                     .parse("function g(i: Int): Int requires i >= 0 ensures result == i { i } function f(): Int ensures result == 3 ensures forall i: Int :: i >= 0 ==> g(i) >= 0 { 3 }")
+                    .unwrap();
+                let analyzed = phases.analyze(parsed).unwrap();
+                let program = phases.translate(analyzed).unwrap();
+                worker.context.start(None, &[]).unwrap();
+                worker.context.evaluator_debug_for_test = true;
+                worker.context.base.decider.debug_mode = true;
+                let results = worker.context.verify_program(&program, &[]).unwrap();
+                assert!(results.iter().all(|result| !result.is_fatal()));
+                use crate::supporters::functions::function_verification_unit::{FunctionDebugPhase, FunctionPhaseServices};
+                use crate::state::state::HeapCause;
+                let state = State::new(program.clone(), Default::default(), Default::default(), config.more_joins, &worker.context.factory, true, false);
+                let pre = worker.context.function_debug_begin(state, FunctionDebugPhase::Pre).unwrap();
+                assert!(matches!(pre.temporary_heap_record.as_ref().unwrap().cause, HeapCause::InhalePre));
+                let pre = worker.context.function_debug_finish(pre).unwrap();
+                let body = program.functions[0].body.as_ref().unwrap();
+                let body_state = worker.context.function_debug_begin(pre, FunctionDebugPhase::Body(body)).unwrap();
+                assert!(matches!(&body_state.temporary_heap_record.as_ref().unwrap().cause, HeapCause::EvalExp(e) if e == body));
+                let body_state = worker.context.function_debug_finish(body_state).unwrap();
+                let post = worker.context.function_debug_begin(body_state, FunctionDebugPhase::Post).unwrap();
+                let record = post.temporary_heap_record.as_ref().unwrap();
+                assert!(matches!(record.cause, HeapCause::ExhalePost));
+                assert!(post.debug_old_heaps.get(&record.label).is_some());
+                worker.context.stop().unwrap();
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn function_debug_field_permissions_execute_real_function() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024 * 1024)
+            .spawn(|| {
+                use super::*;
+                use crate::{
+                    config::Config, decider::z3_prover_std_io, state::terms::TermOptions,
+                    verifier::verification_pool_manager::native_method_worker,
+                };
+                use ferrum_silver::frontend::{
+                    frontend::FrontendPhases, sil_frontend::SilFrontendPhases,
+                };
+                let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+                let config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3.clone(),
+                    "debug.vpr".into(),
+                ])
+                .unwrap();
+                let factory = TermFactory::new(TermOptions {
+                    use_flyweight: config.use_flyweight(),
+                    use_old_axiomatization: config.use_old_axiomatization,
+                    mask_heap_mode: config.mask_heap_mode,
+                });
+                let prover = z3_prover_std_io::new(
+                    "function-debug".into(),
+                    z3_prover_std_io::settings(z3.into()),
+                    factory.clone(),
+                    |_| {},
+                );
+                let identifiers = prover.identifier_factory();
+                let mut worker = native_method_worker(
+                    "function-debug".into(),
+                    prover,
+                    identifiers,
+                    factory,
+                    NativeOptions::from_config(&config).unwrap(),
+                    &config,
+                );
+                let mut phases = SilFrontendPhases::new(
+                    "debug.vpr".into(),
+                    ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                let parsed = phases
+                    .parse("field x: Int function f(r: Ref): Int requires acc(r.x) ensures result == r.x { r.x }")
+                    .unwrap();
+                let analyzed = phases.analyze(parsed).unwrap();
+                let program = phases.translate(analyzed).unwrap();
+                worker.context.start(None, &[]).unwrap();
+                worker.context.evaluator_debug_for_test = true;
+                worker.context.base.decider.debug_mode = true;
+                let results = worker.context.verify_program(&program, &[]).unwrap();
+                assert!(results.iter().all(|result| !result.is_fatal()));
+                use crate::supporters::functions::function_verification_unit::{FunctionDebugPhase, FunctionPhaseServices};
+                use crate::state::state::HeapCause;
+                let state = State::new(program.clone(), Default::default(), Default::default(), config.more_joins, &worker.context.factory, true, false);
+                let pre = worker.context.function_debug_begin(state, FunctionDebugPhase::Pre).unwrap();
+                assert!(matches!(pre.temporary_heap_record.as_ref().unwrap().cause, HeapCause::InhalePre));
+                let pre = worker.context.function_debug_finish(pre).unwrap();
+                let body = program.functions[0].body.as_ref().unwrap();
+                let body_state = worker.context.function_debug_begin(pre, FunctionDebugPhase::Body(body)).unwrap();
+                assert!(matches!(&body_state.temporary_heap_record.as_ref().unwrap().cause, HeapCause::EvalExp(e) if e == body));
+                let body_state = worker.context.function_debug_finish(body_state).unwrap();
+                let post = worker.context.function_debug_begin(body_state, FunctionDebugPhase::Post).unwrap();
+                let record = post.temporary_heap_record.as_ref().unwrap();
+                assert!(matches!(record.cause, HeapCause::ExhalePost));
+                assert!(post.debug_old_heaps.get(&record.label).is_some());
+                worker.context.stop().unwrap();
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn function_debug_quantified_permissions_execute_real_function() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024 * 1024)
+            .spawn(|| {
+                use super::*;
+                use crate::{
+                    config::Config, decider::z3_prover_std_io, state::terms::TermOptions,
+                    verifier::verification_pool_manager::native_method_worker,
+                };
+                use ferrum_silver::frontend::{
+                    frontend::FrontendPhases, sil_frontend::SilFrontendPhases,
+                };
+                let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+                let config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3.clone(),
+                    "debug.vpr".into(),
+                ])
+                .unwrap();
+                let factory = TermFactory::new(TermOptions {
+                    use_flyweight: config.use_flyweight(),
+                    use_old_axiomatization: config.use_old_axiomatization,
+                    mask_heap_mode: config.mask_heap_mode,
+                });
+                let prover = z3_prover_std_io::new(
+                    "function-debug".into(),
+                    z3_prover_std_io::settings(z3.into()),
+                    factory.clone(),
+                    |_| {},
+                );
+                let identifiers = prover.identifier_factory();
+                let mut worker = native_method_worker(
+                    "function-debug".into(),
+                    prover,
+                    identifiers,
+                    factory,
+                    NativeOptions::from_config(&config).unwrap(),
+                    &config,
+                );
+                let mut phases = SilFrontendPhases::new(
+                    "debug.vpr".into(),
+                    ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                let parsed = phases
+                    .parse("field x: Int function f(): Int requires forall r: Ref :: r != null ==> acc(r.x) ensures result == 3 { 3 }")
+                    .unwrap();
+                let analyzed = phases.analyze(parsed).unwrap();
+                let program = phases.translate(analyzed).unwrap();
+                worker.context.start(None, &[]).unwrap();
+                worker.context.evaluator_debug_for_test = true;
+                worker.context.base.decider.debug_mode = true;
+                let results = worker.context.verify_program(&program, &[]).unwrap();
+                assert!(results.iter().all(|result| !result.is_fatal()));
+                use crate::supporters::functions::function_verification_unit::{FunctionDebugPhase, FunctionPhaseServices};
+                use crate::state::state::HeapCause;
+                let state = State::new(program.clone(), Default::default(), Default::default(), config.more_joins, &worker.context.factory, true, false);
+                let pre = worker.context.function_debug_begin(state, FunctionDebugPhase::Pre).unwrap();
+                assert!(matches!(pre.temporary_heap_record.as_ref().unwrap().cause, HeapCause::InhalePre));
+                let pre = worker.context.function_debug_finish(pre).unwrap();
+                let body = program.functions[0].body.as_ref().unwrap();
+                let body_state = worker.context.function_debug_begin(pre, FunctionDebugPhase::Body(body)).unwrap();
+                assert!(matches!(&body_state.temporary_heap_record.as_ref().unwrap().cause, HeapCause::EvalExp(e) if e == body));
+                let body_state = worker.context.function_debug_finish(body_state).unwrap();
+                let post = worker.context.function_debug_begin(body_state, FunctionDebugPhase::Post).unwrap();
+                let record = post.temporary_heap_record.as_ref().unwrap();
+                assert!(matches!(record.cause, HeapCause::ExhalePost));
+                assert!(post.debug_old_heaps.get(&record.label).is_some());
+                worker.context.stop().unwrap();
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn function_debug_quantified_auxiliaries_execute_real_function() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024 * 1024)
+            .spawn(|| {
+                use super::*;
+                use crate::{
+                    config::Config, decider::z3_prover_std_io, state::terms::TermOptions,
+                    verifier::verification_pool_manager::native_method_worker,
+                };
+                use ferrum_silver::frontend::{
+                    frontend::FrontendPhases, sil_frontend::SilFrontendPhases,
+                };
+                let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+                let config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3.clone(),
+                    "debug.vpr".into(),
+                ])
+                .unwrap();
+                let factory = TermFactory::new(TermOptions {
+                    use_flyweight: config.use_flyweight(),
+                    use_old_axiomatization: config.use_old_axiomatization,
+                    mask_heap_mode: config.mask_heap_mode,
+                });
+                let prover = z3_prover_std_io::new(
+                    "function-debug".into(),
+                    z3_prover_std_io::settings(z3.into()),
+                    factory.clone(),
+                    |_| {},
+                );
+                let identifiers = prover.identifier_factory();
+                let mut worker = native_method_worker(
+                    "function-debug".into(),
+                    prover,
+                    identifiers,
+                    factory,
+                    NativeOptions::from_config(&config).unwrap(),
+                    &config,
+                );
+                let mut phases = SilFrontendPhases::new(
+                    "debug.vpr".into(),
+                    ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                let parsed = phases
+                    .parse("field x: Int function g(i: Int): Int requires i >= 0 ensures result == i { i } function f(): Int requires forall r: Ref :: r != null && g(1) == 1 ==> acc(r.x) ensures result == 3 { 3 }")
                     .unwrap();
                 let analyzed = phases.analyze(parsed).unwrap();
                 let program = phases.translate(analyzed).unwrap();
