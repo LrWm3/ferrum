@@ -63,6 +63,7 @@ use std::sync::Arc;
 pub enum EvaluationError<E> {
     Context(E),
     MissingStoreValue,
+    OwnedSchedulerUnavailable,
     MissingDebugExpression,
     ExpressionType(ferrum_silver::ast::expression::ExpressionTypeError),
     ExpectedSetType,
@@ -136,6 +137,20 @@ pub enum EvaluationBranchAction<E> {
         disjunction: bool,
         error: E,
     },
+}
+
+/// State and value receiver for a direct assignment of an asserting expression.
+#[derive(Clone)]
+pub struct OwnedAsserting<E> {
+    pub original_store: Arc<crate::state::store::MapBackedStore>,
+    pub evaluation_heap: Arc<crate::state::heap::ListBackedHeap>,
+    pub outer_heap: Arc<crate::state::heap::ListBackedHeap>,
+    pub outer_reserve: Vec<Arc<crate::state::heap::ListBackedHeap>>,
+    pub outer_exhale: bool,
+    pub expression: Exp,
+    pub body: Exp,
+    pub error: E,
+    pub receiver: crate::rules::executor::OwnedAssignmentValue,
 }
 
 /// Explicit ownership token for a value-producing outer join.
@@ -354,6 +369,23 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
         result_sort: &crate::state::terms::Sort,
         backend: bool,
     ) -> Result<crate::state::terms::Applicable, Self::Error>;
+    fn try_consume_owned_asserting(
+        &mut self,
+        _state: &State<P, D, J>,
+        _assertion: &Exp,
+        _frame: &OwnedAsserting<Self::PartialError>,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_assignment_value(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _receiver: &crate::rules::executor::OwnedAssignmentValue,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
     fn consume_assertion(
         &mut self,
         state: State<P, D, J>,
@@ -785,6 +817,86 @@ where
         None
     };
     done(context, state, term, debug)
+}
+
+/// Evaluate a direct asserting RHS whose statement continuation is explicitly owned.
+pub(crate) fn evaluate_owned_asserting<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    receiver: &crate::rules::executor::OwnedAssignmentValue,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let ExpKind::Asserting(assertion, body) = expression.kind() else {
+        return Err(EvaluationError::OwnedSchedulerUnavailable);
+    };
+    let scope = context
+        .open_evaluation_scope(&state, expression)
+        .map_err(EvaluationError::Context)?;
+    if scope.is_some() {
+        return Err(EvaluationError::OwnedSchedulerUnavailable);
+    }
+    let outer_heap = state.h.clone();
+    let outer_reserve = state.reserve_heaps.clone();
+    let outer_exhale = state.exhale_ext;
+    let mut state = state;
+    state.h = context
+        .eval_heap(&state)
+        .map_err(EvaluationError::Context)?;
+    state.reserve_heaps.clear();
+    state.exhale_ext = false;
+    let frame = OwnedAsserting {
+        original_store: state.g.clone(),
+        evaluation_heap: state.h.clone(),
+        outer_heap,
+        outer_reserve,
+        outer_exhale,
+        expression: expression.clone(),
+        body: body.clone(),
+        error: error.clone(),
+        receiver: receiver.clone(),
+    };
+    context
+        .try_consume_owned_asserting(&state, assertion, &frame)
+        .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
+}
+
+/// Resume an asserting RHS after consuming its assertion.
+pub(crate) fn complete_owned_asserting<C, P, D, J: Clone, V>(
+    context: &mut C,
+    mut state: State<P, D, J>,
+    frame: &OwnedAsserting<C::PartialError>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    state.g = frame.original_store.clone();
+    state.h = frame.evaluation_heap.clone();
+    evaluate(
+        context,
+        state,
+        &frame.body,
+        &frame.error,
+        &mut |context, mut state, term, debug| {
+            if state.record_possible_triggers {
+                context
+                    .record_possible_trigger(&mut state, &frame.expression, &term)
+                    .map_err(EvaluationError::Context)?;
+            }
+            state.h = frame.outer_heap.clone();
+            state.reserve_heaps = frame.outer_reserve.clone();
+            state.exhale_ext = frame.outer_exhale;
+            context
+                .close_evaluation_scope(None)
+                .map_err(EvaluationError::Context)?;
+            context
+                .finish_owned_assignment_value(state, term, debug, &frame.receiver)
+                .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
+        },
+    )
 }
 
 pub fn evaluate<C, P, D, J: Clone, V>(

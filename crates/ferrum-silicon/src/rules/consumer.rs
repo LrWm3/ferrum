@@ -75,6 +75,11 @@ pub enum OwnedConsumptionTerminal<P, D, J> {
         tail: crate::rules::executor::CfgStatementTail,
     },
     MethodSuccess,
+    Asserting(
+        crate::rules::evaluator::OwnedAsserting<
+            ferrum_silver::verifier::verification_error::PartialVerificationError,
+        >,
+    ),
     FunctionPre(Arc<crate::rules::evaluator::OwnedFunctionPre<P, D, J>>),
     LoopBackedgeSuccess,
     MethodCallPre(crate::rules::executor::MethodCallPreFrame),
@@ -96,6 +101,7 @@ impl<P, D, J> Clone for OwnedConsumptionTerminal<P, D, J> {
                 tail: tail.clone(),
             },
             Self::MethodSuccess => Self::MethodSuccess,
+            Self::Asserting(frame) => Self::Asserting(frame.clone()),
             Self::FunctionPre(frame) => Self::FunctionPre(frame.clone()),
             Self::LoopBackedgeSuccess => Self::LoopBackedgeSuccess,
             Self::MethodCallPre(f) => Self::MethodCallPre(f.clone()),

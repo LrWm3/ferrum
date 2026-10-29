@@ -814,6 +814,19 @@ pub struct PredicateContentsAction {
     replacements: std::collections::HashMap<Term, Term>,
     is_unfolding: bool,
 }
+#[cfg(test)]
+pub(crate) fn empty_predicate_contents_action(factory: &TermFactory) -> PredicateContentsAction {
+    PredicateContentsAction {
+        factory: factory.clone(),
+        tree: PredicateContentsTree::Leaf {
+            heap: Arc::new(crate::state::heap::ListBackedHeap::new()),
+            assumptions: Default::default(),
+        },
+        replacements: Default::default(),
+        is_unfolding: true,
+    }
+}
+
 pub(crate) fn execute_predicate_contents_action<
     P,
     D: Clone,

@@ -862,3 +862,10 @@ Real Z3 checks exercise dedicated jobs with one and two workers, including the
 expected bad precondition and valid returned values, matching the pinned JVM.
 Method precondition frames are now allocated only after owned dispatch eligibility;
 ordinary method verification keeps borrowed method/CFG data.
+
+Direct local assignments with an Asserting RHS now carry an explicit value receiver
+through consumption jobs, preserving retry, original heap/store, evaluation cleanup,
+SSA assignment and the statement tail. Actual Z3 checks exercise one/two workers
+and the JVM-matching bad permission failure. Ordinary assignment RHSs avoid receiver
+cloning. A forced same-worker expression collector regression checks separate IDs,
+returned values and parent restoration, including an in-flight job cancellation.

@@ -1647,7 +1647,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Evaluator.scala"
 destination = "crates/ferrum-silicon/src/rules/evaluator.rs"
 status = "skeleton"
-remaining = ["Function application snapshots and expression Unfolding have typed owned result collectors. Further value receivers, diagnostics/logging and broader compatibility remain."]
+remaining = ["Owned function snapshots, Unfolding collectors and direct Asserting assignment receivers run worker branches. Nested borrowed receivers, diagnostics/logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"

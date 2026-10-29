@@ -96,7 +96,9 @@ branches, permission consumption, method postconditions, two fatal branches and
 unrelated queued methods. Forced foreign-worker tests check both replay and
 restoration; removing restoration makes the negative control fail. An injected
 scheduler checks mandatory draining after execution and reporter errors.
-Cancellation tests cover an in-flight terminal job and cancellation of the then
+A deterministic evaluation test also forces unrelated collector IDs onto the same
+worker, checks returned values and parent collector/PCS restoration, and cancels
+an in-flight evaluation job. Cancellation tests cover an in-flight terminal job and cancellation of the then
 action after else submission, retaining typed cancellation and restoring parent
 solver depth and options before return.
 
@@ -124,8 +126,11 @@ Function application preconditions now carry an owned snapshot receiver. It
 retains trigger rewriting, error substitution, caller-store transformation and
 function-recorder restoration before returning the term to its identified join.
 Actual Z3 tests exercise conditional precondition jobs and the expected bad
-application while checking returned values. Asserting expressions and further
-value-returning callbacks remain synchronous pending explicit frames. Active member logging, packaging and
+application while checking returned values. A direct local assignment with an
+Asserting RHS also owns its state/value receiver: it restores the assertion heap,
+evaluates the body, restores the outer evaluation heap/reserves and performs SSA
+assignment before resuming the statement tail. Nested arbitrary expression
+callbacks without an explicit receiver remain synchronous. Active member logging, packaging and
 extended exhale still disable owned dispatch. Generic borrowed callback entry
 points remain local; parallelism is enabled only where an exact owned terminal
 or collector represents Q. Direct evaluator branches explicitly disable

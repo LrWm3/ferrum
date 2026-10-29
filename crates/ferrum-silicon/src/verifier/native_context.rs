@@ -1902,6 +1902,28 @@ where
             }
         }
     }
+    fn finish_owned_assignment_value(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        receiver: &crate::rules::executor::OwnedAssignmentValue,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        Some(
+            crate::rules::executor::execute_owned_assignment_value(
+                self,
+                state,
+                (term, debug),
+                receiver,
+            )
+            .map_err(|e| match e {
+                ExecutionError::Context(error) => EvaluationError::Context(error),
+                other => EvaluationError::Context(NativeError::Execution(format!(
+                    "owned assignment: {other:?}"
+                ))),
+            }),
+        )
+    }
     fn consume_assertion(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -2601,6 +2623,34 @@ where
             .map_err(|e| match e {
                 ConsumptionError::Context(e) => EvaluationError::Context(e),
                 other => EvaluationError::Context(NativeError::Consumption(format!("{other:?}"))),
+            }),
+        )
+    }
+    fn try_consume_owned_asserting(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        assertion: &Exp,
+        frame: &crate::rules::evaluator::OwnedAsserting<Self::PartialError>,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        use crate::rules::consumer::ConsumptionContext;
+        if !self.supports_owned_consumption(state) {
+            return None;
+        }
+        let terminal = crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame.clone());
+        Some(
+            crate::rules::consumer::consume_many_owned(
+                self,
+                state.clone(),
+                std::slice::from_ref(assertion),
+                false,
+                &|_| frame.error.clone(),
+                terminal,
+            )
+            .map_err(|e| match e {
+                ConsumptionError::Context(e) => EvaluationError::Context(e),
+                other => EvaluationError::Context(NativeError::Consumption(format!(
+                    "asserting expression: {other:?}"
+                ))),
             }),
         )
     }
@@ -4206,6 +4256,18 @@ where
     ) -> Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>> {
         use crate::rules::executor::ExecutionContext;
         let (completion, tail) = match terminal {
+            crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame) => {
+                if snapshot.is_some() {
+                    return Err(ConsumptionError::UnexpectedSnapshot);
+                }
+                return crate::rules::evaluator::complete_owned_asserting(self, state, frame)
+                    .map_err(|e| match e {
+                        EvaluationError::Context(e) => ConsumptionError::Context(e),
+                        other => ConsumptionError::Context(NativeError::Evaluation(format!(
+                            "owned asserting expression: {other:?}"
+                        ))),
+                    });
+            }
             crate::rules::consumer::OwnedConsumptionTerminal::FunctionPre(frame) => {
                 return crate::rules::evaluator::complete_owned_function_pre(
                     self,
@@ -7551,6 +7613,37 @@ where
     fn fresh_local(&mut self, variable: &LocalVar) -> Result<StoreValue, Self::Error> {
         self.fresh_debuggable_local(variable)
     }
+    fn try_evaluate_owned_assignment(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        statement: &Stmt,
+        rhs: &Exp,
+        receiver: &crate::rules::executor::OwnedAssignmentValue,
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+        use crate::rules::consumer::ConsumptionContext;
+        if !matches!(rhs.kind(), ExpKind::Asserting(..)) || !self.supports_owned_consumption(state)
+        {
+            return None;
+        }
+        let partial = PartialVerificationError::for_kind(VerificationErrorKind::AssignmentFailed(
+            statement.clone(),
+        ));
+        Some(
+            crate::rules::evaluator::evaluate_owned_asserting(
+                self,
+                state.clone(),
+                rhs,
+                &partial,
+                receiver,
+            )
+            .map_err(|e| match e {
+                EvaluationError::Context(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Evaluation(format!(
+                    "owned asserting assignment: {other:?}"
+                ))),
+            }),
+        )
+    }
     fn evaluate_assignment(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -10894,6 +10987,18 @@ where
         if let super::verification_pool_manager::NativeJoinAction::Consumption(action) =
             &branch.action
         {
+            if action.frames.iter().any(|f| {
+                matches!(
+                    f,
+                    crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                        terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(_),
+                        ..
+                    }
+                )
+            }) {
+                super::verification_pool_manager::ASSERTING_TEST_EXECUTIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
             if action.frames.iter().any(|f| {
                 matches!(
                     f,
@@ -21844,6 +21949,12 @@ mod queued_cfg_isolation_tests {
             outer_id: Arc<()>,
             foreign_id: Arc<()>,
         },
+        EvalSequence {
+            foreign: NativeWorkerTask,
+            own: NativeWorkerTask,
+            outer_id: Arc<()>,
+            foreign_id: Arc<()>,
+        },
         Inline(NativeWorkerTask),
     }
     struct TestWorker {
@@ -22103,6 +22214,118 @@ mod queued_cfg_isolation_tests {
                         .map_err(NativeError::Decider)?;
                     Ok(true)
                 }
+                Job::EvalSequence {
+                    mut foreign,
+                    mut own,
+                    outer_id,
+                    foreign_id,
+                } => {
+                    self.native
+                        .context
+                        .base
+                        .decider
+                        .push_scope()
+                        .map_err(NativeError::Decider)?;
+                    let opposite = self.native.context.factory.not(self.requirement.clone());
+                    self.native
+                        .context
+                        .base
+                        .decider
+                        .assume([(opposite.clone(), None)], false, false)
+                        .map_err(NativeError::Decider)?;
+                    let mark = self.native.context.base.decider.pcs.mark();
+                    let NativeWorkerTarget::Join(own_job) = &mut own.target else {
+                        return Err(NativeError::Unsupported("expected phase job"));
+                    };
+                    own_job.source_worker_id = self.native.context.base.unique_id.clone();
+                    own_job.snapshot =
+                        BranchTransferSnapshot::capture(&self.native.context.base.decider, 0);
+                    own_job.replay_check = Some(opposite.clone());
+                    let crate::verifier::verification_pool_manager::NativeJoinAction::PredicateEvaluation { frame, .. } = &mut own_job.action else { return Err(NativeError::Unsupported("expected evaluation action")); };
+                    own_job.mark = Some(mark);
+                    frame.mark = mark;
+                    frame.collector_id = outer_id.clone();
+                    let NativeWorkerTarget::Join(foreign_job) = &mut foreign.target else {
+                        return Err(NativeError::Unsupported("expected foreign phase job"));
+                    };
+                    foreign_job.source_worker_id = self.native.context.base.unique_id.clone();
+                    let local = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+                    self.native.context.unfold_evaluation_collector =
+                        Some((outer_id.clone(), local.clone()));
+                    let _foreign = queue
+                        .submit(Job::Inline(foreign))
+                        .map_err(|e| NativeError::Diagnostic(format!("foreign submit: {e:?}")))?;
+                    let own = queue
+                        .submit(Job::Inline(own))
+                        .map_err(|e| NativeError::Diagnostic(format!("own submit: {e:?}")))?;
+                    let mut first = true;
+                    let waited = queue.wait_cooperatively_with(own, |job| match job {
+                        Job::Inline(task) => {
+                            let NativeWorkerOutput::Join(output) =
+                                execute_native_worker_task(&mut self.native.context, task)?
+                            else {
+                                return Err(NativeError::Unsupported("expected evaluation output"));
+                            };
+                            let (id, entries) = output
+                                .evaluation_entries
+                                .ok_or(NativeError::Unsupported("missing evaluation output"))?;
+                            assert!(Arc::ptr_eq(
+                                &id,
+                                if first { &foreign_id } else { &outer_id }
+                            ));
+                            assert_eq!(entries.len(), 1);
+                            assert_eq!(
+                                entries[0].data.0,
+                                self.native.context.factory.int_literal(42)
+                            );
+                            assert!(Arc::ptr_eq(
+                                &self
+                                    .native
+                                    .context
+                                    .unfold_evaluation_collector
+                                    .as_ref()
+                                    .unwrap()
+                                    .0,
+                                &outer_id
+                            ));
+                            assert!(
+                                local.borrow().is_empty(),
+                                "intervening task polluted parent collector"
+                            );
+                            let restored = self
+                                .native
+                                .context
+                                .base
+                                .decider
+                                .prover
+                                .assert_goal(&opposite, None)
+                                .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+                            assert!(
+                                restored,
+                                "intervening evaluation did not restore parent PCS"
+                            );
+                            first = false;
+                            Ok(true)
+                        }
+                        _ => Err(NativeError::Unsupported("unexpected evaluation task")),
+                    });
+                    assert!(
+                        waited.executed_other_task && waited.awaited_executed_on_current_worker
+                    );
+                    assert!(
+                        waited.result.map_err(|e| NativeError::Diagnostic(format!(
+                            "evaluation wait: {e:?}"
+                        )))?
+                    );
+                    self.native.context.unfold_evaluation_collector = None;
+                    self.native
+                        .context
+                        .base
+                        .decider
+                        .pop_scope()
+                        .map_err(NativeError::Decider)?;
+                    Ok(true)
+                }
                 Job::OwnSequence {
                     mut foreign,
                     mut own,
@@ -22315,7 +22538,7 @@ mod queued_cfg_isolation_tests {
             standard_plugin_manager(&SilFrontendConfig::new("test")).unwrap(),
         );
         let parsed = phases
-            .parse("domain D { function f(): Int } method unrelated() { assert f() == 0; }")
+            .parse("domain D { function f(): Int } predicate P() { true } method unrelated() { assert f() == 0; }")
             .unwrap();
         let analyzed = phases.analyze(parsed).unwrap();
         let program = phases.translate(analyzed).unwrap();
@@ -22581,6 +22804,88 @@ mod queued_cfg_isolation_tests {
             );
             pool.shutdown().unwrap();
         }
+        // A nested same-worker unfold evaluation job must not overwrite the suspended collector.
+        {
+            let outer_id = Arc::new(());
+            let foreign_id = Arc::new(());
+            let make_evaluation = |id: Arc<()>| {
+                NativeWorkerTask {
+                analysis: analysis.clone(),
+                target: NativeWorkerTarget::Join(Box::new(NativeJoinJob {
+                    source_worker_id: "source".into(),
+                    snapshot: snapshot.clone(),
+                    state: state.clone(),
+                    mark: Some(mark),
+                    condition: factory.boolean(true),
+                    original: Exp::new(ExpKind::TrueLit, Default::default()),
+                    rewritten: None,
+                    action: crate::verifier::verification_pool_manager::NativeJoinAction::PredicateEvaluation {
+                        action: crate::rules::predicate_supporter::empty_predicate_contents_action(&factory),
+                        frame: crate::rules::predicate_supporter::OwnedUnfoldEvaluation {
+                            initial: state.clone(), outer_store: state.g.clone(), outer_record_visited: state.record_visited,
+                            outer_scaling: state.permission_scaling_factor.clone(), outer_scaling_exp: state.permission_scaling_factor_exp.clone(),
+                            old_arps: state.constrainable_arps.clone(), predicate: analysis.program.predicates[0].clone(),
+                            body: Exp::new(ExpKind::IntLit(42.into()), Default::default()),
+                            error: PartialVerificationError::for_kind(VerificationErrorKind::Internal(None)), mark, collector_id: id,
+                        },
+                    },
+                    after_start: None,
+                    replay_check: Some(requirement.clone()),
+                })),
+                reporter: None,
+                warning_sink: None,
+            }
+            };
+            let started = Arc::new((Mutex::new(false), Condvar::new()));
+            let (ready_tx, _) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let release_rx = Arc::new(Mutex::new(release_rx));
+            let worker_requirement = requirement.clone();
+            let worker_factory = factory.clone();
+            let worker_options = options.clone();
+            let worker_config = config.clone();
+            let path = std::path::PathBuf::from(&z3);
+            let mut pool = ThreadVerificationPool::start(1, move |id| {
+                let name = format!("evaluation-sequence-{id}");
+                let prover = z3_prover_std_io::new(
+                    name.clone(),
+                    z3_prover_std_io::settings(path.clone()),
+                    worker_factory.clone(),
+                    |_| {},
+                );
+                let identifiers = prover.identifier_factory();
+                Ok(TestWorker {
+                    native: native_method_worker(
+                        name,
+                        prover,
+                        identifiers,
+                        worker_factory.clone(),
+                        worker_options.clone(),
+                        &worker_config,
+                    ),
+                    started: started.clone(),
+                    parent_ready: ready_tx.clone(),
+                    release_tx: release_tx.clone(),
+                    release_rx: release_rx.clone(),
+                    requirement: worker_requirement.clone(),
+                })
+            })
+            .unwrap();
+            pool.broadcast(WorkerPreambleCommand::Declare(declaration.clone()))
+                .unwrap();
+            assert!(
+                pool.submit(Job::EvalSequence {
+                    foreign: make_evaluation(foreign_id.clone()),
+                    own: make_evaluation(outer_id.clone()),
+                    outer_id,
+                    foreign_id
+                })
+                .unwrap()
+                .wait()
+                .unwrap()
+            );
+            pool.shutdown().unwrap();
+        }
         // A parent can help a foreign branch before its own queued else runs.
         // The foreign branch must restore the parent's contradictory path first.
         for (terminal, same_source, false_proof) in [
@@ -22790,7 +23095,7 @@ mod queued_cfg_isolation_tests {
         }
         // Hold a submitted CFG branch after it has installed its solver state,
         // then cancel while its parent is cooperatively awaiting its result.
-        for terminal_cancel in [false, true] {
+        for terminal_cancel in 0..3 {
             let cancellation =
                 crate::verifier::verification_pool_manager::CancellationController::default();
             let worker_cancellation = cancellation.clone();
@@ -22806,7 +23111,7 @@ mod queued_cfg_isolation_tests {
                 target: NativeWorkerTarget::Join(Box::new(NativeJoinJob {
                     source_worker_id: "source".into(),
                     snapshot: snapshot.clone(),
-                    state: if terminal_cancel {
+                    state: if terminal_cancel == 1 {
                         let mut s = state.clone();
                         s.under_join = false;
                         s.method_cfg = Some(Arc::new(cfg.clone()));
@@ -22814,14 +23119,29 @@ mod queued_cfg_isolation_tests {
                     } else {
                         state.clone()
                     },
-                    mark: if terminal_cancel { None } else { Some(mark) },
+                    mark: if terminal_cancel == 1 {
+                        None
+                    } else {
+                        Some(mark)
+                    },
                     condition: factory.boolean(true),
                     original: Exp::new(ExpKind::TrueLit, Default::default()),
                     rewritten: None,
-                    action: if terminal_cancel {
+                    action: if terminal_cancel == 1 {
                         crate::verifier::verification_pool_manager::NativeJoinAction::Continuation(
                             terminal_action.clone(),
                         )
+                    } else if terminal_cancel == 2 {
+                        crate::verifier::verification_pool_manager::NativeJoinAction::PredicateEvaluation {
+                            action: crate::rules::predicate_supporter::empty_predicate_contents_action(&factory),
+                            frame: crate::rules::predicate_supporter::OwnedUnfoldEvaluation {
+                                initial: state.clone(), outer_store: state.g.clone(), outer_record_visited: state.record_visited,
+                                outer_scaling: state.permission_scaling_factor.clone(), outer_scaling_exp: state.permission_scaling_factor_exp.clone(),
+                                old_arps: state.constrainable_arps.clone(), predicate: analysis.program.predicates[0].clone(),
+                                body: Exp::new(ExpKind::IntLit(42.into()), Default::default()),
+                                error: PartialVerificationError::for_kind(VerificationErrorKind::Internal(None)), mark, collector_id: Arc::new(()),
+                            },
+                        }
                     } else {
                         crate::verifier::verification_pool_manager::NativeJoinAction::Cfg(
                             action.clone(),

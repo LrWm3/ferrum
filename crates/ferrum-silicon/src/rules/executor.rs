@@ -104,6 +104,14 @@ pub struct DebugStatementSnapshot {
 }
 
 /// Concrete verifier services preserve branching, failures, logging and solver state.
+/// Explicit value receiver for a direct local assignment.
+#[derive(Clone)]
+pub struct OwnedAssignmentValue {
+    pub lhs: LocalVar,
+    pub rhs: Exp,
+    pub tail: CfgStatementTail,
+}
+
 /// Owned post-precondition caller for an ordinary-heap method call.
 #[derive(Clone)]
 pub struct MethodCallPreFrame {
@@ -161,6 +169,15 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
         snapshot: Option<&DebugStatementSnapshot>,
     ) -> Result<State<P, D, J>, Self::Error>;
     fn fresh_local(&mut self, variable: &LocalVar) -> Result<StoreValue, Self::Error>;
+    fn try_evaluate_owned_assignment(
+        &mut self,
+        _state: &State<P, D, J>,
+        _statement: &Stmt,
+        _rhs: &Exp,
+        _receiver: &OwnedAssignmentValue,
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
+    }
     fn evaluate_assignment(
         &mut self,
         state: State<P, D, J>,
@@ -531,6 +548,22 @@ where
             let state = context
                 .start_key_heap(state, statement, debug_snapshot.as_ref())
                 .map_err(ExecutionError::Context)?;
+            if let Some(tail) = owned_tail.filter(|_| {
+                matches!(rhs.kind(), ExpKind::Asserting(..))
+                    && !state.exhale_ext
+                    && context.statement_scope_transferable(scope)
+            }) {
+                let receiver = OwnedAssignmentValue {
+                    lhs: lhs.clone(),
+                    rhs: rhs.clone(),
+                    tail: tail.clone(),
+                };
+                if let Some(result) =
+                    context.try_evaluate_owned_assignment(&state, statement, rhs, &receiver)
+                {
+                    return result;
+                }
+            }
             context.evaluate_assignment(state, statement, rhs, &mut |context, state, value| {
                 let value = ssaify(context, &lhs.name, &lhs.typ, rhs, value)?;
                 let mut state = context
@@ -1339,6 +1372,39 @@ where
         Some(terminal),
         continuation,
     )
+}
+
+pub(crate) fn execute_owned_assignment_value<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    value: StoreValue,
+    receiver: &OwnedAssignmentValue,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    let value = ssaify(
+        context,
+        &receiver.lhs.name,
+        &receiver.lhs.typ,
+        &receiver.rhs,
+        value,
+    )?;
+    let mut state = context
+        .finish_key_heap(state)
+        .map_err(ExecutionError::Context)?;
+    let key = AbstractLocalVar::new(Exp::new(
+        ExpKind::LocalVar(receiver.lhs.clone()),
+        receiver.lhs.meta.clone(),
+    ));
+    state.g = Arc::new(state.g.with_binding(key, value));
+    let state = context
+        .move_to_reserve_heap(state)
+        .map_err(ExecutionError::Context)?;
+    context
+        .close_statement_scope(None)
+        .map_err(ExecutionError::Context)?;
+    execute_cfg_statement_tail(context, state, &receiver.tail)
 }
 
 /// Resume the ordinary-heap method call after consuming its preconditions.

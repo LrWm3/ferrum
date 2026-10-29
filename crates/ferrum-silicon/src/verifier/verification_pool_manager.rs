@@ -1910,6 +1910,12 @@ pub(crate) static LOOP_PHASE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static LOOP_PHASE_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static ASSERTING_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static ASSERTING_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
 pub(crate) static FUNCTION_PRE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -2131,6 +2137,19 @@ where
                 RULE_PRODUCTION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
             NativeJoinAction::Consumption(action) => {
+                if action.frames.iter().any(|f| {
+                    matches!(
+                        f,
+                        crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                            terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(
+                                _
+                            ),
+                            ..
+                        }
+                    )
+                }) {
+                    ASSERTING_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 if action.frames.iter().any(|f| {
                     matches!(
                         f,
@@ -5720,6 +5739,55 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
             assert!(
                 FUNCTION_PRE_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed
             );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_asserting_assignment() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+method good(b: Bool, x: Ref, y: Ref) returns (r: Int)
+  requires acc(x.f) && acc(y.f) && x.f == 7 && y.f == 8
+  ensures acc(x.f) && acc(y.f) && (b ? r == 7 : r == 8)
+{
+  r := asserting (b ? acc(x.f) : acc(y.f)) in (b ? x.f : y.f);
+}
+method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
+  requires x != y && acc(x.f)
+{
+  r := asserting (b ? acc(x.f) : acc(y.f)) in 1;
+}
+"#;
+        for workers in [1, 2] {
+            let submitted = ASSERTING_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed = ASSERTING_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1, "{fatal:?}");
+            assert!(
+                ASSERTING_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > submitted
+            );
+            assert!(ASSERTING_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed);
         }
     }
 
