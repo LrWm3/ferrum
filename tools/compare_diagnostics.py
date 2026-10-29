@@ -58,8 +58,8 @@ def classify(output, returncode, timed_out, source, reference_verified=True):
 
 def compare_case(row, binary, z3, timeout, reference_verified):
     source = row['silicon']
-    native_old = row['ferrum']
-    fixture = native_old['command'][-1]
+    # Use the exact reference input validated against the manifest below.
+    fixture = source['command'][-1]
     command = [str(binary), '--z3Exe', str(z3), '--disableCaches',
                '--numberOfParallelVerifiers', '1', fixture]
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
