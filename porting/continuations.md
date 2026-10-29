@@ -1,366 +1,198 @@
 # Native continuation ownership
 
-The native runtime now accepts `--parallelizeBranches`. Combine it with
-`--numberOfParallelVerifiers N` to select the worker count. Even `N = 1` uses the
-cooperative queue when branch parallelism is requested. The default remains off.
-Owned continuations remove the former blanket restriction on transferring
-nonjoined branches; callbacks without an explicit owned receiver remain local.
+`--parallelizeBranches` enables owned branch jobs. Combine it with
+`--numberOfParallelVerifiers N` to choose the worker count. Even `N = 1` uses
+the cooperative queue. Branch parallelism remains off by default.
 
-Method and standalone CFG execution now carry an explicit owned terminal alongside
-local callbacks. A scheduled CFG action owns its edge, join context, lazy path ID
-and terminal. A worker executes the suffix through method postcondition checking
-or standalone success. No borrowed closure, live verifier or solver is sent to
-another thread.
+The native runtime represents the reviewed built-in continuation chains with
+typed return frames, exact terminals and identified collectors. A worker can
+finish an eligible branch through its caller's expression, rule or CFG suffix.
+Jobs carry symbolic data; borrowed closures, live verifiers and solvers stay on
+their owner threads. Custom callers without an owned destination execute locally.
 
-The source references are Silicon's pinned [Executor.scala](https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/rules/Executor.scala),
+This is an ownership and compatibility change. It does not establish a speedup
+over JVM Silicon or Verus, or complete the broader Viper port.
+
+## Source baseline
+
+The semantic baseline is Silicon
+[`ff386aec4664231dc6f2cb56d8d35f1623088363`](https://github.com/viperproject/silicon/tree/ff386aec4664231dc6f2cb56d8d35f1623088363),
+with Silver `c4f54b84703a04434b03e97bfea87dbd09870fd2`. In particular, see
+[Executor.scala](https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/rules/Executor.scala),
+[Evaluator.scala](https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/rules/Evaluator.scala),
 [Brancher.scala](https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/rules/Brancher.scala),
-[ExecutionFlowController.scala](https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/rules/ExecutionFlowController.scala)
-and [MethodSupporter.scala](https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/supporters/MethodSupporter.scala).
+[Consumer.scala](https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/rules/Consumer.scala),
+[Producer.scala](https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/rules/Producer.scala)
+and
+[ExecutionFlowController.scala](https://github.com/viperproject/silicon/blob/ff386aec4664231dc6f2cb56d8d35f1623088363/src/main/scala/rules/ExecutionFlowController.scala).
 
-## Executable boundary
+## Executable destinations
 
-The terminal is propagated only where it represents the actual continuation.
-It is not inferred from the current method: join collectors, invariant-phase
-collectors and wand proof CFGs can have different continuations. Generic callers
-that supply a borrowed callback retain synchronous execution.
+An owned destination represents the actual callback, never an inferred current
+method. Method completion, a single CFG edge, a loop phase and an expression
+collector have different return behavior. Local callbacks are still used within
+an action, but they are created and completed by the worker running that action.
 
-Statements, evaluation, production, consumption and retries may still use local
-callbacks. Those callbacks are created and completed on the worker executing the
-owned action. Multiple invocations retain the source semantics. The waiting
-caller retains its own scopes, result combinations and final cleanup. It drains
-a submitted else job even when the then action or branch reporter fails.
-
-Joined CFG and predicate actions return owned entries and declarations. Terminal
-CFG actions instead return verification results and warnings, never join entries
-or parent solver effects. They do not allocate a join mark. Method terminal
-errors and cancellation retain their typed representation across the queue.
-
-Direct CFG inhale statements now supply an owned caller frame containing the
-remaining statement sequence, block successor and terminal. Producer actions
-carry projected assertion suffixes, split snapshots and errors. A transferred
-conditional or implication completes its branch and pending assertions before
-inhale saturation, statement completion and the caller tail. Implication false
-branches retain the empty-snapshot assumption. The same terminal-job scheduler
-handles CFG and producer actions, preserving typed native errors.
-
-Direct CFG exhale and ordinary assert statements also have owned consumption
-frames. Each frame retains remaining projected conjuncts, their errors, heap
-completion and the exact retry attempt. A shared success signal records entry
-into the consumed assertion's continuation before later work runs. This prevents
-a failure in the tail from incorrectly retrying successful consumption. Retry
-frames restore the source retry level/modes and close the retry scope at the
-original success boundary. Assert completion restores the original heap and
-reserve heaps before resuming the statement tail. Ordinary synchronous retries
-retain their local Boolean and do not allocate a shared signal.
-
-Method postcondition consumption has a separate explicit success terminal. Only
-`complete_method_cfg` selects it; generic postcondition callbacks remain local.
-It preserves per-postcondition error attribution and heap completion without
-running statement cleanup. A fixture whose only conditional is in its ensures
-clause checks real consumer job execution and an else-only permission failure.
-
-Nested statement sequences and TryBlock bodies have explicit enclosing finish
-frames. TryBlock records success before running its caller, so downstream failure
-cannot incorrectly trigger fallback; unsuccessful bodies resume from the original
-state. Loop-head statements carry their own successor checks before following
-edges. Producer and consumer lets retain the source store extension and remaining
-assertion/retry frames. Success-only scope closes are represented explicitly;
-active logger transfer is still disabled. Ordinary execution without an eligible
-scheduler does not construct these statement tails.
-
-Method precondition production now carries the exact method body and CFG terminal.
-Disable-subsumption assertion probes have an explicit consumption-success terminal.
-The owner waits for the probe result, then resumes the original unconsumed state
-once. Real-Z3 checks exercise actual jobs with one/two workers, retained permissions
-and an expected downstream failure.
-
-Postcondition wellformedness has its own success terminal in the original local
-empty-heap scope. Contract saturation, old-heap recording, fatal-result gating
-and separate body verification retain their source ordering. Actual Z3 checks
-exercise precondition-only and wellformedness-only forks with one and two workers.
-
-Method calls carry caller stores, heaps, old heaps and return targets through
-precondition consumption and postcondition production. Snapshot-returning
-consumption now preserves conjunct combination and finalization order. Fold
-bodies use that snapshot to rebuild the predicate chunk, restore permission
-scaling and resume their statement tail. Real Z3 checks assert actual call and
-fold jobs, caller value restoration and an else-only missing-permission failure.
-
-Ordinary unfold statements now retain an explicit finish frame through cached
-predicate trees or uncached body production. Both paths restore the caller store
-and permission scaling after saturation and trigger emission, then execute the
-statement tail. Separate actual-job tests exercise both profiles with real Z3,
-checking field values, permissions and an expected invalid value assertion.
-
-## Solver ownership and restoration
-
-Each solver remains on its owning thread. Jobs carry symbolic state and immutable
-path, declaration, option and error-count snapshots captured before the then
-branch starts. A worker installs the captured context for transferred execution
-and restores the suspended context before resuming other work. Nested cooperative
-waits require isolation even when a queued action originated on the same worker:
-that worker can currently be suspended inside a different branch or loop scope.
-Worker identity alone cannot establish that the live solver matches a job.
-
-The regression suite uses actual Z3 with one and two workers, including nested
-branches, permission consumption, method postconditions, two fatal branches and
-unrelated queued methods. Forced foreign-worker tests check both replay and
-restoration; removing restoration makes the negative control fail. An injected
-scheduler checks mandatory draining after execution and reporter errors.
-A deterministic evaluation test also forces unrelated collector IDs onto the same
-worker, checks returned values and parent collector/PCS restoration, and cancels
-an in-flight evaluation job. Cancellation tests cover an in-flight terminal job and cancellation of the then
-action after else submission, retaining typed cancellation and restoring parent
-solver depth and options before return.
-
-## Loop and expression continuations
-
-Loop invariant collection uses explicit collector identities and owned phase outputs. Establishment resumes
-phase replay inside its original consumption continuation, retaining retry and
-result-combination boundaries. Backedges have a distinct success terminal.
-Actual Z3 tests exercise all three phases, including nested invariants and entry
-or preservation failures. A deterministic cooperative test checks collector and
-solver restoration when an unrelated phase job executes on the same worker.
-Disabled scheduling does not allocate or clone the new establishment frame.
-
-Cached and uncached expression Unfolding now carry an explicit value-producing
-frame through predicate-tree and producer jobs. Each leaf restores the source
-store, recorder depth, scaling and cycle state, evaluates the expression body,
-and returns state/term/debug/path data to the original identified join collector.
-The owner replays declarations before merging returned entries. Real Z3 checks
-exercise both profiles and reject the expected bad postcondition while preserving
-the predicate resource and valid branch values.
-
-Function application preconditions now carry an owned snapshot receiver. It
-retains trigger rewriting, error substitution, caller-store transformation and
-function-recorder restoration before returning the term to its identified join.
-Actual Z3 tests exercise conditional precondition jobs and the expected bad
-application while checking returned values. A direct local assignment with an
-Asserting RHS also owns its state/value receiver: it restores the assertion
-heap, evaluates the body, restores the outer evaluation heap/reserves and
-performs SSA assignment before resuming the statement tail. A direct old or
-labelled-old wrapper around that Asserting RHS retains an owned old-state frame.
-Its return restores the partial heap, trigger map and old-state flag in source
-order before restoring the outer evaluation heap and assigning. Real jobs check
-historical values, current resources, missing labels and an else-only permission
-failure. Injected service errors and cancellation after submission check
-draining and parent solver restoration. A real worker is also cancelled after
-the old receiver starts, at a nested assertion checkpoint. Evaluation,
-production and consumption adapters preserve direct typed context errors,
-including function-precondition and ordinary assertion-tail checkpoints.
-Execution adapters now preserve direct context/service errors as well. Saved
-callback adapters recognize a typed continuation-abort sentinel and retain any
-independent cleanup error together with the callback failure. Reviewed quantified retry, summary, merge, mask and wand adapters now retain
-their nested service/solver errors too.
-Nested arbitrary expression callbacks without an explicit receiver remain
-synchronous. Active member logging, packaging and extended exhale still disable
-owned dispatch. Generic borrowed callback entry points remain local; parallelism
-is enabled only where an exact owned terminal or collector represents Q. Direct
-evaluator branches explicitly disable parallelism upstream and keep that
-behavior.
-
-Packaging proof scripts and joined consumer branches explicitly disable branch
-parallelism upstream (MagicWandSupporter.scala and Consumer.scala). Their local
-execution is source behavior; the outer statement continuation must still resume
-correctly afterward.
-
-Moving captured fields into a struct alone is insufficient. New dispatch points
-must identify the exact executable continuation, preserve source result order,
-and demonstrate restoration on success, verification failure, service error and
-cancellation before removing their guard.
-
-## Coverage and compatibility boundaries
-
-| Caller or context | Current execution |
+| Caller | Owned representation |
 | --- | --- |
-| Method/standalone CFG, sequences, TryBlock, loop heads and successors | Owned actions through exact method or standalone terminals |
-| Inhale/exhale/assert (including disable-subsumption probes), method/call contracts, fold snapshots and statement unfold | Owned rule and caller frames |
-| Loop collection, establishment and backedges | Identified phase outputs and explicit consumption terminals |
-| Function preconditions and cached/uncached expression Unfolding | Owned snapshot/value receivers and identified join outputs |
-| Assignment values with field reads, Let, old/labelled-old, strict operators, domain/backend arguments and field/predicate CurrentPerm arguments around Asserting | Composable owned return frames; both eligible strict operands can transfer |
-| Arbitrary nested value callbacks, other old-expression shapes and custom borrowed entry points | Safe synchronous fallback; not complete parallel source coverage |
-| Active member logs, extended exhale and packaging | Owned dispatch disabled; logger migration remains unfinished |
+| Method and standalone CFG | Edges, join context, lazy path ID and exact method/standalone terminal |
+| Sequences, TryBlock and loop-head statements | Remaining statements and enclosing success/finish frames |
+| Complementary CFG guards and individual conditional edges | Guard receiver with the exact edge action and terminal; the owner retains the surrounding edge fold |
+| Loop guard wellformedness | Success receiver inside the original local loop scope, discarding the checked value as in the source |
+| Inhale, exhale and assert | Projected assertion suffixes, split snapshots, heap completion and caller tail |
+| Method preconditions, postconditions and wellformedness | Separate contract/body/success terminals with original scopes and error attribution |
+| Method calls | Ordered actual arguments, caller store/heaps, return targets, precondition consumption and postcondition production |
+| Fold and Unfold statements | Ordered predicate arguments, permission input, predicate snapshot/body completion and caller restoration |
+| Loop invariants | Identified collection outputs, establishment replay and distinct backedge success |
+| Local and field assignments | Exact assignment receiver, captured operands and statement suffix |
+| Function applications | Ordered arguments and a precondition snapshot receiver returning to the identified expression join |
+| Expression Unfolding | Ordered arguments and permission, cached/uncached predicate body completion, restored state and expression body |
+| Applying expressions | Wand, LHS and RHS completion stages, restored old heaps/store and body result collector |
+| Quantified evaluation | Ordered body values/debug options, trigger completion and exact local quantified collector |
+| Production and consumption subexpressions | Guard, pure assertion, access-argument/permission and impure Let receivers retaining enclosing rule frames |
 
-Upstream explicitly disables direct evaluator and joined producer/consumer forks.
-Nested rules can re-enable the original branch flag; some such nested callbacks
-still use synchronous fallback. Function/predicate verification begins with
-parallel branches disabled upstream; methods and standalone CFGs opt in in
-`DefaultMainVerifier.scala`. These source constraints differ from the incomplete
-owned-receiver coverage listed above.
+Expression return frames compose around Asserting, Let, old/labelled-old, field
+reads, Boolean and arithmetic/permission operators, conditional and short-circuit
+expressions, function/domain/backend arguments, collection constructors and
+operations, CurrentPerm and ForPerm resource arguments. Each frame retains the
+source evaluation order and shares ordinary term/debug completion where possible.
+SeqContains evaluates its sequence before its element. Ordered argument debug
+options use the same reverse fold as the ordinary evaluator.
 
-All submitted jobs are drained on normal error and cancellation paths. A panic
-instead aborts the verification run: the pool cancels pending work and stops the
-affected worker, which is not restored for reuse. Public CLI and Session checks
-cover one, two and four workers with the flag both off and on through stdio and
-linked Z3, including invalid programs, reuse and stop. Internal real-Z3 fixtures
-assert actual submissions/executions; deterministic tests force foreign and
-same-worker interleaving and cancellation. This establishes the tested ownership
-boundaries, not complete Viper compatibility or a measured speedup.
+Wand arguments are the exact ordered holes selected by the source wand helper.
+The owned path resolves those holes before changing evaluation state. An
+Asserting expression elsewhere in a wand must not be evaluated merely because a
+conservative syntax probe found it. Unfolding's recursive cutoff likewise occurs
+before argument or permission evaluation.
 
-## Cancellation regression boundaries
+Return frames are stored outermost first and resumed from the end. An iterative
+probe selects a supported descent path, avoiding repeated suffix scans and front
+insertion. Evaluation itself remains recursive and some suffix transitions clone
+frames; this is not a general linear-time or stack-safety guarantee.
 
-Real worker probes cancel owned assertion/old jobs after transfer installation,
-and an old assignment receiver after its entry hook reaches a nested assertion.
-They check typed cancellation, draining, normalized solver depth, path layers,
-options and error counts. Queue cancellation is registered; the ordinary probe
-uses a cooperative latch to keep the solver available for restoration checks.
-The test releases rendezvous and interrupts solvers on its failure path. Run the
-regression under an external process watchdog to bound noncooperative CPU stalls.
+## Collector, solver and cleanup ownership
 
-Deterministic scheduler tests exercise both branch combiners: simultaneous
-cancellation remains typed only when restoration and reporting succeed, while a
-distinct child or cleanup error remains visible. They also cover a stopped queue
-at submission with and without a latched cancellation. These do not establish
-real simultaneous parent/child execution at every cancellation boundary.
+Expression joins, quantified results and loop-phase results have distinct
+collector destinations. Nested rule receivers discover their destination through
+their saved continuation frames. Worker execution installs the matching local
+collector identity and restores the suspended collector afterward. Returned
+declarations are replayed before values or phase results are consumed.
 
-The assignment receiver now carries an immutable vector of typed return frames,
-stored outermost first and resumed from the end. Frames represent asserting-body
-returns, old/labelled-old, integer and Boolean negation, addition,
-subtraction, multiplication, integer division/remainder, equality, inequality and ordered comparisons. Supported
-wrapper chains can compose around Asserting while retaining each evaluator entry
-and return action. Addition evaluates its left operand first, then transfers an eligible right
-operand with the left value and remaining return frames retained. Each transfer
-checks the current runtime guards. Other expression families retain
-local callbacks. Guarded logging, packaging and extended-exhale cases are unchanged.
+Each solver remains on its owning thread. Jobs capture immutable path,
+declaration, option and error-count snapshots before the local then branch
+starts. A cooperative wait can execute an unrelated job on the same worker;
+worker identity alone therefore cannot prove that its solver has the right state.
+The suspended solver and path context must be restored before its caller resumes.
 
-Actual one/two-worker jobs check mixed and labelled old/current heap values,
-permissions, branching left operands and a captured tail that reports assertion.false.
-A CLI regression checks that an inaccessible left operand fails before a right-side
-assertion. A real-Z3 regression with record_possible_triggers enabled compares the local
-owned receiver with synchronous nested old/labelled-old evaluation. It checks
-saved and wrapped triggers, the original old-state flag, current/partial heap
-identity, and missing-label failure before receiver entry. Its scheduler and
-drained sibling future are injected: it does not inspect a transferred worker
-receiver with trigger recording enabled.
+Terminal jobs return verification results and warnings without creating expression
+join entries or replaying parent solver effects. Value and phase jobs return their
+distinct owned outputs. The waiting caller retains its local scopes, source result
+combination and cleanup. Submitted sibling jobs are drained even when the local
+branch, reporter or continuation fails.
 
-The rule-error bridge pass preserves direct Context/Service errors in evaluator,
-producer and consumer adapters, including method/function/predicate and guarded
-wand paths. Worker regressions inject cancellation and a distinct Diagnostic at
-function-precondition and ordinary assertion-tail checkpoints. Reverting either
-bridge alone makes its cancellation test fail with a formatted error. The existing
-rule unit suite also passes. Execution, method/function/predicate and guarded wand adapters now preserve
-typed errors across the reviewed direct context/service boundaries. Conditional
-evaluation, production and consumption regressions cover successful cleanup and
-an independent cleanup error after callback failure, plus a nested inhale tail.
-The injected error occurs after a successful solver pop; these checks establish
-error retention, not state recovery after an actual failed pop. This covers the inspected adapters; it does not establish exhaustive coverage
-of every nested error family or callback site.
+Consumption retry frames distinguish entry into a successful continuation from
+failure in its subsequent tail. A downstream failure must not retry successful
+consumption. Pure assertion consumption retains both inner and outer retry
+boundaries. Heap/reserve restoration, constrainable permission restoration,
+snapshot completion and scope closing occur at their original success boundaries.
+Synchronous retries keep ordinary local state and avoid the shared success signal.
 
-Both-operand tests assert actual submissions and executions on each side with
-one and two workers, including an else-only right permission failure. A separate
-probe cancels after the right receiver starts and its sibling has been submitted;
-it checks typed cancellation and pool draining, without assuming that sibling
-has already executed. Both run under an external process watchdog.
+Typed cancellation and context/service/solver errors survive the reviewed rule
+adapters. A callback-abort sentinel preserves the original failure, and independent
+cleanup failures remain visible. An actual failed solver pop is not established
+to be recoverable by the injected cleanup-error tests. A panic aborts verification:
+pending work is cancelled and the affected worker is stopped rather than reused.
 
-Quantified single/general retry continuations preserve their typed callback
-errors across both retry layers. Independent negative controls restoring either
-old bridge lose the expected Diagnostic. Resource summaries, ordering, removal,
-consolidation and mask/wand operations preserve the inspected nested
-Service/Solver/Fresh/Render errors. The full real-Z3 library suite passes; these
-additional resource mappings have source/type review but no per-site injected
-failures. Pure transformation errors retain their existing diagnostic formatting.
+Every owned subtree entry rechecks its runtime guards. If an earlier local
+operand changes eligibility, later evaluation stays synchronous and then resumes
+the saved return frames. No receiver may bypass packaging, extended-exhale,
+logging or source join restrictions.
 
-The final inspected follow-up preserves solver errors during summary-alias
-lookup and service errors during mask trigger adaptation and function body/post
-translation. No further reachable loss sites were confirmed in this bounded
-review; uninspected code is not claimed to have exhaustive error-path coverage.
+## Deliberate synchronous boundaries
 
-Strict operator returns reuse the ordinary evaluator term/debug constructors.
-Real one/two-worker checks observe both operand submissions and executions;
-source-matched permission failures check left-before-right order and that a
-failed right operand skips the captured tail. Short-circuit
-and conditional expressions, ordinary function/collection arguments still
-use local callbacks when their exact return action is not represented.
+Several local paths are source semantics or explicit API boundaries:
 
-Owned expression descent rechecks transfer eligibility at every subtree entry.
-If a borrowed left operand changes the guard, the remaining subtree evaluates
-synchronously before resuming the saved return frames and exact assignment
-receiver. A real-Z3 test injects that change after Add/Sub left operands; it
-checks no submitted job, one correct result, the captured failing tail and an
-earlier permission failure that skips assignment and tail.
+- Direct evaluator branches and joined producer/consumer forks explicitly disable
+  parallelism upstream. Nested rules may restore the original flag; those nested
+  continuations can use their owned receivers. Function/predicate verification
+  starts with parallel branches disabled, while methods and standalone CFGs opt in.
+- Wand proof packaging and extended exhale retain their source restrictions.
+  Applying LHS/RHS conditional stages transfer only in the source-eligible join
+  mode; an all-joins control must not manufacture a job.
+- Generic borrowed callbacks and unimplemented extension evaluator interfaces are
+  not converted into executable jobs by guessing a terminal.
+- Active member logs retain the safe local fallback. Public advanced logging
+  (`--ideModeAdvanced`) or state reporting (`--reportStateAfter`) combined with
+  parallel branches is rejected by the pinned source configuration and by Ferrum.
+  Reused standalone CFG contexts can retain a previous member logger; general
+  logger migration for this internal embedding case is not claimed complete.
+- First-stage quantified-condition evaluation retains its ordinary local callback.
+  A tested independent two-path Asserting condition aborts the pinned serial Scala
+  local-Q cardinality assertion; the native path rejects multiple local results.
+  Constraining the condition removes the sibling branch. This is not evidence for
+  a source-valid missing transfer. Second-stage permission/resource body results
+  use the identified quantified receiver.
 
-Asserting bodies now retain their own typed return action, including trigger
-recording and outer heap/reserve/exhale restoration. Eligible nested bodies can
-transfer; other bodies evaluate locally through the same return action. Actual
-one/two-worker checks observe outer and inner jobs, preserve mixed old/current
-values and permissions, and reject failures in source order before the caller
-tail. A separate inner-receiver test now cancels after an inner sibling is submitted,
-checks typed cancellation and drains the pool with one/two workers. It does not
-assert that sibling execution began or directly inspect parent solver state;
-the cooperative restoration regression covers parent depth/options separately.
+Source join cardinality is preserved. A nested two-way Asserting plus another
+outer branch can produce three entries where the pinned serial source accepts
+only one or two. Positive join fixtures constrain the outer condition and retain
+the independent inner branch. Short-circuit joins skip feasibility filtering;
+their nested-tail tests establish actual jobs and the expected invalid-entry
+error, not successful verification of that source-invalid shape. A parallel Scala
+run that races a local collector is not a reliable replacement for serial source
+semantics.
 
-Owned descent selects a supported path once using an iterative traversal, then
-appends return frames and resumes them in reverse. This removes repeated suffix
-searches and front insertion. The evaluator still descends recursively, and
-right-operand callbacks and later transfers still clone outer frames; this is
-not a general linear-time or stack-safety guarantee.
+## Validation and its limits
 
-Let values and bodies now have explicit bind/return frames. They preserve the
-ordinary evaluator fresh definition, recorder entry/exit, trigger substitution,
-debug reconstruction and returned store binding. Actual one/two-worker tests
-cover transfers from both value and body, nested distinct binders, an existing
-outer local, old/current heaps and permission failures before the caller tail.
-An internal-only test checks an existing identical store key; pinned Silver
-rejects duplicate source binder names. An additional real-Z3 fixture compares Let trigger substitution and reconstructed
-debug expressions with the ordinary evaluator. Its scheduler is injected and a
-true assertion submits no sibling; the actual worker tests cover transfer
-separately.
-A LetBody receiver cancellation probe checks typed cancellation and pool draining
-after sibling submission, without claiming sibling execution or direct parent
-solver-state inspection at that hook.
+Real stdio Z3 fixtures run with one and two workers and assert actual submissions
+and executions, independently of successful verification. They cover receiver
+values, resource preservation, first/later argument stages, failure ordering and
+skipped caller tails. CLI controls retain source error categories and default or
+unlimited error-reporting behavior. Selected positives and negatives are compared
+with the pinned sequential Scala reference.
 
-Inequality uses the same strict return frames and ordinary term/debug constructors.
-Actual one/two-worker jobs cover both operands; source-matched permission failures
-check left-before-right order and a failed right operand skipping the caller tail.
+Cancellation probes stop work after receiver entry or sibling submission and
+check typed cancellation and pool draining. They distinguish right operands,
+nested Asserting, Let, Boolean heads/tails, joined/quantified values, CFG guards,
+loop guard checks, ForPerm, wand arguments, Unfolding inputs and Applying stages.
+These probes do not prove simultaneous parent/child execution at every hook.
+The loop guard probe has its own hook and fixture; the CFG guard probe is not a
+substitute for it.
 
-Integer division and remainder preserve the ordinary nonzero proof after both
-operands, divisor error attribution, retry guard, and result combination when
-verification continues after an error. Actual one/two-worker jobs exercise both
-operands of each operator. CLI regressions check operand failure order, zero
-divisor errors skipping the caller tail at the default limit, and both divisor
-and tail errors under unlimited reporting. Debug reconstruction and retry levels
-above zero have source comparison but no dedicated runtime regression here.
+Deterministic scheduling tests separately force foreign-worker replay and
+same-worker execution of unrelated collectors and methods. They check parent
+solver depth, path layers, options, error counts and collector restoration.
+Negative controls that remove restoration fail. Queue/reporter and paired error
+tests exercise draining and retention of independent failures.
 
-Field reads now retain an owned receiver return. A shared completion helper keeps
-the ordinary heap lookup, intermediate heap recording and debug labels in source
-order, followed by wrapper restoration and the exact caller continuation. Actual
-one/two-worker jobs cover historical/current values and resources; CLI failures
-check receiver assertions before the field read and field permissions before the
-caller tail. The sequential pinned Silicon reference agrees. Its parallel run of
-the positive fixture fails with a missing solver declaration, so that run is
-inconclusive. Field-specific debug and cancellation hooks are not independently
-exercised by these new fixtures.
+Coverage qualifications:
 
-Domain/backend function arguments retain their ordered value/debug prefix and
-resolved declaration in an owned return frame. Actual one/two-worker tests cover
-first/later arguments and an initial synchronous prefix, with CLI controls for
-argument failure order and skipped caller tails. A shared completion helper keeps
-ordinary term/debug construction. The synthetic unresolved-function check follows
-current Rust resolution-before-arguments order; pinned Scala resolves afterward.
-Valid frontend inputs resolve these names before verification. Ordinary function applications remain a separate receiver family.
+- The individual conditional-edge test replaces a method's CFG while retaining
+  its normal preamble. It covers true, false and later-edge behavior with actual
+  jobs; it is not a claim that a source-generated single-edge fixture transferred.
+- The source-valid ForPerm argument transfer fixture uses a predicate resource;
+  Silver requires a field resource's bound receiver directly.
+- Dedicated local debug/trigger comparisons for Let and old-state returns use
+  an injected scheduler. Separate fixtures establish real worker transfers;
+  they do not establish every debug profile under transfer.
+- Active advanced logs plus branch parallelism have configuration rejection
+  tests, not an invented parallel trace protocol.
+- Mask alias replay is checked through stdio and linked Z3 4.16 with one/two
+  workers. Available aliases are tracked per solver; self/forward aliases are
+  excluded and restart/failure clears stale availability. Required global
+  declarations cannot be disabled through startup or member options.
+- Warning tests preserve evaluator wording, source positions, reporter category,
+  occurrence order and reporter failures, including missing quantified triggers.
+  This does not establish complete diagnostic formatting parity.
 
-Mask alias replay now follows a shared term representation only when that alias
-is declared in the receiving solver. Macro bodies exclude self/forward aliases;
-linked Z3 uses the analogous registration order. Conversion does not mutate the
-shared term. Stdio restart clears declaration history and failed emission
-invalidates it conservatively. Actual one/two-worker mask-heap replay, linked
-conversion and a 12-level reused-mask size regression pass. These paths require
-the source global-declaration setting to remain enabled.
+Run real-solver tests with `FERRUM_TEST_Z3` explicitly set; some library fixtures
+skip their solver work otherwise. Compile outside the external runtime watchdog,
+then run cancellation tests with a bounded process timeout. Serialize tests that
+share stage counters. Production development builds retain optimization level 1
+for the recursive verification crates; test-only level-0 overrides are useful for
+focused build turnaround but are not the Prusti execution profile.
 
-CurrentPerm field receivers and predicate arguments use the shared ordered
-argument frames, retaining the partial/current heap selected before evaluation.
-Actual one/two-worker tests check argument transfers and permission values, and
-CLI tests check failure order and skipped tails. A synthetic local probe verifies
-the saved partial-heap identity; it submits no sibling. Mask-mode one/two-worker
-regressions pass with the alias replay fix above through stdio and linked Z3.
-MagicWand accesses retain local
-callbacks, and CurrentPerm-specific debug reconstruction has source comparison
-rather than a dedicated runtime fixture.
-
-Startup and method/function options now reject disabling global declarations,
-which branch replay and scoped verification require. Both accepted Z3 spellings
-are checked, along with the documented cvc5 setting. Member options are checked
-before changing decider state; direct stdio setters reject before solver I/O.
-Explicit true passes this guard, while the solver may still reject changing it
-after initialization. Real-Z3 checks cover both spellings and session reuse;
-cvc5 coverage is configuration/service checks without a local cvc5 executable.
+See [README.md](README.md) for checkpoint results and the wider compatibility
+inventory. The Prusti adapter's `prusti-ferrum/VALIDATION.md` distinguishes current
+build checks from its older Rust iterator matrix. Neither record should be read
+as an end-to-end performance comparison.

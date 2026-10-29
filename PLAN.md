@@ -24,6 +24,15 @@ implementation should retain its rules, representations, and control flow rather
 than introduce a smaller verification algorithm. Difficult features remain on the
 porting list even when their implementations arrive later in the sequence.
 
+The current continuation checkpoint connects owned CFG, rule and expression
+receivers to exact terminals and identified collectors, with owner-thread solver
+restoration and synchronous fallback at source and API boundaries. Public advanced
+logging or state reporting with parallel branches is rejected by the source
+configuration; reused internal CFG contexts with stale member logs fall back
+locally. First-stage quantified conditions and source-disabled direct branches
+remain serial. See [porting/continuations.md](porting/continuations.md) for
+coverage and limits. This does not complete the port or establish a speedup.
+
 The description pass and initial file-level production implementation pass are
 complete. All 269 mapped production sources now have native Rust code; many are
 partial and require concrete services or additional source cases. This does not
@@ -64,8 +73,9 @@ and dispatches methods or supported standalone CFGs to thread-owned solvers with
 ordered preamble broadcast, result collection and warning delivery. The default
 native profile remains single-worker. `--parallelizeBranches` now dispatches owned
 continuations with isolated solver contexts, including a cooperative one-worker
-queue. Additional borrowed receivers and advanced reporting/configuration profiles
-still require integration. Global verification
+queue. Synchronous fallbacks remain at source-disabled scopes and custom borrowed API
+boundaries; advanced reporting/configuration compatibility remains incomplete.
+Global verification
 deadlines now cancel queued work, interrupt active solvers and join their owner
 threads before returning a timeout; repeated sessions recreate their solvers.
 Native Rust work observes cooperative cancellation checkpoints.

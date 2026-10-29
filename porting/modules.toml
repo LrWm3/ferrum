@@ -1620,7 +1620,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Brancher.scala"
 destination = "crates/ferrum-silicon/src/rules/brancher.rs"
 status = "skeleton"
-remaining = ["Owned dispatch, cooperative waits, reporting, typed cancellation/error draining and solver-context restoration are connected. Exact receiver coverage and active logger migration remain incomplete."]
+remaining = ["Owned dispatch, cooperative waits, typed cancellation/error draining and solver restoration connect reviewed receivers. Source-disabled direct branches stay serial; stale internal CFG member logs fall back locally. General logger migration and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1634,7 +1634,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Consumer.scala"
 destination = "crates/ferrum-silicon/src/rules/consumer.rs"
 status = "skeleton"
-remaining = ["Typed owned consumption covers statement/method/loop/fold callers and function-precondition snapshot receivers. Asserting/nested expression receivers, logging and broader compatibility remain."]
+remaining = ["Owned consumption connects statement, method, loop, fold, function-precondition, Asserting and generic assertion subexpression receivers, including wand and Applying stages. Source join and packaging restrictions, borrowed callbacks, logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1647,7 +1647,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Evaluator.scala"
 destination = "crates/ferrum-silicon/src/rules/evaluator.rs"
 status = "skeleton"
-remaining = ["Owned function snapshots, Unfolding collectors, nested asserting bodies and Let/old/strict-operator/field/domain-argument/CurrentPerm assignment return frames run worker branches. Other expression receiver families, full diagnostics and broader compatibility remain."]
+remaining = ["Owned expression frames connect nested Asserting, operators, collections, function arguments, Unfolding, Applying, CurrentPerm and ForPerm to identified collectors. First-stage quantified conditions retain the source local cardinality boundary; extension callbacks, complete diagnostics and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1661,7 +1661,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Executor.scala"
 destination = "crates/ferrum-silicon/src/rules/executor.rs"
 status = "skeleton"
-remaining = ["Owned CFG, statement, method-call, loop and composable assignment frames connect worker branches to exact terminals. Other borrowed receivers, active logger migration and broader compatibility remain."]
+remaining = ["Owned CFG guards and single edges, loop checks, statements, method calls and assignment frames connect worker branches to exact terminals. Borrowed receivers, internal stale logger migration and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1737,7 +1737,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Producer.scala"
 destination = "crates/ferrum-silicon/src/rules/producer.rs"
 status = "skeleton"
-remaining = ["Typed owned production covers statement/method/loop callers and uncached expression Unfolding. Additional expression receivers, active logging and broader compatibility remain."]
+remaining = ["Owned production connects statement, method, loop and expression Unfolding and Applying terminals, plus generic assertion subexpression receivers. Source join restrictions, borrowed callbacks, logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1924,7 +1924,7 @@ repository = "silicon"
 upstream = "src/main/scala/supporters/MethodSupporter.scala"
 destination = "crates/ferrum-silicon/src/supporters/method_supporter.rs"
 status = "skeleton"
-remaining = ["Owned method CFG/postcondition completion is connected. Contract production, further diagnostic/logging integration and broader source compatibility remain."]
+remaining = ["Owned method precondition, body and postcondition completion connects exact contract terminals. Further diagnostic and logging integration and broader source compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2036,7 +2036,7 @@ repository = "silicon"
 upstream = "src/main/scala/verifier/VerificationPoolManager.scala"
 destination = "crates/ferrum-silicon/src/verifier/verification_pool_manager.rs"
 status = "skeleton"
-remaining = ["Public owner-thread cooperative scheduling carries typed terminals and collectors with error draining and cancellation. Additional borrowed caller coverage, active logger migration and broader compatibility remain."]
+remaining = ["Owner-thread cooperative scheduling carries typed terminals and identified expression, quantified and loop collectors with error draining and cancellation. Borrowed caller coverage, internal stale logger migration and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2567,7 +2567,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Public branch scheduling connects typed CFG/rule/loop/predicate/value continuations with solver and collector isolation and reviewed typed error/cleanup bridges. Other borrowed receivers, active logger migration, complete diagnostics, CFG-only contributor analysis and broader compatibility remain."]
+remaining = ["Branch scheduling connects reviewed CFG, rule, loop, predicate, Applying and expression continuations with solver and collector isolation and typed error/cleanup bridges. Source-disabled direct branches and first-stage quantified conditions stay local. Borrowed receivers, internal stale logger migration, complete diagnostics, CFG-only contributor analysis and broader compatibility remain."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"

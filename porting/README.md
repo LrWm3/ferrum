@@ -1,10 +1,32 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 423 mapped and assembly modules. `described` files
+The Cargo workspace now has 424 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
+
+The latest continuation checkpoint connects owned CFG guards and loop checks,
+expression return frames, generic production and consumption receivers, and
+Applying stages to exact terminals and identified collectors. Solver and collector
+state is restored across cooperative waits. Public advanced logging or state
+reporting combined with parallel branches is rejected by the pinned source
+configuration; a reused internal CFG context with a stale member logger falls
+back locally. Direct source-disabled branches and first-stage quantified
+conditions remain serial. Missing quantified-trigger warnings retain source text,
+position and reporter category (diagnostic checkpoint `cef2f19`). See
+[continuations.md](continuations.md) for fixtures and limitations. At code checkpoint `f4a070c`, the workspace all-target test run with `native-z3`
+passes 690 regular tests (142 ignored), including 309 Silicon library tests
+(nine ignored). An explicit real-Z3 pass adds 60 CLI continuation cases, 11 warning
+checks, mask-alias replay and the cooperative collector-restoration regression.
+Both mask fixtures pass linked Z3 4.16 with one and two workers. Test-only
+optimization overrides were used; the production-profile workspace all-target
+check and both Prusti integration checks also pass. The inventory check covers
+424 destinations. This checkpoint does not complete the port or establish a
+performance improvement.
+
+The entries below are historical checkpoints; later work may supersede their
+statements about remaining work.
 
 The CLI connects configuration, parsing, default plugins, consistency checks and
 source-shaped Silicon rules to the native Z3 stdio transport. End-to-end smoke
