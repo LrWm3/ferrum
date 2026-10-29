@@ -15524,7 +15524,25 @@ fn use_general_preamble(
         && !backend
         && (!(seq || set || map || multiset || quantified) || program.domains.is_empty())
     {
-        return Ok(false);
+        if program.domains.is_empty() {
+            return Ok(false);
+        }
+        // The legacy path only emits direct instances. Domain axioms may induce
+        // additional instances through calls, which require the source closure.
+        let direct = ferrum_silver::ast::utility::domain_instances::collect_ground_types(
+            &Node::Program(program.clone()),
+            program,
+        )
+        .map_err(|e| format!("direct domain instances: {e:?}"))?;
+        let needed = program
+            .ground_type_instances()
+            .map_err(|e| format!("ground domain closure: {e:?}"))?;
+        let requires_closure = needed
+            .iter()
+            .any(|t| matches!(t, Type::Domain(_)) && !direct.contains(t));
+        if !requires_closure {
+            return Ok(false);
+        }
     }
     if program.domains.is_empty() && !backend {
         return Err("general domain preamble requires a user domain".into());

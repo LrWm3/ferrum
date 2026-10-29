@@ -2630,3 +2630,8 @@ destination = "crates/ferrum-silicon/src/logger/general.rs"
 status = "skeleton"
 role = "assembly"
 remaining = ["Hierarchical levels, owner attachment, member events and recursive evaluation logs are connected. Other rule/solver events and public flag activation remain incomplete."]
+
+[[scaffolding]]
+destination = "tests/native_domain_axiom_closure.rs"
+status = "wired"
+role = "assembly"

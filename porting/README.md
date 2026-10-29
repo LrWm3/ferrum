@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 413 mapped and assembly modules. `described` files
+The Cargo workspace now has 414 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
@@ -1025,3 +1025,8 @@ extended exhale, as in Silicon. The previous method-CFG lookup could skip
 conditional proof branches and incorrectly accept invalid proofs. Real-solver
 checks now execute those branches, reject consumed permissions and false proof
 assertions, and preserve valid unconsumed branch footprints with one/two workers.
+
+Preamble selection now checks the source ground-type closure before using the
+direct-domain path. This retains axioms in indirectly referenced domains, including
+integer termination measures. A real-solver positive/negative regression checks
+that the induced axiom is available without proving its unconstrained converse.
