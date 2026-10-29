@@ -1162,7 +1162,21 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             NativeSnapshot::Fresh => self
                 .base
                 .decider
-                .fresh_variable(&self.factory, "snapshot", &sort, false, None)
+                .fresh_variable(
+                    &self.factory,
+                    "snapshot",
+                    &sort,
+                    false,
+                    self.base.decider.debug_mode.then(|| {
+                        ferrum_silver::parser::parse_ast::PTypeHandle::new(
+                            ferrum_silver::parser::parse_ast::PTypeKind::Unknown,
+                            (
+                                ferrum_silver::ast::position::Position::NoPosition,
+                                ferrum_silver::ast::position::Position::NoPosition,
+                            ),
+                        )
+                    }),
+                )
                 .map_err(NativeError::Decider),
             NativeSnapshot::Projection(value) => Ok(self.factory.sort_wrapper(value.clone(), sort)),
         }
@@ -1863,18 +1877,110 @@ where
             return Ok(result.combine(VerificationResult::success, false));
         }
         let (assumptions, feasible) = joiner::joined_conditions(&entries, &factory);
-        let values = entries
+        let big_and = |items: Vec<Exp>| {
+            crate::utils::ast::big_and(
+                items,
+                |e| e,
+                ferrum_silver::ast::position::Position::NoPosition,
+            )
+        };
+        let big_or = |items: Vec<Exp>| {
+            crate::utils::ast::big_or(
+                items,
+                |e| e,
+                ferrum_silver::ast::position::Position::NoPosition,
+            )
+        };
+        let branch_expressions = |paths: &crate::decider::path_conditions::RecordedPathConditions| -> Result<(Exp, Exp), EvaluationError<Self::Error>> {
+            let pairs = paths.branch_condition_exps();
+            let original = big_and(pairs.iter().map(|(original, _)| original.clone()).collect());
+            let rewritten = big_and(pairs.into_iter().map(|(_, rewritten)| rewritten.ok_or(EvaluationError::MissingDebugExpression)).collect::<Result<Vec<_>, _>>()?);
+            Ok((original, rewritten))
+        };
+        let simplify = |e: &Exp| {
+            ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                Ok::<_, std::convert::Infallible>(true)
+            })
+        };
+        let (values, paths): (Vec<_>, Vec<_>) = entries
             .into_iter()
-            .map(|entry| (entry.state, entry.data.0, entry.data.1))
-            .collect();
+            .map(|entry| {
+                (
+                    (entry.state, entry.data.0, entry.data.1),
+                    entry.path_conditions,
+                )
+            })
+            .unzip();
         let (merged, value, debug) = merge(self, values)?;
-        for group in assumptions {
-            for term in group {
-                self.assume_term(&term).map_err(EvaluationError::Context)?;
-            }
+        for (paths, group) in paths.iter().zip(assumptions) {
+            self.checkpoint().map_err(EvaluationError::Context)?;
+            self.base
+                .decider
+                .prover
+                .comment(&mut || "Joined path conditions".into())
+                .map_err(|e| {
+                    EvaluationError::Context(NativeError::Decider(DeciderError::Prover(e)))
+                })?;
+            let payload = if self.base.decider.debug_mode {
+                if paths
+                    .branch_condition_exps()
+                    .iter()
+                    .any(|(_, final_exp)| final_exp.is_none())
+                {
+                    return Err(EvaluationError::MissingDebugExpression);
+                }
+                let children = paths
+                    .conditionalized_exp(&factory, &simplify)
+                    .map_err(|e| {
+                        EvaluationError::Context(NativeError::Diagnostic(format!(
+                            "joined path debug simplification: {e:?}"
+                        )))
+                    })?;
+                Some(crate::debugger::debug_exp::DebugExp::group(
+                    "Joined path conditions".into(),
+                    children.into_iter().collect(),
+                ))
+            } else {
+                None
+            };
+            self.base
+                .decider
+                .assume_terms(&factory, group, payload.as_ref(), false, false)
+                .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
         }
-        self.assume_term(&feasible)
-            .map_err(EvaluationError::Context)?;
+        let payload = if self.base.decider.debug_mode {
+            let mut originals = Vec::new();
+            let mut rewritten = Vec::new();
+            for paths in paths.iter().rev() {
+                let (old, new) = branch_expressions(paths)?;
+                originals.push(old);
+                rewritten.push(new);
+            }
+            Some(
+                crate::debugger::debug_exp::DebugExp::create(
+                    Some("Feasible Branches".into()),
+                    Some(big_or(originals)),
+                    Some(big_or(rewritten)),
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .map_err(|e| {
+                    EvaluationError::Context(NativeError::Diagnostic(format!(
+                        "feasible branches debug simplification: {e:?}"
+                    )))
+                })?,
+            )
+        } else {
+            None
+        };
+        self.checkpoint().map_err(EvaluationError::Context)?;
+        self.base
+            .decider
+            .assume([(feasible, payload)], false, false)
+            .map_err(|e| EvaluationError::Context(NativeError::Decider(e)))?;
         let next = continuation(self, merged, value, debug)?;
         Ok(result.combine(|| next, false))
     }
@@ -3523,7 +3629,23 @@ where
             let equality = self
                 .factory
                 .equals(snap, self.factory.combine(first.clone(), second.clone()));
-            self.assume_term(&equality)?;
+            let debug = self.base.decider.debug_mode.then(|| {
+                crate::debugger::debug_exp::DebugExp::create(
+                    Some("Snapshot".into()),
+                    None,
+                    None,
+                    None,
+                    true,
+                    Default::default(),
+                    false,
+                    &|e: &Exp| Ok::<_, std::convert::Infallible>(e.clone()),
+                )
+                .expect("infallible debug expression")
+            });
+            self.base
+                .decider
+                .assume([(equality, debug)], false, false)
+                .map_err(NativeError::Decider)?;
             Ok(Some((
                 NativeSnapshot::Projection(first),
                 NativeSnapshot::Projection(second),
@@ -3582,7 +3704,23 @@ where
         {
             let actual = self.snapshot_term(snapshot, crate::state::terms::Sort::Snap)?;
             let equality = self.factory.equals(actual, self.factory.unit());
-            self.assume_term(&equality)
+            let debug = self.base.decider.debug_mode.then(|| {
+                crate::debugger::debug_exp::DebugExp::create(
+                    Some("Empty snapshot".into()),
+                    None,
+                    None,
+                    None,
+                    true,
+                    Default::default(),
+                    false,
+                    &|e: &Exp| Ok::<_, std::convert::Infallible>(e.clone()),
+                )
+                .expect("infallible debug expression")
+            });
+            self.base
+                .decider
+                .assume([(equality, debug)], false, false)
+                .map_err(NativeError::Decider)
         }
     }
     fn evaluate(
@@ -3627,7 +3765,37 @@ where
         original: &Exp,
         rewritten: Option<&Exp>,
     ) -> Result<(), Self::Error> {
-        self.assume_term(term)
+        let debug = if self.base.decider.debug_mode {
+            let rewritten = rewritten.ok_or(NativeError::Unsupported(
+                "missing produced assertion debug expression",
+            ))?;
+            let simplify = |e: &Exp| {
+                ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                    Ok::<_, std::convert::Infallible>(true)
+                })
+            };
+            Some(
+                crate::debugger::debug_exp::DebugExp::create(
+                    None,
+                    Some(original.clone()),
+                    Some(rewritten.clone()),
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .map_err(|e| {
+                    NativeError::Diagnostic(format!("production debug simplification: {e:?}"))
+                })?,
+            )
+        } else {
+            None
+        };
+        self.base
+            .decider
+            .assume([(term.clone(), debug)], false, false)
+            .map_err(NativeError::Decider)
     }
     fn factory(&self) -> &crate::state::terms::TermFactory {
         &self.factory
@@ -4927,7 +5095,36 @@ where
         term: &Term,
         expression: Option<&Exp>,
     ) -> Result<(), Self::Error> {
-        self.assume_term(term)
+        let debug = if self.base.decider.debug_mode {
+            let comment = match expression {
+                Some(exp) => format!(
+                    "Function preconditions hold in quantifier: {}",
+                    ferrum_silver::ast::pretty::pretty_printer::pretty_expression(exp).map_err(
+                        |e| NativeError::Diagnostic(format!("quantifier debug rendering: {e:?}"))
+                    )?
+                ),
+                None => "Function preconditions hold in quantifier".into(),
+            };
+            Some(
+                crate::debugger::debug_exp::DebugExp::create(
+                    Some(comment),
+                    None,
+                    None,
+                    None,
+                    true,
+                    Default::default(),
+                    false,
+                    &|e: &Exp| Ok::<_, std::convert::Infallible>(e.clone()),
+                )
+                .expect("infallible debug expression"),
+            )
+        } else {
+            None
+        };
+        self.base
+            .decider
+            .assume([(term.clone(), debug)], false, false)
+            .map_err(NativeError::Decider)
     }
     fn assert_goal(&mut self, term: &Term) -> Result<bool, Self::Error> {
         self.base
@@ -4941,7 +5138,37 @@ where
         original: &Exp,
         rewritten: Option<&Exp>,
     ) -> Result<(), Self::Error> {
-        self.assume_term(term)
+        let debug = if self.base.decider.debug_mode {
+            let rewritten = rewritten.ok_or(NativeError::Unsupported(
+                "missing consumed assertion debug expression",
+            ))?;
+            let simplify = |e: &Exp| {
+                ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                    Ok::<_, std::convert::Infallible>(true)
+                })
+            };
+            Some(
+                crate::debugger::debug_exp::DebugExp::create(
+                    None,
+                    Some(original.clone()),
+                    Some(rewritten.clone()),
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .map_err(|e| {
+                    NativeError::Diagnostic(format!("consumption debug simplification: {e:?}"))
+                })?,
+            )
+        } else {
+            None
+        };
+        self.base
+            .decider
+            .assume([(term.clone(), debug)], false, false)
+            .map_err(NativeError::Decider)
     }
     fn assertion_failure(
         &mut self,
@@ -12327,7 +12554,11 @@ where
         let mask_resources = &mut self.mask_resources;
         let converter = self.base.symbol_converter.clone();
         let mask_mode = self.options.mask_heap_mode;
-        functions.analyze(&factory, &self.base.symbol_converter, &mut self.base.identifiers, program, self.options.alternative_function_verification_order, false,
+        #[cfg(test)]
+        let function_debug = self.evaluator_debug_for_test;
+        #[cfg(not(test))]
+        let function_debug = false;
+        functions.analyze(&factory, &self.base.symbol_converter, &mut self.base.identifiers, program, self.options.alternative_function_verification_order, function_debug,
             |function, program| {
                 if mask_mode {
                     let resources = mask_resources.resources(&function.pres, program)
@@ -16070,7 +16301,14 @@ where
 {
     type Error = NativeError<S::Error>;
     fn function_debugging(&self) -> bool {
-        false
+        #[cfg(test)]
+        {
+            self.evaluator_debug_for_test
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
     fn empty_function_heap(
         &mut self,
@@ -16080,16 +16318,45 @@ where
     }
     fn function_debug_begin(
         &mut self,
-        state: State<PD, FD, JoinMode>,
-        body: Option<&Exp>,
+        mut state: State<PD, FD, JoinMode>,
+        phase: crate::supporters::functions::function_verification_unit::FunctionDebugPhase<'_>,
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
-        Err(NativeError::Unsupported("function debugging"))
+        use crate::supporters::functions::function_verification_unit::FunctionDebugPhase;
+        let (label, cause) = match phase {
+            FunctionDebugPhase::Pre => ("nil".into(), crate::state::state::HeapCause::InhalePre),
+            FunctionDebugPhase::Body(body) => (
+                "nil".into(),
+                crate::state::state::HeapCause::EvalExp(body.clone()),
+            ),
+            FunctionDebugPhase::Post => {
+                let heap = crate::rules::magic_wand_supporter::evaluation_heap(self, &state)
+                    .map_err(|e| NativeError::Execution(format!("wand evaluation heap: {e:?}")))?;
+                let render = |chunk: &crate::state::chunks::Chunk| {
+                    crate::reporting::formatters::render_chunk_with_factory(chunk, &self.factory)
+                        .map_err(|e| {
+                            NativeError::Diagnostic(format!("debug heap rendering: {e:?}"))
+                        })
+                };
+                let label = self
+                    .debug_heap_recorder
+                    .label(&state, &heap, &render)?
+                    .unwrap_or_else(|| "missingFunctionHeap".into());
+                (label, crate::state::state::HeapCause::ExhalePost)
+            }
+        };
+        self.debug_heap_recorder.start_key_heap(
+            &mut state,
+            label,
+            cause,
+            Arc::new(self.base.decider.pcs.clone()),
+        );
+        Ok(state)
     }
     fn function_debug_finish(
         &mut self,
         state: State<PD, FD, JoinMode>,
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
-        Err(NativeError::Unsupported("function debugging"))
+        <Self as crate::rules::executor::ExecutionContext<PD, FD, JoinMode, VerificationError>>::finish_key_heap(self, state)
     }
     fn function_local(
         &mut self,
@@ -16203,14 +16470,46 @@ where
         let exp = exps.fold(first, |a, b| {
             Exp::new(ExpKind::And(a, b), Default::default())
         });
+        let rewritten = if self.base.decider.debug_mode {
+            let expressions = path
+                .branch_condition_exps
+                .iter()
+                .map(|(_, rewritten)| {
+                    rewritten.clone().ok_or(NativeError::Unsupported(
+                        "missing function precondition branch expression",
+                    ))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Some(crate::utils::ast::big_and(
+                expressions,
+                |e| e,
+                ferrum_silver::ast::position::Position::NoPosition,
+            ))
+        } else {
+            None
+        };
+        self.set_native_branch_condition(condition, exp, rewritten)?;
+        let debug = if self.base.decider.debug_mode {
+            Some(crate::debugger::debug_exp::DebugExp::group(
+                format!("precondition of {}", function.name),
+                path.assumption_exps
+                    .as_ref()
+                    .ok_or(NativeError::Unsupported(
+                        "missing function precondition assumption expressions",
+                    ))?
+                    .iter()
+                    .cloned()
+                    .collect(),
+            ))
+        } else {
+            None
+        };
         self.base
             .decider
-            .set_branch_condition(condition, (exp, None), None)
-            .map_err(NativeError::Decider)?;
-        self.base
-            .decider
-            .assume(
-                path.assumptions.iter().cloned().map(|t| (t, None)),
+            .assume_terms(
+                &self.factory,
+                path.assumptions.iter().cloned(),
+                debug.as_ref(),
                 false,
                 false,
             )
@@ -16276,11 +16575,52 @@ where
         term: &Term,
         debug: Option<&Exp>,
     ) -> Result<(), Self::Error> {
-        self.assume_term(
-            &self
-                .factory
-                .builtin_equals(data.formal_result.clone(), term.clone()),
-        )
+        let equality = self
+            .factory
+            .builtin_equals(data.formal_result.clone(), term.clone());
+        let debug = if self.base.decider.debug_mode {
+            let rewritten = debug.ok_or(NativeError::Unsupported(
+                "missing function body debug expression",
+            ))?;
+            let result = Exp::new(
+                ExpKind::Result(data.program_function.typ.clone()),
+                data.program_function.meta.clone(),
+            );
+            let original = Exp::new(
+                ExpKind::EqCmp(result.clone(), body.clone()),
+                data.program_function.meta.clone(),
+            );
+            let final_exp = Exp::new(
+                ExpKind::EqCmp(result, rewritten.clone()),
+                data.program_function.meta.clone(),
+            );
+            let simplify = |e: &Exp| {
+                ferrum_silver::ast::utility::simplifier::simplify(e, true, &|_| {
+                    Ok::<_, std::convert::Infallible>(true)
+                })
+            };
+            Some(
+                crate::debugger::debug_exp::DebugExp::create(
+                    None,
+                    Some(original),
+                    Some(final_exp),
+                    None,
+                    false,
+                    Default::default(),
+                    false,
+                    &simplify,
+                )
+                .map_err(|e| {
+                    NativeError::Diagnostic(format!("function result debug simplification: {e:?}"))
+                })?,
+            )
+        } else {
+            None
+        };
+        self.base
+            .decider
+            .assume([(equality, debug)], false, false)
+            .map_err(NativeError::Decider)
     }
     fn consume_function_posts(
         &mut self,
@@ -20103,6 +20443,82 @@ mod worker_analysis_contract_tests {
             assert_eq!(worker.context.postcondition_axioms_store.borrow().len(), first * 2);
             worker.context.stop().unwrap();
         }).unwrap().join().unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn function_debug_key_heaps_execute_real_function() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024 * 1024)
+            .spawn(|| {
+                use super::*;
+                use crate::{
+                    config::Config, decider::z3_prover_std_io, state::terms::TermOptions,
+                    verifier::verification_pool_manager::native_method_worker,
+                };
+                use ferrum_silver::frontend::{
+                    frontend::FrontendPhases, sil_frontend::SilFrontendPhases,
+                };
+                let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+                let config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3.clone(),
+                    "debug.vpr".into(),
+                ])
+                .unwrap();
+                let factory = TermFactory::new(TermOptions {
+                    use_flyweight: config.use_flyweight(),
+                    use_old_axiomatization: config.use_old_axiomatization,
+                    mask_heap_mode: config.mask_heap_mode,
+                });
+                let prover = z3_prover_std_io::new(
+                    "function-debug".into(),
+                    z3_prover_std_io::settings(z3.into()),
+                    factory.clone(),
+                    |_| {},
+                );
+                let identifiers = prover.identifier_factory();
+                let mut worker = native_method_worker(
+                    "function-debug".into(),
+                    prover,
+                    identifiers,
+                    factory,
+                    NativeOptions::from_config(&config).unwrap(),
+                    &config,
+                );
+                let mut phases = SilFrontendPhases::new(
+                    "debug.vpr".into(),
+                    ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                let parsed = phases
+                    .parse("function g(i: Int): Int requires i >= 0 ensures result == i { i } function f(): Int ensures result == 3 ensures forall i: Int :: i >= 0 ==> g(i) >= 0 { 3 }")
+                    .unwrap();
+                let analyzed = phases.analyze(parsed).unwrap();
+                let program = phases.translate(analyzed).unwrap();
+                worker.context.start(None, &[]).unwrap();
+                worker.context.evaluator_debug_for_test = true;
+                worker.context.base.decider.debug_mode = true;
+                let results = worker.context.verify_program(&program, &[]).unwrap();
+                assert!(results.iter().all(|result| !result.is_fatal()));
+                use crate::supporters::functions::function_verification_unit::{FunctionDebugPhase, FunctionPhaseServices};
+                use crate::state::state::HeapCause;
+                let state = State::new(program.clone(), Default::default(), Default::default(), config.more_joins, &worker.context.factory, true, false);
+                let pre = worker.context.function_debug_begin(state, FunctionDebugPhase::Pre).unwrap();
+                assert!(matches!(pre.temporary_heap_record.as_ref().unwrap().cause, HeapCause::InhalePre));
+                let pre = worker.context.function_debug_finish(pre).unwrap();
+                let body = program.functions[0].body.as_ref().unwrap();
+                let body_state = worker.context.function_debug_begin(pre, FunctionDebugPhase::Body(body)).unwrap();
+                assert!(matches!(&body_state.temporary_heap_record.as_ref().unwrap().cause, HeapCause::EvalExp(e) if e == body));
+                let body_state = worker.context.function_debug_finish(body_state).unwrap();
+                let post = worker.context.function_debug_begin(body_state, FunctionDebugPhase::Post).unwrap();
+                let record = post.temporary_heap_record.as_ref().unwrap();
+                assert!(matches!(record.cause, HeapCause::ExhalePost));
+                assert!(post.debug_old_heaps.get(&record.label).is_some());
+                worker.context.stop().unwrap();
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
     #[test]
     fn member_scope_is_set_on_failure_and_history() {

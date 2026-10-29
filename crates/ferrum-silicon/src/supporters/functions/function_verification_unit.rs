@@ -499,6 +499,11 @@ pub enum ContractSnapshot<'a> {
     Fixed(&'a Term),
     Fresh,
 }
+pub enum FunctionDebugPhase<'a> {
+    Pre,
+    Body(&'a ferrum_silver::ast::expression::Exp),
+    Post,
+}
 pub trait FunctionPhaseServices<P, D, J, V>: Sized {
     type Error;
     fn function_debugging(&self) -> bool;
@@ -509,7 +514,7 @@ pub trait FunctionPhaseServices<P, D, J, V>: Sized {
     fn function_debug_begin(
         &mut self,
         state: crate::state::state::State<P, D, J>,
-        body: Option<&ferrum_silver::ast::expression::Exp>,
+        phase: FunctionDebugPhase<'_>,
     ) -> Result<crate::state::state::State<P, D, J>, Self::Error>;
     fn function_debug_finish(
         &mut self,
@@ -657,7 +662,7 @@ pub fn check_specification_well_definedness<
     state.old_heaps = Default::default();
     if context.function_debugging() {
         state = context
-            .function_debug_begin(state, None)
+            .function_debug_begin(state, FunctionDebugPhase::Pre)
             .map_err(FunctionPhaseError::Service)?;
     }
     let mut paths = Vec::new();
@@ -746,7 +751,7 @@ pub fn check_function_body<P, D: Clone, J: Clone, V, C: FunctionPhaseServices<P,
                 .map_err(FunctionPhaseError::Service)?;
             if context.function_debugging() {
                 state = context
-                    .function_debug_begin(state, Some(body))
+                    .function_debug_begin(state, FunctionDebugPhase::Body(body))
                     .map_err(FunctionPhaseError::Service)?;
             }
             context.evaluate_function_body(
@@ -762,7 +767,7 @@ pub fn check_function_body<P, D: Clone, J: Clone, V, C: FunctionPhaseServices<P,
                             .function_debug_finish(state)
                             .map_err(FunctionPhaseError::Service)?;
                         state = context
-                            .function_debug_begin(state, None)
+                            .function_debug_begin(state, FunctionDebugPhase::Post)
                             .map_err(FunctionPhaseError::Service)?;
                     }
                     context.consume_function_posts(

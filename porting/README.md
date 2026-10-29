@@ -947,3 +947,9 @@ construction; the solver permission constraint is still asserted. Real-Z3 CLI
 checks cover repeated fractional field consumption, predicate unfold/fold, and
 rejection of full or unrelated receiver permissions. Upstream carbon/0196 and
 silicon/0409 exercise the previously rejected ordinary path.
+
+Function debug reconstruction now preserves the source Pre/Body/Post heap phases,
+pure producer/consumer and snapshot-split payloads, and quantified-precondition
+join paths. Join replay moves owned states instead of cloning them. The paired
+term/expression path remains internal until broader debugger integration is
+complete; ordinary verification and public logging keep their existing profiles.
