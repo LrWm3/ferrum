@@ -4696,7 +4696,12 @@ where
     }
 
     fn warn_unresolved(&mut self, expression: &Exp, function: &ferrum_silver::ast::program::Function) -> Result<(), Self::Error> {
-        self.warnings.push(format!("Could not resolve expression {expression:?} during axiomatisation of function {}; it is replaced by a fresh symbol", function.name));
+        let rendered = ferrum_silver::ast::pretty::pretty_printer::expression_to_string(expression)
+            .map_err(|error| NativeError::Diagnostic(format!("unresolved expression warning: {error:?}")))?;
+        self.warnings.push(format!(
+            "Could not resolve expression {rendered} ({}) during the axiomatisation of function {}. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            expression.metadata().position, function.name,
+        ));
         Ok(())
     }
 

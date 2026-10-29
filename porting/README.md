@@ -1030,3 +1030,7 @@ Preamble selection now checks the source ground-type closure before using the
 direct-domain path. This retains axioms in indirectly referenced domains, including
 integer termination measures. A real-solver positive/negative regression checks
 that the induced axiom is available without proving its unconstrained converse.
+
+Unresolved function-expression warnings print source expressions and positions,
+matching Silicon. They no longer recursively dump the entire parse-node graph.
+A dead recursive-call fixture checks the warning and successful verification.

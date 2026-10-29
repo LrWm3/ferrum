@@ -867,3 +867,30 @@ fn wand_proof_cfg_executes_conditional_branches_and_uses_their_footprints() {
         }
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn unresolved_function_warning_uses_source_expression_and_position() {
+    let output = run(
+        "function f(i: Int): Int { true ? 0 : f(i) }\nmethod m() { assert f(0) == 0 }\n",
+        &[],
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("Could not resolve expression f(i) ("),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("@1.38--1.42) during the axiomatisation of function f."),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("a fresh symbol, i.e. an arbitrary value."),
+        "{stderr}"
+    );
+    assert!(
+        !stderr.contains("ExpNode") && !stderr.contains("PNode"),
+        "{stderr}"
+    );
+}
