@@ -77,19 +77,50 @@ pub enum JoinMergeError<E> {
     State(StateMergeError),
     Consolidation(E),
 }
+/// The exact state fields restored by the source joiner. This snapshot contains
+/// no verifier, solver or generic supporter data and can travel with a value receiver.
+#[derive(Clone)]
+pub struct JoinRestoreState {
+    store: std::sync::Arc<crate::state::store::MapBackedStore>,
+    heap: std::sync::Arc<crate::state::heap::ListBackedHeap>,
+    under_join: bool,
+    ss_cache: crate::state::package::SsCache,
+    partial_heap: Option<std::sync::Arc<crate::state::heap::ListBackedHeap>>,
+    invariants: Vec<std::sync::Arc<crate::state::heap::ListBackedHeap>>,
+    retrying: bool,
+}
+impl JoinRestoreState {
+    pub fn capture<P, D, J>(initial: &State<P, D, J>) -> Self {
+        Self {
+            store: initial.g.clone(),
+            heap: initial.h.clone(),
+            under_join: initial.under_join,
+            ss_cache: initial.ss_cache.clone(),
+            partial_heap: initial.partially_consumed_heap.clone(),
+            invariants: initial.invariant_contexts.clone(),
+            retrying: initial.retrying,
+        }
+    }
+    pub fn restore<P, D, J>(&self, state: State<P, D, J>) -> State<P, D, J> {
+        self.clone().restore_owned(state)
+    }
+    fn restore_owned<P, D, J>(self, mut state: State<P, D, J>) -> State<P, D, J> {
+        state.g = self.store;
+        state.h = self.heap;
+        state.under_join = self.under_join;
+        state.ss_cache = self.ss_cache;
+        state.partially_consumed_heap = self.partial_heap;
+        state.invariant_contexts = self.invariants;
+        state.retrying = self.retrying;
+        state
+    }
+}
 /// Reset only the state properties explicitly restored by the source joiner.
 pub fn restore_state<P, D, J: Clone>(
-    mut final_state: State<P, D, J>,
+    final_state: State<P, D, J>,
     initial: &State<P, D, J>,
 ) -> State<P, D, J> {
-    final_state.g = initial.g.clone();
-    final_state.h = initial.h.clone();
-    final_state.under_join = initial.under_join;
-    final_state.ss_cache = initial.ss_cache.clone();
-    final_state.partially_consumed_heap = initial.partially_consumed_heap.clone();
-    final_state.invariant_contexts = initial.invariant_contexts.clone();
-    final_state.retrying = initial.retrying;
-    final_state
+    JoinRestoreState::capture(initial).restore_owned(final_state)
 }
 /// Returns each branch's conditional assumptions and the disjunction of feasible branches.
 /// Source prepends each branch condition, hence the final disjunction uses reverse entry order.

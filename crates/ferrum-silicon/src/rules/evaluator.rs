@@ -274,6 +274,20 @@ pub struct OwnedValueWrapper {
     exhale: bool,
 }
 
+/// Exact destination for an owned expression value. A joined value returns to
+/// its identified collector; assignment values resume their statement suffix.
+#[derive(Clone)]
+pub enum OwnedEvaluationReceiver {
+    Assignment(crate::rules::executor::OwnedAssignmentValue),
+    Join(OwnedJoinedValue),
+}
+#[derive(Clone)]
+pub struct OwnedJoinedValue {
+    pub restore: crate::rules::joiner::JoinRestoreState,
+    pub mark: crate::decider::path_conditions::Mark,
+    pub collector_id: Arc<()>,
+}
+
 /// State and value receiver for a direct assignment of an asserting expression.
 #[derive(Clone)]
 pub struct OwnedAsserting<E> {
@@ -285,7 +299,7 @@ pub struct OwnedAsserting<E> {
     pub expression: Exp,
     pub body: Exp,
     pub error: E,
-    pub receiver: crate::rules::executor::OwnedAssignmentValue,
+    pub receiver: OwnedEvaluationReceiver,
     pub return_frames: Vec<OwnedEvaluationReturnFrame>,
 }
 
@@ -518,6 +532,25 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
     /// Whether a continuation can transfer another assertion in this state.
     fn can_transfer_owned_asserting(&self, _state: &State<P, D, J>) -> bool {
         false
+    }
+    fn can_transfer_owned_receiver(
+        &self,
+        state: &State<P, D, J>,
+        receiver: &OwnedEvaluationReceiver,
+    ) -> bool {
+        match receiver {
+            OwnedEvaluationReceiver::Assignment(_) => self.can_transfer_owned_asserting(state),
+            OwnedEvaluationReceiver::Join(_) => false,
+        }
+    }
+    fn finish_owned_join_value(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _receiver: &OwnedJoinedValue,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
     }
     fn try_consume_owned_asserting(
         &mut self,
@@ -969,7 +1002,7 @@ pub(crate) fn evaluate_owned_asserting<C, P, D, J: Clone, V>(
     state: State<P, D, J>,
     expression: &Exp,
     error: &C::PartialError,
-    receiver: &crate::rules::executor::OwnedAssignmentValue,
+    receiver: &OwnedEvaluationReceiver,
     return_frames: Vec<OwnedEvaluationReturnFrame>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
@@ -1336,8 +1369,6 @@ fn test_change_guard_after_left<P, D, J>(mut state: State<P, D, J>) -> State<P, 
     state
 }
 
-/// Select the leftmost supported path and save each surrounding evaluator
-/// return action outermost first. Binary operators evaluate their left operand first.
 pub(crate) fn evaluate_owned_nested<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
@@ -1349,7 +1380,30 @@ pub(crate) fn evaluate_owned_nested<C, P, D, J: Clone, V>(
 where
     C: EvaluationContext<P, D, J, V>,
 {
-    if !context.can_transfer_owned_asserting(&state) {
+    evaluate_owned_received(
+        context,
+        state,
+        expression,
+        error,
+        &OwnedEvaluationReceiver::Assignment(receiver.clone()),
+        frames,
+    )
+}
+
+/// Select the leftmost supported path and save each surrounding evaluator
+/// return action outermost first. Binary operators evaluate their left operand first.
+pub(crate) fn evaluate_owned_received<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    receiver: &OwnedEvaluationReceiver,
+    frames: Vec<OwnedEvaluationReturnFrame>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    if !context.can_transfer_owned_receiver(&state, receiver) {
         return evaluate(
             context,
             state,
@@ -1370,14 +1424,14 @@ fn evaluate_owned_planned<C, P, D, J: Clone, V>(
     state: State<P, D, J>,
     expression: &Exp,
     error: &C::PartialError,
-    receiver: &crate::rules::executor::OwnedAssignmentValue,
+    receiver: &OwnedEvaluationReceiver,
     path: &[OwnedPathStep],
     mut frames: Vec<OwnedEvaluationReturnFrame>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
     C: EvaluationContext<P, D, J, V>,
 {
-    if !context.can_transfer_owned_asserting(&state) {
+    if !context.can_transfer_owned_receiver(&state, receiver) {
         return evaluate(
             context,
             state,
@@ -1658,7 +1712,7 @@ where
         (ExpKind::ExplicitMap(_), OwnedPathStep::ExplicitMap) => {
             let desugared = desugar_explicit_map(expression)?;
             frames.push(OwnedEvaluationReturnFrame::ExplicitMap(wrapper));
-            evaluate_owned_nested(context, state, &desugared, error, receiver, frames)
+            evaluate_owned_received(context, state, &desugared, error, receiver, frames)
         }
         (
             ExpKind::SeqIndex(..)
@@ -1889,8 +1943,10 @@ where
         reserve: frame.outer_reserve.clone(),
         exhale: frame.outer_exhale,
     }));
-    if has_owned_asserting_path(&frame.body) && context.can_transfer_owned_asserting(&state) {
-        evaluate_owned_nested(
+    if has_owned_asserting_path(&frame.body)
+        && context.can_transfer_owned_receiver(&state, &frame.receiver)
+    {
+        evaluate_owned_received(
             context,
             state,
             &frame.body,
@@ -2546,7 +2602,7 @@ fn evaluate_owned_arguments<C, P, D, J: Clone, V>(
     debug_args: Vec<Option<Exp>>,
     frames: &[OwnedEvaluationReturnFrame],
     error: &C::PartialError,
-    receiver: &crate::rules::executor::OwnedAssignmentValue,
+    receiver: &OwnedEvaluationReceiver,
     selected: Option<(usize, &[OwnedPathStep])>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
@@ -2639,7 +2695,9 @@ where
     let planned = match selected {
         Some((target, path)) if target == index => Some(path.to_vec()),
         Some(_) => None,
-        None if context.can_transfer_owned_asserting(&state) => owned_asserting_path(argument),
+        None if context.can_transfer_owned_receiver(&state, receiver) => {
+            owned_asserting_path(argument)
+        }
         None => None,
     };
     if let Some(path) = planned {
@@ -2734,7 +2792,7 @@ fn resume_owned_let_value<C, P, D, J: Clone, V>(
     wrapper: &OwnedValueWrapper,
     frames: &[OwnedEvaluationReturnFrame],
     error: &C::PartialError,
-    receiver: &crate::rules::executor::OwnedAssignmentValue,
+    receiver: &OwnedEvaluationReceiver,
     body_path: Option<&[OwnedPathStep]>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
@@ -2776,7 +2834,7 @@ where
     if let Some(path) = body_path {
         return evaluate_owned_planned(context, state, body, error, receiver, path, next);
     }
-    if context.can_transfer_owned_asserting(&state) {
+    if context.can_transfer_owned_receiver(&state, receiver) {
         if let Some(path) = owned_asserting_path(body) {
             return evaluate_owned_planned(context, state, body, error, receiver, &path, next);
         }
@@ -2799,7 +2857,7 @@ fn resume_owned_return_frames<C, P, D, J: Clone, V>(
     mut debug: Option<Exp>,
     frames: &[OwnedEvaluationReturnFrame],
     error: &C::PartialError,
-    receiver: &crate::rules::executor::OwnedAssignmentValue,
+    receiver: &OwnedEvaluationReceiver,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
     C: EvaluationContext<P, D, J, V>,
@@ -3171,7 +3229,8 @@ where
                 finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
             }
             OwnedEvaluationReturnFrame::SeqContainsSequence { wrapper, element } => {
-                if has_owned_asserting_path(element) && context.can_transfer_owned_asserting(&state)
+                if has_owned_asserting_path(element)
+                    && context.can_transfer_owned_receiver(&state, receiver)
                 {
                     let mut next = frames[..index].to_vec();
                     next.push(OwnedEvaluationReturnFrame::SeqContainsElement {
@@ -3179,7 +3238,7 @@ where
                         sequence: term,
                         sequence_debug: debug,
                     });
-                    return evaluate_owned_nested(context, state, element, error, receiver, next);
+                    return evaluate_owned_received(context, state, element, error, receiver, next);
                 }
                 return evaluate(
                     context,
@@ -3282,7 +3341,9 @@ where
             } => {
                 let operator =
                     any_set_operator(&wrapper.expression, *multi).expect("any-set frame");
-                if has_owned_asserting_path(right) && context.can_transfer_owned_asserting(&state) {
+                if has_owned_asserting_path(right)
+                    && context.can_transfer_owned_receiver(&state, receiver)
+                {
                     let mut next = frames[..index].to_vec();
                     next.push(OwnedEvaluationReturnFrame::AnySetRight {
                         wrapper: wrapper.clone(),
@@ -3290,7 +3351,7 @@ where
                         left: term,
                         left_debug: debug,
                     });
-                    return evaluate_owned_nested(context, state, right, error, receiver, next);
+                    return evaluate_owned_received(context, state, right, error, receiver, next);
                 }
                 return evaluate(
                     context,
@@ -3401,14 +3462,16 @@ where
                 let operator = owned_strict_binary(&wrapper.expression)
                     .expect("strict operator frame")
                     .0;
-                if has_owned_asserting_path(right) && context.can_transfer_owned_asserting(&state) {
+                if has_owned_asserting_path(right)
+                    && context.can_transfer_owned_receiver(&state, receiver)
+                {
                     let mut next = frames[..index].to_vec();
                     next.push(OwnedEvaluationReturnFrame::StrictRight {
                         wrapper: wrapper.clone(),
                         left: term,
                         left_debug: debug,
                     });
-                    return evaluate_owned_nested(context, state, right, error, receiver, next);
+                    return evaluate_owned_received(context, state, right, error, receiver, next);
                 }
                 return evaluate(
                     context,
@@ -3479,14 +3542,16 @@ where
                 finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
             }
             OwnedEvaluationReturnFrame::AddLeft { wrapper, right } => {
-                if has_owned_asserting_path(right) && context.can_transfer_owned_asserting(&state) {
+                if has_owned_asserting_path(right)
+                    && context.can_transfer_owned_receiver(&state, receiver)
+                {
                     let mut next = frames[..index].to_vec();
                     next.push(OwnedEvaluationReturnFrame::AddRight {
                         wrapper: wrapper.clone(),
                         left: term,
                         left_debug: debug,
                     });
-                    return evaluate_owned_nested(context, state, right, error, receiver, next);
+                    return evaluate_owned_received(context, state, right, error, receiver, next);
                 }
                 return evaluate(
                     context,
@@ -3538,9 +3603,15 @@ where
             values.push(term.clone());
         }
     });
-    context
-        .finish_owned_assignment_value(state, term, debug, receiver)
-        .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
+    match receiver {
+        OwnedEvaluationReceiver::Assignment(receiver) => {
+            context.finish_owned_assignment_value(state, term, debug, receiver)
+        }
+        OwnedEvaluationReceiver::Join(receiver) => {
+            context.finish_owned_join_value(state, term, debug, receiver)
+        }
+    }
+    .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
 }
 
 fn finish_owned_checked_division<C, P, D, J: Clone, V>(
@@ -3554,7 +3625,7 @@ fn finish_owned_checked_division<C, P, D, J: Clone, V>(
     right_debug: Option<Exp>,
     frames: &[OwnedEvaluationReturnFrame],
     error: &C::PartialError,
-    receiver: &crate::rules::executor::OwnedAssignmentValue,
+    receiver: &OwnedEvaluationReceiver,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
     C: EvaluationContext<P, D, J, V>,

@@ -858,3 +858,20 @@ method bad(x: Ref, y: Ref, b: Bool) returns (r: Bool) requires x != y
         assert!(!stderr.contains("assertion.false"), "{stderr}");
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn joined_asserting_failure_skips_assignment_tail() {
+    let source = r#"field f: Int
+method bad(b: Bool, c: Bool, x: Ref, y: Ref) returns (r: Int)
+ requires b && x != y
+{ r := b ? (asserting (c ? acc(x.f) : acc(y.f)) in 1) : 2; assert false; }
+"#;
+    for workers in ["1", "2"] {
+        let output = run(source, workers);
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("insufficient.permission"), "{stderr}");
+        assert!(!stderr.contains("assertion.false"), "{stderr}");
+    }
+}

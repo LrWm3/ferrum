@@ -408,6 +408,9 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub(crate) test_cancel_owned_boolean:
         Option<crate::verifier::verification_pool_manager::CancellationController>,
     #[cfg(test)]
+    pub(crate) test_cancel_owned_join:
+        Option<crate::verifier::verification_pool_manager::CancellationController>,
+    #[cfg(test)]
     test_current_permission_heap: Option<(Arc<ListBackedHeap>, Arc<std::sync::atomic::AtomicBool>)>,
     #[cfg(test)]
     executor_debug_for_test: bool,
@@ -780,6 +783,8 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             test_cancel_owned_inner: None,
             #[cfg(test)]
             test_cancel_owned_let: None,
+            #[cfg(test)]
+            test_cancel_owned_join: None,
             #[cfg(test)]
             test_cancel_owned_boolean: None,
             #[cfg(test)]
@@ -2308,7 +2313,6 @@ where
                     }
                     this.update_branch_scope(branch_scope, 0)
                         .map_err(EvaluationError::Context)?;
-                    let mut entries = Vec::new();
                     this.base
                         .decider
                         .push_scope()
@@ -2334,29 +2338,11 @@ where
                         let branch_state = this
                             .consolidate_optional(joined_state.clone())
                             .map_err(EvaluationError::Context)?;
-                        crate::rules::evaluator::execute_branch_action(
-                            this,
-                            branch_state,
-                            action,
-                            &mut |context, result_state, value, debug| {
-                                let path = context
-                                    .base
-                                    .decider
-                                    .pcs
-                                    .after(mark)
-                                    .map_err(EvaluationError::Path)?;
-                                entries.push(JoinDataEntry {
-                                    state: joiner::restore_state(result_state, &state),
-                                    data: (value, debug),
-                                    path_conditions: path,
-                                });
-                                Ok(VerificationResult::success())
-                            },
-                        )
+                        this.execute_identified_evaluation_branch(branch_state, action, &state, mark)
                     })();
                     let cleanup = this.base.decider.pop_scope().map_err(NativeError::Decider);
                     match (result, cleanup) {
-                        (Ok(result), Ok(())) => Ok((result, entries)),
+                        (Ok(result), Ok(())) => Ok(result),
                         (Err(e), Err(cleanup)) => Err(coalesce_evaluation_cleanup(e, cleanup)),
                         (Err(e), Ok(())) => Err(e),
                         (Ok(_), Err(cleanup)) => Err(EvaluationError::Context(cleanup)),
@@ -3529,6 +3515,16 @@ where
                 cancel.cancel();
             }
         }
+        if matches!(
+            frame.receiver,
+            crate::rules::evaluator::OwnedEvaluationReceiver::Join(_)
+        ) {
+            if let Some(cancel) = self.test_cancel_owned_join.take() {
+                super::verification_pool_manager::JOIN_ASSERTING_CANCEL_HOOKS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                cancel.cancel();
+            }
+        }
         if frame.return_frames.iter().any(|f| {
             matches!(
                 f,
@@ -3546,14 +3542,76 @@ where
         use crate::rules::consumer::ConsumptionContext;
         self.supports_owned_consumption(state)
     }
+    fn can_transfer_owned_receiver(
+        &self,
+        state: &State<PD, FD, JoinMode>,
+        receiver: &crate::rules::evaluator::OwnedEvaluationReceiver,
+    ) -> bool {
+        use crate::rules::evaluator::OwnedEvaluationReceiver;
+        match receiver {
+            OwnedEvaluationReceiver::Assignment(_) => self.can_transfer_owned_asserting(state),
+            OwnedEvaluationReceiver::Join(join) => {
+                self.joined_branch_scheduler_enabled
+                    && self.joined_branch_scheduler.is_some()
+                    && self.member_log.is_none()
+                    && state.parallelize_branches
+                    && state.under_join
+                    && !state.is_in_package
+                    && !state.exhale_ext
+                    && self
+                        .unfold_evaluation_collector
+                        .as_ref()
+                        .is_some_and(|(id, _)| Arc::ptr_eq(id, &join.collector_id))
+            }
+        }
+    }
+    fn finish_owned_join_value(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        receiver: &crate::rules::evaluator::OwnedJoinedValue,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        Some((|| {
+            let paths = self
+                .base
+                .decider
+                .pcs
+                .after(receiver.mark)
+                .map_err(EvaluationError::Path)?;
+            let (id, entries) =
+                self.unfold_evaluation_collector
+                    .as_ref()
+                    .ok_or(EvaluationError::Context(NativeError::Unsupported(
+                        "evaluation collector unavailable",
+                    )))?;
+            if !Arc::ptr_eq(id, &receiver.collector_id) {
+                return Err(EvaluationError::Context(NativeError::Unsupported(
+                    "evaluation collector mismatch",
+                )));
+            }
+            entries
+                .try_borrow_mut()
+                .map_err(|_| {
+                    EvaluationError::Context(NativeError::Unsupported(
+                        "evaluation collector borrowed",
+                    ))
+                })?
+                .push(crate::rules::joiner::JoinDataEntry {
+                    state: receiver.restore.restore(state),
+                    data: (term, debug),
+                    path_conditions: paths,
+                });
+            Ok(VerificationResult::success())
+        })())
+    }
     fn try_consume_owned_asserting(
         &mut self,
         state: &State<PD, FD, JoinMode>,
         assertion: &Exp,
         frame: &crate::rules::evaluator::OwnedAsserting<Self::PartialError>,
     ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
-        use crate::rules::consumer::ConsumptionContext;
-        if !self.supports_owned_consumption(state) {
+        if !self.can_transfer_owned_receiver(state, &frame.receiver) {
             return None;
         }
         let terminal = crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame.clone());
@@ -5290,6 +5348,16 @@ where
                 }
             )
         });
+        let joined_asserting = frames.iter().any(|frame| match frame {
+            crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), ..
+            } => matches!(&frame.receiver, crate::rules::evaluator::OwnedEvaluationReceiver::Join(_))
+                && <Self as EvaluationContext<PD, FD, JoinMode, VerificationError>>::can_transfer_owned_receiver(self, state, &frame.receiver),
+            _ => false,
+        });
+        if joined_asserting {
+            return true;
+        }
         if function {
             self.joined_branch_scheduler_enabled
                 && self.joined_branch_scheduler.is_some()
@@ -13033,6 +13101,9 @@ where
                     }
                 }
             }
+            if action.frames.iter().any(|f| matches!(f, crate::rules::consumer::OwnedConsumptionFrame::Finish { terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), .. } if matches!(frame.receiver, crate::rules::evaluator::OwnedEvaluationReceiver::Join(_)))) {
+                super::verification_pool_manager::JOIN_ASSERTING_EXECUTIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
             if action.frames.iter().any(|f| {
                 matches!(
                     f,
@@ -13272,6 +13343,12 @@ where
                             crate::rules::consumer::OwnedConsumptionTerminal::FunctionPre(frame),
                         ..
                     } => Some(frame.join.collector_id.clone()),
+                    crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                        terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), ..
+                    } => match &frame.receiver {
+                        crate::rules::evaluator::OwnedEvaluationReceiver::Join(join) => Some(join.collector_id.clone()),
+                        _ => None,
+                    },
                     _ => None,
                 })
             }
@@ -15316,6 +15393,104 @@ impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
 where
     S::Error: std::fmt::Debug,
 {
+    /// Keep the caller callback local while nested work returns to this exact
+    /// value collector. Each nested worker receives only the owned restore fields.
+    fn execute_identified_evaluation_branch(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        action: crate::rules::evaluator::EvaluationBranchAction<PartialVerificationError>,
+        initial: &State<PD, FD, JoinMode>,
+        mark: crate::decider::path_conditions::Mark,
+    ) -> Result<
+        (
+            VerificationResult<VerificationError>,
+            Vec<crate::rules::joiner::JoinDataEntry<PD, FD, JoinMode, (Term, Option<Exp>)>>,
+        ),
+        EvaluationError<NativeError<S::Error>>,
+    > {
+        use crate::rules::evaluator::{
+            self, EvaluationContext, OwnedEvaluationReceiver, OwnedJoinedValue,
+        };
+        // Ordinary callers and source-disabled contexts keep their local collector
+        // without allocating an owned token or snapshot.
+        let eligible = self.joined_branch_scheduler_enabled
+            && self.joined_branch_scheduler.is_some()
+            && self.member_log.is_none()
+            && state.parallelize_branches
+            && !state.is_in_package
+            && !state.exhale_ext
+            && matches!(&action, evaluator::EvaluationBranchAction::Evaluate { expression, .. }
+                if evaluator::has_owned_asserting_path(expression));
+        if !eligible {
+            let mut entries = Vec::new();
+            let result = evaluator::execute_branch_action(
+                self,
+                state,
+                action,
+                &mut |ctx, state, value, debug| {
+                    entries.push(crate::rules::joiner::JoinDataEntry {
+                        state: crate::rules::joiner::restore_state(state, initial),
+                        data: (value, debug),
+                        path_conditions: ctx
+                            .base
+                            .decider
+                            .pcs
+                            .after(mark)
+                            .map_err(EvaluationError::Path)?,
+                    });
+                    Ok(VerificationResult::success())
+                },
+            )?;
+            return Ok((result, entries));
+        }
+        let id = Arc::new(());
+        let entries = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let previous = self
+            .unfold_evaluation_collector
+            .replace((id.clone(), entries.clone()));
+        let join = OwnedJoinedValue {
+            restore: crate::rules::joiner::JoinRestoreState::capture(initial),
+            mark,
+            collector_id: id,
+        };
+        let receiver = OwnedEvaluationReceiver::Join(join.clone());
+        let result = match &action {
+            evaluator::EvaluationBranchAction::Evaluate { expression, error }
+                if evaluator::has_owned_asserting_path(expression)
+                    && self.can_transfer_owned_receiver(&state, &receiver) =>
+            {
+                evaluator::evaluate_owned_received(
+                    self,
+                    state,
+                    expression,
+                    error,
+                    &receiver,
+                    vec![],
+                )
+            }
+            _ => evaluator::execute_branch_action(
+                self,
+                state,
+                action,
+                &mut |ctx, state, value, debug| {
+                    ctx.finish_owned_join_value(state, value, debug, &join)
+                        .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
+                },
+            ),
+        };
+        self.unfold_evaluation_collector = previous;
+        let collected = entries
+            .try_borrow_mut()
+            .map(|mut values| values.drain(..).collect())
+            .map_err(|_| NativeError::Unsupported("evaluation collector borrowed"));
+        match (result, collected) {
+            (Ok(result), Ok(entries)) => Ok((result, entries)),
+            (Err(error), Ok(_)) => Err(error),
+            (Ok(_), Err(error)) => Err(EvaluationError::Context(error)),
+            (Err(primary), Err(cleanup)) => Err(coalesce_evaluation_cleanup(primary, cleanup)),
+        }
+    }
+
     fn unfold_expression_body(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -17033,30 +17208,35 @@ where
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<NativeError<S::Error>>> {
         use super::verification_pool_manager::{NativeJoinJob, ThreadPoolError};
         use crate::rules::brancher::{self, BranchTransferSnapshot};
-        let is_evaluation = |action: &super::verification_pool_manager::NativeJoinAction<
-            PD,
-            FD,
-        >| match action {
-            super::verification_pool_manager::NativeJoinAction::PredicateEvaluation { .. } => true,
-            super::verification_pool_manager::NativeJoinAction::Production(action) => matches!(
-                &action.tail,
-                crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(_)
-            ),
-            super::verification_pool_manager::NativeJoinAction::Consumption(action) => {
-                action.frames.iter().any(|f| {
-                    matches!(
-                        f,
+        let is_evaluation =
+            |action: &super::verification_pool_manager::NativeJoinAction<PD, FD>| match action {
+                super::verification_pool_manager::NativeJoinAction::PredicateEvaluation {
+                    ..
+                } => true,
+                super::verification_pool_manager::NativeJoinAction::Production(action) => matches!(
+                    &action.tail,
+                    crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(_)
+                ),
+                super::verification_pool_manager::NativeJoinAction::Consumption(action) => {
+                    action.frames.iter().any(|f| match f {
                         crate::rules::consumer::OwnedConsumptionFrame::Finish {
-                            terminal: crate::rules::consumer::OwnedConsumptionTerminal::FunctionPre(
-                                _
-                            ),
+                            terminal:
+                                crate::rules::consumer::OwnedConsumptionTerminal::FunctionPre(_),
                             ..
-                        }
-                    )
-                })
-            }
-            _ => false,
-        };
+                        } => true,
+                        crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                            terminal:
+                                crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame),
+                            ..
+                        } => matches!(
+                            frame.receiver,
+                            crate::rules::evaluator::OwnedEvaluationReceiver::Join(_)
+                        ),
+                        _ => false,
+                    })
+                }
+                _ => false,
+            };
         let evaluation = is_evaluation(&yes) && is_evaluation(&no);
         if state.under_join != evaluation {
             return Err(ExecutionError::Context(NativeError::Unsupported(
@@ -17309,9 +17489,17 @@ where
                             .map_err(ExecutionError::Context)?;
                     }
                     if let Some((entries, declarations)) = evaluation_output {
+                        #[cfg(test)]
+                        let has_new_declarations =
+                            !declarations.functions.is_empty() || !declarations.macros.is_empty();
                         declarations
                             .declare_on(&mut self.base.decider)
                             .map_err(|e| ExecutionError::Context(NativeError::Decider(e)))?;
+                        #[cfg(test)]
+                        if has_new_declarations {
+                            super::verification_pool_manager::JOIN_DECLARATION_REPLAYS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
                         let (id, returned) = entries.ok_or_else(|| {
                             ExecutionError::Context(NativeError::Unsupported(
                                 "missing unfold evaluation output",
