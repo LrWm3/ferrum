@@ -1958,6 +1958,12 @@ pub(crate) static NESTED_RETURN_SUBMISSIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static NESTED_RETURN_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static ASSERTING_BODY_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static ASSERTING_BODY_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
 pub(crate) static ASSERTING_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -2226,6 +2232,15 @@ where
                         }
                         if frame.return_frames.iter().any(|f| matches!(f, crate::rules::evaluator::OwnedEvaluationReturnFrame::StrictRight { .. })) {
                             RETURN_STRICT_RIGHT_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if frame.return_frames.iter().any(|f| {
+                            matches!(
+                                f,
+                                crate::rules::evaluator::OwnedEvaluationReturnFrame::Asserting(_)
+                            )
+                        }) {
+                            ASSERTING_BODY_SUBMISSIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         }
                         if frame.return_frames.len() >= 2 {
                             NESTED_RETURN_SUBMISSIONS
@@ -6123,6 +6138,73 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
             drop(context);
             let pool = std::rc::Rc::try_unwrap(pool).ok().unwrap().into_inner();
             assert!(pool.cancel_and_join().is_empty());
+        }
+    }
+
+    #[test]
+    fn real_stdio_nested_asserting_body_transfers() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+ requires x.f == 7 && y.f == 8 && z.f == 4 && w.f == 5
+ ensures acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f) && x.f == 11
+ ensures r == -(c ? 4 : 5)
+{ label L; x.f := 11;
+  r := old(asserting (b ? acc(x.f) : acc(y.f)) in -(old[L](asserting (c ? acc(z.f) : acc(w.f)) in (c ? z.f : w.f))));
+  assert x.f == 11;
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before = [
+                ASSERTING_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                ASSERTING_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                ASSERTING_BODY_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                ASSERTING_BODY_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+            ];
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            let after = [
+                ASSERTING_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                ASSERTING_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                ASSERTING_BODY_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                ASSERTING_BODY_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+            ];
+            assert!(
+                after[2] > before[2] && after[3] > before[3],
+                "inner jobs did not execute: {before:?} -> {after:?}"
+            );
+            assert!(
+                after[0] - before[0] > after[2] - before[2]
+                    && after[1] - before[1] > after[3] - before[3],
+                "outer jobs did not execute: {before:?} -> {after:?}"
+            );
         }
     }
 

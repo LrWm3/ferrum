@@ -12810,6 +12810,15 @@ where
                         super::verification_pool_manager::RETURN_STRICT_RIGHT_EXECUTIONS
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
+                    if frame.return_frames.iter().any(|f| {
+                        matches!(
+                            f,
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::Asserting(_)
+                        )
+                    }) {
+                        super::verification_pool_manager::ASSERTING_BODY_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
                     if frame.return_frames.len() >= 2 {
                         super::verification_pool_manager::NESTED_RETURN_EXECUTIONS
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);

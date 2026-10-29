@@ -214,7 +214,7 @@ at submission with and without a latched cancellation. These do not establish
 real simultaneous parent/child execution at every cancellation boundary.
 
 The assignment receiver now carries an immutable vector of typed return frames,
-ordered from inner to outer. Frames represent old/labelled-old, integer and Boolean negation, addition,
+ordered from inner to outer. Frames represent asserting-body returns, old/labelled-old, integer and Boolean negation, addition,
 subtraction, multiplication, equality and ordered comparisons. Supported
 wrapper chains can compose around Asserting while retaining each evaluator entry
 and return action. Addition evaluates its left operand first, then transfers an eligible right
@@ -277,3 +277,11 @@ synchronously before resuming the saved return frames and exact assignment
 receiver. A real-Z3 test injects that change after Add/Sub left operands; it
 checks no submitted job, one correct result, the captured failing tail and an
 earlier permission failure that skips assignment and tail.
+
+Asserting bodies now retain their own typed return action, including trigger
+recording and outer heap/reserve/exhale restoration. Eligible nested bodies can
+transfer; other bodies evaluate locally through the same return action. Actual
+one/two-worker checks observe outer and inner jobs, preserve mixed old/current
+values and permissions, and reject failures in source order before the caller
+tail. The inherited cancellation test covers an outer receiver; direct inner
+receiver cancellation is a separate follow-up.

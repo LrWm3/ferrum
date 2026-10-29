@@ -159,6 +159,7 @@ pub struct OwnedOldValueFrame {
 #[derive(Clone)]
 pub enum OwnedEvaluationReturnFrame {
     Old(OwnedOldValueFrame),
+    Asserting(OwnedValueWrapper),
     Minus(OwnedValueWrapper),
     Not(OwnedValueWrapper),
     StrictLeft {
@@ -1200,34 +1201,42 @@ where
     }
     state.g = frame.original_store.clone();
     state.h = frame.evaluation_heap.clone();
-    evaluate(
-        context,
-        state,
-        &frame.body,
-        &frame.error,
-        &mut |context, mut state, term, debug| {
-            if state.record_possible_triggers {
-                context
-                    .record_possible_trigger(&mut state, &frame.expression, &term)
-                    .map_err(EvaluationError::Context)?;
-            }
-            state.h = frame.outer_heap.clone();
-            state.reserve_heaps = frame.outer_reserve.clone();
-            state.exhale_ext = frame.outer_exhale;
-            context
-                .close_evaluation_scope(None)
-                .map_err(EvaluationError::Context)?;
-            resume_owned_return_frames(
-                context,
-                state,
-                term,
-                debug,
-                &frame.return_frames,
-                &frame.error,
-                &frame.receiver,
-            )
-        },
-    )
+    let mut frames = Vec::with_capacity(frame.return_frames.len() + 1);
+    frames.push(OwnedEvaluationReturnFrame::Asserting(OwnedValueWrapper {
+        expression: frame.expression.clone(),
+        heap: frame.outer_heap.clone(),
+        reserve: frame.outer_reserve.clone(),
+        exhale: frame.outer_exhale,
+    }));
+    frames.extend_from_slice(&frame.return_frames);
+    if has_owned_asserting_path(&frame.body) && context.can_transfer_owned_asserting(&state) {
+        evaluate_owned_nested(
+            context,
+            state,
+            &frame.body,
+            &frame.error,
+            &frame.receiver,
+            frames,
+        )
+    } else {
+        evaluate(
+            context,
+            state,
+            &frame.body,
+            &frame.error,
+            &mut |context, state, term, debug| {
+                resume_owned_return_frames(
+                    context,
+                    state,
+                    term,
+                    debug,
+                    &frames,
+                    &frame.error,
+                    &frame.receiver,
+                )
+            },
+        )
+    }
 }
 
 #[cfg(test)]
@@ -1321,6 +1330,9 @@ where
                 context
                     .close_evaluation_scope(None)
                     .map_err(EvaluationError::Context)?;
+            }
+            OwnedEvaluationReturnFrame::Asserting(wrapper) => {
+                finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
             }
             OwnedEvaluationReturnFrame::Minus(wrapper) => {
                 let factory = context.factory().clone();

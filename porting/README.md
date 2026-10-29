@@ -1127,3 +1127,8 @@ solver and retain cleanup errors; linked Z3 reports its source name Z3-API. Stdi
 transcript tests cover one/two workers, resets and rejecting reporters. History
 is keyed by native verifier ID; replacement of worker instances under reused IDs
 remains a source-lifecycle compatibility gap.
+
+Nested asserting-expression bodies can now transfer through a typed return frame
+that restores the outer evaluation state before resuming the caller. One/two-
+worker tests observe outer and inner jobs, mixed old-state values and permissions,
+and expected failure order. Unsupported body shapes retain local evaluation.
