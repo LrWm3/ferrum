@@ -983,3 +983,20 @@ fn termination_specification_order_preserves_source_failures() {
         "{stderr}"
     );
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn heap_trigger_failed_argument_does_not_hide_later_assertion_failure() {
+    let output = run(
+        include_str!("fixtures/heap_trigger_failed_argument.vpr"),
+        &["--disableCaches", "--numberOfParallelVerifiers", "1"],
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("assert.failed:assertion.false"), "{stderr}");
+    assert!(stderr.contains("3 + 8 == 38"), "{stderr}");
+    assert!(
+        !stderr.contains("heap trigger argument verification failure"),
+        "{stderr}"
+    );
+}

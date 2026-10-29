@@ -21049,14 +21049,14 @@ where
         result_state.sm_cache = cache;
         let mut trigger_state = result_state.clone();
         trigger_state.trigger_exp = true;
-        let mut evaluated = None;
+        let mut evaluated = Vec::new();
         let result = crate::rules::evaluator::evaluate_all(
             self,
             trigger_state,
             &args,
             &|_| error.clone(),
             &mut |_, _, terms, _| {
-                evaluated = Some(terms);
+                evaluated.push(terms);
                 Ok(VerificationResult::success())
             },
         )
@@ -21064,21 +21064,20 @@ where
             EvaluationError::Context(error) => error,
             other => NativeError::Evaluation(format!("heap trigger arguments: {other:?}")),
         })?;
-        if result.is_fatal() {
-            return Err(NativeError::Unsupported(
-                "heap trigger argument verification failure",
+        // The source discards the evaluation result. Its callback alone appends
+        // value definitions and trigger terms; an unreached callback leaves both empty.
+        let _ = result;
+        let mut axioms = Vec::new();
+        let mut triggers = Vec::new();
+        for terms in evaluated {
+            axioms.extend(definition.value_definitions.iter().cloned());
+            triggers.push(factory.resource_trigger(
+                &resource,
+                definition.snapshot_map.clone(),
+                terms,
             ));
         }
-        let terms = evaluated.ok_or(NativeError::Unsupported(
-            "unreachable heap trigger arguments",
-        ))?;
-        let trigger = factory.resource_trigger(&resource, definition.snapshot_map.clone(), terms);
-        Ok((
-            state,
-            definition.value_definitions.clone(),
-            vec![vec![trigger]],
-            vec![definition],
-        ))
+        Ok((state, axioms, vec![triggers], vec![definition]))
     }
     fn assume_heap_trigger_axioms(
         &mut self,
