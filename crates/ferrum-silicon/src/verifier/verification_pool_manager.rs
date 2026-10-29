@@ -1976,6 +1976,12 @@ pub(crate) static PERM_ARG_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 2] =
 pub(crate) static PERM_ARG_EXECUTIONS: [std::sync::atomic::AtomicUsize; 2] =
     [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
 #[cfg(test)]
+pub(crate) static INDEXED_ARG_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 3] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 3];
+#[cfg(test)]
+pub(crate) static INDEXED_ARG_EXECUTIONS: [std::sync::atomic::AtomicUsize; 3] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 3];
+#[cfg(test)]
 pub(crate) static COLLECTION_ARG_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 2] =
     [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
 #[cfg(test)]
@@ -2338,6 +2344,11 @@ where
                             crate::rules::evaluator::OwnedEvaluationReturnFrame::ExplicitCollectionArg { index, .. } => Some(*index), _ => None,
                         }) {
                             COLLECTION_ARG_SUBMISSIONS[usize::from(argument != 0)].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        for argument in frame.return_frames.iter().filter_map(|f| match f {
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::IndexedCollectionArg { index, .. } => Some(*index), _ => None,
+                        }) {
+                            INDEXED_ARG_SUBMISSIONS[argument].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         }
                         if frame.return_frames.len() >= 2 {
                             NESTED_RETURN_SUBMISSIONS
@@ -6483,6 +6494,107 @@ method bad() { assert false; }
                     && after[1] - before[1] > after[3] - before[3],
                 "outer jobs did not execute: {before:?} -> {after:?}"
             );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_indexed_collection_arguments() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let sources = [
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, d: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val) && r == 3
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Seq(3, 4))[(asserting (c ? acc(z.val) : acc(w.val)) in 0)]; }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, d: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Seq[Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val) && r == Seq(9, 4)
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Seq(3, 4))[(asserting (c ? acc(z.val) : acc(w.val)) in 0) := (asserting (d ? acc(x.val) : acc(y.val)) in 9)]; }
+method bad() { assert false; }
+"#,
+                3,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, d: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val) && r == 3
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Map(0 := 3))[(asserting (c ? acc(z.val) : acc(w.val)) in 0)]; }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, d: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Map[Int, Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val) && r == Map(0 := 9)
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Map(0 := 3))[(asserting (c ? acc(z.val) : acc(w.val)) in 0) := (asserting (d ? acc(x.val) : acc(y.val)) in 9)]; }
+method bad() { assert false; }
+"#,
+                3,
+            ),
+        ];
+        for (source, count) in sources {
+            for workers in [1, 2] {
+                let before: Vec<_> = (0..count)
+                    .map(|i| {
+                        (
+                            INDEXED_ARG_SUBMISSIONS[i].load(std::sync::atomic::Ordering::SeqCst),
+                            INDEXED_ARG_EXECUTIONS[i].load(std::sync::atomic::Ordering::SeqCst),
+                        )
+                    })
+                    .collect();
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(
+                    fatal.iter().filter(|v| **v).count(),
+                    1,
+                    "workers={workers}: {fatal:?}"
+                );
+                for (i, (submitted, executed)) in before.into_iter().enumerate() {
+                    assert!(
+                        INDEXED_ARG_SUBMISSIONS[i].load(std::sync::atomic::Ordering::SeqCst)
+                            > submitted,
+                        "operand {i} not submitted"
+                    );
+                    assert!(
+                        INDEXED_ARG_EXECUTIONS[i].load(std::sync::atomic::Ordering::SeqCst)
+                            > executed,
+                        "operand {i} not executed"
+                    );
+                }
+            }
         }
     }
 

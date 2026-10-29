@@ -567,3 +567,92 @@ method bad(x: Ref, y: Ref, w: Ref, b: Bool, c: Bool) returns (r: {kind}[Int])
         }
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn indexed_collection_checks_and_tail() {
+    let cases = [
+        (
+            "(asserting (b ? acc(x.val) : acc(y.val)) in Seq(3))[(asserting (c ? acc(z.val) : acc(w.val)) in -1)]",
+            "seq.index.negative",
+        ),
+        (
+            "(asserting (b ? acc(x.val) : acc(y.val)) in Seq(3))[(asserting (c ? acc(z.val) : acc(w.val)) in 2)]",
+            "seq.index.length",
+        ),
+        (
+            "(asserting (b ? acc(x.val) : acc(y.val)) in Map(1 := 3))[(asserting (c ? acc(z.val) : acc(w.val)) in 0)]",
+            "map.key.contains",
+        ),
+    ];
+    for (expression, reason) in cases {
+        let source = format!(
+            r#"field val: Int
+method bad(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+{{ r := {expression}; assert false; }}
+"#
+        );
+        for workers in ["1", "2"] {
+            let output = run(&source, workers);
+            assert!(!output.status.success());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains(reason), "{stderr}");
+            assert!(
+                !stderr.contains("[assert.failed:assertion.false]"),
+                "{stderr}"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn sequence_update_value_failure_precedes_bounds_check() {
+    let source = r#"field val: Int
+method bad(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Seq[Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Seq(3))[(asserting (c ? acc(z.val) : acc(w.val)) in 2) := (asserting (false) in 9)]; }
+"#;
+    for workers in ["1", "2"] {
+        let output = run(source, workers);
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("assertion.false"), "{stderr}");
+        assert!(!stderr.contains("seq.index.length"), "{stderr}");
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn indexed_collection_report_further_preserves_tail() {
+    let cases = [
+        (
+            "(asserting (b ? acc(x.val) : acc(y.val)) in Seq(3))[(asserting (c ? acc(z.val) : acc(w.val)) in i)]",
+            "seq.index.negative",
+        ),
+        (
+            "(asserting (b ? acc(x.val) : acc(y.val)) in Map(1 := 3))[(asserting (c ? acc(z.val) : acc(w.val)) in i)]",
+            "map.key.contains",
+        ),
+    ];
+    for (expression, reason) in cases {
+        let source = format!(
+            r#"field val: Int
+method bad(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref, i: Int) returns (r: Int)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+{{ r := {expression}; assert false; }}
+"#
+        );
+        for workers in ["1", "2"] {
+            let output = run_with_limit(&source, workers, Some("0"));
+            assert!(!output.status.success());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains(reason), "{stderr}");
+            assert!(
+                stderr.contains("[assert.failed:assertion.false]"),
+                "{stderr}"
+            );
+        }
+    }
+}

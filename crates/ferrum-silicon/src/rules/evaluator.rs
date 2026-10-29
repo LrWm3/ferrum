@@ -160,6 +160,13 @@ pub struct OwnedOldValueFrame {
 pub enum OwnedEvaluationReturnFrame {
     Old(OwnedOldValueFrame),
     Asserting(OwnedValueWrapper),
+    IndexedCollectionArg {
+        wrapper: OwnedValueWrapper,
+        args: Vec<Exp>,
+        index: usize,
+        terms: Vec<Term>,
+        debug_args: Vec<Option<Exp>>,
+    },
     ExplicitCollectionArg {
         wrapper: OwnedValueWrapper,
         index: usize,
@@ -1014,6 +1021,7 @@ enum OwnedPathStep {
     DomainArg(usize),
     FunctionArg(usize),
     ExplicitCollectionArg(usize),
+    IndexedCollectionArg(usize),
     CurrentPermArg(usize),
     AddLeft,
     AddRight,
@@ -1076,6 +1084,15 @@ fn owned_asserting_path(expression: &Exp) -> Option<Vec<OwnedPathStep>> {
                         }
                         _ => (),
                     },
+                    ExpKind::SeqIndex(a, b) | ExpKind::MapLookup(a, b) => {
+                        work.push(Work::Visit(b, Some(OwnedPathStep::IndexedCollectionArg(1))));
+                        work.push(Work::Visit(a, Some(OwnedPathStep::IndexedCollectionArg(0))));
+                    }
+                    ExpKind::SeqUpdate(a, b, c) | ExpKind::MapUpdate(a, b, c) => {
+                        work.push(Work::Visit(c, Some(OwnedPathStep::IndexedCollectionArg(2))));
+                        work.push(Work::Visit(b, Some(OwnedPathStep::IndexedCollectionArg(1))));
+                        work.push(Work::Visit(a, Some(OwnedPathStep::IndexedCollectionArg(0))));
+                    }
                     ExpKind::ExplicitSeq(args)
                     | ExpKind::ExplicitSet(args)
                     | ExpKind::ExplicitMultiset(args) => {
@@ -1133,6 +1150,14 @@ pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
             }
             _ => false,
         },
+        ExpKind::SeqIndex(a, b) | ExpKind::MapLookup(a, b) => {
+            has_owned_asserting_path(a) || has_owned_asserting_path(b)
+        }
+        ExpKind::SeqUpdate(a, b, c) | ExpKind::MapUpdate(a, b, c) => {
+            has_owned_asserting_path(a)
+                || has_owned_asserting_path(b)
+                || has_owned_asserting_path(c)
+        }
         ExpKind::ExplicitSeq(args)
         | ExpKind::ExplicitSet(args)
         | ExpKind::ExplicitMultiset(args) => args.iter().any(has_owned_asserting_path),
@@ -1343,6 +1368,29 @@ where
                 receiver,
                 rest,
                 frames,
+            )
+        }
+        (
+            ExpKind::SeqIndex(..)
+            | ExpKind::SeqUpdate(..)
+            | ExpKind::MapLookup(..)
+            | ExpKind::MapUpdate(..),
+            OwnedPathStep::IndexedCollectionArg(index),
+        ) => {
+            let (_, args) =
+                indexed_collection_arguments(expression).expect("indexed collection frame");
+            evaluate_owned_arguments(
+                context,
+                state,
+                &wrapper,
+                &OwnedArgumentsTerminal::IndexedCollection(args),
+                0,
+                Vec::new(),
+                Vec::new(),
+                &frames,
+                error,
+                receiver,
+                Some((*index, rest)),
             )
         }
         (
@@ -1783,6 +1831,132 @@ where
             },continuation)
 }
 
+fn indexed_collection_arguments(expression: &Exp) -> Option<(u8, Vec<Exp>)> {
+    match expression.kind() {
+        ExpKind::SeqIndex(seq, index) => Some((0, vec![seq.clone(), index.clone()])),
+        ExpKind::SeqUpdate(seq, index, value) => {
+            Some((1, vec![seq.clone(), index.clone(), value.clone()]))
+        }
+        ExpKind::MapLookup(base, key) => Some((2, vec![base.clone(), key.clone()])),
+        ExpKind::MapUpdate(base, key, value) => {
+            Some((3, vec![base.clone(), key.clone(), value.clone()]))
+        }
+        _ => None,
+    }
+}
+
+/// Finish an indexed collection after all operands, including source checks.
+fn complete_indexed_collection<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    args: &[Exp],
+    terms: Vec<Term>,
+    debug_args: Option<Vec<Exp>>,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let (kind, _) = indexed_collection_arguments(expression).expect("indexed collection frame");
+    let factory = context.factory().clone();
+    let result = match kind {
+        0 => factory.seq_at(terms[0].clone(), terms[1].clone()),
+        1 => factory.seq_update(terms[0].clone(), terms[1].clone(), terms[2].clone()),
+        2 => factory.map_lookup(terms[0].clone(), terms[1].clone()),
+        _ => factory.map_update(terms[0].clone(), terms[1].clone(), terms[2].clone()),
+    };
+    let rebuilt = debug_args.as_ref().map(|es| {
+        Exp::new(
+            match kind {
+                0 => ExpKind::SeqIndex(es[0].clone(), es[1].clone()),
+                1 => ExpKind::SeqUpdate(es[0].clone(), es[1].clone(), es[2].clone()),
+                2 => ExpKind::MapLookup(es[0].clone(), es[1].clone()),
+                _ => ExpKind::MapUpdate(es[0].clone(), es[1].clone(), es[2].clone()),
+            },
+            expression.metadata().clone(),
+        )
+    });
+    if kind == 3 || state.trigger_exp {
+        return continuation(context, state, result, rebuilt);
+    }
+    if kind <= 1 {
+        let checked = sequence_bounds(
+            context,
+            &state,
+            &terms[0],
+            &terms[1],
+            &args[0],
+            &args[1],
+            debug_args.as_deref(),
+            error,
+        )?;
+        if checked
+            .with_kind(|kind| matches!(kind, crate::interfaces::verification::ResultKind::Success))
+        {
+            return continuation(context, state, result, rebuilt);
+        }
+        if state.retry_level == 0
+            && context.report_further_errors()
+            && checked.continue_verification()
+        {
+            let next = continuation(context, state, result, rebuilt)?;
+            return Ok(checked.combine(|| next, false));
+        }
+        return Ok(checked);
+    }
+    let assertion = factory.set_in(terms[1].clone(), factory.map_domain(terms[0].clone()));
+    if context
+        .assert_goal(&assertion)
+        .map_err(EvaluationError::Context)?
+    {
+        return continuation(context, state, result, rebuilt);
+    }
+    let original_test = context.debugging().then(|| {
+        Exp::new(
+            ExpKind::MapContains(args[1].clone(), args[0].clone()),
+            expression.metadata().clone(),
+        )
+    });
+    let rewritten_test = if context.debugging() {
+        let es = debug_args
+            .as_ref()
+            .ok_or(EvaluationError::MissingDebugExpression)?;
+        Some(Exp::new(
+            ExpKind::MapContains(es[1].clone(), es[0].clone()),
+            expression.metadata().clone(),
+        ))
+    } else {
+        None
+    };
+    let failure = context
+        .map_key_failure(
+            &state,
+            error,
+            &args[0],
+            &args[1],
+            &assertion,
+            rewritten_test.as_ref(),
+        )
+        .map_err(EvaluationError::Context)?;
+    if state.retry_level == 0 && context.report_further_errors() {
+        context
+            .assume_generated(&assertion, original_test.as_ref(), rewritten_test.as_ref())
+            .map_err(EvaluationError::Context)?;
+        if failure.continue_verification() {
+            let next = continuation(context, state, result, rebuilt)?;
+            return Ok(failure.combine(|| next, false));
+        }
+    }
+    Ok(failure)
+}
+
 /// Complete an explicit sequence, set or multiset after evaluating elements.
 fn complete_explicit_collection<C, P, D, J: Clone, V>(
     context: &mut C,
@@ -1944,6 +2118,7 @@ fn rebuild_domain_debug_arguments<E>(
 
 #[derive(Clone)]
 enum OwnedArgumentsTerminal {
+    IndexedCollection(Vec<Exp>),
     ExplicitCollection,
     Function {
         function: ferrum_silver::ast::program::Function,
@@ -1976,6 +2151,7 @@ where
     C: EvaluationContext<P, D, J, V>,
 {
     let args = match terminal {
+        OwnedArgumentsTerminal::IndexedCollection(args) => args,
         OwnedArgumentsTerminal::ExplicitCollection => match wrapper.expression.kind() {
             ExpKind::ExplicitSeq(args)
             | ExpKind::ExplicitSet(args)
@@ -1999,6 +2175,16 @@ where
             resume_owned_return_frames(context, state, term, debug, frames, error, receiver)
         };
         return match terminal {
+            OwnedArgumentsTerminal::IndexedCollection(args) => complete_indexed_collection(
+                context,
+                state,
+                &wrapper.expression,
+                args,
+                terms,
+                debug,
+                error,
+                &mut done,
+            ),
             OwnedArgumentsTerminal::ExplicitCollection => complete_explicit_collection(
                 context,
                 state,
@@ -2057,6 +2243,15 @@ where
     if let Some(path) = planned {
         let mut next = frames.to_vec();
         next.push(match terminal {
+            OwnedArgumentsTerminal::IndexedCollection(args) => {
+                OwnedEvaluationReturnFrame::IndexedCollectionArg {
+                    wrapper: wrapper.clone(),
+                    args: args.clone(),
+                    index,
+                    terms,
+                    debug_args,
+                }
+            }
             OwnedArgumentsTerminal::ExplicitCollection => {
                 OwnedEvaluationReturnFrame::ExplicitCollectionArg {
                     wrapper: wrapper.clone(),
@@ -2285,6 +2480,31 @@ where
                             receiver,
                         )
                     },
+                );
+            }
+            OwnedEvaluationReturnFrame::IndexedCollectionArg {
+                wrapper,
+                args,
+                index: argument_index,
+                terms,
+                debug_args,
+            } => {
+                let mut terms = terms.clone();
+                terms.push(term);
+                let mut debug_args = debug_args.clone();
+                debug_args.push(debug);
+                return evaluate_owned_arguments(
+                    context,
+                    state,
+                    wrapper,
+                    &OwnedArgumentsTerminal::IndexedCollection(args.clone()),
+                    argument_index + 1,
+                    terms,
+                    debug_args,
+                    &frames[..index],
+                    error,
+                    receiver,
+                    None,
                 );
             }
             OwnedEvaluationReturnFrame::ExplicitCollectionArg {
@@ -3856,7 +4076,7 @@ fn evaluate_collection_family<C, P, D, J: Clone, V>(
         Term,
         Option<Exp>,
     ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
-    factory: crate::state::terms::TermFactory,
+    _factory: crate::state::terms::TermFactory,
     _debug: Option<Exp>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
@@ -3923,121 +4143,27 @@ where
             },
         );
     }
-    let indexed = match expression.kind() {
-        ExpKind::SeqIndex(seq, index) => Some((0, vec![seq.clone(), index.clone()])),
-        ExpKind::SeqUpdate(seq, index, value) => {
-            Some((1, vec![seq.clone(), index.clone(), value.clone()]))
-        }
-        ExpKind::MapLookup(base, key) => Some((2, vec![base.clone(), key.clone()])),
-        ExpKind::MapUpdate(base, key, value) => {
-            Some((3, vec![base.clone(), key.clone(), value.clone()]))
-        }
-        _ => None,
-    };
-    if let Some((kind, args)) = indexed {
+    if let Some((_, args)) = indexed_collection_arguments(expression) {
         return evaluate_all(
             context,
             state,
             &args,
             &|_| error.clone(),
             &mut |context, state, terms, debug_args| {
-                let result = match kind {
-                    0 => factory.seq_at(terms[0].clone(), terms[1].clone()),
-                    1 => factory.seq_update(terms[0].clone(), terms[1].clone(), terms[2].clone()),
-                    2 => factory.map_lookup(terms[0].clone(), terms[1].clone()),
-                    _ => factory.map_update(terms[0].clone(), terms[1].clone(), terms[2].clone()),
-                };
-                let rebuilt = debug_args.as_ref().map(|es| {
-                    Exp::new(
-                        match kind {
-                            0 => ExpKind::SeqIndex(es[0].clone(), es[1].clone()),
-                            1 => ExpKind::SeqUpdate(es[0].clone(), es[1].clone(), es[2].clone()),
-                            2 => ExpKind::MapLookup(es[0].clone(), es[1].clone()),
-                            _ => ExpKind::MapUpdate(es[0].clone(), es[1].clone(), es[2].clone()),
-                        },
-                        expression.metadata().clone(),
-                    )
-                });
-                if kind == 3 || state.trigger_exp {
-                    return continuation(context, state, result, rebuilt);
-                }
-                if kind <= 1 {
-                    let checked = sequence_bounds(
-                        context,
-                        &state,
-                        &terms[0],
-                        &terms[1],
-                        &args[0],
-                        &args[1],
-                        debug_args.as_deref(),
-                        error,
-                    )?;
-                    if checked.with_kind(|kind| {
-                        matches!(kind, crate::interfaces::verification::ResultKind::Success)
-                    }) {
-                        return continuation(context, state, result, rebuilt);
-                    }
-                    if state.retry_level == 0
-                        && context.report_further_errors()
-                        && checked.continue_verification()
-                    {
-                        let next = continuation(context, state, result, rebuilt)?;
-                        return Ok(checked.combine(|| next, false));
-                    }
-                    return Ok(checked);
-                }
-                let assertion =
-                    factory.set_in(terms[1].clone(), factory.map_domain(terms[0].clone()));
-                if context
-                    .assert_goal(&assertion)
-                    .map_err(EvaluationError::Context)?
-                {
-                    return continuation(context, state, result, rebuilt);
-                }
-                let original_test = context.debugging().then(|| {
-                    Exp::new(
-                        ExpKind::MapContains(args[1].clone(), args[0].clone()),
-                        expression.metadata().clone(),
-                    )
-                });
-                let rewritten_test = if context.debugging() {
-                    let es = debug_args
-                        .as_ref()
-                        .ok_or(EvaluationError::MissingDebugExpression)?;
-                    Some(Exp::new(
-                        ExpKind::MapContains(es[1].clone(), es[0].clone()),
-                        expression.metadata().clone(),
-                    ))
-                } else {
-                    None
-                };
-                let failure = context
-                    .map_key_failure(
-                        &state,
-                        error,
-                        &args[0],
-                        &args[1],
-                        &assertion,
-                        rewritten_test.as_ref(),
-                    )
-                    .map_err(EvaluationError::Context)?;
-                if state.retry_level == 0 && context.report_further_errors() {
-                    context
-                        .assume_generated(
-                            &assertion,
-                            original_test.as_ref(),
-                            rewritten_test.as_ref(),
-                        )
-                        .map_err(EvaluationError::Context)?;
-                    if failure.continue_verification() {
-                        let next = continuation(context, state, result, rebuilt)?;
-                        return Ok(failure.combine(|| next, false));
-                    }
-                }
-                Ok(failure)
+                complete_indexed_collection(
+                    context,
+                    state,
+                    expression,
+                    &args,
+                    terms,
+                    debug_args,
+                    error,
+                    continuation,
+                )
             },
         );
     }
+
     context.evaluate_special(state, expression, error, continuation)
 }
 
