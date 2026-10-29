@@ -1350,7 +1350,7 @@ pub fn check_expression(
             check_operator(input, None, vec![exp], expected, false)?
         }
         PExpressionKind::OldExp { exp, .. } => {
-            check_operator(input, None, vec![exp.inner().clone()], expected, false)?
+            check_operator(input, None, vec![exp.inner().clone()], expected, true)?
         }
         PExpressionKind::EmptySeq(collection) | PExpressionKind::EmptySet(collection) | PExpressionKind::EmptyMultiset(collection) => {
             if let Some(typ) = &collection.annotated_type { check_supported_type(typ.inner())?; }
@@ -1721,12 +1721,11 @@ fn check_operator(
             }
         };
         if require_pure && !typ.is_pure() {
-            let error = TypeCheckError::Unsupported("impure equality argument");
-            if mismatches.is_empty() {
-                return Err(error);
-            }
-            mismatches.push(error);
-            return Err(TypeCheckError::Mismatches(mismatches));
+            mismatches.push(TypeCheckError::Positioned {
+                node: argument.node().clone(),
+                message: "argument is not pure",
+            });
+            continue;
         }
         argument_types.push(typ);
     }

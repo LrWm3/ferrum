@@ -2724,6 +2724,24 @@ mod tests {
         );
     }
     #[test]
+    fn old_rejects_each_impure_argument_at_its_source() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("field f: Int\nmethod m(x: Ref) {\n  assert old(acc(x.f))\n  assert old(acc(x.f))\n}\n").unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "argument is not pure (test.vpr@3.14--3.22)",
+                "argument is not pure (test.vpr@4.14--4.22)",
+            ]
+        );
+    }
+    #[test]
     fn forbidden_wands_report_each_source_expression() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
