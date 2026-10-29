@@ -682,6 +682,42 @@ fn domain_axioms_can_call_precondition_free_functions() {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn domain_axioms_allow_typed_adt_accesses_but_reject_heap_locations() {
+    let source = r#"
+        adt Box[T] { Boxed(elem: T) }
+        domain D {
+            function value(b: Box[Int]): Int
+            function valid(b: Box[Int]): Bool
+            axiom { forall b: Box[Int] :: {value(b)} value(b) == b.elem }
+            axiom { forall b: Box[Int] :: {valid(b)} valid(b) == b.isBoxed }
+            axiom { forall x: Int :: {value(Boxed(x))} value(Boxed(x)) == Boxed(x).elem }
+        }
+        method good() { assert value(Boxed(7)) == 7; assert valid(Boxed(7)); }
+    "#;
+    check(source, 0);
+    check(
+        &source.replace("value(Boxed(7)) == 7", "value(Boxed(7)) == 8"),
+        1,
+    );
+    for invalid in [
+        "field f: Int domain D { function f_of(x: Ref): Int axiom { forall x: Ref :: {f_of(x)} f_of(x) == x.f } }",
+        "adt Box[T] { Boxed(elem: T) } domain D { axiom { forall x: Int :: x.elem == 3 } }",
+        "adt Box[T] { Boxed(elem: T) } adt Other { Othered() } domain D { axiom { forall b: Box[Int] :: b.isOthered } }",
+        "adt Box[T] { Boxed(elem: T) } field elem: Int domain D { axiom { forall x: Ref :: x.elem == 3 } }",
+        "field f: Int domain D { axiom { forall x: Ref :: acc(x.f) } }",
+    ] {
+        let output = run(invalid, &[]);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "unexpected result for invalid axiom {invalid}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn mask_heaps_preserve_unfolding_frames_and_wand_values() {
     let cases = [
         (

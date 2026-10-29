@@ -2253,18 +2253,31 @@ pub fn check_program_core(
                                     }
                                 }
                             }
-                            if matches!(
-                                kind,
-                                PNodeKind::Expression(super::parse_ast::PExpression {
-                                    kind: PExpressionKind::FieldAccess { .. }
-                                        | PExpressionKind::AccPred { .. }
-                                        | PExpressionKind::Extension(_),
-                                    ..
-                                })
-                            ) {
-                                return Err(TypeCheckError::Unsupported(
-                                    "domain axiom contextual expression",
-                                ));
+                            if let PNodeKind::Expression(super::parse_ast::PExpression {
+                                kind: expression,
+                                ..
+                            }) = &kind
+                            {
+                                let unsupported = match expression {
+                                    // The ADT plugin classifies destructors and discriminators
+                                    // before resolution. These are pure ADT operations, not
+                                    // heap field accesses, and must still be type-checked below.
+                                    PExpressionKind::FieldAccess { idnref, .. } => !matches!(
+                                        &idnref.read().expect("poisoned parse node").kind,
+                                        PNodeKind::IdnRef(id)
+                                            if matches!(id.declaration_class,
+                                                super::parse_ast::PDeclarationClass::AdtField
+                                                | super::parse_ast::PDeclarationClass::AdtConstructor)
+                                    ),
+                                    PExpressionKind::AccPred { .. }
+                                    | PExpressionKind::Extension(_) => true,
+                                    _ => false,
+                                };
+                                if unsupported {
+                                    return Err(TypeCheckError::Unsupported(
+                                        "domain axiom contextual expression",
+                                    ));
+                                }
                             }
                             for child in subnodes(node).map_err(|_| {
                                 TypeCheckError::Unsupported("domain axiom traversal")

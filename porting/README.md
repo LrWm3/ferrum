@@ -1063,3 +1063,9 @@ ADT constructor and destructor expressions now expose their source trigger hooks
 through the extension interface. Validation rejects forbidden descendants and
 propagates traversal errors; ADT discriminators remain forbidden. The previously
 rejected upstream `0715_2.vpr` now verifies in a targeted native/source comparison.
+
+Domain-axiom checking recognizes ADT destructor and discriminator syntax as pure
+ADT operations after plugin classification. Their receivers and generic arguments
+still undergo contextual type inference. Heap field accesses, access predicates
+and unsupported extension expressions remain rejected there. Positive, false-
+assertion and invalid-type fixtures pass with the ADT trigger hooks connected.
