@@ -174,7 +174,7 @@ cancellation before removing their guard.
 | Inhale/exhale/assert (including disable-subsumption probes), method/call contracts, fold snapshots and statement unfold | Owned rule and caller frames |
 | Loop collection, establishment and backedges | Identified phase outputs and explicit consumption terminals |
 | Function preconditions and cached/uncached expression Unfolding | Owned snapshot/value receivers and identified join outputs |
-| Direct local assignment of Asserting, including one old/labelled-old wrapper | Owned evaluation and old-state restoration and assignment receiver |
+| Local assignment with old/labelled-old, integer negation and addition around Asserting | Composable owned return frames; leftmost eligible subtree transfers |
 | Arbitrary nested value callbacks, other old-expression shapes and custom borrowed entry points | Safe synchronous fallback; not complete parallel source coverage |
 | Active member logs, extended exhale and packaging | Owned dispatch disabled; logger migration remains unfinished |
 
@@ -211,9 +211,18 @@ at submission with and without a latched cancellation. These do not establish
 real simultaneous parent/child execution at every cancellation boundary.
 
 The assignment receiver now carries an immutable vector of typed return frames,
-ordered from inner to outer. The first migration represents the existing old
-frame and keeps dispatch eligibility unchanged. This supplies a compositional
-representation; it does not yet enable additional nested expression shapes.
+ordered from inner to outer. Frames now represent old/labelled-old, integer negation and addition. Supported
+wrapper chains can compose around Asserting while retaining each evaluator entry
+and return action. Addition evaluates its left operand first; if both sides
+contain transferable assertions, this first expansion transfers the leftmost
+subtree and evaluates the right synchronously. Other expression families retain
+local callbacks. Guarded logging, packaging and extended-exhale cases are unchanged.
+
+Actual one/two-worker jobs check mixed and labelled old/current heap values,
+permissions, branching left operands and a captured tail that reports assertion.false.
+A CLI regression checks that an inaccessible left operand fails before a right-side
+assertion. Trigger-map restoration follows the source old-frame rule; a dedicated
+record_possible_triggers integration fixture remains outstanding.
 
 The rule-error bridge pass preserves direct Context/Service errors in evaluator,
 producer and consumer adapters, including method/function/predicate and guarded

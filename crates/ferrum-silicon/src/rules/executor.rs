@@ -568,8 +568,7 @@ where
                 .start_key_heap(state, statement, debug_snapshot.as_ref())
                 .map_err(ExecutionError::Context)?;
             if let Some(tail) = owned_tail.filter(|_| {
-                (matches!(rhs.kind(), ExpKind::Asserting(..))
-                    || matches!(rhs.kind(), ExpKind::Old(body) | ExpKind::LabelledOld(body, _) | ExpKind::DebugLabelledOld(body, _) if matches!(body.kind(), ExpKind::Asserting(..))))
+                crate::rules::evaluator::has_owned_asserting_path(rhs)
                     && !state.exhale_ext
                     && context.statement_scope_transferable(scope)
             }) {

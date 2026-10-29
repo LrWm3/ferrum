@@ -159,6 +159,25 @@ pub struct OwnedOldValueFrame {
 #[derive(Clone)]
 pub enum OwnedEvaluationReturnFrame {
     Old(OwnedOldValueFrame),
+    Minus(OwnedValueWrapper),
+    AddLeft {
+        wrapper: OwnedValueWrapper,
+        right: Exp,
+    },
+    AddRight {
+        wrapper: OwnedValueWrapper,
+        left: Term,
+        left_debug: Option<Exp>,
+    },
+}
+
+/// The evaluator restores these fields after each expression independently.
+#[derive(Clone)]
+pub struct OwnedValueWrapper {
+    expression: Exp,
+    heap: Arc<crate::state::heap::ListBackedHeap>,
+    reserve: Vec<Arc<crate::state::heap::ListBackedHeap>>,
+    exhale: bool,
 }
 
 /// State and value receiver for a direct assignment of an asserting expression.
@@ -894,7 +913,23 @@ where
         .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
 }
 
-/// Enter a source old wrapper whose inner asserting value has an owned assignment receiver.
+/// Only transfer paths for which every intervening return action is represented.
+pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
+    match expression.kind() {
+        ExpKind::Asserting(..) => true,
+        ExpKind::Old(body)
+        | ExpKind::LabelledOld(body, _)
+        | ExpKind::DebugLabelledOld(body, _)
+        | ExpKind::Minus(body) => has_owned_asserting_path(body),
+        ExpKind::Add(left, right) => {
+            has_owned_asserting_path(left) || has_owned_asserting_path(right)
+        }
+        _ => false,
+    }
+}
+
+/// Kept for the direct-old service tests; all wrappers use the same owned stack.
+#[cfg(test)]
 pub(crate) fn evaluate_owned_old_asserting<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
@@ -905,17 +940,26 @@ pub(crate) fn evaluate_owned_old_asserting<C, P, D, J: Clone, V>(
 where
     C: EvaluationContext<P, D, J, V>,
 {
-    let (body, label, kind) = match expression.kind() {
-        ExpKind::Old(body) => (body, "old".to_string(), 0),
-        ExpKind::LabelledOld(body, label) => (body, label.clone(), 1),
-        ExpKind::DebugLabelledOld(body, label) => (
-            body,
-            label.split('#').next().unwrap_or(label).to_string(),
-            2,
-        ),
-        _ => return Err(EvaluationError::OwnedSchedulerUnavailable),
-    };
-    if !matches!(body.kind(), ExpKind::Asserting(..)) {
+    evaluate_owned_nested(context, state, expression, error, receiver, Vec::new())
+}
+
+/// Descend one source expression at a time, saving each surrounding evaluator
+/// return action in inner-to-outer order. Add always evaluates its left first.
+pub(crate) fn evaluate_owned_nested<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    receiver: &crate::rules::executor::OwnedAssignmentValue,
+    mut frames: Vec<OwnedEvaluationReturnFrame>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    if matches!(expression.kind(), ExpKind::Asserting(..)) {
+        return evaluate_owned_asserting(context, state, expression, error, receiver, frames);
+    }
+    if !has_owned_asserting_path(expression) {
         return Err(EvaluationError::OwnedSchedulerUnavailable);
     }
     let scope = context
@@ -927,60 +971,102 @@ where
     context
         .log_evaluation(&state, expression)
         .map_err(EvaluationError::Context)?;
-    let evaluation_heap = state.h.clone();
-    let evaluation_reserve = state.reserve_heaps.clone();
-    let evaluation_exhale = state.exhale_ext;
+    let wrapper = OwnedValueWrapper {
+        expression: expression.clone(),
+        heap: state.h.clone(),
+        reserve: state.reserve_heaps.clone(),
+        exhale: state.exhale_ext,
+    };
     let mut state = state;
     state.h = context
         .eval_heap(&state)
         .map_err(EvaluationError::Context)?;
     state.reserve_heaps.clear();
     state.exhale_ext = false;
-    let Some(old_heap) = state.old_heaps.get(&label).cloned() else {
-        if kind == 0 {
-            return Err(EvaluationError::MissingOldState(label));
+    match expression.kind() {
+        ExpKind::Old(body) | ExpKind::LabelledOld(body, _) | ExpKind::DebugLabelledOld(body, _) => {
+            let (label, kind) = match expression.kind() {
+                ExpKind::Old(_) => ("old".to_string(), 0),
+                ExpKind::LabelledOld(_, label) => (label.clone(), 1),
+                ExpKind::DebugLabelledOld(_, label) => {
+                    (label.split('#').next().unwrap_or(label).to_string(), 2)
+                }
+                _ => unreachable!(),
+            };
+            let Some(old_heap) = state.old_heaps.get(&label).cloned() else {
+                if kind == 0 {
+                    return Err(EvaluationError::MissingOldState(label));
+                }
+                let labelled = if kind == 2 {
+                    Exp::new(
+                        ExpKind::LabelledOld(body.clone(), label.clone()),
+                        expression.metadata().clone(),
+                    )
+                } else {
+                    expression.clone()
+                };
+                return context
+                    .missing_label_failure(&state, error, &labelled, &label)
+                    .map_err(EvaluationError::Context);
+            };
+            let old = OwnedOldValueFrame {
+                expression: expression.clone(),
+                label,
+                kind,
+                heap: state.h.clone(),
+                partial_heap: state.partially_consumed_heap.clone(),
+                possible_triggers: state.possible_triggers.clone(),
+                record_possible_triggers: state.record_possible_triggers,
+                is_eval_in_old: state.is_eval_in_old,
+                program: state.program.clone(),
+                evaluation_heap: wrapper.heap,
+                evaluation_reserve: wrapper.reserve,
+                evaluation_exhale: wrapper.exhale,
+            };
+            state.h = old_heap;
+            state.partially_consumed_heap = None;
+            state.is_eval_in_old = true;
+            state.possible_triggers = Default::default();
+            let state = context
+                .consolidate_old(state)
+                .map_err(EvaluationError::Context)?;
+            frames.insert(0, OwnedEvaluationReturnFrame::Old(old));
+            evaluate_owned_nested(context, state, body, error, receiver, frames)
         }
-        let labelled = if kind == 2 {
-            Exp::new(
-                ExpKind::LabelledOld(body.clone(), label.clone()),
-                expression.metadata().clone(),
-            )
-        } else {
-            expression.clone()
-        };
-        return context
-            .missing_label_failure(&state, error, &labelled, &label)
-            .map_err(EvaluationError::Context);
-    };
-    let frame = OwnedOldValueFrame {
-        expression: expression.clone(),
-        label,
-        kind,
-        heap: state.h.clone(),
-        partial_heap: state.partially_consumed_heap.clone(),
-        possible_triggers: state.possible_triggers.clone(),
-        record_possible_triggers: state.record_possible_triggers,
-        is_eval_in_old: state.is_eval_in_old,
-        program: state.program.clone(),
-        evaluation_heap,
-        evaluation_reserve,
-        evaluation_exhale,
-    };
-    state.h = old_heap;
-    state.partially_consumed_heap = None;
-    state.is_eval_in_old = true;
-    state.possible_triggers = Default::default();
-    let state = context
-        .consolidate_old(state)
-        .map_err(EvaluationError::Context)?;
-    evaluate_owned_asserting(
-        context,
-        state,
-        body,
-        error,
-        receiver,
-        vec![OwnedEvaluationReturnFrame::Old(frame)],
-    )
+        ExpKind::Minus(body) => {
+            frames.insert(0, OwnedEvaluationReturnFrame::Minus(wrapper));
+            evaluate_owned_nested(context, state, body, error, receiver, frames)
+        }
+        ExpKind::Add(left, right) if has_owned_asserting_path(left) => {
+            frames.insert(
+                0,
+                OwnedEvaluationReturnFrame::AddLeft {
+                    wrapper,
+                    right: right.clone(),
+                },
+            );
+            evaluate_owned_nested(context, state, left, error, receiver, frames)
+        }
+        ExpKind::Add(left, right) => evaluate(
+            context,
+            state,
+            left,
+            error,
+            &mut |context, state, term, debug| {
+                let mut next = frames.clone();
+                next.insert(
+                    0,
+                    OwnedEvaluationReturnFrame::AddRight {
+                        wrapper: wrapper.clone(),
+                        left: term,
+                        left_debug: debug,
+                    },
+                );
+                evaluate_owned_nested(context, state, right, error, receiver, next)
+            },
+        ),
+        _ => Err(EvaluationError::OwnedSchedulerUnavailable),
+    }
 }
 #[cfg(test)]
 thread_local! {
@@ -1025,9 +1111,36 @@ where
             context
                 .close_evaluation_scope(None)
                 .map_err(EvaluationError::Context)?;
-            let mut debug = debug;
-            for return_frame in &frame.return_frames {
-                let OwnedEvaluationReturnFrame::Old(old) = return_frame;
+            resume_owned_return_frames(
+                context,
+                state,
+                term,
+                debug,
+                &frame.return_frames,
+                &frame.error,
+                &frame.receiver,
+            )
+        },
+    )
+}
+
+/// Resume saved wrappers without losing the remaining stack when evaluating an
+/// addition's right operand invokes its continuation more than once.
+fn resume_owned_return_frames<C, P, D, J: Clone, V>(
+    context: &mut C,
+    mut state: State<P, D, J>,
+    mut term: Term,
+    mut debug: Option<Exp>,
+    frames: &[OwnedEvaluationReturnFrame],
+    error: &C::PartialError,
+    receiver: &crate::rules::executor::OwnedAssignmentValue,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    for (index, frame) in frames.iter().enumerate() {
+        match frame {
+            OwnedEvaluationReturnFrame::Old(old) => {
                 let mut triggers = old.possible_triggers.clone();
                 if old.record_possible_triggers {
                     for (exp, value) in state.possible_triggers.iter() {
@@ -1051,7 +1164,7 @@ where
                 state.partially_consumed_heap = old.partial_heap.clone();
                 state.possible_triggers = triggers;
                 state.is_eval_in_old = old.is_eval_in_old;
-                let wrapped = if old.kind == 2 {
+                debug = if old.kind == 2 {
                     Some(old.expression.clone())
                 } else {
                     debug.map(|e| {
@@ -1076,13 +1189,89 @@ where
                 context
                     .close_evaluation_scope(None)
                     .map_err(EvaluationError::Context)?;
-                debug = wrapped;
             }
-            context
-                .finish_owned_assignment_value(state, term, debug, &frame.receiver)
-                .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
-        },
-    )
+            OwnedEvaluationReturnFrame::Minus(wrapper) => {
+                let factory = context.factory().clone();
+                term = factory.minus(factory.int_literal(0), term);
+                debug = debug.map(|value| {
+                    Exp::new(ExpKind::Minus(value), wrapper.expression.metadata().clone())
+                });
+                finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+            }
+            OwnedEvaluationReturnFrame::AddRight {
+                wrapper,
+                left,
+                left_debug,
+            } => {
+                term = context.factory().plus(left.clone(), term);
+                debug = match (left_debug, debug) {
+                    (Some(left), Some(right)) => Some(Exp::new(
+                        ExpKind::Add(left.clone(), right),
+                        wrapper.expression.metadata().clone(),
+                    )),
+                    (None, _) => None,
+                    (Some(_), None) => return Err(EvaluationError::MissingDebugExpression),
+                };
+                finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+            }
+            OwnedEvaluationReturnFrame::AddLeft { wrapper, right } => {
+                return evaluate(
+                    context,
+                    state,
+                    right,
+                    error,
+                    &mut |context, mut state, right_term, right_debug| {
+                        let value = context.factory().plus(term.clone(), right_term);
+                        let rebuilt = match (&debug, right_debug) {
+                            (Some(left), Some(right)) => Some(Exp::new(
+                                ExpKind::Add(left.clone(), right),
+                                wrapper.expression.metadata().clone(),
+                            )),
+                            (None, _) => None,
+                            (Some(_), None) => return Err(EvaluationError::MissingDebugExpression),
+                        };
+                        finish_owned_wrapper::<C, P, D, J, V>(
+                            context, &mut state, wrapper, &value,
+                        )?;
+                        resume_owned_return_frames(
+                            context,
+                            state,
+                            value,
+                            rebuilt,
+                            &frames[index + 1..],
+                            error,
+                            receiver,
+                        )
+                    },
+                );
+            }
+        }
+    }
+    context
+        .finish_owned_assignment_value(state, term, debug, receiver)
+        .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
+}
+
+fn finish_owned_wrapper<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: &mut State<P, D, J>,
+    wrapper: &OwnedValueWrapper,
+    term: &Term,
+) -> Result<(), EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    if state.record_possible_triggers {
+        context
+            .record_possible_trigger(state, &wrapper.expression, term)
+            .map_err(EvaluationError::Context)?;
+    }
+    state.h = wrapper.heap.clone();
+    state.reserve_heaps = wrapper.reserve.clone();
+    state.exhale_ext = wrapper.exhale;
+    context
+        .close_evaluation_scope(None)
+        .map_err(EvaluationError::Context)
 }
 
 pub fn evaluate<C, P, D, J: Clone, V>(

@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 416 mapped and assembly modules. `described` files
+The Cargo workspace now has 417 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
@@ -1082,3 +1082,9 @@ rescanning source prefixes. Unicode and CRLF diagnostic parity is retained. A
 host sample; the earlier parse-only run timed out after 90 seconds. Full native
 verification of that exact input also succeeded. See performance.md for hashes,
 measurement scope and the temporary index memory cost.
+
+Owned assignment returns now compose old/labelled-old, integer negation and addition
+frames around Asserting. Real jobs at one/two workers preserve evaluation order,
+historical/current values and permissions, and reach a failing captured tail.
+When both addition operands independently contain Asserting, this first expansion
+transfers the leftmost eligible subtree and evaluates the right synchronously.

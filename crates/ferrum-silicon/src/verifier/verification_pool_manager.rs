@@ -1910,6 +1910,12 @@ pub(crate) static LOOP_PHASE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static LOOP_PHASE_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static NESTED_RETURN_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static NESTED_RETURN_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
 pub(crate) static ASSERTING_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -2155,9 +2161,16 @@ where
                         ..
                     } = f
                     {
-                        for crate::rules::evaluator::OwnedEvaluationReturnFrame::Old(old) in
-                            &frame.return_frames
-                        {
+                        if frame.return_frames.len() >= 2 {
+                            NESTED_RETURN_SUBMISSIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        for old in frame.return_frames.iter().filter_map(|entry| match entry {
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::Old(old) => {
+                                Some(old)
+                            }
+                            _ => None,
+                        }) {
                             OLD_ASSERTING_SUBMISSIONS[usize::from(old.kind != 0)]
                                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         }
@@ -4214,6 +4227,14 @@ mod thread_pool_tests {
                     "{failures:?}"
                 );
             }
+            if source.contains("// owned_return_tail_check") {
+                assert!(
+                    failures[0]
+                        .iter()
+                        .any(|error| error.full_id().contains("assertion.false")),
+                    "tail assertion error missing: {failures:?}"
+                );
+            }
             if source.contains("if (b) { label L; }") {
                 assert!(
                     failures[0]
@@ -5888,6 +5909,106 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
                     "no assert-probe job executed"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn real_stdio_nested_owned_return_stack() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let cases = [
+            (
+                "-(old(asserting (b ? acc(x.f) : acc(y.f)) in (b ? x.f : y.f)) + x.f)",
+                "b ? -18 : -19",
+            ),
+            (
+                "old(x.f) + -(old(asserting (b ? acc(x.f) : acc(y.f)) in (b ? x.f : y.f)))",
+                "b ? 0 : -1",
+            ),
+            (
+                "-(old[L](asserting (b ? acc(x.f) : acc(y.f)) in (b ? x.f : y.f))) + x.f",
+                "b ? 4 : 3",
+            ),
+            (
+                "old(-((asserting (b ? acc(x.f) : acc(y.f)) in (b ? x.f : y.f)) + x.f))",
+                "b ? -14 : -15",
+            ),
+            (
+                "(b ? 2 : 3) + -(old(asserting (b ? acc(x.f) : acc(y.f)) in 1))",
+                "b ? 1 : 2",
+            ),
+        ];
+        for workers in [1, 2] {
+            for (rhs, expected) in cases {
+                let source = format!(
+                    r#"field f: Int
+method good(b: Bool, x: Ref, y: Ref) returns (r: Int)
+  requires x != y && acc(x.f) && acc(y.f) && x.f == 7 && y.f == 8
+  ensures acc(x.f) && acc(y.f) && x.f == 11 && r == ({expected})
+{{ label L; x.f := 11; r := {rhs}; assert x.f == 11; assert r == ({expected}); }}
+method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
+  requires x != y && acc(x.f)
+{{ label L; r := {rhs}; }}
+"#
+                );
+                let submitted = NESTED_RETURN_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let executed = NESTED_RETURN_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    &source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(
+                    fatal.iter().filter(|value| **value).count(),
+                    1,
+                    "{rhs}, workers={workers}: {fatal:?}"
+                );
+                assert!(
+                    NESTED_RETURN_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > submitted,
+                    "no nested return submission: {rhs}"
+                );
+                assert!(
+                    NESTED_RETURN_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed,
+                    "no nested return execution: {rhs}"
+                );
+            }
+            let tail_source = r#"// owned_return_tail_check
+field f: Int
+method good(b: Bool, x: Ref, y: Ref) returns (r: Int)
+  requires x != y && acc(x.f) && acc(y.f) && x.f == 7 && y.f == 8
+{ r := -(old(asserting (b ? acc(x.f) : acc(y.f)) in (b ? x.f : y.f)) + x.f); assert true; }
+method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
+  requires x != y && acc(x.f) && acc(y.f) && x.f == 7 && y.f == 8
+{ r := -(old(asserting (b ? acc(x.f) : acc(y.f)) in (b ? x.f : y.f)) + x.f); assert false; }
+"#;
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                tail_source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert!(
+                fatal.iter().any(|value| *value),
+                "captured tail not executed: {fatal:?}"
+            );
         }
     }
 

@@ -2645,3 +2645,8 @@ role = "assembly"
 destination = "tests/native_adt_triggers.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "tests/native_owned_return_nesting.rs"
+status = "wired"
+role = "assembly"

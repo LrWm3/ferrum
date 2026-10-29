@@ -8614,8 +8614,7 @@ where
         receiver: &crate::rules::executor::OwnedAssignmentValue,
     ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
         use crate::rules::consumer::ConsumptionContext;
-        let old = matches!(rhs.kind(), ExpKind::Old(body) | ExpKind::LabelledOld(body, _) | ExpKind::DebugLabelledOld(body, _) if matches!(body.kind(), ExpKind::Asserting(..)));
-        if !(matches!(rhs.kind(), ExpKind::Asserting(..)) || old)
+        if !crate::rules::evaluator::has_owned_asserting_path(rhs)
             || !self.supports_owned_consumption(state)
         {
             return None;
@@ -8624,24 +8623,14 @@ where
             statement.clone(),
         ));
         Some(
-            (if old {
-                crate::rules::evaluator::evaluate_owned_old_asserting(
-                    self,
-                    state.clone(),
-                    rhs,
-                    &partial,
-                    receiver,
-                )
-            } else {
-                crate::rules::evaluator::evaluate_owned_asserting(
-                    self,
-                    state.clone(),
-                    rhs,
-                    &partial,
-                    receiver,
-                    vec![],
-                )
-            })
+            crate::rules::evaluator::evaluate_owned_nested(
+                self,
+                state.clone(),
+                rhs,
+                &partial,
+                receiver,
+                vec![],
+            )
             .map_err(|e| match e {
                 EvaluationError::Context(error) => ExecutionError::Context(error),
                 other => ExecutionError::Context(NativeError::Evaluation(format!(
@@ -12170,9 +12159,14 @@ where
                     ..
                 } = f
                 {
-                    for crate::rules::evaluator::OwnedEvaluationReturnFrame::Old(old) in
-                        &frame.return_frames
-                    {
+                    if frame.return_frames.len() >= 2 {
+                        super::verification_pool_manager::NESTED_RETURN_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    for old in frame.return_frames.iter().filter_map(|entry| match entry {
+                        crate::rules::evaluator::OwnedEvaluationReturnFrame::Old(old) => Some(old),
+                        _ => None,
+                    }) {
                         super::verification_pool_manager::OLD_ASSERTING_EXECUTIONS
                             [usize::from(old.kind != 0)]
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
