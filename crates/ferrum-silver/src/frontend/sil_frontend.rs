@@ -2742,6 +2742,28 @@ mod tests {
         );
     }
     #[test]
+    fn bad_field_receiver_does_not_hide_rhs_receiver_error() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse(
+                "field f: Int\nmethod m(i: Int) {\n  var x: Ref\n  x.f := x.f\n  i.f := i.f\n}\n",
+            )
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "found incompatible type `Int`, expected `Ref` (test.vpr@5.3--5.4)",
+                "found incompatible type `Int`, expected `Ref` (test.vpr@5.10--5.11)",
+            ]
+        );
+    }
+    #[test]
     fn forbidden_wands_report_each_source_expression() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));

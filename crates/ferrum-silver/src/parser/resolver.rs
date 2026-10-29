@@ -2984,6 +2984,23 @@ pub fn check_statement_core(
                 PNodeKind::Expression(e) => e.kind.clone(),
                 _ => return Err(TypeCheckError::Unsupported("assignment target")),
             };
+            let declared_field_type = match &target_kind {
+                PExpressionKind::FieldAccess { idnref, .. } => {
+                    let fields = super::parse_ast::PIdnRef::decls(
+                        idnref,
+                        |node| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Declaration(d) if matches!(d.kind, PDeclarationKind::Field { .. })),
+                    );
+                    if fields.len() == 1 {
+                        match &fields[0].read().expect("poisoned parse node").kind {
+                            PNodeKind::Declaration(d) => Some(d.typ.clone()),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
             let mut invalid_target = None;
             match target_kind {
                 PExpressionKind::IdnUse { idnref } => {
@@ -3060,7 +3077,21 @@ pub fn check_statement_core(
                 }
                 return Err(TypeCheckError::Mismatches(errors));
             }
-            let target_type = check_program_expression(target, None, &mut *warn)?;
+            let target_type = match check_program_expression(target, None, &mut *warn) {
+                Ok(typ) => typ,
+                Err(error) => {
+                    let Some(field_type) = declared_field_type else {
+                        return Err(error);
+                    };
+                    let mut errors = Vec::new();
+                    retain_type_mismatches(&mut errors, Err::<(), _>(error))?;
+                    retain_type_mismatches(
+                        &mut errors,
+                        check_program_expression(&rhs, Some(&field_type), &mut *warn),
+                    )?;
+                    return Err(TypeCheckError::Mismatches(errors));
+                }
+            };
             if check_new_fields(&rhs)? {
                 let reference = type_from_signature(&SignatureType::Ref);
                 if !is_subtype(&target_type, &reference) {
