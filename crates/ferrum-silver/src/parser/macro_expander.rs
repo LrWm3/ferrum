@@ -2472,6 +2472,11 @@ pub fn expand_global_expression_macros(
                     pos,
                 });
             }
+            // Arguments belong to the caller, not the expanded macro body. Expand
+            // them before entering this declaration so Q(Q(x)) is not recursive.
+            for arg in &args {
+                walk(arg.node(), definitions, stack, warnings, scope)?;
+            }
             let replacements = map_parameters_to_arguments(params, &args);
             let PDefineBody::Expression(body) = &def.body else {
                 return Err(MacroError {

@@ -979,3 +979,10 @@ remain separate work.
 Mapped counterexamples retain the raw current/old stores, domains and functions
 before presentation interpretation and renaming. This exposes the same values
 used by Prusti's JNI converter bridge; rendered native models remain unchanged.
+
+Source translation now validates triggers and direct quantified arguments in
+forperm expressions, rejecting upstream silver/0202 and silver/0817 before
+verification. Parsing rejects nested macro definitions while retaining method
+local macros; argument expansion distinguishes nested calls from recursive
+declarations (silver/0138 and silver/0209). Injected AST clients retain the
+source API boundary and do not run text-translation checks.

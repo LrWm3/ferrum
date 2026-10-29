@@ -88,6 +88,7 @@ pub fn parse_expression(
         file: file.as_ref().to_owned(),
         cursor: 0,
         warnings: Vec::new(),
+        in_macro_body: false,
         features: &[],
     };
     let result = parser.expression(0)?;
@@ -115,6 +116,7 @@ pub fn parse_type(source: &str, file: impl AsRef<Path>) -> Result<ParsedType, Sy
         file: file.as_ref().to_owned(),
         cursor: 0,
         warnings: Vec::new(),
+        in_macro_body: false,
         features: &[],
     };
     let typ = parser.typ()?;
@@ -236,6 +238,7 @@ fn parse_file_with_features(
         file: file.to_owned(),
         cursor: 0,
         warnings: Vec::new(),
+        in_macro_body: false,
         features,
     };
     let mut members = Vec::new();
@@ -481,6 +484,7 @@ struct ExpressionParser<'a> {
     cursor: usize,
     warnings: Vec<ParseWarning>,
     features: &'a [ParserFeature],
+    in_macro_body: bool,
 }
 
 impl ExpressionParser<'_> {
@@ -1228,6 +1232,11 @@ impl ExpressionParser<'_> {
         let end = self.identifier_end(start);
         let name = &self.source[start..end];
         if name == "define" {
+            if self.in_macro_body {
+                self.cursor = end;
+                self.trivia()?;
+                return Err(self.error("nested macro definitions are not allowed"));
+            }
             let member = self.member()?;
             let pos = member
                 .node()
@@ -1631,7 +1640,11 @@ impl ExpressionParser<'_> {
                         None
                     }
                 };
-                let body = if let Some(stmt) = self.statement_block()? {
+                let previous_macro_body = self.in_macro_body;
+                self.in_macro_body = true;
+                let statement_body = self.statement_block();
+                self.in_macro_body = previous_macro_body;
+                let body = if let Some(stmt) = statement_body? {
                     super::parse_ast::PDefineBody::Statement(stmt)
                 } else {
                     super::parse_ast::PDefineBody::Expression(self.expression(0)?)
@@ -3736,6 +3749,15 @@ fn is_keyword(name: &str) -> bool {
 mod tests {
     use super::*;
     #[test]
+    fn macro_body_rejects_nested_definition_but_methods_allow_local_macros() {
+        let error = parse_program("define outer { define inner {} }", "test.vpr").unwrap_err();
+        assert!(
+            error.message.contains("nested macro definitions"),
+            "{error:?}"
+        );
+        assert!(parse_program("method m() { define inner {} inner }", "test.vpr").is_ok());
+    }
+    #[test]
     fn assignment_and_call_spans_exclude_trailing_trivia() {
         for (source, end_column) in [
             ("  x := 1 / 0 // trailing\n  next()", 13),
@@ -3747,6 +3769,7 @@ mod tests {
                 file: "test.vpr".into(),
                 cursor: 0,
                 warnings: vec![],
+                in_macro_body: false,
                 features: &[],
             };
             let first = parser.statement().unwrap();

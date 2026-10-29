@@ -712,7 +712,65 @@ impl FrontendPhases for SilFrontendPhases {
             )
         });
         drop(original_for_resolution);
-        result
+        let program = result?;
+        // Silver Translator.translate checks triggers on the completed AST before
+        // it returns the translated program, independently of later consistency.
+        let errors = std::cell::RefCell::new(Vec::new());
+        let failure = std::cell::RefCell::new(None);
+        let root = crate::ast::utility::nodes::Node::Program(program.clone());
+        let walk = crate::ast::utility::nodes::visit_check_products(&root, &|node| {
+            if let crate::ast::utility::nodes::Node::Trigger(trigger) = node {
+                match crate::ast::utility::consistency::check_triggers(trigger, &program, &|t| {
+                    crate::ast::pretty::pretty_printer::pretty_node(
+                        &crate::ast::utility::nodes::Node::Trigger(t.clone()),
+                    )
+                }) {
+                    Ok(mut found) => errors.borrow_mut().append(&mut found),
+                    Err(error) => {
+                        *failure.borrow_mut() = Some(format!("{error:?}"));
+                        return Err(
+                            crate::verifier::verification_result::DiagnosticError::Unsupported(
+                                "trigger validation",
+                            ),
+                        );
+                    }
+                }
+            }
+            if let crate::ast::utility::nodes::Node::Exp(exp) = node {
+                if matches!(exp.kind(), crate::ast::expression::ExpKind::ForPerm(..)) {
+                    match crate::ast::utility::consistency::check_for_perm_arguments(exp, &program)
+                    {
+                        Ok(mut found) => errors.borrow_mut().append(&mut found),
+                        Err(error) => {
+                            *failure.borrow_mut() = Some(format!("{error:?}"));
+                            return Err(
+                                crate::verifier::verification_result::DiagnosticError::Unsupported(
+                                    "forperm validation",
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+            Ok(node.clone())
+        });
+        if let Some(error) = failure.into_inner() {
+            return Err(Self::failure(
+                format!("translation validation: {error}"),
+                program.meta.position.clone(),
+            ));
+        }
+        if let Err(error) = walk {
+            return Err(Self::failure(
+                format!("translation validation traversal: {error:?}"),
+                program.meta.position.clone(),
+            ));
+        }
+        let errors = errors.into_inner();
+        if !errors.is_empty() {
+            return Err(errors.into_iter().map(AbstractError::Frontend).collect());
+        }
+        Ok(program)
     }
     fn check_consistency(&mut self, input: Program) -> Result<Program, Vec<AbstractError>> {
         use crate::ast::pretty::pretty_printer::{
@@ -2716,6 +2774,65 @@ method chainParen2(i1: Int, i2: Int, i3: Int, i4: Int)
         ));
     }
 
+    #[test]
+    fn forperm_requires_direct_quantified_resource_argument() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("field f: Ref field g: Int method m() ensures [true, (forperm x: Ref [x.f.g] :: true)]")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let errors = phases.translate(analyzed).unwrap_err();
+        assert!(
+            errors.iter().any(|e| e
+                .readable_message()
+                .unwrap()
+                .contains("Quantified arguments can only be used directly")),
+            "{errors:?}"
+        );
+        let parsed = phases
+            .parse("field f: Int method m() ensures [true, (forperm x: Ref [x.f] :: true)]")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        phases.translate(analyzed).unwrap();
+    }
+    #[test]
+    fn invalid_arithmetic_trigger_is_rejected_before_verification() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("method m() { assert (forall i: Int :: {i+1} true) }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let errors = phases.translate(analyzed).unwrap_err();
+        let mut valid =
+            SilFrontendPhases::new(PathBuf::from("valid.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = valid.parse("domain D { function f(i: Int): Int } method m() { assert (forall i: Int :: {f(i)} true) }").unwrap();
+        let analyzed = valid.analyze(parsed).unwrap();
+        valid.translate(analyzed).unwrap();
+        assert!(
+            errors.iter().any(|e| e
+                .readable_message()
+                .unwrap()
+                .contains("is not a valid Trigger")),
+            "{errors:?}"
+        );
+    }
+    #[test]
+    fn nested_macro_arguments_are_not_declaration_recursion() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("domain D { function f(b: Bool, i: Int): Bool } define Q(b) forall i: Int :: f(b, i) method m(c: Bool) { assume Q(Q(c)) }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        phases.translate(analyzed).unwrap();
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        assert!(
+            phases
+                .parse("define Q(b) Q(b) method m(c: Bool) { assume Q(c) }")
+                .is_err()
+        );
+    }
     #[test]
     fn unfolding_predicate_expression_reaches_consistency() {
         let source = "field f: Int predicate p(x: Ref) { acc(x.f) } function value(x: Ref): Int requires acc(p(x)) { unfolding acc(p(x)) in x.f }";
