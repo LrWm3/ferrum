@@ -26099,7 +26099,7 @@ mod queued_cfg_isolation_tests {
             standard_plugin_manager(&SilFrontendConfig::new("test")).unwrap(),
         );
         let parsed = phases
-            .parse("domain D { function f(): Int } predicate P() { true } function g(): Int requires true { 1 } method unrelated() { assert f() == 0; }")
+            .parse("domain D { function f(): Int function h(x: Int): Int } predicate P() { true } function g(): Int requires true { 1 } method unrelated() { assert f() == 0; }")
             .unwrap();
         let analyzed = phases.analyze(parsed).unwrap();
         let program = phases.translate(analyzed).unwrap();
@@ -26154,6 +26154,17 @@ mod queued_cfg_isolation_tests {
         let requirement = factory.equals(factory.app(applicable, vec![]), factory.int_literal(0));
         source
             .broadcast(WorkerPreambleCommand::Declare(declaration.clone()))
+            .unwrap();
+        let h_applicable = source
+            .context
+            .base
+            .symbol_converter
+            .domain_function(&analysis.program.domains[0].functions[1], &analysis.program)
+            .unwrap();
+        source
+            .broadcast(WorkerPreambleCommand::Declare(
+                factory.function_decl(h_applicable),
+            ))
             .unwrap();
         let empty_snapshot = BranchTransferSnapshot::capture(&source.context.base.decider, 0);
         source.context.base.decider.push_scope().unwrap();
@@ -27635,6 +27646,101 @@ mod queued_cfg_isolation_tests {
             );
             assert_eq!(waited.get(), 0);
         }
+        source.context.base.decider.push_scope().unwrap();
+        // Compare Let debug reconstruction and trigger substitution at the assignment boundary.
+        // The injected scheduler is enabled, but the true assertion submits no sibling.
+        {
+            use crate::rules::evaluator::{
+                test_capture_let_debug, test_capture_old_returns, test_old_return_snapshot,
+            };
+            let decl = ferrum_silver::ast::program::LocalVarDecl::new(
+                "let_debug".into(),
+                ferrum_silver::ast::r#type::Type::Int,
+                Default::default(),
+            );
+            let local = Exp::new(ExpKind::LocalVar(decl.local_var()), Default::default());
+            let literal = Exp::new(ExpKind::IntLit(4.into()), Default::default());
+            let value = Exp::new(
+                ExpKind::Asserting(
+                    Exp::new(ExpKind::TrueLit, Default::default()),
+                    literal.clone(),
+                ),
+                Default::default(),
+            );
+            let body = Exp::with_extra(
+                ExpKind::DomainFuncApp("h".into(), vec![local.clone()], Default::default()),
+                Default::default(),
+                ferrum_silver::ast::expression::ExpExtra {
+                    typ: Some(ferrum_silver::ast::r#type::Type::Int),
+                    domain_name: Some("D".into()),
+                    ..Default::default()
+                },
+            );
+            let rhs = Exp::new(
+                ExpKind::Let(decl, value.clone(), body.clone()),
+                Default::default(),
+            );
+            let mut input = state.clone();
+            input.under_join = false;
+            input.parallelize_branches = true;
+            input.method_cfg = Some(Arc::new(cfg.clone()));
+            input.record_possible_triggers = true;
+            source.context.evaluator_debug_for_test = true;
+            source.context.joined_branch_scheduler_enabled = false;
+            let mut baseline = Vec::new();
+            crate::rules::evaluator::evaluate(
+                &mut source.context,
+                input.clone(),
+                &rhs,
+                &partial,
+                &mut |_, state, _, debug| {
+                    baseline.push((test_old_return_snapshot(&state), debug));
+                    Ok(VerificationResult::success())
+                },
+            )
+            .unwrap();
+            let waited = std::rc::Rc::new(std::cell::Cell::new(0));
+            source.context.joined_branch_scheduler_enabled = true;
+            source.context.joined_branch_scheduler = Some(std::rc::Rc::new(OldProbe {
+                waited: waited.clone(),
+                cancellation: None,
+                kind: 0,
+                capture: None,
+            }));
+            let mut let_receiver = receiver.clone();
+            let_receiver.rhs = rhs.clone();
+            test_capture_old_returns(true);
+            test_capture_let_debug(true);
+            let result = crate::rules::evaluator::evaluate_owned_nested(
+                &mut source.context,
+                input,
+                &rhs,
+                &partial,
+                &let_receiver,
+                vec![],
+            )
+            .unwrap();
+            let owned = test_capture_old_returns(false);
+            let debug = test_capture_let_debug(false);
+            assert!(!result.is_fatal(), "{result:?}");
+            assert_eq!(baseline.len(), 1);
+            assert_eq!(owned.len(), 1);
+            assert_eq!(debug, vec![baseline[0].1.clone()]);
+            assert!(debug[0].is_some());
+            assert_eq!(owned[0].triggers, baseline[0].0.triggers);
+            let substituted = ferrum_silver::ast::utility::rewriter::strategy::replace_expressions(
+                &body,
+                &[(local, value)],
+            )
+            .unwrap();
+            assert!(
+                owned[0].triggers.get(&substituted).is_some(),
+                "substituted trigger missing"
+            );
+            assert_eq!(waited.get(), 0);
+            source.context.evaluator_debug_for_test = false;
+        }
+        source.context.base.decider.pop_scope().unwrap();
         // Capture a real AssertProbe consumption job using the same source Q.
         let captured_probe = std::rc::Rc::new(std::cell::RefCell::new(None));
         let waited = std::rc::Rc::new(std::cell::Cell::new(0));

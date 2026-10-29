@@ -301,8 +301,10 @@ debug reconstruction and returned store binding. Actual one/two-worker tests
 cover transfers from both value and body, nested distinct binders, an existing
 outer local, old/current heaps and permission failures before the caller tail.
 An internal-only test checks an existing identical store key; pinned Silver
-rejects duplicate source binder names. Let-specific trigger recording and debug
-reconstruction have static source comparison, not independent runtime fixtures.
+rejects duplicate source binder names. An additional real-Z3 fixture compares Let trigger substitution and reconstructed
+debug expressions with the ordinary evaluator. Its scheduler is injected and a
+true assertion submits no sibling; the actual worker tests cover transfer
+separately.
 A LetBody receiver cancellation probe checks typed cancellation and pool draining
 after sibling submission, without claiming sibling execution or direct parent
 solver-state inspection at that hook.

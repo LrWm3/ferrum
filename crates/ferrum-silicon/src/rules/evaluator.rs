@@ -1404,6 +1404,11 @@ pub(crate) fn test_old_return_snapshot<P, D, J>(state: &State<P, D, J>) -> OldRe
 #[cfg(test)]
 thread_local! {
     static OLD_RETURN_SNAPSHOTS: std::cell::RefCell<Option<Vec<OldReturnSnapshot>>> = const { std::cell::RefCell::new(None) };
+    static LET_DEBUG_VALUES: std::cell::RefCell<Option<Vec<Option<Exp>>>> = const { std::cell::RefCell::new(None) };
+}
+#[cfg(test)]
+pub(crate) fn test_capture_let_debug(enabled: bool) -> Vec<Option<Exp>> {
+    LET_DEBUG_VALUES.with(|slot| slot.replace(enabled.then(Vec::new)).unwrap_or_default())
 }
 #[cfg(test)]
 pub(crate) fn test_capture_old_returns(enabled: bool) -> Vec<OldReturnSnapshot> {
@@ -1792,6 +1797,12 @@ where
     OLD_RETURN_SNAPSHOTS.with(|slot| {
         if let Some(snapshots) = slot.borrow_mut().as_mut() {
             snapshots.push(test_old_return_snapshot(&state));
+        }
+    });
+    #[cfg(test)]
+    LET_DEBUG_VALUES.with(|slot| {
+        if let Some(values) = slot.borrow_mut().as_mut() {
+            values.push(debug.clone());
         }
     });
     #[cfg(test)]

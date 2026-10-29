@@ -1174,3 +1174,8 @@ tasks isolate and drain it. Reporter errors retain their structural native type
 before the existing formatted public API boundary. Real-Z3 main/worker warning
 and rejection tests, repeated runs and INFO/ERROR checks pass. Captured-branch
 replay remains a separate check; trigger positions and broader parity are open.
+
+A Let-specific real-Z3 regression compares owned and ordinary trigger maps and
+reconstructed debug expressions, including substitution of the source value for
+the bound local. This uses an injected scheduler without submitting a sibling;
+separate tests establish actual worker transfers.
