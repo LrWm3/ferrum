@@ -1916,6 +1916,9 @@ pub struct NativeJoinOutput<
 static CFG_JOIN_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+static CFG_JOIN_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
 pub(crate) static CONTINUATION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -3279,6 +3282,10 @@ where
     S::Error: std::fmt::Debug,
 {
     if let NativeWorkerTarget::Join(job) = task.target {
+        #[cfg(test)]
+        if matches!(&job.action, NativeJoinAction::Cfg(_)) {
+            CFG_JOIN_TEST_EXECUTIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
         return context
             .verify_worker_join(&task.analysis, *job)
             .map(NativeWorkerOutput::Join);
@@ -4735,6 +4742,14 @@ mod thread_pool_tests {
         let worker_options = native_options.clone();
         let worker_config = config.clone();
         let worker_make = make.clone();
+        let test_member_root = source.contains("// member_log_reuse").then(|| {
+            std::sync::Arc::new(crate::logger::symb_ex_logger::NativeSymbExLogger::Enabled(
+                crate::logger::symb_ex_logger::SymbExLog::new(
+                    crate::logger::log_config::LogConfig::default(),
+                ),
+            ))
+        });
+        let worker_member_root = test_member_root.clone();
         let pool = ThreadVerificationPool::start(workers, move |id| {
             let name = format!("worker-{id}");
             let (prover, identifiers) = worker_make(name.clone(), worker_factory.clone());
@@ -4747,6 +4762,14 @@ mod thread_pool_tests {
                 &worker_config,
             );
             worker.context.joined_branch_scheduler_enabled = cfg_scheduler;
+            if let Some(root) = &worker_member_root {
+                worker.context.set_logging_root(
+                    Some(root.clone()),
+                    Some(std::rc::Rc::new(
+                        crate::logger::records::data::data_record::FullStateRecordFactory,
+                    )),
+                );
+            }
             Ok(worker)
         })
         .unwrap();
@@ -4870,7 +4893,7 @@ mod thread_pool_tests {
         };
         let program = if standalone_cfg {
             program.copy_with(|data| {
-                if source.contains("// manual_") {
+                if source.contains("// manual_") || source.contains("// member_log_reuse") {
                     data.methods.retain(|method| method.name == "scaffold");
                 } else {
                     data.methods.clear();
@@ -5019,6 +5042,12 @@ mod thread_pool_tests {
             drop(reports);
         }
         let fatal = results.iter().map(|result| result.is_fatal()).collect();
+        if let Some(root) = test_member_root {
+            let logs = root.logs().unwrap();
+            assert_eq!(logs.len(), 1, "expected the completed scaffold member log");
+            let records = logs[0].records().unwrap();
+            assert!(records.last().is_some_and(|record| record.as_any().is::<crate::logger::records::scoping::close_scope_record::CloseScopeRecord>()), "retained member log has no closing record");
+        }
         drop(context);
         std::rc::Rc::try_unwrap(pool)
             .ok()
@@ -11591,6 +11620,42 @@ method bad(b: Bool, c: Bool, x: Ref, y: Ref) returns (r: Int)
                 );
             }
         }
+    }
+
+    #[test]
+    fn completed_member_log_does_not_block_reused_worker_cfg_jobs() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let before = CFG_JOIN_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+        let executed = CFG_JOIN_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+        let (fatal, _) = run_parallel_source_with_warnings(
+            "// member_log_reuse\nmethod scaffold() { assert true; } method good() { var b: Bool; if (b) { assert true; } else { assert true; } assert true; } method bad() { var b: Bool; if (b) { assert false; } else { assert true; } assert true; }",
+            1,
+            make,
+            true,
+            true,
+        );
+        assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1);
+        assert!(
+            CFG_JOIN_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > before,
+            "reused worker did not submit a CFG join job"
+        );
+        assert!(
+            CFG_JOIN_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed,
+            "reused worker did not execute a CFG join job"
+        );
     }
 
     #[test]

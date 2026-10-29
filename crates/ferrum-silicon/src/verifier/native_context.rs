@@ -1033,10 +1033,16 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         self.rebind_decider_logging();
         Ok(())
     }
-    fn close_member_log(&self) -> Result<(), NativeError<S::Error>> {
+    fn close_member_log(&mut self) -> Result<(), NativeError<S::Error>> {
         if let Some(log) = &self.member_log {
             log.close_member_scope()
                 .map_err(|error| NativeError::Diagnostic(format!("symbolic logging: {error:?}")))?;
+            // The run root retains completed member logs independently.  Release
+            // this worker's active handle only after the close succeeds so later
+            // jobs can schedule owned continuations and never write into a
+            // completed member's log.
+            self.member_log = None;
+            self.rebind_decider_logging();
         }
         Ok(())
     }
@@ -28139,6 +28145,52 @@ where
 
 #[cfg(test)]
 mod worker_analysis_contract_tests {
+    #[test]
+    fn failed_member_log_close_keeps_the_active_handle() {
+        use super::*;
+        use crate::{
+            config::Config,
+            decider::z3_prover_std_io,
+            logger::{
+                log_config::LogConfig,
+                symb_ex_logger::{LogMode, MemberSymbExLog},
+            },
+            state::terms::TermOptions,
+            verifier::verification_pool_manager::native_method_worker,
+        };
+        let config = Config::default();
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let prover = z3_prover_std_io::new(
+            "member-close".into(),
+            z3_prover_std_io::settings("z3".into()),
+            factory.clone(),
+            |_| {},
+        );
+        let identifiers = prover.identifier_factory();
+        let mut worker = native_method_worker(
+            "member-close".into(),
+            prover,
+            identifiers,
+            factory,
+            NativeOptions::from_config(&config).unwrap(),
+            &config,
+        );
+        let log = Arc::new(MemberSymbExLog::new(
+            LogMode::Recording,
+            LogConfig::default(),
+            Arc::new(std::sync::atomic::AtomicI32::new(0)),
+        ));
+        worker.context.set_member_logging(Some(log.clone()), None);
+        assert!(worker.context.close_member_log().is_err());
+        assert!(Arc::ptr_eq(
+            worker.context.member_log.as_ref().unwrap(),
+            &log
+        ));
+    }
     #[test]
     #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
     fn debug_failure_snapshot_survives_scope_cleanup() {
