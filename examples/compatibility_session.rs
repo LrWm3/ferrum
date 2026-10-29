@@ -48,6 +48,18 @@ fn emit(path: &str, phase: &str, outcome: &str, errors: Vec<AbstractError>, warn
         json!({"case":path,"phase":phase,"outcome":outcome,"errors":errors,"warnings":warnings})
     );
 }
+fn worker_options(options: &[String]) -> Vec<String> {
+    let mut result = Vec::new();
+    if !options.iter().any(|option| {
+        option == "--numberOfParallelVerifiers"
+            || option.starts_with("--numberOfParallelVerifiers=")
+    }) {
+        result.extend(["--numberOfParallelVerifiers".into(), "1".into()]);
+    }
+    result.extend_from_slice(options);
+    result
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     assert!(args.len() >= 2, "z3 path, then input files required");
@@ -57,8 +69,8 @@ fn main() {
         .expect("flags must be followed by -- and inputs");
     assert!(separator + 1 < args.len(), "missing input");
     std::thread::Builder::new().stack_size(ferrum::VERIFICATION_STACK_SIZE).spawn(move || {
-        let mut options = vec!["--z3Exe".to_string(), args[0].clone(), "--disableCaches".into(), "--numberOfParallelVerifiers".into(), "1".into()];
-        options.extend_from_slice(&args[1..separator]); options.push(args[separator + 1].clone());
+        let mut options = vec!["--z3Exe".to_string(), args[0].clone(), "--disableCaches".into()];
+        options.extend(worker_options(&args[1..separator])); options.push(args[separator + 1].clone());
         let config = Config::parse(&options).unwrap();
         let mut session = Session::new(config.clone()).unwrap();
         'cases: for path in &args[separator + 1..] {
@@ -97,4 +109,32 @@ fn main() {
         }
         if let Err(error) = session.stop() { println!("@@COMPAT@@{}", json!({"outcome":"cleanup_error","message":error.to_string()})); }
     }).unwrap().join().unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn worker_default_does_not_duplicate_explicit_options() {
+        let cases = [
+            vec![],
+            vec!["--numberOfParallelVerifiers", "2"],
+            vec!["--numberOfParallelVerifiers=2"],
+        ];
+        for (index, args) in cases.into_iter().enumerate() {
+            let args: Vec<String> = args.into_iter().map(str::to_owned).collect();
+            let mut actual = worker_options(&args);
+            actual.push("tests/fixtures/termination_function_spec_order.vpr".into());
+            assert_eq!(
+                Config::parse(&actual).unwrap().number_of_parallel_verifiers,
+                if index == 0 { 1 } else { 2 }
+            );
+        }
+        let duplicate = vec![
+            "--numberOfParallelVerifiers".into(),
+            "1".into(),
+            "--numberOfParallelVerifiers=2".into(),
+        ];
+        assert_eq!(worker_options(&duplicate), duplicate);
+    }
 }

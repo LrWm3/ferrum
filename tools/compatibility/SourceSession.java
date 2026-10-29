@@ -30,15 +30,24 @@ public final class SourceSession {
         }
         return b.append('"').toString();
     }
+    static ArrayList<String> workerOptions(java.util.List<String> caller) {
+        ArrayList<String> result = new ArrayList<>();
+        if (caller.stream().noneMatch(s -> s.equals("--numberOfParallelVerifiers") || s.startsWith("--numberOfParallelVerifiers="))) {
+            result.add("--numberOfParallelVerifiers"); result.add("1");
+        }
+        result.addAll(caller);
+        return result;
+    }
     public static void main(String[] args) {
         if (args.length < 2) throw new IllegalArgumentException("z3 path, then input files required");
         CaptureReporter reporter = new CaptureReporter();
         SiliconFrontend f = new SiliconFrontend(reporter, SiliconFrontend.$lessinit$greater$default$2());
         ArrayList<String> opts = new ArrayList<>();
         opts.add("--z3Exe"); opts.add(args[0]); opts.add("--disableCaches");
-        opts.add("--numberOfParallelVerifiers"); opts.add("1");
         int separator = 1;
-        while (separator < args.length && !args[separator].equals("--")) opts.add(args[separator++]);
+        ArrayList<String> caller = new ArrayList<>();
+        while (separator < args.length && !args[separator].equals("--")) caller.add(args[separator++]);
+        opts.addAll(workerOptions(caller));
         if (separator + 1 >= args.length) throw new IllegalArgumentException("flags must be followed by -- and input files");
         int firstInput = separator + 1;
         opts.add(args[firstInput]);

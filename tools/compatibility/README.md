@@ -23,8 +23,12 @@ python3 tools/compatibility/run_session.py --timeout 120 --output source.json --
 Build an immutable repository snapshot with `cargo build --locked --example
 compatibility_session` and a distinct `CARGO_TARGET_DIR`. Invoke the resulting
 example with the same Z3 path, shared options, `--` separator and files using
-`run_session.py`. Both drivers use Z3, cache-disabled, one-worker defaults;
-subsequent shared flags may override the latter. Source exceptions and unknown
+`run_session.py`. Both drivers use Z3 and disable caches. They add a one-worker
+default only when the caller supplies no `--numberOfParallelVerifiers` option;
+the split and `=value` forms are supported. Caller arguments are retained in
+order, including duplicates. The pinned source rejects duplicate worker options;
+the native config currently takes the last value, so do not use duplicates for
+paired runs. Source exceptions and unknown
 result variants stop the session; recovery after exceptions is not asserted.
 
 The tooling was checked and built over `dc2b014`, whose backend code is
@@ -111,3 +115,15 @@ descendants may survive this exceptional path. Six orchestration checks exercise
 record coverage, malformed envelopes, retry accounting, reporting differences,
 artifact binding and addition of an ignored source resource. The corpus itself
 has not yet been run at this checkpoint.
+
+The source worker-option checks use the pinned jar and do not start a solver:
+
+```sh
+mkdir -p /tmp/ferrum-worker-config-classes
+/tmp/ferrum-jdk17/bin/javac -cp /tmp/ferrum-reference-silicon/target/scala-2.13/silicon.jar -d /tmp/ferrum-worker-config-classes tools/compatibility/SourceSession.java tools/compatibility/WorkerConfigTest.java
+/tmp/ferrum-jdk17/bin/java -cp /tmp/ferrum-worker-config-classes:/tmp/ferrum-reference-silicon/target/scala-2.13/silicon.jar WorkerConfigTest tests/fixtures/termination_function_spec_order.vpr
+```
+
+The broad `parallel_examples` group supplies `--parallelizeBranches` and an
+explicit two-worker option; shared corpus settings must not duplicate it. A
+separate targeted two-worker profile should also enable branch parallelism.
