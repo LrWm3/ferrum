@@ -873,6 +873,27 @@ mod tests {
         assert!(manual.validate().is_ok());
     }
     #[test]
+    fn source_logging_profiles_reject_parallel_branches() {
+        let error = parse(&["--ideModeAdvanced", "--parallelizeBranches"]).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Option ideModeAdvanced is not supported in combination with parallelizeBranches"
+        );
+        let error = parse(&["--reportStateAfter", "1", "--parallelizeBranches"]).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Option reportStateAfter is not supported in combination with parallelizeBranches"
+        );
+        let error = parse(&["--reportStateAfter", "0", "--parallelizeBranches"]).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Option reportStateAfter must be positive, but 0 was provided"
+        );
+        assert!(parse(&["--parallelizeBranches"]).is_ok());
+        assert!(parse(&["--ideModeAdvanced", "--parallelizeBranches=false"]).is_ok());
+        assert!(parse(&["--reportStateAfter", "1"]).is_ok());
+    }
+    #[test]
     fn preserves_timeout_precedence_and_supplied_defaults() {
         let config = parse(&[
             "--proverArgs",
