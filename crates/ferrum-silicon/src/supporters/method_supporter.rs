@@ -136,7 +136,7 @@ pub trait MethodVerificationServices<P, D, J, V>: Sized {
         _state: &State<P, D, J>,
         _assertions: &[Exp],
         _method: &Method,
-        _terminal: &crate::rules::producer::OwnedProductionTerminal,
+        _terminal: &crate::rules::producer::OwnedProductionTerminal<P, D>,
     ) -> Option<Result<VerificationResult<V>, MethodVerificationError<Self::Error>>> {
         None
     }

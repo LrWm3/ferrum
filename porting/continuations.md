@@ -112,11 +112,20 @@ or preservation failures. A deterministic cooperative test checks collector and
 solver restoration when an unrelated phase job executes on the same worker.
 Disabled scheduling does not allocate or clone the new establishment frame.
 
-Expression Unfolding and further value-returning callbacks remain synchronous
-pending explicit frames. Active member logging, packaging and extended exhale
-still disable owned dispatch. Generic borrowed callback entry points remain
-local; source-eligible parallelism is enabled only where an exact owned terminal
-or collector represents Q.
+Cached and uncached expression Unfolding now carry an explicit value-producing
+frame through predicate-tree and producer jobs. Each leaf restores the source
+store, recorder depth, scaling and cycle state, evaluates the expression body,
+and returns state/term/debug/path data to the original identified join collector.
+The owner replays declarations before merging returned entries. Real Z3 checks
+exercise both profiles and reject the expected bad postcondition while preserving
+the predicate resource and valid branch values.
+
+Function application, asserting expressions and further value-returning callbacks
+remain synchronous pending explicit frames. Active member logging, packaging and
+extended exhale still disable owned dispatch. Generic borrowed callback entry
+points remain local; parallelism is enabled only where an exact owned terminal
+or collector represents Q. Direct evaluator branches explicitly disable
+parallelism upstream and keep that behavior.
 
 Packaging proof scripts and joined consumer branches explicitly disable branch
 parallelism upstream (MagicWandSupporter.scala and Consumer.scala). Their local

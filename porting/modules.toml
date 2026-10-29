@@ -1730,14 +1730,14 @@ repository = "silicon"
 upstream = "src/main/scala/rules/PredicateSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/predicate_supporter.rs"
 status = "skeleton"
-remaining = ["Owned fold and cached/uncached statement unfold retain caller continuations. Expression Unfolding, logging and broader compatibility remain."]
+remaining = ["Owned fold, cached/uncached statement unfold and expression Unfolding return exact caller/collector results. Active logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/Producer.scala"
 destination = "crates/ferrum-silicon/src/rules/producer.rs"
 status = "skeleton"
-remaining = ["Owned inhale, method/call contracts, uncached statement unfold and loop collection carry exact terminals. Expression receivers, active logging and broader compatibility remain."]
+remaining = ["Typed owned production covers statement/method/loop callers and uncached expression Unfolding. Additional expression receivers, active logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"

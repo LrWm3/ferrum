@@ -77,6 +77,46 @@ pub struct OwnedUnfoldFinish {
     pub tail: crate::rules::executor::CfgStatementTail,
 }
 
+/// Owned reference to the existing outer unfolding join collector.
+pub struct OwnedUnfoldJoin<P, D> {
+    pub initial: State<P, D, crate::config::JoinMode>,
+    pub mark: crate::decider::path_conditions::Mark,
+    pub collector_id: Arc<()>,
+}
+
+/// Exact value-producing continuation of a cached predicate unfolding join.
+pub struct OwnedUnfoldEvaluation<P, D> {
+    pub initial: State<P, D, crate::config::JoinMode>,
+    pub outer_store: Arc<crate::state::store::MapBackedStore>,
+    pub outer_record_visited: bool,
+    pub outer_scaling: Term,
+    pub outer_scaling_exp: Option<Exp>,
+    pub old_arps:
+        crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<Term>,
+    pub predicate: Predicate,
+    pub body: Exp,
+    pub error: ferrum_silver::verifier::verification_error::PartialVerificationError,
+    pub mark: crate::decider::path_conditions::Mark,
+    pub collector_id: Arc<()>,
+}
+impl<P, D> Clone for OwnedUnfoldEvaluation<P, D> {
+    fn clone(&self) -> Self {
+        Self {
+            initial: self.initial.clone(),
+            outer_store: self.outer_store.clone(),
+            outer_record_visited: self.outer_record_visited,
+            outer_scaling: self.outer_scaling.clone(),
+            outer_scaling_exp: self.outer_scaling_exp.clone(),
+            old_arps: self.old_arps.clone(),
+            predicate: self.predicate.clone(),
+            body: self.body.clone(),
+            error: self.error.clone(),
+            mark: self.mark,
+            collector_id: self.collector_id.clone(),
+        }
+    }
+}
+
 pub trait PredicateExecutionServices<P, D, J, V>: Sized {
     type Error;
     type VerificationError;
@@ -718,6 +758,24 @@ pub trait PredicateTreeServices<P, D, V>:
         ),
         Self::Error,
     >;
+    fn try_branch_owned_predicate_evaluation(
+        &mut self,
+        _state: &State<P, D, crate::config::JoinMode>,
+        _condition: &Term,
+        _condition_exp: &(Exp, Option<Exp>),
+        _yes: PredicateContentsAction,
+        _no: PredicateContentsAction,
+        _frame: &OwnedUnfoldEvaluation<P, D>,
+    ) -> Option<Result<VerificationResult<V>, PredicateExecutionError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_predicate_evaluation(
+        &mut self,
+        _state: State<P, D, crate::config::JoinMode>,
+        _frame: &OwnedUnfoldEvaluation<P, D>,
+    ) -> Option<Result<VerificationResult<V>, PredicateExecutionError<Self::Error>>> {
+        None
+    }
     fn try_branch_owned_predicate_contents(
         &mut self,
         _state: &State<P, D, crate::config::JoinMode>,
@@ -803,9 +861,38 @@ pub(crate) fn execute_owned_predicate_contents_action<
         &action.replacements,
         action.is_unfolding,
         Some(finish),
+        None,
         &mut |context, state| {
             context
                 .finish_owned_unfold(state, finish)
+                .ok_or(PredicateExecutionError::OwnedSchedulerUnavailable)?
+        },
+    )
+}
+
+pub(crate) fn execute_owned_predicate_evaluation_action<
+    P,
+    D: Clone,
+    V,
+    C: PredicateTreeServices<P, D, V>,
+>(
+    context: &mut C,
+    state: State<P, D, crate::config::JoinMode>,
+    action: &PredicateContentsAction,
+    frame: &OwnedUnfoldEvaluation<P, D>,
+) -> Result<VerificationResult<V>, PredicateExecutionError<C::Error>> {
+    produce_predicate_contents_with_owned_finish(
+        &action.factory,
+        context,
+        state,
+        &action.tree,
+        &action.replacements,
+        action.is_unfolding,
+        None,
+        Some(frame),
+        &mut |context, state| {
+            context
+                .finish_owned_predicate_evaluation(state, frame)
                 .ok_or(PredicateExecutionError::OwnedSchedulerUnavailable)?
         },
     )
@@ -836,6 +923,7 @@ pub fn produce_predicate_contents<P, D: Clone, V, C: PredicateTreeServices<P, D,
         replacements,
         is_unfolding,
         None,
+        None,
         continuation,
     )
 }
@@ -852,6 +940,7 @@ pub fn produce_predicate_contents_with_owned_finish<
     replacements: &std::collections::HashMap<Term, Term>,
     is_unfolding: bool,
     owned_finish: Option<&OwnedUnfoldFinish>,
+    owned_evaluation: Option<&OwnedUnfoldEvaluation<P, D>>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, crate::config::JoinMode>,
@@ -926,6 +1015,30 @@ pub fn produce_predicate_contents_with_owned_finish<
                 .map_err(PredicateExecutionError::Transform)?;
             let join = !is_unfolding && state.more_joins != crate::config::JoinMode::Off;
             if !join {
+                if let Some(frame) = owned_evaluation {
+                    let yes = PredicateContentsAction {
+                        factory: factory.clone(),
+                        tree: (**left).clone(),
+                        replacements: replacements.clone(),
+                        is_unfolding,
+                    };
+                    let no = PredicateContentsAction {
+                        factory: factory.clone(),
+                        tree: (**right).clone(),
+                        replacements: replacements.clone(),
+                        is_unfolding,
+                    };
+                    if let Some(result) = context.try_branch_owned_predicate_evaluation(
+                        &state,
+                        &condition,
+                        condition_exp,
+                        yes,
+                        no,
+                        frame,
+                    ) {
+                        return result;
+                    }
+                }
                 if let Some(finish) = owned_finish {
                     let yes = PredicateContentsAction {
                         factory: factory.clone(),

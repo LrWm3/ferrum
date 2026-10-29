@@ -1794,6 +1794,10 @@ pub enum NativeJoinAction<
 > {
     Cfg(crate::rules::executor::CfgJoinBranch),
     Predicate(crate::rules::predicate_supporter::PredicateContentsAction),
+    PredicateEvaluation {
+        action: crate::rules::predicate_supporter::PredicateContentsAction,
+        frame: crate::rules::predicate_supporter::OwnedUnfoldEvaluation<PD, FD>,
+    },
     PredicateContinuation {
         action: crate::rules::predicate_supporter::PredicateContentsAction,
         finish: crate::rules::predicate_supporter::OwnedUnfoldFinish,
@@ -1803,6 +1807,8 @@ pub enum NativeJoinAction<
         crate::rules::producer::OwnedProductionAction<
             super::native_context::NativeSnapshot,
             ferrum_silver::verifier::verification_error::PartialVerificationError,
+            PD,
+            FD,
         >,
     ),
     Consumption(
@@ -1822,6 +1828,10 @@ impl<PD, FD> Clone for NativeJoinAction<PD, FD> {
             Self::Continuation(a) => Self::Continuation(a.clone()),
             Self::Production(a) => Self::Production(a.clone()),
             Self::Consumption(a) => Self::Consumption(a.clone()),
+            Self::PredicateEvaluation { action, frame } => Self::PredicateEvaluation {
+                action: action.clone(),
+                frame: frame.clone(),
+            },
             Self::PredicateContinuation { action, finish } => Self::PredicateContinuation {
                 action: action.clone(),
                 finish: finish.clone(),
@@ -1854,6 +1864,17 @@ pub struct NativeJoinOutput<
         ferrum_silver::verifier::verification_error::VerificationError,
     >,
     pub entries: Vec<crate::rules::joiner::JoinDataEntry<PD, FD, crate::config::JoinMode, ()>>,
+    pub(crate) evaluation_entries: Option<(
+        Arc<()>,
+        Vec<
+            crate::rules::joiner::JoinDataEntry<
+                PD,
+                FD,
+                crate::config::JoinMode,
+                (Term, Option<ferrum_silver::ast::expression::Exp>),
+            >,
+        >,
+    )>,
     pub(crate) phases: Option<(
         Arc<()>,
         Vec<crate::rules::executor::LoopPhase<PD, FD, crate::config::JoinMode>>,
@@ -1887,6 +1908,18 @@ pub(crate) static LOOP_PHASE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static LOOP_PHASE_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static UNFOLD_EVALUATION_PRODUCTION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static UNFOLD_EVALUATION_PRODUCTION_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static PREDICATE_EVALUATION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static PREDICATE_EVALUATION_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 pub(crate) static UNFOLD_TREE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
@@ -2052,6 +2085,10 @@ where
             NativeJoinAction::Predicate(_) => {
                 PREDICATE_JOIN_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
+            NativeJoinAction::PredicateEvaluation { .. } => {
+                PREDICATE_EVALUATION_TEST_SUBMISSIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
             NativeJoinAction::PredicateContinuation { .. } => {
                 UNFOLD_TREE_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
@@ -2059,6 +2096,13 @@ where
                 CONTINUATION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
             NativeJoinAction::Production(action) => {
+                if matches!(
+                    &action.tail,
+                    crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(_)
+                ) {
+                    UNFOLD_EVALUATION_PRODUCTION_TEST_SUBMISSIONS
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 if matches!(
                     &action.tail,
                     crate::rules::producer::OwnedProductionTerminal::LoopPhaseCollect { .. }
@@ -5484,6 +5528,125 @@ method extra(b: Bool, x: Ref, y: Ref)
                     "an owned action never executed"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_uncached_unfolding_expression() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+field g: Int
+predicate P(x: Ref, b: Bool) { b ? (acc(x.f) && x.f == 7) : (acc(x.g) && x.g == 8) }
+method good(x: Ref, b: Bool) returns (r: Int)
+  requires acc(P(x, b))
+  ensures acc(P(x, b)) && (b ? r == 7 : r == 8)
+{
+  r := unfolding acc(P(x, b)) in (b ? x.f : x.g);
+}
+method bad(x: Ref, b: Bool) returns (r: Int)
+  requires acc(P(x, b))
+  ensures acc(P(x, b)) && r == 9
+{
+  r := unfolding acc(P(x, b)) in (b ? x.f : x.g);
+}
+"#;
+        for workers in [1, 2] {
+            let submitted = UNFOLD_EVALUATION_PRODUCTION_TEST_SUBMISSIONS
+                .load(std::sync::atomic::Ordering::SeqCst);
+            let executed = UNFOLD_EVALUATION_PRODUCTION_TEST_EXECUTIONS
+                .load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_profile(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+                false,
+            );
+            assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1);
+            assert!(
+                UNFOLD_EVALUATION_PRODUCTION_TEST_SUBMISSIONS
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                    > submitted
+            );
+            assert!(
+                UNFOLD_EVALUATION_PRODUCTION_TEST_EXECUTIONS
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                    > executed
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_unfolding_expression_tree() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+field g: Int
+predicate P(x: Ref, b: Bool) { b ? (acc(x.f) && x.f == 7) : (acc(x.g) && x.g == 8) }
+method good(x: Ref, b: Bool) returns (r: Int)
+  requires acc(P(x, b))
+  ensures acc(P(x, b)) && (b ? r == 7 : r == 8)
+{
+  r := unfolding acc(P(x, b)) in (b ? x.f : x.g);
+}
+method bad(x: Ref, b: Bool) returns (r: Int)
+  requires acc(P(x, b))
+  ensures acc(P(x, b)) && r == 9
+{
+  r := unfolding acc(P(x, b)) in (b ? x.f : x.g);
+}
+"#;
+        for workers in [1, 2] {
+            let submitted =
+                PREDICATE_EVALUATION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed =
+                PREDICATE_EVALUATION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1);
+            assert!(
+                PREDICATE_EVALUATION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > submitted
+            );
+            assert!(
+                PREDICATE_EVALUATION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                    > executed
+            );
         }
     }
 

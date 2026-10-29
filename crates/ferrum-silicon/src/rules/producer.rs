@@ -91,8 +91,7 @@ pub enum OwnedProductionRemainder<S, E> {
     },
 }
 
-#[derive(Clone)]
-pub enum OwnedProductionTerminal {
+pub enum OwnedProductionTerminal<P, D> {
     Inhale(crate::rules::executor::CfgStatementTail),
     MethodPre(crate::supporters::method_supporter::MethodPreContinuation),
     MethodWellformed,
@@ -102,16 +101,43 @@ pub enum OwnedProductionTerminal {
     },
     CallPost(crate::rules::executor::MethodCallPreFrame),
     Unfold(crate::rules::predicate_supporter::OwnedUnfoldFinish),
+    UnfoldEvaluation(crate::rules::predicate_supporter::OwnedUnfoldEvaluation<P, D>),
+}
+impl<P, D> Clone for OwnedProductionTerminal<P, D> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Inhale(x) => Self::Inhale(x.clone()),
+            Self::MethodPre(x) => Self::MethodPre(x.clone()),
+            Self::MethodWellformed => Self::MethodWellformed,
+            Self::LoopPhaseCollect { mark, id } => Self::LoopPhaseCollect {
+                mark: *mark,
+                id: id.clone(),
+            },
+            Self::CallPost(x) => Self::CallPost(x.clone()),
+            Self::Unfold(x) => Self::Unfold(x.clone()),
+            Self::UnfoldEvaluation(x) => Self::UnfoldEvaluation(x.clone()),
+        }
+    }
 }
 
-/// Complete non-joined producer branch and the explicitly owned statement tail.
-#[derive(Clone)]
-pub struct OwnedProductionAction<S, E> {
+/// Complete producer branch and explicitly owned continuation.
+pub struct OwnedProductionAction<S, E, P, D> {
     pub snapshot: S,
     pub body: Option<Exp>,
     pub error: E,
     pub remaining: Vec<OwnedProductionRemainder<S, E>>,
-    pub tail: OwnedProductionTerminal,
+    pub tail: OwnedProductionTerminal<P, D>,
+}
+impl<S: Clone, E: Clone, P, D> Clone for OwnedProductionAction<S, E, P, D> {
+    fn clone(&self) -> Self {
+        Self {
+            snapshot: self.snapshot.clone(),
+            body: self.body.clone(),
+            error: self.error.clone(),
+            remaining: self.remaining.clone(),
+            tail: self.tail.clone(),
+        }
+    }
 }
 
 /// Verifier-owned evaluator, brancher, heap supporter, snapshot functions and logging.
@@ -122,21 +148,28 @@ pub trait ProductionContext<P, D, J, V>: Sized {
     fn supports_owned_production(&self, _state: &State<P, D, J>) -> bool {
         false
     }
+    fn supports_owned_production_terminal(
+        &self,
+        state: &State<P, D, J>,
+        _terminal: &OwnedProductionTerminal<P, D>,
+    ) -> bool {
+        self.supports_owned_production(state)
+    }
     fn try_branch_owned_production(
         &mut self,
         _state: &State<P, D, J>,
         _condition: &Term,
         _original: &Exp,
         _rewritten: Option<&Exp>,
-        _yes: OwnedProductionAction<Self::Snapshot, Self::PartialError>,
-        _no: OwnedProductionAction<Self::Snapshot, Self::PartialError>,
+        _yes: OwnedProductionAction<Self::Snapshot, Self::PartialError, P, D>,
+        _no: OwnedProductionAction<Self::Snapshot, Self::PartialError, P, D>,
     ) -> Option<Result<VerificationResult<V>, ProductionError<Self::Error>>> {
         None
     }
     fn finish_owned_production(
         &mut self,
         _state: State<P, D, J>,
-        _tail: &OwnedProductionTerminal,
+        _tail: &OwnedProductionTerminal<P, D>,
     ) -> Result<VerificationResult<V>, ProductionError<Self::Error>> {
         Err(ProductionError::OwnedSchedulerUnavailable)
     }
@@ -376,7 +409,7 @@ pub(crate) fn produce_all_owned<C, P, D, J: Clone, V>(
     snapshot: C::Snapshot,
     assertions: &[Exp],
     error_for: &impl Fn(&Exp) -> C::PartialError,
-    tail: &OwnedProductionTerminal,
+    tail: &OwnedProductionTerminal<P, D>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -417,7 +450,7 @@ fn produce_owned_conjuncts<C, P, D, J: Clone, V>(
     assertions: &[Exp],
     errors: &[C::PartialError],
     remaining: &[OwnedProductionRemainder<C::Snapshot, C::PartialError>],
-    tail: &OwnedProductionTerminal,
+    tail: &OwnedProductionTerminal<P, D>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -461,7 +494,8 @@ where
         None
     };
     if let Some((condition, yes, no)) = conditional {
-        if context.supports_owned_production(&state) && !context.join_impure(&state) {
+        if context.supports_owned_production_terminal(&state, tail) && !context.join_impure(&state)
+        {
             let scope = context
                 .open_produce_scope(&state, &first)
                 .map_err(ProductionError::Context)?;
@@ -504,7 +538,7 @@ where
     }
     if !first.is_pure()
         && matches!(first.kind(), ExpKind::Let(..))
-        && context.supports_owned_production(&state)
+        && context.supports_owned_production_terminal(&state, tail)
     {
         let scope = context
             .open_produce_scope(&state, &first)
@@ -549,7 +583,7 @@ fn resume_owned_production<C, P, D, J: Clone, V>(
     context: &mut C,
     mut state: State<P, D, J>,
     remaining: &[OwnedProductionRemainder<C::Snapshot, C::PartialError>],
-    tail: &OwnedProductionTerminal,
+    tail: &OwnedProductionTerminal<P, D>,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -601,7 +635,7 @@ where
 pub(crate) fn execute_owned_production_action<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
-    action: &OwnedProductionAction<C::Snapshot, C::PartialError>,
+    action: &OwnedProductionAction<C::Snapshot, C::PartialError, P, D>,
 ) -> Result<VerificationResult<V>, ProductionError<C::Error>>
 where
     C: ProductionContext<P, D, J, V>,

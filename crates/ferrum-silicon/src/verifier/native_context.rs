@@ -303,6 +303,14 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     /// the verification lifecycle explicitly installs a member log.
     pub(crate) logging_root: Option<Arc<crate::logger::symb_ex_logger::NativeSymbExLogger>>,
     trace_reporting_enabled: bool,
+    unfold_evaluation_collector: Option<(
+        Arc<()>,
+        std::rc::Rc<
+            std::cell::RefCell<
+                Vec<crate::rules::joiner::JoinDataEntry<PD, FD, JoinMode, (Term, Option<Exp>)>>,
+            >,
+        >,
+    )>,
     loop_phase_collector: Option<(
         Arc<()>,
         std::rc::Rc<std::cell::RefCell<Vec<crate::rules::executor::LoopPhase<PD, FD, JoinMode>>>>,
@@ -362,6 +370,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             logging_root: None,
             trace_reporting_enabled: false,
             loop_phase_collector: None,
+            unfold_evaluation_collector: None,
             member_log: None,
             decider_log_formatter: None,
             record_factory: None,
@@ -2936,6 +2945,26 @@ where
             && !state.is_in_package
             && !state.exhale_ext
     }
+    fn supports_owned_production_terminal(
+        &self,
+        state: &State<PD, FD, JoinMode>,
+        terminal: &crate::rules::producer::OwnedProductionTerminal<PD, FD>,
+    ) -> bool {
+        if matches!(
+            terminal,
+            crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(_)
+        ) {
+            self.joined_branch_scheduler_enabled
+                && self.joined_branch_scheduler.is_some()
+                && self.member_log.is_none()
+                && state.parallelize_branches
+                && state.under_join
+                && !state.is_in_package
+                && !state.exhale_ext
+        } else {
+            self.supports_owned_production(state)
+        }
+    }
     fn try_branch_owned_production(
         &mut self,
         state: &State<PD, FD, JoinMode>,
@@ -2945,8 +2974,15 @@ where
         yes: crate::rules::producer::OwnedProductionAction<
             NativeSnapshot,
             PartialVerificationError,
+            PD,
+            FD,
         >,
-        no: crate::rules::producer::OwnedProductionAction<NativeSnapshot, PartialVerificationError>,
+        no: crate::rules::producer::OwnedProductionAction<
+            NativeSnapshot,
+            PartialVerificationError,
+            PD,
+            FD,
+        >,
     ) -> Option<Result<VerificationResult<VerificationError>, ProductionError<Self::Error>>> {
         Some(
             self.branch_owned_production(
@@ -2963,7 +2999,7 @@ where
     fn finish_owned_production(
         &mut self,
         state: State<PD, FD, JoinMode>,
-        terminal: &crate::rules::producer::OwnedProductionTerminal,
+        terminal: &crate::rules::producer::OwnedProductionTerminal<PD, FD>,
     ) -> Result<VerificationResult<VerificationError>, ProductionError<Self::Error>> {
         use crate::rules::executor::ExecutionContext;
         use crate::supporters::method_supporter::MethodVerificationServices;
@@ -3063,6 +3099,19 @@ where
                         macros,
                     });
                 Ok(VerificationResult::success())
+            }
+            crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(frame) => {
+                use crate::rules::predicate_supporter::PredicateTreeServices;
+                self.finish_owned_predicate_evaluation(state, frame)
+                    .ok_or(ProductionError::OwnedSchedulerUnavailable)?
+                    .map_err(|e| match e {
+                        crate::rules::predicate_supporter::PredicateExecutionError::Service(
+                            error,
+                        ) => ProductionError::Context(error),
+                        other => ProductionError::Context(NativeError::Evaluation(format!(
+                            "owned unfold body: {other:?}"
+                        ))),
+                    })
             }
             crate::rules::producer::OwnedProductionTerminal::MethodWellformed => {
                 self.close_post_wellformedness_scope(None)
@@ -10000,7 +10049,7 @@ where
         state: &State<PD, FD, JoinMode>,
         assertions: &[Exp],
         _method: &Method,
-        terminal: &crate::rules::producer::OwnedProductionTerminal,
+        terminal: &crate::rules::producer::OwnedProductionTerminal<PD, FD>,
     ) -> Option<Result<VerificationResult<VerificationError>, MethodVerificationError<Self::Error>>>
     {
         use crate::rules::producer::ProductionContext;
@@ -10685,11 +10734,26 @@ where
         {
             if matches!(
                 &action.tail,
+                crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(_)
+            ) {
+                super::verification_pool_manager::UNFOLD_EVALUATION_PRODUCTION_TEST_EXECUTIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            if matches!(
+                &action.tail,
                 crate::rules::producer::OwnedProductionTerminal::LoopPhaseCollect { .. }
             ) {
                 super::verification_pool_manager::LOOP_PHASE_TEST_EXECUTIONS
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
+        }
+        #[cfg(test)]
+        if matches!(
+            &branch.action,
+            super::verification_pool_manager::NativeJoinAction::PredicateEvaluation { .. }
+        ) {
+            super::verification_pool_manager::PREDICATE_EVALUATION_TEST_EXECUTIONS
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
         #[cfg(test)]
         if matches!(
@@ -10823,6 +10887,27 @@ where
             },
             _ => None,
         };
+        let evaluation_id = match &branch.action {
+            super::verification_pool_manager::NativeJoinAction::PredicateEvaluation {
+                frame,
+                ..
+            } => Some(frame.collector_id.clone()),
+            super::verification_pool_manager::NativeJoinAction::Production(action) => {
+                match &action.tail {
+                    crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(frame) => {
+                        Some(frame.collector_id.clone())
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        let previous_evaluation_collector = self.unfold_evaluation_collector.take();
+        let evaluation_entries = evaluation_id.as_ref().map(|id| {
+            let entries = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            self.unfold_evaluation_collector = Some((id.clone(), entries.clone()));
+            entries
+        });
         let previous_collector = self.loop_phase_collector.take();
         let phase_entries = phase_id.as_ref().map(|id| {
             let entries = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
@@ -10901,7 +10986,7 @@ where
                     Err(NativeError::Cancelled)
                 }
                 (Err(ExecutionError::Context(error)), Ok(()))
-                    if matches!(&branch.action, super::verification_pool_manager::NativeJoinAction::Continuation(_) | super::verification_pool_manager::NativeJoinAction::Production(_) | super::verification_pool_manager::NativeJoinAction::Consumption(_) | super::verification_pool_manager::NativeJoinAction::PredicateContinuation { .. }) => Err(error),
+                    if matches!(&branch.action, super::verification_pool_manager::NativeJoinAction::Continuation(_) | super::verification_pool_manager::NativeJoinAction::Production(_) | super::verification_pool_manager::NativeJoinAction::Consumption(_) | super::verification_pool_manager::NativeJoinAction::PredicateContinuation { .. } | super::verification_pool_manager::NativeJoinAction::PredicateEvaluation { .. }) => Err(error),
                 (Err(e), Ok(())) => Err(NativeError::Execution(format!("joined branch: {e:?}"))),
                 (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
                     "joined branch: {primary:?}; scope cleanup: {cleanup:?}"
@@ -10922,6 +11007,7 @@ where
                     entries,
                     declarations,
                     phases: None,
+                    evaluation_entries: None,
                     warnings: Vec::new(),
                 })
             }
@@ -10947,6 +11033,25 @@ where
             (Ok(_), Err(cleanup)) => Err(cleanup),
             (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
                 "joined branch: {primary:?}; worker restore: {cleanup:?}"
+            ))),
+        };
+        self.unfold_evaluation_collector = previous_evaluation_collector;
+        let evaluation_entries = match (evaluation_id, evaluation_entries) {
+            (Some(id), Some(entries)) => entries
+                .try_borrow_mut()
+                .map(|mut entries| Some((id, entries.drain(..).collect())))
+                .map_err(|_| NativeError::Unsupported("unfold evaluation collector borrowed")),
+            _ => Ok(None),
+        };
+        let result = match (result, evaluation_entries) {
+            (Ok(mut output), Ok(entries)) => {
+                output.evaluation_entries = entries;
+                Ok(output)
+            }
+            (Err(error), Ok(_)) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+            (Err(primary), Err(cleanup)) => Err(NativeError::Cleanup(format!(
+                "evaluation job: {primary:?}; collector cleanup: {cleanup:?}"
             ))),
         };
         self.loop_phase_collector = previous_collector;
@@ -12172,6 +12277,7 @@ where
                 replacements,
                 false,
                 Some(finish),
+                None,
                 &mut |ctx, state| {
                     ctx.finish_owned_unfold(state, finish).ok_or(crate::rules::predicate_supporter::PredicateExecutionError::OwnedSchedulerUnavailable)?
                 },
@@ -12722,6 +12828,7 @@ where
         permission: &Term,
         old_arps: &crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<Term>,
         error: &PartialVerificationError,
+        owned_join: Option<&crate::rules::predicate_supporter::OwnedUnfoldJoin<PD, FD>>,
         continuation: &mut dyn FnMut(
             &mut Self,
             State<PD, FD, JoinMode>,
@@ -12820,10 +12927,25 @@ where
                             .zip(std::iter::once(snapshot.clone()).chain(args.iter().cloned()))
                             .collect();
                         let factory = ctx.factory.clone();
-                        crate::rules::predicate_supporter::produce_predicate_contents(
-                            &factory, ctx, bound, &tree, &replacements, true,
+                        let owned_frame = owned_join.map(|join| {
+                            crate::rules::predicate_supporter::OwnedUnfoldEvaluation {
+                                initial: join.initial.clone(),
+                                outer_store: scaled.g.clone(),
+                                outer_record_visited: outer.record_visited,
+                                outer_scaling: outer.permission_scaling_factor.clone(),
+                                outer_scaling_exp: outer.permission_scaling_factor_exp.clone(),
+                                old_arps: old_arps.clone(),
+                                predicate: predicate.clone(),
+                                body: body.clone(),
+                                error: error.clone(),
+                                mark: join.mark,
+                                collector_id: join.collector_id.clone(),
+                            }
+                        });
+                        crate::rules::predicate_supporter::produce_predicate_contents_with_owned_finish(
+                            &factory, ctx, bound, &tree, &replacements, true, None, owned_frame.as_ref(),
                             &mut |ctx, state| finish(ctx, state).map_err(|e| crate::rules::predicate_supporter::PredicateExecutionError::Service(NativeError::Production(format!("{e:?}")))),
-                        ).map_err(|e| ProductionError::Context(NativeError::Production(format!("{e:?}"))))
+                        ).map_err(|e| match e { crate::rules::predicate_supporter::PredicateExecutionError::Service(error) if owned_frame.is_some() => ProductionError::Context(error), other => ProductionError::Context(NativeError::Production(format!("{other:?}"))) })
                     } else {
                         let body_snapshot = if ctx.options.mask_heap_mode {
                             let eval_heap =
@@ -12851,6 +12973,45 @@ where
                         } else {
                             snapshot
                         };
+                        if let Some(join) = owned_join {
+                            use crate::rules::producer::ProductionContext;
+                            let frame = crate::rules::predicate_supporter::OwnedUnfoldEvaluation {
+                                initial: join.initial.clone(),
+                                outer_store: scaled.g.clone(),
+                                outer_record_visited: outer.record_visited,
+                                outer_scaling: outer.permission_scaling_factor.clone(),
+                                outer_scaling_exp: outer.permission_scaling_factor_exp.clone(),
+                                old_arps: old_arps.clone(),
+                                predicate: predicate.clone(),
+                                body: body.clone(),
+                                error: error.clone(),
+                                mark: join.mark,
+                                collector_id: join.collector_id.clone(),
+                            };
+                            let terminal =
+                                crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(
+                                    frame,
+                                );
+                            if ctx.supports_owned_production_terminal(&bound, &terminal) {
+                                return crate::rules::producer::produce_all_owned(
+                                    ctx,
+                                    bound,
+                                    NativeSnapshot::Projection(body_snapshot),
+                                    std::slice::from_ref(predicate_body),
+                                    &|_| error.clone(),
+                                    &terminal,
+                                    &mut |ctx, state| ctx.finish_owned_production(state, &terminal),
+                                )
+                                .map_err(|e| match e {
+                                    ProductionError::Context(error) => {
+                                        EvaluationError::Context(error)
+                                    }
+                                    other => EvaluationError::Context(NativeError::Production(
+                                        format!("unfolding body: {other:?}"),
+                                    )),
+                                });
+                            }
+                        }
                         crate::rules::producer::produce_all(
                             ctx,
                             bound,
@@ -12886,6 +13047,33 @@ impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
 where
     S::Error: std::fmt::Debug,
 {
+    pub(crate) fn execute_owned_unfold_evaluation_finish(
+        &mut self,
+        mut state: State<PD, FD, JoinMode>,
+        frame: &crate::rules::predicate_supporter::OwnedUnfoldEvaluation<PD, FD>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Term,
+            Option<Exp>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            EvaluationError<NativeError<S::Error>>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, EvaluationError<NativeError<S::Error>>> {
+        use ferrum_silver::ast::program::Member;
+        state.g = frame.outer_store.clone();
+        state.function_recorder = state.function_recorder.change_depth_by(-1);
+        state.record_visited = frame.outer_record_visited;
+        state.permission_scaling_factor = frame.outer_scaling.clone();
+        state.permission_scaling_factor_exp = frame.outer_scaling_exp.clone();
+        state.constrainable_arps = frame.old_arps.clone();
+        state = state.dec_cycle_counter(&Member::Predicate(frame.predicate.clone()));
+        let state = self
+            .consolidate_optional(state)
+            .map_err(EvaluationError::Context)?;
+        crate::rules::evaluator::evaluate(self, state, &frame.body, &frame.error, continuation)
+    }
     fn join_unfold_expression(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -12919,6 +13107,28 @@ where
         let mut joined = state.clone();
         joined.under_join = true;
         let mut entries = Vec::new();
+        // The collector is owner-local; jobs receive only its identity and return owned entries.
+        let collector = if self.joined_branch_scheduler_enabled
+            && self.joined_branch_scheduler.is_some()
+            && state.parallelize_branches
+            && self.member_log.is_none()
+            && !state.is_in_package
+            && !state.exhale_ext
+        {
+            let id = Arc::new(());
+            let entries = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let previous = self
+                .unfold_evaluation_collector
+                .replace((id.clone(), entries.clone()));
+            let token = crate::rules::predicate_supporter::OwnedUnfoldJoin {
+                initial: state.clone(),
+                mark,
+                collector_id: id,
+            };
+            Some((previous, entries, token))
+        } else {
+            None
+        };
         let block = self.unfold_expression_body(
             joined,
             predicate,
@@ -12928,6 +13138,7 @@ where
             permission,
             old_arps,
             error,
+            collector.as_ref().map(|(_, _, token)| token),
             &mut |ctx, result_state, value, debug| {
                 let path_conditions = ctx
                     .base
@@ -12935,14 +13146,45 @@ where
                     .pcs
                     .after(mark)
                     .map_err(EvaluationError::Path)?;
-                entries.push(JoinDataEntry {
+                let entry = JoinDataEntry {
                     state: joiner::restore_state(result_state, &state),
                     data: (value, debug),
                     path_conditions,
-                });
+                };
+                if let Some((_, shared, _)) = &collector {
+                    shared
+                        .try_borrow_mut()
+                        .map_err(|_| {
+                            EvaluationError::Context(NativeError::Unsupported(
+                                "unfold evaluation collector borrowed",
+                            ))
+                        })?
+                        .push(entry);
+                } else {
+                    entries.push(entry);
+                }
                 Ok(VerificationResult::success())
             },
         );
+        let collected = if let Some((previous, shared, _)) = collector {
+            self.unfold_evaluation_collector = previous;
+            match shared.try_borrow_mut() {
+                Ok(mut shared) => {
+                    entries.extend(shared.drain(..));
+                    Ok(())
+                }
+                Err(_) => Err(NativeError::Unsupported(
+                    "unfold evaluation collector borrowed",
+                )),
+            }
+        } else {
+            Ok(())
+        };
+        let block = match (block, collected) {
+            (block, Ok(())) => block,
+            (Ok(_), Err(error)) => Err(EvaluationError::Context(error)),
+            (Err(primary), Err(cleanup)) => Err(coalesce_evaluation_cleanup(primary, cleanup)),
+        };
         let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
         let block = match (block, cleanup) {
             (Ok(v), Ok(())) => v,
@@ -13953,6 +14195,8 @@ where
         action: &crate::rules::producer::OwnedProductionAction<
             NativeSnapshot,
             PartialVerificationError,
+            PD,
+            FD,
         >,
     ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
         crate::rules::producer::execute_owned_production_action(self, state, action).map_err(
@@ -14037,6 +14281,18 @@ where
                         }
                     })
             }
+            super::verification_pool_manager::NativeJoinAction::PredicateEvaluation {
+                action,
+                frame,
+            } => crate::rules::predicate_supporter::execute_owned_predicate_evaluation_action(
+                self, state, action, frame,
+            )
+            .map_err(|e| match e {
+                PE::Service(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Production(format!(
+                    "predicate evaluation: {other:?}"
+                ))),
+            }),
             super::verification_pool_manager::NativeJoinAction::PredicateContinuation {
                 action,
                 finish,
@@ -14082,8 +14338,15 @@ where
         yes: crate::rules::producer::OwnedProductionAction<
             NativeSnapshot,
             PartialVerificationError,
+            PD,
+            FD,
         >,
-        no: crate::rules::producer::OwnedProductionAction<NativeSnapshot, PartialVerificationError>,
+        no: crate::rules::producer::OwnedProductionAction<
+            NativeSnapshot,
+            PartialVerificationError,
+            PD,
+            FD,
+        >,
     ) -> Result<VerificationResult<VerificationError>, NativeError<S::Error>> {
         use super::verification_pool_manager::NativeJoinAction;
         self.branch_owned_actions(
@@ -14132,9 +14395,21 @@ where
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<NativeError<S::Error>>> {
         use super::verification_pool_manager::{NativeJoinJob, ThreadPoolError};
         use crate::rules::brancher::{self, BranchTransferSnapshot};
-        if state.under_join {
+        let is_evaluation = |action: &super::verification_pool_manager::NativeJoinAction<
+            PD,
+            FD,
+        >| match action {
+            super::verification_pool_manager::NativeJoinAction::PredicateEvaluation { .. } => true,
+            super::verification_pool_manager::NativeJoinAction::Production(action) => matches!(
+                &action.tail,
+                crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(_)
+            ),
+            _ => false,
+        };
+        let evaluation = is_evaluation(&yes) && is_evaluation(&no);
+        if state.under_join != evaluation {
             return Err(ExecutionError::Context(NativeError::Unsupported(
-                "owned continuation under join",
+                "owned continuation join mode",
             )));
         }
         let factory = self.factory.clone();
@@ -14320,9 +14595,16 @@ where
             } else {
                 None
             };
+            let mut evaluation_output = None;
             let other = match waited.result {
                 Ok(mut output) => {
                     self.warnings.append(&mut output.warnings);
+                    if evaluation {
+                        evaluation_output = Some((
+                            output.evaluation_entries.take(),
+                            std::mem::take(&mut output.declarations),
+                        ));
+                    }
                     let append = (|| -> Result<(), NativeError<S::Error>> {
                         if let Some((id, phases)) = output.phases.take() {
                             let (active_id, entries) = self.loop_phase_collector.as_ref().ok_or(
@@ -14362,6 +14644,35 @@ where
                             .unwrap()
                             .report_failure(state.current_member.as_ref(), &other)
                             .map_err(ExecutionError::Context)?;
+                    }
+                    if let Some((entries, declarations)) = evaluation_output {
+                        declarations
+                            .declare_on(&mut self.base.decider)
+                            .map_err(|e| ExecutionError::Context(NativeError::Decider(e)))?;
+                        let (id, returned) = entries.ok_or_else(|| {
+                            ExecutionError::Context(NativeError::Unsupported(
+                                "missing unfold evaluation output",
+                            ))
+                        })?;
+                        let (active_id, active) =
+                            self.unfold_evaluation_collector.as_ref().ok_or_else(|| {
+                                ExecutionError::Context(NativeError::Unsupported(
+                                    "unfold evaluation collector unavailable",
+                                ))
+                            })?;
+                        if !Arc::ptr_eq(active_id, &id) {
+                            return Err(ExecutionError::Context(NativeError::Unsupported(
+                                "unfold evaluation collector identity mismatch",
+                            )));
+                        }
+                        active
+                            .try_borrow_mut()
+                            .map_err(|_| {
+                                ExecutionError::Context(NativeError::Unsupported(
+                                    "unfold evaluation collector borrowed",
+                                ))
+                            })?
+                            .extend(returned);
                     }
                     Ok(then.combine(|| other, true))
                 }
@@ -19582,6 +19893,55 @@ impl<S: Prover, PD, FD: Clone>
 where
     S::Error: std::fmt::Debug,
 {
+    fn try_branch_owned_predicate_evaluation(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        condition: &Term,
+        condition_exp: &(Exp, Option<Exp>),
+        yes: crate::rules::predicate_supporter::PredicateContentsAction,
+        no: crate::rules::predicate_supporter::PredicateContentsAction,
+        frame: &crate::rules::predicate_supporter::OwnedUnfoldEvaluation<PD, FD>,
+    ) -> Option<
+        Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+    > {
+        use super::verification_pool_manager::NativeJoinAction;
+        use crate::rules::predicate_supporter::PredicateExecutionError as PE;
+        if !state.under_join
+            || !state.parallelize_branches
+            || self.member_log.is_some()
+            || state.is_in_package
+            || state.exhale_ext
+            || !self.joined_branch_scheduler_enabled
+            || self.joined_branch_scheduler.is_none()
+        {
+            return None;
+        }
+        Some(
+            self.branch_owned_actions(
+                state.clone(),
+                condition.clone(),
+                &condition_exp.0,
+                condition_exp.1.as_ref(),
+                NativeJoinAction::PredicateEvaluation {
+                    action: yes,
+                    frame: frame.clone(),
+                },
+                NativeJoinAction::PredicateEvaluation {
+                    action: no,
+                    frame: frame.clone(),
+                },
+            )
+            .map_err(|e| match e {
+                ExecutionError::Context(error) => PE::Service(error),
+                other => PE::Service(NativeError::Execution(format!(
+                    "predicate evaluation branch: {other:?}"
+                ))),
+            }),
+        )
+    }
     fn try_branch_owned_predicate_contents(
         &mut self,
         state: &State<PD, FD, JoinMode>,
@@ -19630,6 +19990,63 @@ where
                 ))),
             }),
         )
+    }
+    fn finish_owned_predicate_evaluation(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        frame: &crate::rules::predicate_supporter::OwnedUnfoldEvaluation<PD, FD>,
+    ) -> Option<
+        Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+    > {
+        use crate::rules::{
+            joiner::{self, JoinDataEntry},
+            predicate_supporter::PredicateExecutionError as PE,
+        };
+        let result = self.execute_owned_unfold_evaluation_finish(
+            state,
+            frame,
+            &mut |ctx, state, term, debug| {
+                let paths = ctx
+                    .base
+                    .decider
+                    .pcs
+                    .after(frame.mark)
+                    .map_err(EvaluationError::Path)?;
+                let (id, entries) =
+                    ctx.unfold_evaluation_collector
+                        .as_ref()
+                        .ok_or(EvaluationError::Context(NativeError::Unsupported(
+                            "unfold evaluation collector unavailable",
+                        )))?;
+                if !Arc::ptr_eq(id, &frame.collector_id) {
+                    return Err(EvaluationError::Context(NativeError::Unsupported(
+                        "unfold evaluation collector mismatch",
+                    )));
+                }
+                entries
+                    .try_borrow_mut()
+                    .map_err(|_| {
+                        EvaluationError::Context(NativeError::Unsupported(
+                            "unfold evaluation collector borrowed",
+                        ))
+                    })?
+                    .push(JoinDataEntry {
+                        state: joiner::restore_state(state, &frame.initial),
+                        data: (term, debug),
+                        path_conditions: paths,
+                    });
+                Ok(VerificationResult::success())
+            },
+        );
+        Some(result.map_err(|e| match e {
+            EvaluationError::Context(error) => PE::Service(error),
+            other => PE::Service(NativeError::Evaluation(format!(
+                "owned unfold evaluation: {other:?}"
+            ))),
+        }))
     }
     fn assume_predicate_contents(&mut self, assumptions: &[Term]) -> Result<(), Self::Error> {
         self.base
@@ -22218,6 +22635,7 @@ mod queued_cfg_isolation_tests {
                             entries: vec![],
                             declarations: Default::default(),
                             phases: None,
+                            evaluation_entries: None,
                             warnings: vec![],
                         },
                     ),

@@ -847,3 +847,10 @@ Actual Z3 checks cover nested entry/preservation errors and forced same-worker
 collector restoration. A combined call/fold/unfold/loop fixture passes with one,
 two and four workers and matches the pinned JVM's expected assertion failure.
 Disabled scheduling avoids cloning or allocating the establishment frame.
+
+Cached and uncached expression Unfolding now carry a typed value-producing frame
+through worker jobs. Each branch restores source state, evaluates the body and
+returns term/debug/path data to its original join collector; returned declarations
+are replayed before merge. Separate real-Z3 fixtures exercise actual jobs with
+one and two workers, preserve predicate resources and values, and match the pinned
+JVM's single expected postcondition failure. Function/asserting receivers remain.
