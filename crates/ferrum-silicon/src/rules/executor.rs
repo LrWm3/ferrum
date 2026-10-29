@@ -104,6 +104,19 @@ pub struct DebugStatementSnapshot {
 }
 
 /// Concrete verifier services preserve branching, failures, logging and solver state.
+/// Owned post-precondition caller for an ordinary-heap method call.
+#[derive(Clone)]
+pub struct MethodCallPreFrame {
+    pub statement: Stmt,
+    pub method: ferrum_silver::ast::program::Method,
+    pub targets: Vec<ferrum_silver::ast::expression::LocalVar>,
+    pub caller_store: Arc<crate::state::store::MapBackedStore>,
+    pub caller_heap: Arc<ListBackedHeap>,
+    pub caller_old_heaps: crate::state::package::OrderedMap<String, Arc<ListBackedHeap>>,
+    pub caller_record_visited: bool,
+    pub tail: CfgStatementTail,
+}
+
 pub trait ExecutionContext<P, D, J, V>: Sized {
     type Error;
     fn open_statement(
@@ -358,6 +371,24 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
             -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
     ) -> Result<VerificationResult<V>, ExecutionError<Self::Error>>;
     /// Services build the source call/precondition error transformations and logging scopes.
+    /// True when call logging scopes are inactive and ordinary caller heap lookup is direct.
+    fn owned_call_scopes_transferable(&self, _call: Option<i32>, _pre: Option<i32>) -> bool {
+        false
+    }
+    fn try_consume_owned_call_preconditions(
+        &mut self,
+        _state: &State<P, D, J>,
+        _frame: &MethodCallPreFrame,
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
+    }
+    fn try_produce_owned_call_postconditions(
+        &mut self,
+        _state: &State<P, D, J>,
+        _frame: &MethodCallPreFrame,
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
+    }
     fn consume_call_preconditions(
         &mut self,
         state: State<P, D, J>,
@@ -391,6 +422,19 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
         )
             -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
     ) -> Result<VerificationResult<V>, ExecutionError<Self::Error>>;
+    fn try_execute_owned_fold(
+        &mut self,
+        _state: State<P, D, J>,
+        _statement: &Stmt,
+        _tail: &CfgStatementTail,
+        _continuation: &mut dyn FnMut(
+            &mut Self,
+            State<P, D, J>,
+        )
+            -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
+    }
     /// Heap writes, calls, assertions, fold/unfold, wands, havoc and CFG-only cases.
     fn execute_special(
         &mut self,
@@ -594,6 +638,10 @@ where
                     for post in &method.posts {
                         if ferrum_silver::ast::utility::visitor::exists_defined(&ferrum_silver::ast::utility::nodes::Node::Exp(post.clone()),&ferrum_silver::ast::utility::nodes::subnodes,&mut |node| matches!(node, ferrum_silver::ast::utility::nodes::Node::Exp(exp) if matches!(exp.kind(),ExpKind::Old(..)))).map_err(ExecutionError::Traversal)? { needs_old = true; break; }
                     }
+                }
+                if let Some(tail) = owned_tail.filter(|_| !original_exhale_ext && !needs_old && context.statement_scope_transferable(scope) && context.owned_call_scopes_transferable(call_scope, pre_scope)) {
+                    let frame = MethodCallPreFrame { statement: statement.clone(), method: method.clone(), targets: targets.clone(), caller_store: caller.g.clone(), caller_heap: caller.h.clone(), caller_old_heaps: caller.old_heaps.clone(), caller_record_visited: caller.record_visited, tail: tail.clone() };
+                    if let Some(result) = context.try_consume_owned_call_preconditions(&pre_state, &frame) { return result; }
                 }
                 context.consume_call_preconditions(pre_state,&caller.g,statement,&method,needs_old,&mut |context,mut state,snapshot| {
                     context.close_call_scope(pre_scope).map_err(ExecutionError::Context)?;
@@ -815,7 +863,20 @@ where
                 finish(context, original)
             }
         }
-        _ => context.execute_special(state, statement, &mut finish),
+        _ => {
+            if matches!(statement.kind(), StmtKind::Fold(_)) {
+                if let Some(tail) = owned_tail
+                    .filter(|_| !state.exhale_ext && context.statement_scope_transferable(scope))
+                {
+                    if let Some(result) =
+                        context.try_execute_owned_fold(state.clone(), statement, tail, &mut finish)
+                    {
+                        return result;
+                    }
+                }
+            }
+            context.execute_special(state, statement, &mut finish)
+        }
     }
 }
 /// Owned position in a source statement sequence. Each continuation invocation
@@ -1250,6 +1311,108 @@ where
         Some(terminal),
         continuation,
     )
+}
+
+/// Resume the ordinary-heap method call after consuming its preconditions.
+pub(crate) fn execute_owned_call_pre<C, P, D, J: Clone, V>(
+    context: &mut C,
+    mut state: State<P, D, J>,
+    _snapshot: Option<TermValue>,
+    frame: &MethodCallPreFrame,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    context
+        .close_call_scope(None)
+        .map_err(ExecutionError::Context)?;
+    let post_scope = context
+        .open_call_comment_scope(&state, "Postcondition")
+        .map_err(ExecutionError::Context)?;
+    if post_scope.is_some() {
+        return Err(ExecutionError::OwnedCfgSchedulerUnavailable);
+    }
+    let mut returns = Vec::new();
+    for decl in &frame.method.formal_returns {
+        let var = decl.local_var();
+        let value = context.fresh_local(&var).map_err(ExecutionError::Context)?;
+        returns.push((
+            AbstractLocalVar::new(Exp::new(ExpKind::LocalVar(var), decl.meta.clone())),
+            value,
+        ));
+    }
+    let output_store = crate::state::store::MapBackedStore::from_bindings(returns);
+    // The opt-in contract proves caller evaluation_heap is its ordinary heap.
+    state
+        .old_heaps
+        .insert("old".into(), frame.caller_heap.clone());
+    state.g = Arc::new(state.g.with_store(&output_store));
+    if let Some(result) = context.try_produce_owned_call_postconditions(&state, frame) {
+        return result;
+    }
+    context.produce_call_postconditions(
+        state,
+        &frame.statement,
+        &frame.method,
+        &mut |context, state| execute_owned_call_post(context, state, frame),
+    )
+}
+
+/// Complete call output/store restoration before resuming its owned CFG tail.
+pub(crate) fn execute_owned_call_post<C, P, D, J: Clone, V>(
+    context: &mut C,
+    mut state: State<P, D, J>,
+    frame: &MethodCallPreFrame,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    context
+        .close_call_scope(None)
+        .map_err(ExecutionError::Context)?;
+    context
+        .saturate_after_inhale()
+        .map_err(ExecutionError::Context)?;
+    use crate::state::store::Store;
+    let mut outputs = Vec::new();
+    for (target, decl) in frame.targets.iter().zip(&frame.method.formal_returns) {
+        let source = AbstractLocalVar::new(Exp::new(
+            ExpKind::LocalVar(decl.local_var()),
+            decl.meta.clone(),
+        ));
+        let value = state
+            .g
+            .values()
+            .iter()
+            .find(|(key, _)| key == &source)
+            .map(|(_, value)| value.clone())
+            .ok_or(ExecutionError::MissingReturnValue)?;
+        let target = AbstractLocalVar::new(Exp::new(
+            ExpKind::LocalVar(target.clone()),
+            target.meta.clone(),
+        ));
+        outputs.push((target, value));
+    }
+    state.g = Arc::new(
+        frame
+            .caller_store
+            .with_store(&crate::state::store::MapBackedStore::from_bindings(outputs)),
+    );
+    state.old_heaps = frame.caller_old_heaps.clone();
+    state.record_visited = frame.caller_record_visited;
+    context
+        .close_call_scope(None)
+        .map_err(ExecutionError::Context)?;
+    let state = context
+        .finish_key_heap(state)
+        .map_err(ExecutionError::Context)?;
+    let state = context
+        .move_to_reserve_heap(state)
+        .map_err(ExecutionError::Context)?;
+    context
+        .close_statement_scope(None)
+        .map_err(ExecutionError::Context)?;
+    execute_cfg_statement_tail(context, state, &frame.tail)
 }
 
 /// Owned successor context for a statement block. Edges are still obtained

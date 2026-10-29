@@ -827,3 +827,9 @@ separate continuations. Contract saturation, pre-state recording, empty-heap
 wellformedness and body execution retain the source local scope/result order.
 Real Z3 contract-only fixtures exercise actual jobs with one and two workers,
 including expected postcondition failure, matching the pinned JVM.
+
+Ordinary method-call contracts and predicate fold bodies now carry owned caller
+frames. Consumption returns snapshots with source conjunct/finalization ordering;
+fold rebuilds the predicate chunk before resuming its statement tail. Real Z3
+checks with one and two workers verify caller stores, fold/unfold field values
+and missing permissions, matching existing synchronous and pinned JVM outcomes.

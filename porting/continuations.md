@@ -68,6 +68,13 @@ empty-heap scope. Contract saturation, old-heap recording, fatal-result gating
 and separate body verification retain their source ordering. Actual Z3 checks
 exercise precondition-only and wellformedness-only forks with one and two workers.
 
+Method calls carry caller stores, heaps, old heaps and return targets through
+precondition consumption and postcondition production. Snapshot-returning
+consumption now preserves conjunct combination and finalization order. Fold
+bodies use that snapshot to rebuild the predicate chunk, restore permission
+scaling and resume their statement tail. Real Z3 checks assert actual call and
+fold jobs, caller value restoration and an else-only missing-permission failure.
+
 ## Solver ownership and restoration
 
 Each solver remains on its owning thread. Jobs carry symbolic state and immutable

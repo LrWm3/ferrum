@@ -76,6 +76,12 @@ pub enum OwnedConsumptionTerminal {
         tail: crate::rules::executor::CfgStatementTail,
     },
     MethodSuccess,
+    MethodCallPre(crate::rules::executor::MethodCallPreFrame),
+    FoldBody(
+        crate::rules::predicate_supporter::OwnedFoldBody<
+            ferrum_silver::verifier::verification_error::PartialVerificationError,
+        >,
+    ),
 }
 #[derive(Clone)]
 pub enum OwnedConsumptionFrame<E> {
@@ -84,11 +90,21 @@ pub enum OwnedConsumptionFrame<E> {
         conditional: bool,
     },
     More {
+        first: Exp,
         assertions: Vec<Exp>,
         errors: Vec<E>,
+        return_snapshot: bool,
+    },
+    Combine {
+        first: Exp,
+        rest: Vec<Exp>,
+        first_snapshot: Option<Term>,
+        return_snapshot: bool,
     },
     Finish {
         partial: Option<Arc<ListBackedHeap>>,
+        original_heap: Arc<ListBackedHeap>,
+        assertions: Vec<Exp>,
         terminal: OwnedConsumptionTerminal,
     },
 }
@@ -97,6 +113,7 @@ pub struct OwnedConsumptionAction<E> {
     pub body: Option<Exp>,
     pub heap: Arc<ListBackedHeap>,
     pub error: E,
+    pub return_snapshot: bool,
     pub frames: Vec<OwnedConsumptionFrame<E>>,
 }
 
@@ -112,6 +129,7 @@ pub trait ConsumptionContext<P, D, J, V>: Sized {
         _state: State<P, D, J>,
         _heap: Arc<ListBackedHeap>,
         _assertion: &Exp,
+        _return_snapshot: bool,
         _error: &Self::PartialError,
         _frames: &[OwnedConsumptionFrame<Self::PartialError>],
     ) -> Result<VerificationResult<V>, ConsumptionError<Self::Error>> {
@@ -138,6 +156,7 @@ pub trait ConsumptionContext<P, D, J, V>: Sized {
     fn finish_owned_consumption(
         &mut self,
         _state: State<P, D, J>,
+        _snapshot: Option<Term>,
         _terminal: &OwnedConsumptionTerminal,
     ) -> Result<VerificationResult<V>, ConsumptionError<Self::Error>> {
         Err(ConsumptionError::OwnedSchedulerUnavailable)
@@ -495,6 +514,7 @@ where
         context,
         state,
         std::slice::from_ref(assertion),
+        false,
         &|_| error.clone(),
         OwnedConsumptionTerminal::Statement {
             completion,
@@ -506,6 +526,7 @@ pub(crate) fn consume_many_owned<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
     expressions: &[Exp],
+    return_snapshot: bool,
     error_for: &impl Fn(&Exp) -> C::PartialError,
     terminal: OwnedConsumptionTerminal,
 ) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
@@ -523,9 +544,19 @@ where
     let heap = state.h.clone();
     let frames = vec![OwnedConsumptionFrame::Finish {
         partial: state.partially_consumed_heap.clone(),
+        original_heap: heap.clone(),
+        assertions: assertions.clone(),
         terminal,
     }];
-    consume_owned_conjuncts(context, state, heap, &assertions, &errors, &frames)
+    consume_owned_conjuncts(
+        context,
+        state,
+        heap,
+        &assertions,
+        &errors,
+        return_snapshot,
+        &frames,
+    )
 }
 fn consume_owned_conjuncts<C, P, D, J: Clone, V>(
     context: &mut C,
@@ -533,28 +564,33 @@ fn consume_owned_conjuncts<C, P, D, J: Clone, V>(
     heap: Arc<ListBackedHeap>,
     assertions: &[Exp],
     errors: &[C::PartialError],
+    return_snapshot: bool,
     frames: &[OwnedConsumptionFrame<C::PartialError>],
 ) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
 where
     C: ConsumptionContext<P, D, J, V>,
 {
     let Some((first, rest)) = assertions.split_first() else {
-        return resume_owned_consumption(context, state, heap, frames);
+        let snapshot = return_snapshot.then(|| context.unit_snapshot());
+        return resume_owned_consumption(context, state, heap, snapshot, frames);
     };
     let mut next = Vec::new();
     if !rest.is_empty() {
         next.push(OwnedConsumptionFrame::More {
+            first: first.clone(),
             assertions: rest.to_vec(),
             errors: errors[1..].to_vec(),
+            return_snapshot,
         });
     }
     next.extend_from_slice(frames);
-    context.consume_owned_retry(state, heap, first, &errors[0], &next)
+    context.consume_owned_retry(state, heap, first, return_snapshot, &errors[0], &next)
 }
 fn resume_owned_consumption<C, P, D, J: Clone, V>(
     context: &mut C,
     mut state: State<P, D, J>,
     heap: Arc<ListBackedHeap>,
+    snapshot: Option<Term>,
     frames: &[OwnedConsumptionFrame<C::PartialError>],
 ) -> Result<VerificationResult<V>, ConsumptionError<C::Error>>
 where
@@ -573,22 +609,72 @@ where
             context
                 .close_consumption_scope(None)
                 .map_err(ConsumptionError::Context)?;
-            resume_owned_consumption(context, state, heap, rest)
+            resume_owned_consumption(context, state, heap, snapshot, rest)
         }
         OwnedConsumptionFrame::Retry(attempt) => {
             state = context
                 .resume_owned_retry(state, attempt)
                 .ok_or(ConsumptionError::OwnedSchedulerUnavailable)?
                 .map_err(ConsumptionError::Context)?;
-            resume_owned_consumption(context, state, heap, rest)
+            resume_owned_consumption(context, state, heap, snapshot, rest)
         }
-        OwnedConsumptionFrame::More { assertions, errors } => {
-            consume_owned_conjuncts(context, state, heap, assertions, errors, rest)
+        OwnedConsumptionFrame::More {
+            first,
+            assertions,
+            errors,
+            return_snapshot,
+        } => {
+            let mut next = vec![OwnedConsumptionFrame::Combine {
+                first: first.clone(),
+                rest: assertions.clone(),
+                first_snapshot: snapshot,
+                return_snapshot: *return_snapshot,
+            }];
+            next.extend_from_slice(rest);
+            consume_owned_conjuncts(
+                context,
+                state,
+                heap,
+                assertions,
+                errors,
+                *return_snapshot,
+                &next,
+            )
         }
-        OwnedConsumptionFrame::Finish { partial, terminal } => {
+        OwnedConsumptionFrame::Combine {
+            first,
+            rest: assertions,
+            first_snapshot,
+            return_snapshot,
+        } => {
+            let combined = match (first_snapshot, snapshot) {
+                (Some(a), Some(b)) if *return_snapshot => Some(
+                    context
+                        .combine_snapshots(&state, a.clone(), b, first, assertions)
+                        .map_err(ConsumptionError::Context)?,
+                ),
+                (None, None) if !*return_snapshot => None,
+                _ => return Err(ConsumptionError::UnexpectedSnapshot),
+            };
+            resume_owned_consumption(context, state, heap, combined, rest)
+        }
+        OwnedConsumptionFrame::Finish {
+            partial,
+            original_heap,
+            assertions,
+            terminal,
+        } => {
+            let snapshot = match snapshot {
+                Some(snapshot) => Some(
+                    context
+                        .finalize_snapshot(&state, original_heap, snapshot, assertions)
+                        .map_err(ConsumptionError::Context)?,
+                ),
+                None => None,
+            };
             state.h = heap;
             state.partially_consumed_heap = partial.clone();
-            context.finish_owned_consumption(state, terminal)
+            context.finish_owned_consumption(state, snapshot, terminal)
         }
     }
 }
@@ -597,6 +683,7 @@ pub(crate) fn consume_owned_one<C, P, D, J: Clone, V>(
     state: State<P, D, J>,
     heap: Arc<ListBackedHeap>,
     assertion: &Exp,
+    return_snapshot: bool,
     error: &C::PartialError,
     attempt: crate::rules::execution_flow_controller::RetryAttempt,
     frames: &[OwnedConsumptionFrame<C::PartialError>],
@@ -638,6 +725,7 @@ where
                         body,
                         heap: heap.clone(),
                         error: error.clone(),
+                        return_snapshot,
                         frames: next.clone(),
                     };
                     context
@@ -673,7 +761,15 @@ where
                 state.g = Arc::new(state.g.with_store(&bindings));
                 let assertions = body.top_level_conjuncts();
                 let errors = vec![error.clone(); assertions.len()];
-                consume_owned_conjuncts(context, state, heap.clone(), &assertions, &errors, &next)
+                consume_owned_conjuncts(
+                    context,
+                    state,
+                    heap.clone(),
+                    &assertions,
+                    &errors,
+                    return_snapshot,
+                    &next,
+                )
             },
         );
     }
@@ -682,9 +778,11 @@ where
         state,
         heap,
         assertion,
-        false,
+        return_snapshot,
         error,
-        &mut |context, state, heap, _| resume_owned_consumption(context, state, heap, &next),
+        &mut |context, state, heap, snapshot| {
+            resume_owned_consumption(context, state, heap, snapshot, &next)
+        },
     )
 }
 pub(crate) fn execute_owned_consumption_action<C, P, D, J: Clone, V>(
@@ -704,10 +802,18 @@ where
             action.heap.clone(),
             &assertions,
             &errors,
+            action.return_snapshot,
             &action.frames,
         )
     } else {
-        resume_owned_consumption(context, state, action.heap.clone(), &action.frames)
+        let snapshot = action.return_snapshot.then(|| context.unit_snapshot());
+        resume_owned_consumption(
+            context,
+            state,
+            action.heap.clone(),
+            snapshot,
+            &action.frames,
+        )
     }
 }
 

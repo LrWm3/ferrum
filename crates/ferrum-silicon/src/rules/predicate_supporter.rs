@@ -45,9 +45,42 @@ use ferrum_silver::ast::expression::Exp;
 use ferrum_silver::ast::program::Predicate;
 use std::sync::Arc;
 
+/// Owned continuation after a fold body has produced its snapshot.
+#[derive(Clone)]
+pub struct OwnedFoldBody<E> {
+    pub outer_store: Arc<crate::state::store::MapBackedStore>,
+    pub outer_sm_domain_needed: bool,
+    pub outer_scaling: Term,
+    pub outer_scaling_exp: Option<Exp>,
+    pub wildcards: Vec<Term>,
+    pub predicate: Predicate,
+    pub access: Exp,
+    pub args: Vec<Term>,
+    pub arg_exps: Option<Vec<Exp>>,
+    pub permission: Term,
+    pub permission_exp: Option<Exp>,
+    pub error: E,
+    pub tail: crate::rules::executor::CfgStatementTail,
+}
+
 pub trait PredicateExecutionServices<P, D, J, V>: Sized {
     type Error;
     type VerificationError;
+    fn try_consume_owned_fold_body(
+        &mut self,
+        _state: &State<P, D, J>,
+        _body: &Exp,
+        _frame: &OwnedFoldBody<Self::VerificationError>,
+    ) -> Option<Result<VerificationResult<V>, PredicateExecutionError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_fold(
+        &mut self,
+        _state: State<P, D, J>,
+        _tail: &crate::rules::executor::CfgStatementTail,
+    ) -> Option<Result<VerificationResult<V>, PredicateExecutionError<Self::Error>>> {
+        None
+    }
     fn predicate_debugging(&self) -> bool;
     fn consume_predicate_body(
         &mut self,
@@ -172,6 +205,7 @@ pub enum PredicateExecutionError<E> {
     Chunk(crate::state::chunks::ChunkError),
     UnsupportedMaskChunk,
     ReentrantContinuation,
+    OwnedSchedulerUnavailable,
     Service(E),
 }
 fn bind_formals<P, D, J>(
@@ -238,7 +272,56 @@ pub fn fold_predicate<P, D, J: Clone + PartialEq, V, C: PredicateExecutionServic
         VerificationResult<V>,
         PredicateExecutionError<C::Error>,
     >,
-) -> Result<VerificationResult<V>, PredicateExecutionError<C::Error>> {
+) -> Result<VerificationResult<V>, PredicateExecutionError<C::Error>>
+where
+    C::VerificationError: Clone,
+{
+    fold_predicate_with_owned_tail(
+        factory,
+        context,
+        state,
+        predicate,
+        access,
+        args,
+        arg_exps,
+        permission,
+        permission_exp,
+        constrainable_wildcards,
+        error,
+        None,
+        continuation,
+    )
+}
+pub fn fold_predicate_with_owned_tail<
+    P,
+    D,
+    J: Clone + PartialEq,
+    V,
+    C: PredicateExecutionServices<P, D, J, V>,
+>(
+    factory: &TermFactory,
+    context: &mut C,
+    state: State<P, D, J>,
+    predicate: &Predicate,
+    access: &Exp,
+    args: &[Term],
+    arg_exps: Option<&[Exp]>,
+    permission: &Term,
+    permission_exp: Option<&Exp>,
+    constrainable_wildcards: &[Term],
+    error: &C::VerificationError,
+    owned_tail: Option<&crate::rules::executor::CfgStatementTail>,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<
+        VerificationResult<V>,
+        PredicateExecutionError<C::Error>,
+    >,
+) -> Result<VerificationResult<V>, PredicateExecutionError<C::Error>>
+where
+    C::VerificationError: Clone,
+{
     let body = predicate
         .body
         .as_ref()
@@ -259,6 +342,26 @@ pub fn fold_predicate<P, D, J: Clone + PartialEq, V, C: PredicateExecutionServic
         state.scale_permission_factor(permission.clone(), permission_exp.cloned(), factory);
     inner.g = bindings;
     inner.sm_domain_needed = true;
+    if let Some(tail) = owned_tail {
+        let frame = OwnedFoldBody {
+            outer_store: outer.g.clone(),
+            outer_sm_domain_needed: outer.sm_domain_needed,
+            outer_scaling: outer.permission_scaling_factor.clone(),
+            outer_scaling_exp: outer.permission_scaling_factor_exp.clone(),
+            wildcards: constrainable_wildcards.to_vec(),
+            predicate: predicate.clone(),
+            access: access.clone(),
+            args: args.to_vec(),
+            arg_exps: arg_exps.map(|values| values.to_vec()),
+            permission: permission.clone(),
+            permission_exp: permission_exp.cloned(),
+            error: error.clone(),
+            tail: tail.clone(),
+        };
+        if let Some(result) = context.try_consume_owned_fold_body(&inner, body, &frame) {
+            return result;
+        }
+    }
     context.consume_predicate_body(inner, body, error, &mut |context, mut state, snapshot| {
         let snapshot = snapshot.ok_or(PredicateExecutionError::MissingSnapshot)?;
         state.g = outer.g.clone();
@@ -294,6 +397,64 @@ pub fn fold_predicate<P, D, J: Clone + PartialEq, V, C: PredicateExecutionServic
         )
     })
 }
+pub(crate) fn execute_owned_fold_body<
+    P,
+    D,
+    J: Clone + PartialEq,
+    V,
+    C: PredicateExecutionServices<P, D, J, V>,
+>(
+    context: &mut C,
+    mut state: State<P, D, J>,
+    snapshot: Option<Term>,
+    frame: &OwnedFoldBody<C::VerificationError>,
+) -> Result<VerificationResult<V>, PredicateExecutionError<C::Error>> {
+    let snapshot = snapshot.ok_or(PredicateExecutionError::MissingSnapshot)?;
+    state.g = frame.outer_store.clone();
+    state.sm_domain_needed = frame.outer_sm_domain_needed;
+    state.permission_scaling_factor = frame.outer_scaling.clone();
+    state.permission_scaling_factor_exp = frame.outer_scaling_exp.clone();
+    state = state.set_constrainable(frame.wildcards.iter().cloned(), false);
+    let folded = context
+        .folded_predicate_snapshot(&state, &frame.predicate, &frame.args, &snapshot)
+        .map_err(PredicateExecutionError::Service)?;
+    context.produce_predicate_chunk(
+        state,
+        &frame.predicate,
+        &frame.args,
+        frame.arg_exps.as_deref(),
+        folded,
+        frame.permission.clone(),
+        frame.permission_exp.clone(),
+        &frame.error,
+        &mut |context, state| {
+            if context.predicate_unfold_triggers_enabled() {
+                context
+                    .assume_unfold_trigger(
+                        &state,
+                        &frame.predicate,
+                        &snapshot,
+                        &state.h,
+                        &frame.args,
+                        frame.arg_exps.as_deref(),
+                    )
+                    .map_err(PredicateExecutionError::Service)?;
+            }
+            let state = context
+                .trigger_predicate_resource(
+                    state,
+                    &frame.access,
+                    &frame.args,
+                    frame.arg_exps.as_deref(),
+                )
+                .map_err(PredicateExecutionError::Service)?;
+            context
+                .finish_owned_fold(state, &frame.tail)
+                .ok_or(PredicateExecutionError::OwnedSchedulerUnavailable)?
+        },
+    )
+}
+
 /// Unfold consumes the predicate before producing either cached contents or its body,
 /// and restores the outer store and permission scaling after saturation and trigger emission.
 pub fn unfold_predicate<

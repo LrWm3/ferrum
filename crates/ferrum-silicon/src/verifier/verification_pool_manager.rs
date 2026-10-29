@@ -1843,6 +1843,24 @@ pub(crate) static CONTINUATION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize 
 pub(crate) static CONTINUATION_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static FOLD_BODY_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static FOLD_BODY_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static CALL_PRE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static CALL_PRE_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static CALL_POST_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static CALL_POST_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
 pub(crate) static RULE_CONSUMPTION_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -1979,10 +1997,39 @@ where
             NativeJoinAction::Continuation(_) => {
                 CONTINUATION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
-            NativeJoinAction::Production(_) => {
+            NativeJoinAction::Production(action) => {
+                if matches!(
+                    &action.tail,
+                    crate::rules::producer::OwnedProductionTerminal::CallPost(_)
+                ) {
+                    CALL_POST_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 RULE_PRODUCTION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
-            NativeJoinAction::Consumption(_) => {
+            NativeJoinAction::Consumption(action) => {
+                if action.frames.iter().any(|frame| {
+                    matches!(
+                        frame,
+                        crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                            terminal: crate::rules::consumer::OwnedConsumptionTerminal::FoldBody(_),
+                            ..
+                        }
+                    )
+                }) {
+                    FOLD_BODY_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                if action.frames.iter().any(|frame| {
+                    matches!(
+                        frame,
+                        crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                            terminal:
+                                crate::rules::consumer::OwnedConsumptionTerminal::MethodCallPre(_),
+                            ..
+                        }
+                    )
+                }) {
+                    CALL_PRE_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 RULE_CONSUMPTION_TEST_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
         }
@@ -3680,6 +3727,7 @@ mod thread_pool_tests {
         let mut config = Config::default();
         if nonjoined {
             config.number_of_errors_to_report = 2;
+            config.more_joins = crate::config::JoinMode::Off;
         }
         if cfg_scheduler {
             config.more_joins = if nonjoined {
@@ -4769,6 +4817,134 @@ method bad(b: Bool, x: Ref, y: Ref)
                         > executed
                 );
             }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_fold_conditional_snapshot() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+predicate P(b: Bool, x: Ref, y: Ref) { b ? (acc(x.f) && x.f == 1) : (acc(y.f) && y.f == 2) }
+method good(b: Bool, x: Ref, y: Ref)
+  requires x != y && acc(x.f) && acc(y.f) && x.f == 1 && y.f == 2
+{
+  fold acc(P(b, x, y));
+  unfold acc(P(b, x, y));
+  assert b ? x.f == 1 : y.f == 2;
+}
+method bad(b: Bool, x: Ref, y: Ref)
+  requires x != y && acc(x.f) && x.f == 1
+{
+  fold acc(P(b, x, y));
+}
+"#;
+        for workers in [1, 2] {
+            let submitted = FOLD_BODY_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let executed = FOLD_BODY_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1);
+            assert!(
+                FOLD_BODY_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > submitted
+            );
+            assert!(FOLD_BODY_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > executed);
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_method_call_conditionals() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"field f: Int
+method callee(b: Bool, c: Bool, x: Ref, y: Ref) returns (r: Int)
+  requires (b ? acc(x.f, 1/2) : acc(y.f, 1/2)) && acc(x.f, 1/2) && acc(y.f, 1/2)
+  ensures c ? acc(x.f, 1/2) : acc(y.f, 1/2)
+  ensures r == old(x.f)
+method good(b: Bool, c: Bool, x: Ref, y: Ref)
+  requires acc(x.f) && acc(y.f)
+{
+  var r: Int;
+  var before: Int := x.f;
+  r := callee(b, c, x, y);
+  assert r == before;
+}
+method bad(b: Bool, c: Bool, x: Ref, y: Ref)
+  requires x != y && acc(x.f)
+{
+  var r: Int;
+  r := callee(b, c, x, y);
+}
+"#;
+        for workers in [1, 2] {
+            let ps = CALL_POST_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let pe = CALL_POST_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let cs = CALL_PRE_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let ce = CALL_PRE_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let (baseline, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                false,
+                true,
+            );
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            eprintln!("baseline: {baseline:?}, actual: {fatal:?}");
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                baseline.iter().filter(|v| **v).count()
+            );
+            eprintln!(
+                "call post submit={} exec={} pre submit={} exec={}",
+                CALL_POST_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) - ps,
+                CALL_POST_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) - pe,
+                CALL_PRE_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) - cs,
+                CALL_PRE_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) - ce
+            );
+            assert!(CALL_POST_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > ps);
+            assert!(CALL_POST_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > pe);
+            assert!(CALL_PRE_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > cs);
+            assert!(CALL_PRE_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst) > ce);
         }
     }
 

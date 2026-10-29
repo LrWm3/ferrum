@@ -3002,6 +3002,16 @@ where
                     })
                 })
             }
+            crate::rules::producer::OwnedProductionTerminal::CallPost(frame) => {
+                crate::rules::executor::execute_owned_call_post(self, state, frame).map_err(|e| {
+                    match e {
+                        ExecutionError::Context(error) => ProductionError::Context(error),
+                        other => ProductionError::Context(NativeError::Execution(format!(
+                            "owned call post: {other:?}"
+                        ))),
+                    }
+                })
+            }
             crate::rules::producer::OwnedProductionTerminal::MethodWellformed => {
                 self.close_post_wellformedness_scope(None)
                     .map_err(ProductionError::Context)?;
@@ -3901,6 +3911,7 @@ where
         state: State<PD, FD, JoinMode>,
         heap: Arc<ListBackedHeap>,
         assertion: &Exp,
+        return_snapshot: bool,
         error: &Self::PartialError,
         frames: &[crate::rules::consumer::OwnedConsumptionFrame<Self::PartialError>],
     ) -> Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>> {
@@ -3910,6 +3921,7 @@ where
         let mut action = OwnedConsumerRetryAction {
             original_heap,
             assertion,
+            return_snapshot,
             error,
             frames,
             attempt: None,
@@ -3964,15 +3976,46 @@ where
     fn finish_owned_consumption(
         &mut self,
         mut state: State<PD, FD, JoinMode>,
+        snapshot: Option<Term>,
         terminal: &crate::rules::consumer::OwnedConsumptionTerminal,
     ) -> Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>> {
         use crate::rules::executor::ExecutionContext;
         let (completion, tail) = match terminal {
-            crate::rules::consumer::OwnedConsumptionTerminal::Statement { completion, tail } => {
-                (completion, tail)
+            crate::rules::consumer::OwnedConsumptionTerminal::FoldBody(frame) => {
+                return crate::rules::predicate_supporter::execute_owned_fold_body(
+                    self, state, snapshot, frame,
+                )
+                .map_err(|e| match e {
+                    crate::rules::predicate_supporter::PredicateExecutionError::Service(e) => {
+                        ConsumptionError::Context(e)
+                    }
+                    other => ConsumptionError::Context(NativeError::Execution(format!(
+                        "owned fold continuation: {other:?}"
+                    ))),
+                });
+            }
+            crate::rules::consumer::OwnedConsumptionTerminal::MethodCallPre(frame) => {
+                return crate::rules::executor::execute_owned_call_pre(
+                    self, state, snapshot, frame,
+                )
+                .map_err(|e| match e {
+                    ExecutionError::Context(e) => ConsumptionError::Context(e),
+                    other => ConsumptionError::Context(NativeError::Execution(format!(
+                        "owned call continuation: {other:?}"
+                    ))),
+                });
             }
             crate::rules::consumer::OwnedConsumptionTerminal::MethodSuccess => {
+                if snapshot.is_some() {
+                    return Err(ConsumptionError::UnexpectedSnapshot);
+                }
                 return Ok(VerificationResult::success());
+            }
+            crate::rules::consumer::OwnedConsumptionTerminal::Statement { completion, tail } => {
+                if snapshot.is_some() {
+                    return Err(ConsumptionError::UnexpectedSnapshot);
+                }
+                (completion, tail)
             }
         };
         if let crate::rules::consumer::OwnedConsumptionCompletion::Assert { heap, reserve } =
@@ -5067,6 +5110,7 @@ where
 struct OwnedConsumerRetryAction<'a, E> {
     original_heap: Arc<ListBackedHeap>,
     assertion: &'a Exp,
+    return_snapshot: bool,
     error: &'a E,
     frames: &'a [crate::rules::consumer::OwnedConsumptionFrame<E>],
     attempt: Option<crate::rules::execution_flow_controller::RetryAttempt>,
@@ -5107,6 +5151,7 @@ where
             state,
             heap,
             self.assertion,
+            self.return_snapshot,
             self.error,
             self.attempt.clone().expect("retry attempt"),
             self.frames,
@@ -7976,6 +8021,67 @@ where
         }
         result.map_err(|e| ExecutionError::Context(NativeError::Evaluation(format!("{e:?}"))))
     }
+    fn owned_call_scopes_transferable(&self, call: Option<i32>, pre: Option<i32>) -> bool {
+        call.is_none() && pre.is_none() && self.member_log.is_none()
+    }
+    fn try_produce_owned_call_postconditions(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        frame: &crate::rules::executor::MethodCallPreFrame,
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+        use crate::rules::producer::ProductionContext;
+        if !self.supports_owned_production(state) {
+            return None;
+        }
+        let partial = match self.call_partial(&frame.statement, &frame.method, false) {
+            Ok(p) => p,
+            Err(e) => return Some(Err(ExecutionError::Context(e))),
+        };
+        let terminal = crate::rules::producer::OwnedProductionTerminal::CallPost(frame.clone());
+        let result = crate::rules::producer::produce_all_owned(
+            self,
+            state.clone(),
+            NativeSnapshot::Fresh,
+            &frame.method.posts,
+            &|_| partial.clone(),
+            &terminal,
+            &mut |ctx, state| ctx.finish_owned_production(state, &terminal),
+        );
+        Some(result.map_err(|error| match error {
+            ProductionError::Context(error) => ExecutionError::Context(error),
+            other => ExecutionError::Context(NativeError::Production(format!("{other:?}"))),
+        }))
+    }
+    fn try_consume_owned_call_preconditions(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        frame: &crate::rules::executor::MethodCallPreFrame,
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+        use crate::rules::consumer::ConsumptionContext;
+        if !self.supports_owned_consumption(state) {
+            return None;
+        }
+        let partial = match self.call_partial(&frame.statement, &frame.method, true) {
+            Ok(p) => p.with_example_transformer(
+                self.store_counterexample_transformer(&frame.caller_store),
+            ),
+            Err(e) => return Some(Err(ExecutionError::Context(e))),
+        };
+        Some(
+            crate::rules::consumer::consume_many_owned(
+                self,
+                state.clone(),
+                &frame.method.pres,
+                false,
+                &|_| partial.clone(),
+                crate::rules::consumer::OwnedConsumptionTerminal::MethodCallPre(frame.clone()),
+            )
+            .map_err(|e| match e {
+                ConsumptionError::Context(e) => ExecutionError::Context(e),
+                other => ExecutionError::Context(NativeError::Consumption(format!("{other:?}"))),
+            }),
+        )
+    }
     fn consume_call_preconditions(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -8086,6 +8192,25 @@ where
         }
         result.map_err(|e| ExecutionError::Context(NativeError::Production(format!("{e:?}"))))
     }
+    fn try_execute_owned_fold(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        statement: &Stmt,
+        tail: &crate::rules::executor::CfgStatementTail,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ExecutionError<Self::Error>,
+        >,
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+        use crate::rules::consumer::ConsumptionContext;
+        if !self.supports_owned_consumption(&state) {
+            return None;
+        }
+        Some(self.execute_native_predicate_statement(state, statement, Some(tail), continuation))
+    }
     fn execute_special(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -8098,9 +8223,6 @@ where
             ExecutionError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>> {
-        use crate::rules::predicate_supporter::{
-            PredicateExecutionError, fold_predicate, unfold_predicate,
-        };
         use ferrum_silver::ast::statement::StmtKind;
         if let StmtKind::Quasihavocall {
             variables,
@@ -8503,6 +8625,31 @@ where
                 ExecutionError::Context(NativeError::Execution(format!("apply wand: {e:?}")))
             });
         }
+        self.execute_native_predicate_statement(state, statement, None, continuation)
+    }
+}
+
+impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
+where
+    S::Error: std::fmt::Debug,
+{
+    fn execute_native_predicate_statement(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        statement: &Stmt,
+        owned_tail: Option<&crate::rules::executor::CfgStatementTail>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            ExecutionError<NativeError<S::Error>>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, ExecutionError<NativeError<S::Error>>> {
+        use crate::rules::predicate_supporter::{
+            PredicateExecutionError, fold_predicate_with_owned_tail, unfold_predicate,
+        };
+        use ferrum_silver::ast::statement::StmtKind;
         let (access, folding) = match statement.kind() {
             StmtKind::Fold(access) => (access, true),
             StmtKind::Unfold(access) => (access, false),
@@ -8604,7 +8751,7 @@ where
                                 }
                             };
                             let result = if folding {
-                                fold_predicate(
+                                fold_predicate_with_owned_tail(
                                     &factory,
                                     ctx,
                                     state,
@@ -8616,6 +8763,7 @@ where
                                     amount_exp.as_ref(),
                                     &wildcards,
                                     &partial,
+                                    owned_tail,
                                     &mut next,
                                 )
                             } else {
@@ -8637,8 +8785,13 @@ where
                             if let Some(error) = continuation_error {
                                 return Err(error);
                             }
-                            result.map_err(|e| {
-                                ExecutionError::Context(NativeError::Execution(format!("{e:?}")))
+                            result.map_err(|e| match e {
+                                PredicateExecutionError::Service(error) if owned_tail.is_some() => {
+                                    ExecutionError::Context(error)
+                                }
+                                other => ExecutionError::Context(NativeError::Execution(format!(
+                                    "{other:?}"
+                                ))),
                             })
                         })(
                         );
@@ -9736,6 +9889,7 @@ where
                 self,
                 state.clone(),
                 posts,
+                false,
                 &|exp| {
                     PartialVerificationError::for_kind(
                         VerificationErrorKind::PostconditionViolated {
@@ -10288,6 +10442,51 @@ where
         self.predicate_snapshots.snap_map = analysis.snapshot_sorts.clone();
         self.predicate_snapshots.formal_var_map = analysis.snapshot_formals.clone();
         let remote = self.base.unique_id != branch.source_worker_id;
+        #[cfg(test)]
+        if let super::verification_pool_manager::NativeJoinAction::Consumption(action) =
+            &branch.action
+        {
+            if action.frames.iter().any(|frame| {
+                matches!(
+                    frame,
+                    crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                        terminal: crate::rules::consumer::OwnedConsumptionTerminal::FoldBody(_),
+                        ..
+                    }
+                )
+            }) {
+                super::verification_pool_manager::FOLD_BODY_TEST_EXECUTIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        #[cfg(test)]
+        match &branch.action {
+            super::verification_pool_manager::NativeJoinAction::Consumption(action)
+                if action.frames.iter().any(|frame| {
+                    matches!(
+                        frame,
+                        crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                            terminal:
+                                crate::rules::consumer::OwnedConsumptionTerminal::MethodCallPre(_),
+                            ..
+                        }
+                    )
+                }) =>
+            {
+                super::verification_pool_manager::CALL_PRE_TEST_EXECUTIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            super::verification_pool_manager::NativeJoinAction::Production(action)
+                if matches!(
+                    &action.tail,
+                    crate::rules::producer::OwnedProductionTerminal::CallPost(_)
+                ) =>
+            {
+                super::verification_pool_manager::CALL_POST_TEST_EXECUTIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            _ => {}
+        }
         #[cfg(test)]
         if matches!(
             &branch.action,
@@ -11638,6 +11837,62 @@ where
     type Error = NativeError<S::Error>;
     type VerificationError = PartialVerificationError;
 
+    fn try_consume_owned_fold_body(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        body: &Exp,
+        frame: &crate::rules::predicate_supporter::OwnedFoldBody<Self::VerificationError>,
+    ) -> Option<
+        Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+    > {
+        use crate::rules::consumer::ConsumptionContext;
+        use crate::rules::predicate_supporter::PredicateExecutionError as PE;
+        if !self.supports_owned_consumption(state) {
+            return None;
+        }
+        Some(
+            crate::rules::consumer::consume_many_owned(
+                self,
+                state.clone(),
+                std::slice::from_ref(body),
+                true,
+                &|_| frame.error.clone(),
+                crate::rules::consumer::OwnedConsumptionTerminal::FoldBody(frame.clone()),
+            )
+            .map_err(|e| match e {
+                ConsumptionError::Context(e) => PE::Service(e),
+                other => PE::Service(NativeError::Consumption(format!("{other:?}"))),
+            }),
+        )
+    }
+    fn finish_owned_fold(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        tail: &crate::rules::executor::CfgStatementTail,
+    ) -> Option<
+        Result<
+            VerificationResult<VerificationError>,
+            crate::rules::predicate_supporter::PredicateExecutionError<Self::Error>,
+        >,
+    > {
+        use crate::rules::executor::ExecutionContext;
+        use crate::rules::predicate_supporter::PredicateExecutionError as PE;
+        Some((|| {
+            let state = self.move_to_reserve_heap(state).map_err(PE::Service)?;
+            self.close_statement_scope(None).map_err(PE::Service)?;
+            crate::rules::executor::execute_cfg_statement_tail(self, state, tail).map_err(|e| {
+                match e {
+                    ExecutionError::Context(error) => PE::Service(error),
+                    other => PE::Service(NativeError::Execution(format!(
+                        "owned fold tail: {other:?}"
+                    ))),
+                }
+            })
+        })())
+    }
     fn predicate_debugging(&self) -> bool {
         false
     }

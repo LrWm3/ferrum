@@ -96,6 +96,7 @@ pub enum OwnedProductionTerminal {
     Inhale(crate::rules::executor::CfgStatementTail),
     MethodPre(crate::supporters::method_supporter::MethodPreContinuation),
     MethodWellformed,
+    CallPost(crate::rules::executor::MethodCallPreFrame),
 }
 
 /// Complete non-joined producer branch and the explicitly owned statement tail.

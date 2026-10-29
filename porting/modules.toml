@@ -1634,7 +1634,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Consumer.scala"
 destination = "crates/ferrum-silicon/src/rules/consumer.rs"
 status = "skeleton"
-remaining = ["Owned exhale/assert/method-post and Let consumption carry heap, conjunct, scope and retry frames. Further callers, returned snapshots, active logging and broader compatibility remain."]
+remaining = ["Owned consumption covers statements, method posts/calls and snapshot-returning fold bodies. Loop phases, further callers, logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1730,14 +1730,14 @@ repository = "silicon"
 upstream = "src/main/scala/rules/PredicateSupporter.scala"
 destination = "crates/ferrum-silicon/src/rules/predicate_supporter.rs"
 status = "skeleton"
-remaining = ["Native predicate production/unfolding and owned subtree actions exist; source-eligible joined scheduling, logging/debugger paths and broad compatibility remain."]
+remaining = ["Owned fold-body snapshots restore caller fields and continue statements. Owned unfold continuations and broader parallel compatibility remain."]
 
 [[modules]]
 repository = "silicon"
 upstream = "src/main/scala/rules/Producer.scala"
 destination = "crates/ferrum-silicon/src/rules/producer.rs"
 status = "skeleton"
-remaining = ["Owned production covers inhale, method preconditions and postcondition wellformedness. Additional callers, active logging and broader parallel compatibility remain."]
+remaining = ["Owned production covers inhale and method/call contracts. Predicate/loop callers, active logging and broader parallel compatibility remain."]
 
 [[modules]]
 repository = "silicon"
