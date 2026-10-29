@@ -16131,8 +16131,13 @@ where
         Ok(terms)
     }
     fn warn_trigger(&mut self, expression: &Exp) -> Result<(), Self::Error> {
-        self.warnings
-            .push(format!("Might not be able to use trigger: {expression:?}"));
+        let rendered = ferrum_silver::ast::pretty::pretty_printer::expression_to_string(expression)
+            .map_err(|error| {
+                NativeError::Diagnostic(format!("trigger warning rendering: {error:?}"))
+            })?;
+        self.warnings.push(format!(
+            "Might not be able to use trigger {rendered}, since it is not evaluated while evaluating the body of the quantifier"
+        ));
         Ok(())
     }
     fn handles_resource_trigger(&self, state: &State<PD, FD, JoinMode>, expression: &Exp) -> bool {

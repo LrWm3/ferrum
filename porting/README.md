@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 419 mapped and assembly modules. `described` files
+The Cargo workspace now has 420 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
@@ -1139,3 +1139,9 @@ consistency failures omit the completion event. Formatting stays lazy; the
 Unix timestamp uses the source local timezone name. Non-Unix DEBUG timestamps
 remain unsupported, and public DEBUG/named levels remain gated. Exact source
 exception/throwable events and broader diagnostic parity are still incomplete.
+
+Trigger-fallback warnings now pretty-print the Silver expression and use the
+pinned evaluator wording instead of dumping the Rust AST. One/two-worker tests
+check the exact message and reporter rejection. The warning transport still
+batches strings without source positions, so position, reporter-kind and delivery
+timing parity remain incomplete.
