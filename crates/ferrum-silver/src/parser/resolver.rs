@@ -1982,20 +1982,25 @@ fn check_expression_context(
     ) -> Result<(), TypeCheckError> {
         let kind = node.read().expect("poisoned parse node").kind.clone();
         let mut inside_inex = inside_inex;
+        let mut forbid_wand = forbid_wand;
         if let PNodeKind::Expression(expression) = kind {
             match expression.kind {
-                PExpressionKind::CurrentPerm { .. }
-                    if ban_all_perm || (forbid_spec_perm && !inside_inex) =>
-                {
-                    return Err(TypeCheckError::Unsupported(
-                        "permission introspection is not allowed in this specification",
-                    ));
+                PExpressionKind::CurrentPerm { .. } => {
+                    if ban_all_perm {
+                        errors.push(TypeCheckError::Positioned { node: node.clone(), message: if forbid_spec_perm { "function postconditions are not allowed to contain `perm` expressions" } else { "forperm quantifier bodies are not allowed to contain `perm` expressions" } });
+                    }
+                    if forbid_spec_perm && !inside_inex {
+                        errors.push(TypeCheckError::Positioned { node: node.clone(), message: "preconditions, postconditions and invariants may only contain `perm` and `forperm` expressions inside of an inhale-exhale" });
+                    }
+                    return Ok(());
                 }
                 PExpressionKind::ForPerm { trigger, body, .. } => {
-                    if ban_all_perm || (forbid_spec_perm && !inside_inex) {
-                        return Err(TypeCheckError::Unsupported(
-                            "forperm is not allowed in this specification",
-                        ));
+                    if ban_all_perm {
+                        errors.push(TypeCheckError::Positioned { node: node.clone(), message: if forbid_spec_perm { "function postconditions are not allowed to contain `forperm` expressions" } else { "forperm quantifier bodies are not allowed to contain `forperm` expressions" } });
+                        return Ok(());
+                    } else if forbid_spec_perm && !inside_inex {
+                        errors.push(TypeCheckError::Positioned { node: node.clone(), message: "preconditions, postconditions and invariants may only contain `perm` and `forperm` expressions inside of an inhale-exhale" });
+                        return Ok(());
                     }
                     visit(
                         body.node(),
@@ -2020,7 +2025,7 @@ fn check_expression_context(
                         node: node.clone(),
                         message: "magic wands are not supported in function preconditions or predicates",
                     });
-                    return Ok(());
+                    forbid_wand = false;
                 }
                 PExpressionKind::InhaleExhale { .. } => inside_inex = true,
                 _ => {}

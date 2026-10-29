@@ -1845,6 +1845,65 @@ mod tests {
         );
     }
     #[test]
+    fn permission_restrictions_report_each_expression() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let source = "field f: Int\nfield g: Int\nfunction fun(x: Ref): Int\n  requires perm(x.f) == perm(x.g)\n  ensures forperm r: Ref [r.f] :: false\n{ 2 }\n";
+        let parsed = phases.parse(source).unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "preconditions, postconditions and invariants may only contain `perm` and `forperm` expressions inside of an inhale-exhale (test.vpr@4.12--4.21)",
+                "preconditions, postconditions and invariants may only contain `perm` and `forperm` expressions inside of an inhale-exhale (test.vpr@4.25--4.34)",
+                "function postconditions are not allowed to contain `forperm` expressions (test.vpr@5.11--5.40)",
+            ]
+        );
+    }
+    #[test]
+    fn function_post_permission_reports_follow_source_positions() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let source = "field a: Int\nfield b: Int\nfunction fun(x: Ref): Int\n  ensures perm(x.a) == perm(x.b)\n{ 0 }\n";
+        let parsed = phases.parse(source).unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(messages.len(), 4, "{messages:?}");
+        assert!(
+            messages[0].starts_with("function postconditions are not allowed to contain `perm`")
+        );
+        assert!(messages[1].starts_with("preconditions, postconditions and invariants"));
+        assert!(
+            messages[2].starts_with("function postconditions are not allowed to contain `perm`")
+        );
+        assert!(messages[3].starts_with("preconditions, postconditions and invariants"));
+    }
+    #[test]
+    fn permission_restriction_inside_wand_is_also_reported() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("field a: Int\nfunction fun(x: Ref): Int\n  requires (perm(x.a) == none) --* true\n{ 0 }\n").unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "magic wands are not supported in function preconditions or predicates (test.vpr@3.12--3.40)",
+                "preconditions, postconditions and invariants may only contain `perm` and `forperm` expressions inside of an inhale-exhale (test.vpr@3.13--3.22)",
+            ]
+        );
+    }
+    #[test]
     fn forperm_resource_and_binder_reach_verification_preparation() {
         let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
         let mut phases = SilFrontendPhases::new(
