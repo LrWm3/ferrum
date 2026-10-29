@@ -2955,28 +2955,59 @@ where
             .map_err(ProductionError::Context),
         )
     }
-    fn finish_owned_inhale(
+    fn finish_owned_production(
         &mut self,
         state: State<PD, FD, JoinMode>,
-        tail: &crate::rules::executor::CfgStatementTail,
+        terminal: &crate::rules::producer::OwnedProductionTerminal,
     ) -> Result<VerificationResult<VerificationError>, ProductionError<Self::Error>> {
         use crate::rules::executor::ExecutionContext;
-        self.saturate_after_inhale()
-            .map_err(ProductionError::Context)?;
-        let state = self
-            .finish_key_heap(state)
-            .map_err(ProductionError::Context)?;
-        let state = self
-            .move_to_reserve_heap(state)
-            .map_err(ProductionError::Context)?;
-        self.close_statement_scope(None)
-            .map_err(ProductionError::Context)?;
-        crate::rules::executor::execute_cfg_statement_tail(self, state, tail).map_err(|e| match e {
-            ExecutionError::Context(error) => ProductionError::Context(error),
-            other => ProductionError::Context(NativeError::Execution(format!(
-                "owned inhale tail: {other:?}"
-            ))),
-        })
+        use crate::supporters::method_supporter::MethodVerificationServices;
+        match terminal {
+            crate::rules::producer::OwnedProductionTerminal::Inhale(tail) => {
+                self.saturate_after_inhale()
+                    .map_err(ProductionError::Context)?;
+                let state = self
+                    .finish_key_heap(state)
+                    .map_err(ProductionError::Context)?;
+                let state = self
+                    .move_to_reserve_heap(state)
+                    .map_err(ProductionError::Context)?;
+                self.close_statement_scope(None)
+                    .map_err(ProductionError::Context)?;
+                crate::rules::executor::execute_cfg_statement_tail(self, state, tail).map_err(|e| {
+                    match e {
+                        ExecutionError::Context(error) => ProductionError::Context(error),
+                        other => ProductionError::Context(NativeError::Execution(format!(
+                            "owned inhale tail: {other:?}"
+                        ))),
+                    }
+                })
+            }
+            crate::rules::producer::OwnedProductionTerminal::MethodPre(tail) => {
+                // The only use of the initial state in this continuation is the
+                // disabled member-logging hook; no log is active in this profile.
+                let initial_for_disabled_log = state.clone();
+                crate::supporters::method_supporter::complete_method_pre(
+                    self,
+                    state,
+                    tail,
+                    &initial_for_disabled_log,
+                )
+                .map_err(|error| {
+                    ProductionError::Context(match error {
+                        MethodVerificationError::Service(NativeError::Cancelled) => {
+                            NativeError::Cancelled
+                        }
+                        other => NativeError::OwnedMethodContinuation(Box::new(other)),
+                    })
+                })
+            }
+            crate::rules::producer::OwnedProductionTerminal::MethodWellformed => {
+                self.close_post_wellformedness_scope(None)
+                    .map_err(ProductionError::Context)?;
+                Ok(VerificationResult::success())
+            }
+        }
     }
     fn adapt_snapshot(
         &mut self,
@@ -7498,9 +7529,9 @@ where
             self,
             state,
             NativeSnapshot::Fresh,
-            assertion,
-            partial,
-            tail,
+            std::slice::from_ref(assertion),
+            &|_| partial.clone(),
+            &crate::rules::producer::OwnedProductionTerminal::Inhale(tail.clone()),
             &mut |ctx, state| match continuation(ctx, state) {
                 Ok(v) => Ok(v),
                 Err(e) => {
@@ -9614,6 +9645,39 @@ where
                 MethodVerificationError::Service(NativeError::Production(format!("{e:?}")))
             })
         }
+    }
+    fn try_produce_method_contract_owned(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        assertions: &[Exp],
+        _method: &Method,
+        terminal: &crate::rules::producer::OwnedProductionTerminal,
+    ) -> Option<Result<VerificationResult<VerificationError>, MethodVerificationError<Self::Error>>>
+    {
+        use crate::rules::producer::ProductionContext;
+        if !self.supports_owned_production(state) {
+            return None;
+        }
+        let result = crate::rules::producer::produce_all_owned(
+            self,
+            state.clone(),
+            NativeSnapshot::Fresh,
+            assertions,
+            &|exp| {
+                PartialVerificationError::for_kind(VerificationErrorKind::ContractNotWellformed(
+                    exp.clone(),
+                ))
+            },
+            terminal,
+            &mut |ctx, state| ctx.finish_owned_production(state, terminal),
+        );
+        Some(result.map_err(|error| match error {
+            ProductionError::Context(NativeError::OwnedMethodContinuation(error)) => *error,
+            ProductionError::Context(error) => MethodVerificationError::Service(error),
+            other => {
+                MethodVerificationError::Service(NativeError::Production(format!("{other:?}")))
+            }
+        }))
     }
     fn execute_method_cfg(
         &mut self,

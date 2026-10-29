@@ -821,3 +821,9 @@ success-only rule closes are explicit frames. Real Z3 constructed CFG tests cove
 these paths and fallback heap restoration with one and two workers; a retained
 resource scaffold supplies the existing QP preamble requirements. Rule-only Let
 tests confirm actual jobs, and disabled scheduling avoids statement-tail clones.
+
+Method precondition and postcondition-wellformedness production now own their
+separate continuations. Contract saturation, pre-state recording, empty-heap
+wellformedness and body execution retain the source local scope/result order.
+Real Z3 contract-only fixtures exercise actual jobs with one and two workers,
+including expected postcondition failure, matching the pinned JVM.

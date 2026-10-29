@@ -53,6 +53,13 @@ impl MethodCfgContinuation {
     }
 }
 
+/// Source continuation after successful production of a method precondition.
+#[derive(Clone)]
+pub struct MethodPreContinuation {
+    pub method: Method,
+    pub cfg: Arc<SilverCfg>,
+}
+
 pub trait MethodVerificationServices<P, D, J, V>: Sized {
     type Error;
     fn warn_method_annotation(&mut self, warning: String) -> Result<(), Self::Error>;
@@ -124,6 +131,15 @@ pub trait MethodVerificationServices<P, D, J, V>: Sized {
             MethodVerificationError<Self::Error>,
         >,
     ) -> Result<VerificationResult<V>, MethodVerificationError<Self::Error>>;
+    fn try_produce_method_contract_owned(
+        &mut self,
+        _state: &State<P, D, J>,
+        _assertions: &[Exp],
+        _method: &Method,
+        _terminal: &crate::rules::producer::OwnedProductionTerminal,
+    ) -> Option<Result<VerificationResult<V>, MethodVerificationError<Self::Error>>> {
+        None
+    }
     fn execute_method_cfg(
         &mut self,
         state: State<P, D, J>,
@@ -183,6 +199,63 @@ pub fn complete_method_cfg<P, D, J, V, C: MethodVerificationServices<P, D, J, V>
         &continuation.method,
         &mut |_, _| Ok(VerificationResult::success()),
     )
+}
+
+/// Run the source continuation after successful method precondition production.
+pub(crate) fn complete_method_pre<P, D, J: Clone, V, C: MethodVerificationServices<P, D, J, V>>(
+    context: &mut C,
+    mut state: State<P, D, J>,
+    tail: &MethodPreContinuation,
+    initial_method_state: &State<P, D, J>,
+) -> Result<VerificationResult<V>, MethodVerificationError<C::Error>> {
+    context
+        .saturate_method_contract()
+        .map_err(MethodVerificationError::Service)?;
+    state.old_heaps.insert("old".into(), state.h.clone());
+    state = context
+        .record_method_pre_state(state)
+        .map_err(MethodVerificationError::Service)?;
+    let wellformed = context.method_locally(state.clone(), &mut |context, mut state| {
+        state.h = context
+            .empty_method_heap(&state)
+            .map_err(MethodVerificationError::Service)?;
+        let scope = context
+            .open_post_wellformedness_scope(initial_method_state, &tail.method.posts)
+            .map_err(MethodVerificationError::Service)?;
+        let terminal = crate::rules::producer::OwnedProductionTerminal::MethodWellformed;
+        if scope.is_none() {
+            if let Some(result) = context.try_produce_method_contract_owned(
+                &state,
+                &tail.method.posts,
+                &tail.method,
+                &terminal,
+            ) {
+                return result;
+            }
+        }
+        context.produce_method_contract(
+            state,
+            &tail.method.posts,
+            &tail.method,
+            &mut |context, _| {
+                context
+                    .close_post_wellformedness_scope(scope)
+                    .map_err(MethodVerificationError::Service)?;
+                Ok(VerificationResult::success())
+            },
+        )
+    })?;
+    if wellformed.is_fatal() {
+        return Ok(wellformed);
+    }
+    let execution = context.method_locally(state, &mut |context, state| {
+        context.execute_method_cfg(
+            state,
+            &tail.cfg,
+            MethodCfgContinuation::new(tail.method.clone()),
+        )
+    })?;
+    Ok(wellformed.and_then(|| execution))
 }
 
 /// Verify a method by proving postcondition well-formedness and executing the body
@@ -260,37 +333,19 @@ pub fn verify_method<P, D, J: Clone, V, C: MethodVerificationServices<P, D, J, V
         .output_method_cfg(method, &cfg)
         .map_err(MethodVerificationError::Service)?;
     context.reset_method_error_count();
+    let pre_tail = MethodPreContinuation {
+        method: method.clone(),
+        cfg: cfg.clone(),
+    };
     let result = context.method_locally(state, &mut |context, state| {
-        context.produce_method_contract(state, &method.pres, method, &mut |context, mut state| {
-            context
-                .saturate_method_contract()
-                .map_err(MethodVerificationError::Service)?;
-            state.old_heaps.insert("old".into(), state.h.clone());
-            state = context
-                .record_method_pre_state(state)
-                .map_err(MethodVerificationError::Service)?;
-            let check_state = state.clone();
-            let wellformed = context.method_locally(check_state, &mut |context, mut state| {
-                state.h = context
-                    .empty_method_heap(&state)
-                    .map_err(MethodVerificationError::Service)?;
-                let scope = context
-                    .open_post_wellformedness_scope(&initial_method_state, &method.posts)
-                    .map_err(MethodVerificationError::Service)?;
-                context.produce_method_contract(state, &method.posts, method, &mut |context, _| {
-                    context
-                        .close_post_wellformedness_scope(scope)
-                        .map_err(MethodVerificationError::Service)?;
-                    Ok(VerificationResult::success())
-                })
-            })?;
-            if wellformed.is_fatal() {
-                return Ok(wellformed);
-            }
-            let execution = context.method_locally(state, &mut |context, state| {
-                context.execute_method_cfg(state, &cfg, MethodCfgContinuation::new(method.clone()))
-            })?;
-            Ok(wellformed.and_then(|| execution))
+        let terminal = crate::rules::producer::OwnedProductionTerminal::MethodPre(pre_tail.clone());
+        if let Some(result) =
+            context.try_produce_method_contract_owned(&state, &method.pres, method, &terminal)
+        {
+            return result;
+        }
+        context.produce_method_contract(state, &method.pres, method, &mut |context, state| {
+            complete_method_pre(context, state, &pre_tail, &initial_method_state)
         })
     })?;
     context

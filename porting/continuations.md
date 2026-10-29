@@ -62,6 +62,12 @@ assertion/retry frames. Success-only scope closes are represented explicitly;
 active logger transfer is still disabled. Ordinary execution without an eligible
 scheduler does not construct these statement tails.
 
+Method precondition production now carries the exact method body and CFG terminal.
+Postcondition wellformedness has its own success terminal in the original local
+empty-heap scope. Contract saturation, old-heap recording, fatal-result gating
+and separate body verification retain their source ordering. Actual Z3 checks
+exercise precondition-only and wellformedness-only forks with one and two workers.
+
 ## Solver ownership and restoration
 
 Each solver remains on its owning thread. Jobs carry symbolic state and immutable

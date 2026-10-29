@@ -4706,6 +4706,73 @@ method bad(b: Bool, x: Ref, y: Ref)
     }
 
     #[test]
+    fn real_stdio_owned_producer_contract_continuations() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        use crate::decider::z3_prover_std_io;
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = z3_prover_std_io::new(
+                name,
+                z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let cases = [
+            r#"field f: Int
+method good(b: Bool, x: Ref, y: Ref)
+  requires b ? acc(x.f) : acc(y.f)
+  ensures b ? acc(x.f) : acc(y.f)
+{}
+method bad(b: Bool, x: Ref, y: Ref)
+  requires x != y
+  requires b ? acc(x.f) : acc(y.f)
+  ensures acc(x.f)
+{}
+"#,
+            r#"field f: Int
+method good(b: Bool, x: Ref, y: Ref)
+  requires acc(x.f) && acc(y.f)
+  ensures b ? acc(x.f) : acc(y.f)
+{}
+method bad(b: Bool, x: Ref, y: Ref)
+  requires x != y && acc(x.f)
+  ensures b ? acc(x.f) : acc(y.f)
+{}
+"#,
+        ];
+        for source in cases {
+            for workers in [1, 2] {
+                let submitted =
+                    RULE_PRODUCTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let executed =
+                    RULE_PRODUCTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(fatal.iter().filter(|fatal| **fatal).count(), 1);
+                assert!(
+                    RULE_PRODUCTION_TEST_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > submitted
+                );
+                assert!(
+                    RULE_PRODUCTION_TEST_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst)
+                        > executed
+                );
+            }
+        }
+    }
+
+    #[test]
     fn real_stdio_cfg_joins_use_owned_worker_jobs() {
         let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
             return;

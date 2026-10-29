@@ -91,6 +91,13 @@ pub enum OwnedProductionRemainder<S, E> {
     },
 }
 
+#[derive(Clone)]
+pub enum OwnedProductionTerminal {
+    Inhale(crate::rules::executor::CfgStatementTail),
+    MethodPre(crate::supporters::method_supporter::MethodPreContinuation),
+    MethodWellformed,
+}
+
 /// Complete non-joined producer branch and the explicitly owned statement tail.
 #[derive(Clone)]
 pub struct OwnedProductionAction<S, E> {
@@ -98,7 +105,7 @@ pub struct OwnedProductionAction<S, E> {
     pub body: Option<Exp>,
     pub error: E,
     pub remaining: Vec<OwnedProductionRemainder<S, E>>,
-    pub tail: crate::rules::executor::CfgStatementTail,
+    pub tail: OwnedProductionTerminal,
 }
 
 /// Verifier-owned evaluator, brancher, heap supporter, snapshot functions and logging.
@@ -120,10 +127,10 @@ pub trait ProductionContext<P, D, J, V>: Sized {
     ) -> Option<Result<VerificationResult<V>, ProductionError<Self::Error>>> {
         None
     }
-    fn finish_owned_inhale(
+    fn finish_owned_production(
         &mut self,
         _state: State<P, D, J>,
-        _tail: &crate::rules::executor::CfgStatementTail,
+        _tail: &OwnedProductionTerminal,
     ) -> Result<VerificationResult<V>, ProductionError<Self::Error>> {
         Err(ProductionError::OwnedSchedulerUnavailable)
     }
@@ -361,9 +368,9 @@ pub(crate) fn produce_all_owned<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
     snapshot: C::Snapshot,
-    assertion: &Exp,
-    error: C::PartialError,
-    tail: &crate::rules::executor::CfgStatementTail,
+    assertions: &[Exp],
+    error_for: &impl Fn(&Exp) -> C::PartialError,
+    tail: &OwnedProductionTerminal,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -372,9 +379,16 @@ pub(crate) fn produce_all_owned<C, P, D, J: Clone, V>(
 where
     C: ProductionContext<P, D, J, V>,
 {
-    let projected = when_inhaling(assertion).map_err(ProductionError::Projection)?;
-    let assertions = projected.top_level_conjuncts();
-    let errors = vec![error; assertions.len()];
+    let mut conjuncts = Vec::new();
+    let mut errors = Vec::new();
+    for assertion in assertions {
+        let projected = when_inhaling(assertion).map_err(ProductionError::Projection)?;
+        let parts = projected.top_level_conjuncts();
+        let error = error_for(assertion);
+        errors.extend(std::iter::repeat_n(error, parts.len()));
+        conjuncts.extend(parts);
+    }
+    let assertions = conjuncts;
     let snapshot = context
         .adapt_snapshot(&state, snapshot, &assertions)
         .map_err(ProductionError::Context)?;
@@ -397,7 +411,7 @@ fn produce_owned_conjuncts<C, P, D, J: Clone, V>(
     assertions: &[Exp],
     errors: &[C::PartialError],
     remaining: &[OwnedProductionRemainder<C::Snapshot, C::PartialError>],
-    tail: &crate::rules::executor::CfgStatementTail,
+    tail: &OwnedProductionTerminal,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -529,7 +543,7 @@ fn resume_owned_production<C, P, D, J: Clone, V>(
     context: &mut C,
     mut state: State<P, D, J>,
     remaining: &[OwnedProductionRemainder<C::Snapshot, C::PartialError>],
-    tail: &crate::rules::executor::CfgStatementTail,
+    tail: &OwnedProductionTerminal,
     continuation: &mut dyn FnMut(
         &mut C,
         State<P, D, J>,
@@ -598,7 +612,7 @@ where
             &errors,
             &action.remaining,
             &action.tail,
-            &mut |context, state| context.finish_owned_inhale(state, &action.tail),
+            &mut |context, state| context.finish_owned_production(state, &action.tail),
         )
     } else {
         context
@@ -609,7 +623,7 @@ where
             state,
             &action.remaining,
             &action.tail,
-            &mut |context, state| context.finish_owned_inhale(state, &action.tail),
+            &mut |context, state| context.finish_owned_production(state, &action.tail),
         )
     }
 }

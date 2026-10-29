@@ -1737,7 +1737,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Producer.scala"
 destination = "crates/ferrum-silicon/src/rules/producer.rs"
 status = "skeleton"
-remaining = ["Owned conditional/implication/Let production carries assertion, snapshot, scope and statement tails across worker jobs. Method/predicate and further callers, active logging and broader compatibility remain."]
+remaining = ["Owned production covers inhale, method preconditions and postcondition wellformedness. Additional callers, active logging and broader parallel compatibility remain."]
 
 [[modules]]
 repository = "silicon"
