@@ -133,6 +133,26 @@ pub fn get_function_callgraph(
     Ok(graph)
 }
 impl CallGraph {
+    /// Traverse a root's cycle in the order used by JGraphT's rooted DFS.
+    fn cycle_probe_order(&self, root: &str, cycle: &HashSet<String>) -> Vec<String> {
+        let mut visited = HashSet::new();
+        let mut stack = vec![root.to_owned()];
+        let mut result = Vec::new();
+        while let Some(vertex) = stack.pop() {
+            if !visited.insert(vertex.clone()) {
+                continue;
+            }
+            if cycle.contains(&vertex) {
+                result.push(vertex.clone());
+            }
+            for edge in self.edges.iter().filter(|edge| edge.source == vertex) {
+                if !visited.contains(&edge.target) {
+                    stack.push(edge.target.clone());
+                }
+            }
+        }
+        result
+    }
     fn reachable(&self, source: &str) -> HashSet<String> {
         let mut seen = HashSet::new();
         let mut queue = VecDeque::from([source.to_owned()]);
@@ -258,6 +278,31 @@ pub fn find_function_cycles_via_preconditions(
     program: &Program,
 ) -> Result<IndexMap<String, HashSet<String>>, FunctionAnalysisError> {
     find_function_cycles_via(program, |f| f.pres.clone(), all_subexpressions)
+}
+
+/// Source cycle diagnostics retain the rooted traversal order for Scala's
+/// small immutable sets; the underlying cycle query remains a set-valued API.
+pub fn find_ordered_function_cycles_via_preconditions(
+    program: &Program,
+) -> Result<IndexMap<String, Vec<String>>, FunctionAnalysisError> {
+    let mut result = IndexMap::new();
+    for entry in &program.functions {
+        let graph = get_function_callgraph(program, |f| {
+            Ok(if f == entry {
+                f.pres.clone()
+            } else {
+                all_subexpressions(f)
+            })
+        })?;
+        let cycle = graph.cycles_containing(&entry.name);
+        if !cycle.is_empty() {
+            result.insert(
+                entry.name.clone(),
+                graph.cycle_probe_order(&entry.name, &cycle),
+            );
+        }
+    }
+    Ok(result)
 }
 
 /// Calls in the body are returned in reverse discovery order with outermost-first unfoldings.

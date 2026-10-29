@@ -464,8 +464,15 @@ pub fn parse_program_with_imports(
             let contents = match load(&path, standard) {
                 Ok(contents) => contents,
                 Err(error) => {
+                    // Local I/O errors alone do not identify which import failed.
+                    // Retain the resolved path as the source diagnostic does.
+                    let detail = if standard {
+                        error
+                    } else {
+                        format!("{} ({error})", path.display())
+                    };
                     imported.push(PProgramHandle::error(ParseReport::Error(ParseError::new(
-                        format!("could not import file ({error})"),
+                        format!("could not import file ({detail})"),
                         pos.clone(),
                     ))));
                     continue;
@@ -4316,6 +4323,24 @@ mod debugger_parser_tests {
 #[cfg(test)]
 mod wand_statement_precedence_tests {
     use super::*;
+    #[test]
+    fn missing_local_import_reports_resolved_path_and_source_span() {
+        let program = parse_program_with_imports(
+            "import \"missing.vpr\"",
+            "/work/main.vpr",
+            &[],
+            &mut |_, _| Err("No such file or directory".into()),
+            &mut Ok,
+        )
+        .unwrap();
+        let errors = program.errors();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0].message(),
+            "could not import file (/work/missing.vpr (No such file or directory))"
+        );
+        assert_eq!(errors[0].pos().to_string(), "main.vpr@1.1--1.21");
+    }
     #[test]
     fn import_parser_recovers_multiple_bad_members_without_duplicate_noise() {
         let input =

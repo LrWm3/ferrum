@@ -2720,3 +2720,8 @@ role = "assembly"
 destination = "tests/native_statistics_exception.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "tests/native_diagnostic_cycles.rs"
+status = "wired"
+role = "assembly"

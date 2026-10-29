@@ -395,3 +395,14 @@ exception/protocol tests pass with real stdio and linked Z3, including malformed
 responses, EOF, invalid startup/version, assertion and assumption retry failures,
 reporter rejection, and cleanup; the workspace all-target check also passes with
 `native-z3`. These are focused exception checks, not complete compatibility claims.
+
+## Local import I/O and cycle diagnostics
+
+Native local-import failures include the resolved path and Rust's OS error text;
+Java reports a `FileNotFoundException` and its JVM-specific text. Both identify
+the import statement and the actual path that failed.
+
+Cycle diagnostics use the rooted probe order observed for Scala's small immutable
+sets. For five or more cycle members, Scala uses its immutable hash-set iteration
+order; Ferrum reports the same membership in native rooted traversal order. This
+is a message-order adaptation, not a change to cycle detection.

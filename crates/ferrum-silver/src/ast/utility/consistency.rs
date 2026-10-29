@@ -743,14 +743,14 @@ pub fn check_for_perm_arguments(
 pub fn check_no_function_recurses_via_preconditions(
     program: &Program,
 ) -> Result<Vec<FrontendError>, super::functions::FunctionAnalysisError> {
-    let cycles = super::functions::find_function_cycles_via_preconditions(program)?;
+    let cycles = super::functions::find_ordered_function_cycles_via_preconditions(program)?;
     let mut result = Vec::new();
     for (name, cycle) in cycles {
         let mut message = format!("Function {name} recurses via its precondition");
         if !cycle.is_empty() {
             message.push_str(&format!(
                 ": the cycle contains the function(s) {}",
-                cycle.into_iter().collect::<Vec<_>>().join(", ")
+                cycle.join(", ")
             ));
         }
         let function = program.find_function_optionally(&name).ok_or_else(|| {

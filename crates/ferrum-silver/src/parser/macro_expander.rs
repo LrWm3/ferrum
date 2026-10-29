@@ -373,6 +373,7 @@ struct MacroCopyScope {
     fresh: FreshMacroNames,
     renames: HashMap<String, String>,
     preserve_names: bool,
+    expression_call_position: Option<crate::ast::position::Position>,
 }
 
 fn copy_expression_group(
@@ -775,9 +776,17 @@ fn copy_expression(
             }) = &replacement.kind
             else {
                 return Err(MacroError {
-                    message: non_expression_substitution(&original, &n.pos.0).unwrap_or_else(
-                        || "macro expansion requires an identifier in this position".into(),
-                    ),
+                    message: non_expression_substitution(
+                        &original,
+                        scope
+                            .borrow()
+                            .expression_call_position
+                            .as_ref()
+                            .unwrap_or(&n.pos.0),
+                    )
+                    .unwrap_or_else(|| {
+                        "macro expansion requires an identifier in this position".into()
+                    }),
                     pos: replacement.pos.clone(),
                 });
             };
@@ -2237,6 +2246,7 @@ pub fn expand_global_expression_macros(
                 fresh: FreshMacroNames::default(),
                 preserve_names: false,
                 renames: HashMap::new(),
+                expression_call_position: None,
             });
             for (name, definition) in definitions {
                 locals
@@ -2267,6 +2277,7 @@ pub fn expand_global_expression_macros(
                 fresh: FreshMacroNames::default(),
                 preserve_names: false,
                 renames: HashMap::new(),
+                expression_call_position: None,
             });
             for child in subnodes(node).map_err(|e| MacroError {
                 message: format!("macro traversal: {e:?}"),
@@ -2617,7 +2628,13 @@ pub fn expand_global_expression_macros(
                 });
             };
             scope.borrow_mut().renames.clear();
-            let copy = copy_expression(body, &replacements, scope)?;
+            let previous_position = scope
+                .borrow_mut()
+                .expression_call_position
+                .replace(pos.0.clone());
+            let copy = copy_expression(body, &replacements, scope);
+            scope.borrow_mut().expression_call_position = previous_position;
+            let copy = copy?;
             adapt_position(copy.node(), &pos)?;
             stack.push(name);
             walk(copy.node(), definitions, stack, warnings, scope)?;
@@ -2653,6 +2670,7 @@ pub fn expand_global_expression_macros(
                 fresh: parent.fresh.clone(),
                 renames: parent.renames.clone(),
                 preserve_names: parent.preserve_names,
+                expression_call_position: parent.expression_call_position.clone(),
             })
         });
         let child_scope = nested_scope.as_ref().unwrap_or(scope);
@@ -2845,6 +2863,7 @@ pub fn expand_global_expression_macros(
         fresh: FreshMacroNames::default(),
         preserve_names: false,
         renames: HashMap::new(),
+        expression_call_position: None,
     });
     let result = walk(
         program.node(),
@@ -2946,7 +2965,7 @@ mod macro_source_diagnostic_tests {
             expand("define checkThis(check) check(x)\nmethod foo() ensures checkThis(true)");
         assert_eq!(
             error.message,
-            "macro expansion cannot substitute expression `true` at test.vpr@2.32 in non-expression position at test.vpr@1.25."
+            "macro expansion cannot substitute expression `true` at test.vpr@2.32 in non-expression position at test.vpr@2.22."
         );
         let error = expand("method main() { m(3) }\ndefine m(label_name) { label label_name }");
         assert_eq!(
