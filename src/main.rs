@@ -76,6 +76,7 @@ fn main() -> std::process::ExitCode {
         }
     }
     let time_info = !config.frontend.no_timing;
+    let debug_config = config.enable_debugging.then(|| config.clone());
     let report = match ferrum::run_file(config) {
         Ok(report) => report,
         Err(error) => {
@@ -95,6 +96,19 @@ fn main() -> std::process::ExitCode {
     } else {
         String::new()
     };
+    if let Some(config) = debug_config {
+        let errors = match &report.outcome {
+            RunOutcome::Verified(VerificationResult::Failure(errors)) => Some(errors.clone()),
+            RunOutcome::Verified(VerificationResult::Success) => Some(Vec::new()),
+            RunOutcome::Parsed => None,
+        };
+        if let Some(errors) = errors {
+            if let Err(error) = ferrum::debug_failures(config, errors) {
+                eprintln!("{error}");
+                return std::process::ExitCode::from(2);
+            }
+        }
+    }
     match report.outcome {
         RunOutcome::Parsed => {
             println!("Parsing completed{time}.");

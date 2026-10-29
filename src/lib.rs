@@ -279,6 +279,7 @@ where
                 worker_options.clone(),
                 &worker_config,
             );
+            attach_debug_capture(&mut worker.context, worker_config.enable_debugging);
             attach_version_observer(
                 &mut worker.context,
                 &id,
@@ -629,6 +630,21 @@ where
     Ok(())
 }
 
+fn attach_debug_capture<P: silicon::interfaces::decider::prover::Prover>(
+    context: &mut ExecutingContext<P>,
+    enabled: bool,
+) {
+    if enabled {
+        context.set_debug_failure_factory(Arc::new(|state, record, owners| {
+            Ok(Arc::new(
+                silicon::debugger::native_failure::NativeDebugFailureContext::capture_native(
+                    state, record, owners,
+                )?,
+            ))
+        }));
+    }
+}
+
 fn start_context<
     P: silicon::interfaces::decider::prover::Prover<
             Version = silicon::common::config::package::Version,
@@ -666,6 +682,7 @@ where
         identifiers,
     );
     let mut context = ExecutingContext::new(base, factory, options);
+    attach_debug_capture(&mut context, config.enable_debugging);
     context.set_postcondition_axioms_store(postcondition_axioms);
     attach_version_observer(
         &mut context,
@@ -1776,6 +1793,34 @@ pub fn run_file(config: Config) -> Result<RunReport, FerrumError> {
         .map_err(|_| FerrumError::Execution("Native verifier thread panicked".into()))?
 }
 
+/// Run interactive debugging on an owner thread with the verification stack.
+/// Library clients may instead drive the stream API in silicon::debugger.
+pub fn debug_failures(config: Config, errors: Vec<AbstractError>) -> Result<(), FerrumError> {
+    std::thread::Builder::new()
+        .name("ferrum-debugger".into())
+        .stack_size(VERIFICATION_STACK_SIZE)
+        .spawn(move || {
+            let options = NativeOptions::from_config(&config).map_err(execution)?;
+            let factory = TermFactory::new(TermOptions {
+                use_flyweight: config.use_flyweight(),
+                use_old_axiomatization: config.use_old_axiomatization,
+                mask_heap_mode: config.mask_heap_mode,
+            });
+            silicon::debugger::native_session::run_failures(
+                &config,
+                options,
+                factory,
+                &errors,
+                &mut std::io::stdin().lock(),
+                &mut std::io::stdout().lock(),
+            )
+            .map_err(FerrumError::Execution)
+        })
+        .map_err(|error| FerrumError::Execution(format!("Cannot start debugger thread: {error}")))?
+        .join()
+        .map_err(|_| FerrumError::Execution("Native debugger thread panicked".into()))?
+}
+
 /// Forward only symbolic diagnostics; the CLI already prints final verification results.
 struct CliLoggingReporter(silver::reporter::reporter::StdIoReporter<std::io::Stdout>);
 impl silver::reporter::reporter::Reporter for CliLoggingReporter {
@@ -1815,6 +1860,7 @@ fn run_file_on_current_thread(config: Config) -> Result<RunReport, FerrumError> 
     })
     .map_err(|e| FerrumError::Configuration(e.to_string()))?;
     let mut phases = SilFrontendPhases::new(file.into(), plugins);
+    phases.retain_source_program = config.enable_debugging;
     phases.configure_consistency(&config.frontend);
     phases.backend_type_format = Some("SMTLIB".into());
     let parsed = phases.parse(&source).map_err(FerrumError::Diagnostics)?;
