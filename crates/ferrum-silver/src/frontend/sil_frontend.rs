@@ -705,11 +705,14 @@ impl FrontendPhases for SilFrontendPhases {
                 )
             })?;
         }
-        let result = translator::translate_program_core(&input).map_err(|e| {
-            Self::failure(
+        let result = translator::translate_program_core(&input).map_err(|e| match e {
+            translator::TranslationError::Positioned { message, position } => {
+                Self::failure(message.into(), position)
+            }
+            _ => Self::failure(
                 format!("translation: {e:?}"),
                 Self::program_position(&input),
-            )
+            ),
         });
         drop(original_for_resolution);
         let program = result?;
@@ -1820,6 +1823,25 @@ mod tests {
         assert_eq!(
             messages,
             vec!["Parse error: Recursive macro declaration found: a (test.vpr@1.1--1.17)"]
+        );
+    }
+    #[test]
+    fn duplicate_field_call_targets_report_assignment_position() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let source = "field n: Ref\nmethod foo() returns (x: Ref, y: Ref)\nmethod test(a: Ref) {\n  a.n, a.n := foo()\n}\n";
+        let parsed = phases.parse(source).unwrap();
+        let checked = phases.analyze(parsed).unwrap();
+        let errors = phases.translate(checked).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "multiple targets which access the same field are not allowed (test.vpr@4.3--4.20)"
+            ]
         );
     }
     #[test]

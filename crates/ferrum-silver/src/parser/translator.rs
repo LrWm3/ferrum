@@ -51,6 +51,10 @@ use crate::ast::r#type::Type;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TranslationError {
     Unsupported(&'static str),
+    Positioned {
+        message: &'static str,
+        position: Position,
+    },
     InvalidType,
     UnresolvedIdentifier(String),
     InvalidPosition,
@@ -877,6 +881,7 @@ mod tests {
 fn lower_call_targets(
     targets: &[&PExpHandle],
     fields: Option<&std::collections::HashMap<String, crate::ast::program::Field>>,
+    position: &Position,
     operation: impl FnOnce(Vec<LocalVar>) -> crate::ast::statement::Stmt,
 ) -> Result<crate::ast::statement::Stmt, TranslationError> {
     use crate::ast::ast::{ErrorTrafo, PreviousNode};
@@ -896,9 +901,10 @@ fn lower_call_targets(
             ExpKind::LocalVar(local) => locals.push(local.clone()),
             ExpKind::FieldAccess(field) => {
                 if target_fields.contains(&field.field) {
-                    return Err(TranslationError::Unsupported(
-                        "multiple call targets access the same field",
-                    ));
+                    return Err(TranslationError::Positioned {
+                        message: "multiple targets which access the same field are not allowed",
+                        position: position.clone(),
+                    });
                 }
                 target_fields.push(field.field.clone());
                 let receiver_type = field
@@ -1061,7 +1067,7 @@ fn translate_statement_with_fields(
                 }
             };
             let target_nodes = targets.to_seq();
-            return lower_call_targets(&target_nodes, fields, |mut targets| {
+            return lower_call_targets(&target_nodes, fields, &meta.position, |mut targets| {
                 Stmt::new(
                     StmtKind::NewStmt {
                         lhs: targets.remove(0),
@@ -1105,7 +1111,7 @@ fn translate_statement_with_fields(
                     .map(|exp| translate_expression_with_fields(exp, fields))
                     .collect::<Result<Vec<_>, _>>()?;
                 let target_nodes = targets.to_seq();
-                return lower_call_targets(&target_nodes, fields, |targets| {
+                return lower_call_targets(&target_nodes, fields, &meta.position, |targets| {
                     Stmt::new(
                         StmtKind::MethodCall {
                             method_name: name,
