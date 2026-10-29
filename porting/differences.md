@@ -360,3 +360,10 @@ different digits or exponent notation (for example, `1e23` and the minimum
 subnormal), so this is a declared diagnostic adaptation rather than byte-for-byte
 JVM formatting. Callers can still supply an exact formatter. Integer deltas retain
 the source path; Java hexadecimal floating-point input remains unsupported.
+
+## Missing standard imports
+
+Silver loads standard imports from JVM classpath resources and includes the Java
+exception in a missing-resource diagnostic. Ferrum uses bundled native resources
+and identifies the same `import/` resource path as missing from those bundles.
+The parse error category and import statement position are preserved.

@@ -18,7 +18,7 @@ impl crate::ast::utility::file_loader::FileLoader for BundledImportLoader {
         let source = get(&name).ok_or_else(|| {
             std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("file <{path}> does not exist"),
+                format!("resource '{name}' was not found in bundled imports"),
             )
         })?;
         // Source.fromResource.getLines().mkString("\n") + "\n".

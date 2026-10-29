@@ -1904,6 +1904,24 @@ mod tests {
         );
     }
     #[test]
+    fn missing_standard_import_identifies_bundled_resource() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let errors = phases
+            .parse("import <missing/test.vpr>\nmethod m() {}\n")
+            .unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "Parse error: could not import file (resource 'import/missing/test.vpr' was not found in bundled imports) (test.vpr@1.1--1.26)"
+            ]
+        );
+    }
+    #[test]
     fn recursive_function_postconditions_report_each_call() {
         let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
         let mut phases = SilFrontendPhases::new(
