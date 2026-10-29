@@ -85,6 +85,7 @@ pub fn parse_expression(
 ) -> Result<ParsedExpression, SyntaxError> {
     let mut parser = ExpressionParser {
         source,
+        positions: PositionIndex::new(source),
         file: file.as_ref().to_owned(),
         cursor: 0,
         warnings: Vec::new(),
@@ -113,6 +114,7 @@ pub struct ParsedType {
 pub fn parse_type(source: &str, file: impl AsRef<Path>) -> Result<ParsedType, SyntaxError> {
     let mut parser = ExpressionParser {
         source,
+        positions: PositionIndex::new(source),
         file: file.as_ref().to_owned(),
         cursor: 0,
         warnings: Vec::new(),
@@ -235,6 +237,7 @@ fn parse_file_with_features(
 ) -> Result<PProgramHandle, SyntaxError> {
     let mut parser = ExpressionParser {
         source,
+        positions: PositionIndex::new(source),
         file: file.to_owned(),
         cursor: 0,
         warnings: Vec::new(),
@@ -478,8 +481,56 @@ fn comma_pairs<T: super::parse_ast_keyword::PGraphElement>(
     PDelimited::new(Some(first), rest, delimiter, pos)
 }
 
+/// Byte-indexed UTF-16 columns and line starts for one parser source.
+/// Entries inside UTF-8 code points are unused; position lookups require boundaries.
+struct PositionIndex {
+    line_starts: Vec<usize>,
+    columns: Vec<i32>,
+}
+
+impl PositionIndex {
+    fn new(source: &str) -> Self {
+        let mut line_starts = vec![0];
+        let mut columns = vec![1; source.len() + 1];
+        let mut column = 1i32;
+        let mut previous_cr = false;
+        for (offset, ch) in source.char_indices() {
+            let end = offset + ch.len_utf8();
+            match ch {
+                '\r' => {
+                    line_starts.push(end);
+                    column = 1;
+                }
+                '\n' => {
+                    if !previous_cr {
+                        line_starts.push(end);
+                    }
+                    column = 1;
+                }
+                _ => column += ch.len_utf16() as i32,
+            }
+            columns[end] = column;
+            previous_cr = ch == '\r';
+        }
+        Self {
+            line_starts,
+            columns,
+        }
+    }
+
+    fn line_column(&self, source: &str, offset: usize) -> (i32, i32) {
+        assert!(
+            source.is_char_boundary(offset),
+            "position must be a UTF-8 boundary"
+        );
+        let line = self.line_starts.partition_point(|start| *start <= offset) as i32;
+        (line, self.columns[offset])
+    }
+}
+
 struct ExpressionParser<'a> {
     source: &'a str,
+    positions: PositionIndex,
     file: PathBuf,
     cursor: usize,
     warnings: Vec<ParseWarning>,
@@ -503,26 +554,7 @@ impl ExpressionParser<'_> {
             || (name == "unreachable" && self.features.contains(&ParserFeature::Unreachable))
     }
     fn position(&self, offset: usize) -> Position {
-        let prefix = &self.source[..offset];
-        let mut line = 1i32;
-        let mut column = 1i32;
-        let mut chars = prefix.chars().peekable();
-        while let Some(ch) = chars.next() {
-            match ch {
-                '\r' => {
-                    if chars.peek() == Some(&'\n') {
-                        chars.next();
-                    }
-                    line += 1;
-                    column = 1;
-                }
-                '\n' => {
-                    line += 1;
-                    column = 1;
-                }
-                _ => column += ch.len_utf16() as i32,
-            }
-        }
+        let (line, column) = self.positions.line_column(self.source, offset);
         Position::LineColumn(LineColumn::File(FilePosition {
             file: self.file.clone(),
             line,
@@ -3763,6 +3795,46 @@ mod tests {
         }
     }
     #[test]
+    fn indexed_positions_preserve_utf16_and_newline_boundaries() {
+        let source = "A💖\r\nβ\rZ\n";
+        let index = PositionIndex::new(source);
+        for (offset, line, column) in [
+            (0, 1, 1),
+            (1, 1, 2),
+            (5, 1, 4),
+            (6, 2, 1),
+            (7, 2, 1),
+            (9, 2, 2),
+            (10, 3, 1),
+            (11, 3, 2),
+            (12, 4, 1),
+        ] {
+            assert_eq!(index.line_column(source, offset), (line, column));
+        }
+        assert_eq!(PositionIndex::new("").line_column("", 0), (1, 1));
+        let mixed = "\r\r\n\té\u{301}";
+        let index = PositionIndex::new(mixed);
+        for (offset, line, column) in [
+            (0, 1, 1),
+            (1, 2, 1),
+            (2, 3, 1),
+            (3, 3, 1),
+            (4, 3, 2),
+            (6, 3, 3),
+            (8, 3, 4),
+        ] {
+            assert_eq!(index.line_column(mixed, offset), (line, column));
+        }
+
+        let parsed = parse_expression("/*💖*/\r\n  true", "test.vpr").unwrap();
+        let span = parsed.expression.node().read().unwrap().pos.clone();
+        let start = span.0.line_column().unwrap();
+        let end = span.1.line_column().unwrap();
+        assert_eq!((start.line(), start.column()), (2, 3));
+        assert_eq!((end.line(), end.column()), (2, 7));
+    }
+
+    #[test]
     fn assignment_and_call_spans_exclude_trailing_trivia() {
         for (source, end_column) in [
             ("  x := 1 / 0 // trailing\n  next()", 13),
@@ -3771,6 +3843,7 @@ mod tests {
         ] {
             let mut parser = ExpressionParser {
                 source,
+                positions: PositionIndex::new(source),
                 file: "test.vpr".into(),
                 cursor: 0,
                 warnings: vec![],

@@ -1075,3 +1075,10 @@ preserve simultaneous cancellation when cleanup succeeds and recognize stopped
 submission only when cancellation is latched. Real-worker receiver-entry probes
 and deterministic scheduler fault checks cover these changes under an external
 watchdog; further legacy error-conversion bridges remain under review.
+
+Parser position queries use a per-source line/UTF-16-column index instead of
+rescanning source prefixes. Unicode and CRLF diagnostic parity is retained. A
+489,459-byte Prusti-generated Viper input now parses in 0.923 seconds in a loaded-
+host sample; the earlier parse-only run timed out after 90 seconds. Full native
+verification of that exact input also succeeded. See performance.md for hashes,
+measurement scope and the temporary index memory cost.
