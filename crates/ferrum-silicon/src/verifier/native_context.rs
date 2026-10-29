@@ -381,6 +381,9 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub(crate) test_cancel_owned_right:
         Option<crate::verifier::verification_pool_manager::CancellationController>,
     #[cfg(test)]
+    pub(crate) test_cancel_owned_inner:
+        Option<crate::verifier::verification_pool_manager::CancellationController>,
+    #[cfg(test)]
     executor_debug_for_test: bool,
     /// Owner-local symbolic logger and record constructor. Both are inactive until
     /// the verification lifecycle explicitly installs a member log.
@@ -746,6 +749,8 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             evaluator_debug_for_test: false,
             #[cfg(test)]
             test_cancel_owned_right: None,
+            #[cfg(test)]
+            test_cancel_owned_inner: None,
             #[cfg(test)]
             executor_debug_for_test: false,
             logging_root: None,
@@ -3456,6 +3461,18 @@ where
         }) {
             if let Some(cancel) = self.test_cancel_owned_right.take() {
                 super::verification_pool_manager::RETURN_RIGHT_CANCEL_HOOKS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                cancel.cancel();
+            }
+        }
+        if frame.return_frames.iter().any(|f| {
+            matches!(
+                f,
+                crate::rules::evaluator::OwnedEvaluationReturnFrame::Asserting(_)
+            )
+        }) {
+            if let Some(cancel) = self.test_cancel_owned_inner.take() {
+                super::verification_pool_manager::INNER_RECEIVER_CANCEL_HOOKS
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 cancel.cancel();
             }

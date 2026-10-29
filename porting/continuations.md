@@ -283,5 +283,7 @@ recording and outer heap/reserve/exhale restoration. Eligible nested bodies can
 transfer; other bodies evaluate locally through the same return action. Actual
 one/two-worker checks observe outer and inner jobs, preserve mixed old/current
 values and permissions, and reject failures in source order before the caller
-tail. The inherited cancellation test covers an outer receiver; direct inner
-receiver cancellation is a separate follow-up.
+tail. A separate inner-receiver test now cancels after an inner sibling is submitted,
+checks typed cancellation and drains the pool with one/two workers. It does not
+assert that sibling execution began or directly inspect parent solver state;
+the cooperative restoration regression covers parent depth/options separately.

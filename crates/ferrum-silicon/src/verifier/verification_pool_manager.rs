@@ -1946,6 +1946,9 @@ pub(crate) static RETURN_ADD_RIGHT_SUBMISSIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static RETURN_ADD_LEFT_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static INNER_RECEIVER_CANCEL_HOOKS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
 pub(crate) static RETURN_RIGHT_CANCEL_HOOKS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -6003,6 +6006,15 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
 
     #[test]
     fn real_stdio_cancel_after_owned_right_receiver_starts() {
+        cancel_after_owned_receiver_starts(false);
+    }
+
+    #[test]
+    fn real_stdio_cancel_after_inner_asserting_receiver_starts() {
+        cancel_after_owned_receiver_starts(true);
+    }
+
+    fn cancel_after_owned_receiver_starts(inner: bool) {
         let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
             return;
         };
@@ -6020,13 +6032,23 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
             sil_front_end_config::SilFrontendConfig,
             sil_frontend::{SilFrontendPhases, standard_plugin_manager},
         };
-        let source = r#"field f: Int
+        let source = if inner {
+            r#"field f: Int
+method cancel_inner(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+{ label L;
+  r := old(asserting (b ? acc(x.f) : acc(y.f)) in -(old[L](asserting (c ? acc(z.f) : acc(w.f)) in 2)));
+}
+"#
+        } else {
+            r#"field f: Int
 method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
  requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
 { label L;
   r := -(old(asserting (b ? acc(x.f) : acc(y.f)) in 1) + old[L](asserting (c ? acc(z.f) : acc(w.f)) in 2));
 }
-"#;
+"#
+        };
         for workers in [1, 2] {
             let cancellation = CancellationController::default();
             let config = Config::default();
@@ -6069,7 +6091,11 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
                     );
                     worker.context.joined_branch_scheduler_enabled = true;
                     worker.set_cancellation(worker_cancel.clone());
-                    worker.context.test_cancel_owned_right = Some(worker_cancel.clone());
+                    if inner {
+                        worker.context.test_cancel_owned_inner = Some(worker_cancel.clone());
+                    } else {
+                        worker.context.test_cancel_owned_right = Some(worker_cancel.clone());
+                    }
                     Ok(worker)
                 },
             )
@@ -6108,8 +6134,13 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
             let program = phases.translate(checked).unwrap();
             let program = phases.check_consistency(program).unwrap();
             let program = phases.prepare_verification(program).unwrap();
-            let submitted = RETURN_ADD_RIGHT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst);
-            let hooks = RETURN_RIGHT_CANCEL_HOOKS.load(std::sync::atomic::Ordering::SeqCst);
+            let (submission_counter, hook_counter) = if inner {
+                (&ASSERTING_BODY_SUBMISSIONS, &INNER_RECEIVER_CANCEL_HOOKS)
+            } else {
+                (&RETURN_ADD_RIGHT_SUBMISSIONS, &RETURN_RIGHT_CANCEL_HOOKS)
+            };
+            let submitted = submission_counter.load(std::sync::atomic::Ordering::SeqCst);
+            let hooks = hook_counter.load(std::sync::atomic::Ordering::SeqCst);
             let result = verify_native_parallel_with_reporting(
                 &mut context,
                 &program,
@@ -6119,11 +6150,11 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
                 None,
             );
             assert!(
-                RETURN_ADD_RIGHT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst) > submitted,
+                submission_counter.load(std::sync::atomic::Ordering::SeqCst) > submitted,
                 "right branch never transferred: {result:?}"
             );
             assert!(
-                RETURN_RIGHT_CANCEL_HOOKS.load(std::sync::atomic::Ordering::SeqCst) > hooks,
+                hook_counter.load(std::sync::atomic::Ordering::SeqCst) > hooks,
                 "right receiver never began: {result:?}"
             );
             assert!(
