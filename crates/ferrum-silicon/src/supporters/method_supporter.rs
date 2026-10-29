@@ -131,6 +131,14 @@ pub trait MethodVerificationServices<P, D, J, V>: Sized {
             MethodVerificationError<Self::Error>,
         >,
     ) -> Result<VerificationResult<V>, MethodVerificationError<Self::Error>>;
+    fn try_produce_method_pre_owned(
+        &mut self,
+        _state: &State<P, D, J>,
+        _method: &Method,
+        _cfg: &Arc<SilverCfg>,
+    ) -> Option<Result<VerificationResult<V>, MethodVerificationError<Self::Error>>> {
+        None
+    }
     fn try_produce_method_contract_owned(
         &mut self,
         _state: &State<P, D, J>,
@@ -205,7 +213,8 @@ pub fn complete_method_cfg<P, D, J, V, C: MethodVerificationServices<P, D, J, V>
 pub(crate) fn complete_method_pre<P, D, J: Clone, V, C: MethodVerificationServices<P, D, J, V>>(
     context: &mut C,
     mut state: State<P, D, J>,
-    tail: &MethodPreContinuation,
+    method: &Method,
+    cfg: &SilverCfg,
     initial_method_state: &State<P, D, J>,
 ) -> Result<VerificationResult<V>, MethodVerificationError<C::Error>> {
     context
@@ -220,40 +229,28 @@ pub(crate) fn complete_method_pre<P, D, J: Clone, V, C: MethodVerificationServic
             .empty_method_heap(&state)
             .map_err(MethodVerificationError::Service)?;
         let scope = context
-            .open_post_wellformedness_scope(initial_method_state, &tail.method.posts)
+            .open_post_wellformedness_scope(initial_method_state, &method.posts)
             .map_err(MethodVerificationError::Service)?;
         let terminal = crate::rules::producer::OwnedProductionTerminal::MethodWellformed;
         if scope.is_none() {
-            if let Some(result) = context.try_produce_method_contract_owned(
-                &state,
-                &tail.method.posts,
-                &tail.method,
-                &terminal,
-            ) {
+            if let Some(result) =
+                context.try_produce_method_contract_owned(&state, &method.posts, method, &terminal)
+            {
                 return result;
             }
         }
-        context.produce_method_contract(
-            state,
-            &tail.method.posts,
-            &tail.method,
-            &mut |context, _| {
-                context
-                    .close_post_wellformedness_scope(scope)
-                    .map_err(MethodVerificationError::Service)?;
-                Ok(VerificationResult::success())
-            },
-        )
+        context.produce_method_contract(state, &method.posts, method, &mut |context, _| {
+            context
+                .close_post_wellformedness_scope(scope)
+                .map_err(MethodVerificationError::Service)?;
+            Ok(VerificationResult::success())
+        })
     })?;
     if wellformed.is_fatal() {
         return Ok(wellformed);
     }
     let execution = context.method_locally(state, &mut |context, state| {
-        context.execute_method_cfg(
-            state,
-            &tail.cfg,
-            MethodCfgContinuation::new(tail.method.clone()),
-        )
+        context.execute_method_cfg(state, cfg, MethodCfgContinuation::new(method.clone()))
     })?;
     Ok(wellformed.and_then(|| execution))
 }
@@ -333,19 +330,12 @@ pub fn verify_method<P, D, J: Clone, V, C: MethodVerificationServices<P, D, J, V
         .output_method_cfg(method, &cfg)
         .map_err(MethodVerificationError::Service)?;
     context.reset_method_error_count();
-    let pre_tail = MethodPreContinuation {
-        method: method.clone(),
-        cfg: cfg.clone(),
-    };
     let result = context.method_locally(state, &mut |context, state| {
-        let terminal = crate::rules::producer::OwnedProductionTerminal::MethodPre(pre_tail.clone());
-        if let Some(result) =
-            context.try_produce_method_contract_owned(&state, &method.pres, method, &terminal)
-        {
+        if let Some(result) = context.try_produce_method_pre_owned(&state, method, &cfg) {
             return result;
         }
         context.produce_method_contract(state, &method.pres, method, &mut |context, state| {
-            complete_method_pre(context, state, &pre_tail, &initial_method_state)
+            complete_method_pre(context, state, method, &cfg, &initial_method_state)
         })
     })?;
     context

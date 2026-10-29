@@ -75,6 +75,7 @@ pub enum OwnedConsumptionTerminal<P, D, J> {
         tail: crate::rules::executor::CfgStatementTail,
     },
     MethodSuccess,
+    FunctionPre(Arc<crate::rules::evaluator::OwnedFunctionPre<P, D, J>>),
     LoopBackedgeSuccess,
     MethodCallPre(crate::rules::executor::MethodCallPreFrame),
     FoldBody(
@@ -95,6 +96,7 @@ impl<P, D, J> Clone for OwnedConsumptionTerminal<P, D, J> {
                 tail: tail.clone(),
             },
             Self::MethodSuccess => Self::MethodSuccess,
+            Self::FunctionPre(frame) => Self::FunctionPre(frame.clone()),
             Self::LoopBackedgeSuccess => Self::LoopBackedgeSuccess,
             Self::MethodCallPre(f) => Self::MethodCallPre(f.clone()),
             Self::FoldBody(f) => Self::FoldBody(f.clone()),
@@ -197,6 +199,13 @@ pub trait ConsumptionContext<P, D, J, V>: Sized {
     type PartialError: Clone;
     fn supports_owned_consumption(&self, _state: &State<P, D, J>) -> bool {
         false
+    }
+    fn supports_owned_consumption_frames(
+        &self,
+        state: &State<P, D, J>,
+        _frames: &[OwnedConsumptionFrame<Self::PartialError, P, D, J>],
+    ) -> bool {
+        self.supports_owned_consumption(state)
     }
     fn consume_owned_retry(
         &mut self,
@@ -771,7 +780,7 @@ where
     let mut next = vec![OwnedConsumptionFrame::Retry(attempt)];
     next.extend_from_slice(frames);
     if !assertion.is_pure()
-        && context.supports_owned_consumption(&state)
+        && context.supports_owned_consumption_frames(&state, frames)
         && !context.join_impure(&state)
     {
         let conditional = match assertion.kind() {
@@ -818,7 +827,7 @@ where
     }
     if !assertion.is_pure()
         && matches!(assertion.kind(), ExpKind::Let(..))
-        && context.supports_owned_consumption(&state)
+        && context.supports_owned_consumption_frames(&state, frames)
     {
         let scope = context
             .open_consumption_scope(&state, assertion)

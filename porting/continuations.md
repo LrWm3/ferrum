@@ -120,8 +120,12 @@ The owner replays declarations before merging returned entries. Real Z3 checks
 exercise both profiles and reject the expected bad postcondition while preserving
 the predicate resource and valid branch values.
 
-Function application, asserting expressions and further value-returning callbacks
-remain synchronous pending explicit frames. Active member logging, packaging and
+Function application preconditions now carry an owned snapshot receiver. It
+retains trigger rewriting, error substitution, caller-store transformation and
+function-recorder restoration before returning the term to its identified join.
+Actual Z3 tests exercise conditional precondition jobs and the expected bad
+application while checking returned values. Asserting expressions and further
+value-returning callbacks remain synchronous pending explicit frames. Active member logging, packaging and
 extended exhale still disable owned dispatch. Generic borrowed callback entry
 points remain local; parallelism is enabled only where an exact owned terminal
 or collector represents Q. Direct evaluator branches explicitly disable

@@ -2362,6 +2362,48 @@ where
             EvaluationError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
+        self.join_function_application_with_owned(
+            state,
+            function,
+            args,
+            debug_exp,
+            &mut |ctx, state, done, _| block(ctx, state, done),
+            continuation,
+        )
+    }
+    fn join_function_application_with_owned(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        function: &ferrum_silver::ast::program::Function,
+        args: &[Term],
+        debug_exp: Option<&Exp>,
+        block: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            &mut dyn FnMut(
+                &mut Self,
+                State<PD, FD, JoinMode>,
+                Term,
+                Option<Exp>,
+            ) -> Result<
+                VerificationResult<VerificationError>,
+                EvaluationError<Self::Error>,
+            >,
+            Option<&crate::rules::evaluator::OwnedEvaluationJoin<PD, FD, JoinMode>>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            EvaluationError<Self::Error>,
+        >,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<PD, FD, JoinMode>,
+            Term,
+            Option<Exp>,
+        ) -> Result<
+            VerificationResult<VerificationError>,
+            EvaluationError<Self::Error>,
+        >,
+    ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
         use crate::rules::joiner::{self, JoinDataEntry};
         let factory = self.factory.clone();
         let joining_scope = self
@@ -2375,20 +2417,75 @@ where
         let mut local = state.clone();
         local.under_join = true;
         let mut entries = Vec::new();
-        let result = block(self, local, &mut |ctx, result_state, value, debug| {
-            let path_conditions = ctx
-                .base
-                .decider
-                .pcs
-                .after(mark)
-                .map_err(EvaluationError::Path)?;
-            entries.push(JoinDataEntry {
-                state: joiner::restore_state(result_state, &state),
-                data: (value, debug),
-                path_conditions,
-            });
-            Ok(VerificationResult::success())
-        });
+        let collector = if self.joined_branch_scheduler_enabled
+            && self.joined_branch_scheduler.is_some()
+            && state.parallelize_branches
+            && self.member_log.is_none()
+            && !state.is_in_package
+            && !state.exhale_ext
+        {
+            let id = Arc::new(());
+            let shared = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let previous = self
+                .unfold_evaluation_collector
+                .replace((id.clone(), shared.clone()));
+            let token = crate::rules::evaluator::OwnedEvaluationJoin {
+                initial: state.clone(),
+                mark,
+                collector_id: id,
+            };
+            Some((previous, shared, token))
+        } else {
+            None
+        };
+        let result = block(
+            self,
+            local,
+            &mut |ctx, result_state, value, debug| {
+                let path_conditions = ctx
+                    .base
+                    .decider
+                    .pcs
+                    .after(mark)
+                    .map_err(EvaluationError::Path)?;
+                let entry = JoinDataEntry {
+                    state: joiner::restore_state(result_state, &state),
+                    data: (value, debug),
+                    path_conditions,
+                };
+                if let Some((_, shared, _)) = &collector {
+                    shared
+                        .try_borrow_mut()
+                        .map_err(|_| {
+                            EvaluationError::Context(NativeError::Unsupported(
+                                "evaluation collector borrowed",
+                            ))
+                        })?
+                        .push(entry);
+                } else {
+                    entries.push(entry);
+                }
+                Ok(VerificationResult::success())
+            },
+            collector.as_ref().map(|(_, _, token)| token),
+        );
+        let collected = if let Some((previous, shared, _)) = collector {
+            self.unfold_evaluation_collector = previous;
+            match shared.try_borrow_mut() {
+                Ok(mut shared) => {
+                    entries.extend(shared.drain(..));
+                    Ok(())
+                }
+                Err(_) => Err(NativeError::Unsupported("evaluation collector borrowed")),
+            }
+        } else {
+            Ok(())
+        };
+        let result = match (result, collected) {
+            (result, Ok(())) => result,
+            (Ok(_), Err(e)) => Err(EvaluationError::Context(e)),
+            (Err(primary), Err(cleanup)) => Err(coalesce_evaluation_cleanup(primary, cleanup)),
+        };
         let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
         let result = match (result, cleanup) {
             (Ok(value), Ok(())) => value,
@@ -2465,6 +2562,48 @@ where
         let next = continuation(self, merged, value, debug)?;
         Ok(result.combine(|| next, false))
     }
+    fn try_consume_owned_function_preconditions(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        frame: &crate::rules::evaluator::OwnedFunctionPre<PD, FD, JoinMode>,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        if !self.joined_branch_scheduler_enabled
+            || self.joined_branch_scheduler.is_none()
+            || self.member_log.is_some()
+            || !state.parallelize_branches
+            || !state.under_join
+            || state.is_in_package
+            || state.exhale_ext
+        {
+            return None;
+        }
+        let (preconditions, partial) = match self.prepare_function_preconditions(
+            &frame.base.g,
+            &frame.function,
+            &frame.expression,
+            &frame.argument_expressions,
+            &frame.preconditions,
+        ) {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e)),
+        };
+        let terminal =
+            crate::rules::consumer::OwnedConsumptionTerminal::FunctionPre(Arc::new(frame.clone()));
+        Some(
+            crate::rules::consumer::consume_many_owned(
+                self,
+                state.clone(),
+                &preconditions,
+                true,
+                &|_| partial.clone(),
+                terminal,
+            )
+            .map_err(|e| match e {
+                ConsumptionError::Context(e) => EvaluationError::Context(e),
+                other => EvaluationError::Context(NativeError::Consumption(format!("{other:?}"))),
+            }),
+        )
+    }
     fn consume_function_preconditions(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -2482,65 +2621,13 @@ where
             EvaluationError<Self::Error>,
         >,
     ) -> Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>> {
-        use ferrum_silver::ast::{
-            expression::ExpKind,
-            utility::nodes::{Node, map_node_tree},
-        };
-        let preconditions = preconditions
-            .iter()
-            .map(|precondition| {
-                let transformed = map_node_tree(&Node::Exp(precondition.clone()), &|node| {
-                    if let Node::Exp(exp) = node {
-                        if let ExpKind::Forall(vars, triggers, body) = exp.kind() {
-                            if !triggers.is_empty() {
-                                return Ok(Node::Exp(Exp::with_extra(
-                                    ExpKind::Forall(vars.clone(), vec![], body.clone()),
-                                    exp.metadata().clone(),
-                                    exp.0.extra.clone(),
-                                )));
-                            }
-                        }
-                    }
-                    Ok(node.clone())
-                })
-                .map_err(|e| {
-                    EvaluationError::Context(NativeError::Diagnostic(format!(
-                        "function precondition trigger rewriting: {e:?}"
-                    )))
-                })?;
-                let Node::Exp(exp) = transformed else {
-                    return Err(EvaluationError::Context(NativeError::Unsupported(
-                        "function precondition rewrite result",
-                    )));
-                };
-                Ok(exp)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let substitutions: Vec<_> = function
-            .formal_args
-            .iter()
-            .zip(arguments)
-            .map(|(formal, actual)| {
-                (
-                    Exp::new(ExpKind::LocalVar(formal.local_var()), formal.meta.clone()),
-                    actual.clone(),
-                )
-            })
-            .collect();
-        let partial = PartialVerificationError::for_kind(
-            VerificationErrorKind::PreconditionInAppFalse(application.clone()),
-        )
-        .with_reason_node_transformed(move |node| {
-            ferrum_silver::ast::utility::nodes::replace_expressions(&node, &substitutions).map_err(
-                |_| {
-                    ferrum_silver::verifier::verification_result::DiagnosticError::Unsupported(
-                        "function application error substitution",
-                    )
-                },
-            )
-        });
-        let partial =
-            partial.with_example_transformer(self.store_counterexample_transformer(caller_store));
+        let (preconditions, partial) = self.prepare_function_preconditions(
+            caller_store,
+            function,
+            application,
+            arguments,
+            preconditions,
+        )?;
         let mut callback_error = None;
         let result = crate::rules::consumer::consume_all(
             self,
@@ -3031,7 +3118,8 @@ where
                 crate::supporters::method_supporter::complete_method_pre(
                     self,
                     state,
-                    tail,
+                    &tail.method,
+                    &tail.cfg,
                     &initial_for_disabled_log,
                 )
                 .map_err(|error| {
@@ -4007,6 +4095,37 @@ where
             && !state.is_in_package
             && !state.exhale_ext
     }
+    fn supports_owned_consumption_frames(
+        &self,
+        state: &State<PD, FD, JoinMode>,
+        frames: &[crate::rules::consumer::OwnedConsumptionFrame<
+            Self::PartialError,
+            PD,
+            FD,
+            JoinMode,
+        >],
+    ) -> bool {
+        let function = frames.iter().any(|frame| {
+            matches!(
+                frame,
+                crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                    terminal: crate::rules::consumer::OwnedConsumptionTerminal::FunctionPre(_),
+                    ..
+                }
+            )
+        });
+        if function {
+            self.joined_branch_scheduler_enabled
+                && self.joined_branch_scheduler.is_some()
+                && self.member_log.is_none()
+                && state.parallelize_branches
+                && state.under_join
+                && !state.is_in_package
+                && !state.exhale_ext
+        } else {
+            self.supports_owned_consumption(state)
+        }
+    }
     fn consume_owned_retry(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -4087,6 +4206,54 @@ where
     ) -> Result<VerificationResult<VerificationError>, ConsumptionError<Self::Error>> {
         use crate::rules::executor::ExecutionContext;
         let (completion, tail) = match terminal {
+            crate::rules::consumer::OwnedConsumptionTerminal::FunctionPre(frame) => {
+                return crate::rules::evaluator::complete_owned_function_pre(
+                    self,
+                    state,
+                    snapshot,
+                    frame,
+                    &mut |ctx, state, term, debug| {
+                        let paths = ctx
+                            .base
+                            .decider
+                            .pcs
+                            .after(frame.join.mark)
+                            .map_err(EvaluationError::Path)?;
+                        let (id, entries) = ctx.unfold_evaluation_collector.as_ref().ok_or(
+                            EvaluationError::Context(NativeError::Unsupported(
+                                "evaluation collector unavailable",
+                            )),
+                        )?;
+                        if !Arc::ptr_eq(id, &frame.join.collector_id) {
+                            return Err(EvaluationError::Context(NativeError::Unsupported(
+                                "evaluation collector mismatch",
+                            )));
+                        }
+                        entries
+                            .try_borrow_mut()
+                            .map_err(|_| {
+                                EvaluationError::Context(NativeError::Unsupported(
+                                    "evaluation collector borrowed",
+                                ))
+                            })?
+                            .push(crate::rules::joiner::JoinDataEntry {
+                                state: crate::rules::joiner::restore_state(
+                                    state,
+                                    &frame.join.initial,
+                                ),
+                                data: (term, debug),
+                                path_conditions: paths,
+                            });
+                        Ok(VerificationResult::success())
+                    },
+                )
+                .map_err(|e| match e {
+                    EvaluationError::Context(e) => ConsumptionError::Context(e),
+                    other => ConsumptionError::Context(NativeError::Evaluation(format!(
+                        "owned function evaluation: {other:?}"
+                    ))),
+                });
+            }
             crate::rules::consumer::OwnedConsumptionTerminal::FoldBody(frame) => {
                 return crate::rules::predicate_supporter::execute_owned_fold_body(
                     self, state, snapshot, frame,
@@ -10044,6 +10211,24 @@ where
             })
         }
     }
+    fn try_produce_method_pre_owned(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        method: &Method,
+        cfg: &Arc<SilverCfg>,
+    ) -> Option<Result<VerificationResult<VerificationError>, MethodVerificationError<Self::Error>>>
+    {
+        use crate::rules::producer::ProductionContext;
+        if !self.supports_owned_production(state) {
+            return None;
+        }
+        let tail = crate::supporters::method_supporter::MethodPreContinuation {
+            method: method.clone(),
+            cfg: cfg.clone(),
+        };
+        let terminal = crate::rules::producer::OwnedProductionTerminal::MethodPre(tail);
+        self.try_produce_method_contract_owned(state, &method.pres, method, &terminal)
+    }
     fn try_produce_method_contract_owned(
         &mut self,
         state: &State<PD, FD, JoinMode>,
@@ -10709,6 +10894,18 @@ where
         if let super::verification_pool_manager::NativeJoinAction::Consumption(action) =
             &branch.action
         {
+            if action.frames.iter().any(|f| {
+                matches!(
+                    f,
+                    crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                        terminal: crate::rules::consumer::OwnedConsumptionTerminal::FunctionPre(_),
+                        ..
+                    }
+                )
+            }) {
+                super::verification_pool_manager::FUNCTION_PRE_TEST_EXECUTIONS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
             if action.frames.iter().any(|frame| matches!(frame, crate::rules::consumer::OwnedConsumptionFrame::Finish { terminal: crate::rules::consumer::OwnedConsumptionTerminal::LoopEstablish { .. }, .. })) { super::verification_pool_manager::LOOP_ESTABLISH_TEST_EXECUTIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
         }
         #[cfg(test)]
@@ -10899,6 +11096,16 @@ where
                     }
                     _ => None,
                 }
+            }
+            super::verification_pool_manager::NativeJoinAction::Consumption(action) => {
+                action.frames.iter().find_map(|f| match f {
+                    crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                        terminal:
+                            crate::rules::consumer::OwnedConsumptionTerminal::FunctionPre(frame),
+                        ..
+                    } => Some(frame.join.collector_id.clone()),
+                    _ => None,
+                })
             }
             _ => None,
         };
@@ -13047,6 +13254,75 @@ impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
 where
     S::Error: std::fmt::Debug,
 {
+    pub(crate) fn prepare_function_preconditions(
+        &mut self,
+        caller_store: &Arc<crate::state::store::MapBackedStore>,
+        function: &ferrum_silver::ast::program::Function,
+        application: &Exp,
+        arguments: &[Exp],
+        preconditions: &[Exp],
+    ) -> Result<(Vec<Exp>, PartialVerificationError), EvaluationError<NativeError<S::Error>>> {
+        use ferrum_silver::ast::{
+            expression::ExpKind,
+            utility::nodes::{Node, map_node_tree},
+        };
+        let preconditions = preconditions
+            .iter()
+            .map(|precondition| {
+                let transformed = map_node_tree(&Node::Exp(precondition.clone()), &|node| {
+                    if let Node::Exp(exp) = node {
+                        if let ExpKind::Forall(vars, triggers, body) = exp.kind() {
+                            if !triggers.is_empty() {
+                                return Ok(Node::Exp(Exp::with_extra(
+                                    ExpKind::Forall(vars.clone(), vec![], body.clone()),
+                                    exp.metadata().clone(),
+                                    exp.0.extra.clone(),
+                                )));
+                            }
+                        }
+                    }
+                    Ok(node.clone())
+                })
+                .map_err(|e| {
+                    EvaluationError::Context(NativeError::Diagnostic(format!(
+                        "function precondition trigger rewriting: {e:?}"
+                    )))
+                })?;
+                let Node::Exp(exp) = transformed else {
+                    return Err(EvaluationError::Context(NativeError::Unsupported(
+                        "function precondition rewrite result",
+                    )));
+                };
+                Ok(exp)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let substitutions: Vec<_> = function
+            .formal_args
+            .iter()
+            .zip(arguments)
+            .map(|(formal, actual)| {
+                (
+                    Exp::new(ExpKind::LocalVar(formal.local_var()), formal.meta.clone()),
+                    actual.clone(),
+                )
+            })
+            .collect();
+        let partial = PartialVerificationError::for_kind(
+            VerificationErrorKind::PreconditionInAppFalse(application.clone()),
+        )
+        .with_reason_node_transformed(move |node| {
+            ferrum_silver::ast::utility::nodes::replace_expressions(&node, &substitutions).map_err(
+                |_| {
+                    ferrum_silver::verifier::verification_result::DiagnosticError::Unsupported(
+                        "function application error substitution",
+                    )
+                },
+            )
+        });
+        let partial =
+            partial.with_example_transformer(self.store_counterexample_transformer(caller_store));
+        Ok((preconditions, partial))
+    }
     pub(crate) fn execute_owned_unfold_evaluation_finish(
         &mut self,
         mut state: State<PD, FD, JoinMode>,
@@ -14404,6 +14680,19 @@ where
                 &action.tail,
                 crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(_)
             ),
+            super::verification_pool_manager::NativeJoinAction::Consumption(action) => {
+                action.frames.iter().any(|f| {
+                    matches!(
+                        f,
+                        crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                            terminal: crate::rules::consumer::OwnedConsumptionTerminal::FunctionPre(
+                                _
+                            ),
+                            ..
+                        }
+                    )
+                })
+            }
             _ => false,
         };
         let evaluation = is_evaluation(&yes) && is_evaluation(&no);

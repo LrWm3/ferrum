@@ -1634,7 +1634,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Consumer.scala"
 destination = "crates/ferrum-silicon/src/rules/consumer.rs"
 status = "skeleton"
-remaining = ["Owned statements, method posts/calls, fold snapshots and loop consumption retain generic typed caller frames and retries. Expression receivers, logging and broader compatibility remain."]
+remaining = ["Typed owned consumption covers statement/method/loop/fold callers and function-precondition snapshot receivers. Asserting/nested expression receivers, logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1647,7 +1647,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Evaluator.scala"
 destination = "crates/ferrum-silicon/src/rules/evaluator.rs"
 status = "skeleton"
-remaining = ["Native evaluation, synchronous owned expression joins and token-preserving log scopes exist. Complete reporting lifecycle, debugger hooks and broad source compatibility remain; source expression joins disable parallelism."]
+remaining = ["Function application snapshots and expression Unfolding have typed owned result collectors. Further value receivers, diagnostics/logging and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"

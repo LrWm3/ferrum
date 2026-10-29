@@ -854,3 +854,11 @@ returns term/debug/path data to its original join collector; returned declaratio
 are replayed before merge. Separate real-Z3 fixtures exercise actual jobs with
 one and two workers, preserve predicate resources and values, and match the pinned
 JVM's single expected postcondition failure. Function/asserting receivers remain.
+
+Function application preconditions now consume through an owned snapshot receiver
+and return terms to the identified outer join. Source trigger rewriting, error
+substitution, snapshot recording and caller-state restoration are preserved.
+Real Z3 checks exercise dedicated jobs with one and two workers, including the
+expected bad precondition and valid returned values, matching the pinned JVM.
+Method precondition frames are now allocated only after owned dispatch eligibility;
+ordinary method verification keeps borrowed method/CFG data.

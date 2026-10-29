@@ -138,6 +138,53 @@ pub enum EvaluationBranchAction<E> {
     },
 }
 
+/// Explicit ownership token for a value-producing outer join.
+pub struct OwnedEvaluationJoin<P, D, J> {
+    pub initial: State<P, D, J>,
+    pub mark: crate::decider::path_conditions::Mark,
+    pub collector_id: Arc<()>,
+}
+impl<P, D, J: Clone> Clone for OwnedEvaluationJoin<P, D, J> {
+    fn clone(&self) -> Self {
+        Self {
+            initial: self.initial.clone(),
+            mark: self.mark,
+            collector_id: self.collector_id.clone(),
+        }
+    }
+}
+/// Function application Q after precondition consumption returns a snapshot.
+pub struct OwnedFunctionPre<P, D, J> {
+    pub join: OwnedEvaluationJoin<P, D, J>,
+    pub base: State<P, D, J>,
+    pub pre_state: State<P, D, J>,
+    pub function: ferrum_silver::ast::program::Function,
+    pub expression: Exp,
+    pub argument_expressions: Vec<Exp>,
+    pub arguments: Vec<Term>,
+    pub debug_arguments: Option<Vec<Exp>>,
+    pub application_debug: Option<Exp>,
+    pub label: Option<String>,
+    pub preconditions: Vec<Exp>,
+}
+impl<P, D, J: Clone> Clone for OwnedFunctionPre<P, D, J> {
+    fn clone(&self) -> Self {
+        Self {
+            join: self.join.clone(),
+            base: self.base.clone(),
+            pre_state: self.pre_state.clone(),
+            function: self.function.clone(),
+            expression: self.expression.clone(),
+            argument_expressions: self.argument_expressions.clone(),
+            arguments: self.arguments.clone(),
+            debug_arguments: self.debug_arguments.clone(),
+            application_debug: self.application_debug.clone(),
+            label: self.label.clone(),
+            preconditions: self.preconditions.clone(),
+        }
+    }
+}
+
 pub trait EvaluationContext<P, D, J, V>: Sized {
     type Error;
     type PartialError: Clone;
@@ -431,6 +478,49 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
         )
             -> Result<VerificationResult<V>, EvaluationError<Self::Error>>,
     ) -> Result<VerificationResult<V>, EvaluationError<Self::Error>>;
+    fn join_function_application_with_owned(
+        &mut self,
+        state: State<P, D, J>,
+        function: &ferrum_silver::ast::program::Function,
+        args: &[Term],
+        debug: Option<&Exp>,
+        block: &mut dyn FnMut(
+            &mut Self,
+            State<P, D, J>,
+            &mut dyn FnMut(
+                &mut Self,
+                State<P, D, J>,
+                Term,
+                Option<Exp>,
+            )
+                -> Result<VerificationResult<V>, EvaluationError<Self::Error>>,
+            Option<&OwnedEvaluationJoin<P, D, J>>,
+        )
+            -> Result<VerificationResult<V>, EvaluationError<Self::Error>>,
+        continuation: &mut dyn FnMut(
+            &mut Self,
+            State<P, D, J>,
+            Term,
+            Option<Exp>,
+        )
+            -> Result<VerificationResult<V>, EvaluationError<Self::Error>>,
+    ) -> Result<VerificationResult<V>, EvaluationError<Self::Error>> {
+        self.join_function_application(
+            state,
+            function,
+            args,
+            debug,
+            &mut |context, state, done| block(context, state, done, None),
+            continuation,
+        )
+    }
+    fn try_consume_owned_function_preconditions(
+        &mut self,
+        _state: &State<P, D, J>,
+        _frame: &OwnedFunctionPre<P, D, J>,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
     fn consume_function_preconditions(
         &mut self,
         state: State<P, D, J>,
@@ -611,6 +701,92 @@ impl Binary {
     }
 }
 /// Evaluate a source expression with continuation-driven state and heap restoration.
+/// Complete a function application from a snapshot into an explicit value receiver.
+pub(crate) fn complete_owned_function_pre<C, P, D, J: Clone, V>(
+    context: &mut C,
+    mut state: State<P, D, J>,
+    snapshot: Option<Term>,
+    frame: &OwnedFunctionPre<P, D, J>,
+    done: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let snapshot = snapshot.ok_or(EvaluationError::MissingFunctionSnapshot)?;
+    let (state_args, snapshot_to_record) = context
+        .function_snapshot_args(
+            &frame.pre_state,
+            &frame.function,
+            &frame.arguments,
+            &snapshot,
+        )
+        .map_err(EvaluationError::Context)?;
+    let symbol = context
+        .heap_function(&frame.function, &frame.base.program)
+        .map_err(EvaluationError::Context)?;
+    let factory = context.factory().clone();
+    let pre = crate::rules::function_supporter::precondition_version(&factory, &symbol);
+    let mut all_args = state_args;
+    all_args.extend(frame.arguments.iter().cloned());
+    context
+        .assume_function_precondition(
+            &factory.app(pre, all_args.clone()),
+            &frame.function,
+            frame.debug_arguments.as_deref(),
+        )
+        .map_err(EvaluationError::Context)?;
+    let opaque = matches!(frame.function.meta.info.find(&|info| matches!(info,ferrum_silver::ast::ast::Info::Annotation(_))),Some(ferrum_silver::ast::ast::Info::Annotation(a)) if a.contains_key("opaque"));
+    let revealed = matches!(frame.expression.metadata().info.find(&|info| matches!(info,ferrum_silver::ast::ast::Info::Annotation(_))),Some(ferrum_silver::ast::ast::Info::Annotation(a)) if a.contains_key("reveal"));
+    let symbol = if opaque && !revealed {
+        crate::rules::function_supporter::limited_version(&factory, &symbol)
+    } else {
+        symbol
+    };
+    let term = factory.app(symbol, all_args);
+    state.function_recorder = state
+        .function_recorder
+        .change_depth_by(-1)
+        .record_function_snapshot(
+            frame.expression.clone(),
+            context.branch_conditions(),
+            snapshot_to_record,
+        );
+    state.g = frame.base.g.clone();
+    state.h = frame.base.h.clone();
+    state.record_visited = frame.base.record_visited;
+    state.sm_domain_needed = frame.base.sm_domain_needed;
+    state.more_joins = frame.base.more_joins.clone();
+    state.assert_read_access_only = frame.base.assert_read_access_only;
+    let debug = if context.debugging() {
+        let app = frame
+            .application_debug
+            .clone()
+            .ok_or(EvaluationError::MissingDebugExpression)?;
+        if state.is_eval_in_old || frame.preconditions.iter().all(Exp::is_pure) {
+            Some(app)
+        } else {
+            Some(Exp::new(
+                ExpKind::DebugLabelledOld(
+                    app,
+                    frame
+                        .label
+                        .clone()
+                        .ok_or(EvaluationError::MissingDebugExpression)?,
+                ),
+                frame.expression.metadata().clone(),
+            ))
+        }
+    } else {
+        None
+    };
+    done(context, state, term, debug)
+}
+
 pub fn evaluate<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
@@ -1522,7 +1698,7 @@ where
                 } else {
                     None
                 };
-                context.join_function_application(state,&function,&terms,join_debug.as_ref(),&mut |context,base,done| {
+                context.join_function_application_with_owned(state,&function,&terms,join_debug.as_ref(),&mut |context,base,done,owned_join| {
                 let mut pres = Vec::new();
                 for pre in &function.pres {
                     let transformed = ferrum_silver::ast::utility::rewriter::strategy::rewrite_expression_bottom_up(pre,&mut |e| Ok::<_, &'static str>(match e.kind() { ExpKind::Forall(vars,_,body) => Exp::new(ExpKind::Forall(vars.clone(),vec![],body.clone()),e.metadata().clone()), _ => e.clone() }),&|_,_| Err(ferrum_silver::ast::utility::rewriter::strategy::ExpressionRewriteError::Callback("extension reconstruction unsupported"))).map_err(EvaluationError::PreconditionRewrite)?;
@@ -1539,6 +1715,10 @@ where
                 pre_state.sm_domain_needed = true; pre_state.more_joins = context.join_off();
                 if !context.respect_function_pre_permission_amounts() { pre_state.assert_read_access_only = true; }
                 let pre_state_for_snapshot = pre_state.clone();
+                if let Some(join) = owned_join {
+                    let frame = OwnedFunctionPre { join: join.clone(), base: base.clone(), pre_state: pre_state.clone(), function: function.clone(), expression: expression.clone(), argument_expressions: args.to_vec(), arguments: terms.clone(), debug_arguments: debug_args.clone(), application_debug: application_debug.clone(), label: label.clone(), preconditions: pres.clone() };
+                    if let Some(result) = context.try_consume_owned_function_preconditions(&pre_state, &frame) { return result; }
+                }
                 context.consume_function_preconditions(pre_state,&base.g,&function,expression,args,&pres,&mut |context,mut state,snapshot| {
                     let snapshot = snapshot.ok_or(EvaluationError::MissingFunctionSnapshot)?;
                     let (state_args,snapshot_to_record) = context.function_snapshot_args(&pre_state_for_snapshot,&function,&terms,&snapshot).map_err(EvaluationError::Context)?;
