@@ -3004,6 +3004,13 @@ pub struct NativeWorkerTask {
 /// Concrete worker over the real native execution context. `start` installs the
 /// context's static preamble; broadcast only the later analysis and post-verification
 /// contributions, in source order, to avoid duplicating the static preamble.
+#[cfg(test)]
+pub(crate) static DEBUG_TEST_METHOD_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static DEBUG_TEST_METHOD_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 pub struct NativeMethodWorker<S: crate::interfaces::decider::prover::Prover> {
     pub context: super::native_context::NativeVerifierContext<
         S,
@@ -3296,6 +3303,10 @@ where
             .map(NativeWorkerOutput::EvaluationBranch);
     }
     context.validate_trace_worker(&task.analysis)?;
+    #[cfg(test)]
+    if matches!(&task.target, NativeWorkerTarget::Method(_)) {
+        DEBUG_TEST_METHOD_EXECUTIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
     let start = std::time::Instant::now();
     let outcome = match &task.target {
         NativeWorkerTarget::Method(method) => context.verify_worker_method(&task.analysis, method),
@@ -3592,7 +3603,11 @@ where
                 reporter: reporter.clone(),
                 warning_sink: warning_sink.clone(),
             }) {
-                Ok(task) => tasks.push(task),
+                Ok(task) => {
+                    #[cfg(test)]
+                    DEBUG_TEST_METHOD_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    tasks.push(task)
+                }
                 Err(error) => {
                     task_error = Some(error);
                     break;

@@ -189,6 +189,21 @@ impl From<ConversionError> for ProverError {
 #[derive(Clone)]
 pub struct StdioCancellationHandle(Arc<Mutex<Option<Child>>>);
 impl StdioCancellationHandle {
+    #[cfg(test)]
+    pub(crate) fn child_id(&self) -> Option<u32> {
+        self.0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+            .map(std::process::Child::id)
+    }
+    #[cfg(test)]
+    pub(crate) fn has_child_handle(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .is_some()
+    }
     /// Terminate the child if currently running, returning whether it was interrupted.
     /// Cancellation invalidates the solver session; callers must not reuse it without reset.
     pub fn cancel(&self) -> io::Result<bool> {

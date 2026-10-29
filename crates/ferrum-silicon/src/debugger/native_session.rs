@@ -125,6 +125,125 @@ pub fn run_failures<R: BufRead, W: Write>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn cancelled_inflight_failure_capture_is_detached_and_replay_is_isolated() {
+        std::thread::Builder::new().stack_size(128 * 1024 * 1024).spawn(|| {
+            use crate::{config::Config, decider::{decider::DefaultDecider, z3_prover_std_io}, state::terms::TermOptions, verifier::{base_verifier::BaseVerifier, native_context::NativeVerifierContext, verification_pool_manager::{native_method_worker, verify_native_parallel_with_reporting, BroadcastingProver, CancellationController, ThreadVerificationPool, DEBUG_TEST_METHOD_EXECUTIONS, DEBUG_TEST_METHOD_SUBMISSIONS}}};
+            use ferrum_silver::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
+            use std::{cell::RefCell, io::Cursor, rc::Rc, sync::{atomic::Ordering, mpsc, Arc, Mutex}};
+            for workers in [1, 2] {
+                let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+                let mut config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "debug.vpr".into()]).unwrap();
+                let options = NativeOptions::from_config(&config).unwrap();
+                config.enable_debugging = true;
+                let factory = TermFactory::new(TermOptions { use_flyweight: false, use_old_axiomatization: false, mask_heap_mode: false });
+                let cancellation = CancellationController::default();
+                let (arrived_tx, arrived_rx) = mpsc::channel();
+                let (release_tx, release_rx) = mpsc::channel();
+                let release_rx = Arc::new(Mutex::new(release_rx));
+                let captures: Arc<Mutex<Vec<Arc<CapturedFailure>>>> = Arc::new(Mutex::new(Vec::new()));
+                let handles = Arc::new(Mutex::new(Vec::new()));
+                let worker_factory = factory.clone();
+                let worker_options = options.clone();
+                let worker_config = config.clone();
+                let worker_cancel = cancellation.clone();
+                let worker_arrived = arrived_tx;
+                let worker_release = release_rx;
+                let worker_captures = captures.clone();
+                let worker_handles = handles.clone();
+                let pool = ThreadVerificationPool::start_with_cancellation(workers, 128 * 1024 * 1024, cancellation.clone(), move |id| {
+                    let mut settings = z3_prover_std_io::settings(z3.clone().into()); settings.debug = true;
+                    let prover = z3_prover_std_io::new(format!("detached-{id}"), settings, worker_factory.clone(), |_| {});
+                    let handle = prover.cancellation_handle();
+                    worker_handles.lock().unwrap().push(handle.clone());
+                    worker_cancel.register(move || handle.cancel().map(|_| ()).map_err(|e| e.to_string()));
+                    let ids = prover.identifier_factory();
+                    let mut worker = native_method_worker(format!("detached-{id}"), prover, ids, worker_factory.clone(), worker_options.clone(), &worker_config);
+                    worker.set_cancellation(worker_cancel.clone());
+                    let arrived = worker_arrived.clone(); let release = worker_release.clone(); let captures = worker_captures.clone();
+                    worker.context.set_debug_failure_factory(Arc::new(move |state, record, owners| {
+                        let captured = Arc::new(CapturedFailure::capture_native(state, record, owners)?);
+                        captures.lock().unwrap().push(captured.clone());
+                        arrived.send(()).map_err(|e| format!("capture barrier: {e}"))?;
+                        release.lock().unwrap().recv().map_err(|e| format!("capture release: {e}"))?;
+                        Ok(captured)
+                    }));
+                    Ok(worker)
+                }).unwrap();
+                let child_ids: Vec<_> = handles.lock().unwrap().iter().map(|handle| handle.child_id().expect("started worker solver")).collect();
+                assert_eq!(child_ids.len(), workers);
+                let pool = Rc::new(RefCell::new(pool));
+                let mut settings = z3_prover_std_io::settings(std::env::var("FERRUM_TEST_Z3").unwrap().into()); settings.debug = true;
+                let prover = z3_prover_std_io::new("main".into(), settings, factory.clone(), |_| {});
+                let identifiers = prover.identifier_factory();
+                let decider = DefaultDecider::new(BroadcastingProver::new(prover, pool.clone()), false, None, None, None);
+                let base = BaseVerifier::new_with_identifiers("main".into(), decider, factory.clone(), false, crate::config::StateConsolidationMode::Default, identifiers);
+                let mut context = NativeVerifierContext::new(base, factory.clone(), options.clone());
+                context.set_cancellation(cancellation.clone());
+                context.start(None, &[]).unwrap();
+                let mut phases = SilFrontendPhases::new("debug.vpr".into(), ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+                phases.retain_source_program = true;
+                let source = if workers == 1 { "method first(x: Int) { assert x > 0; }" } else { "method first(x: Int) { assert x > 0; } method second(x: Int) { assert x > 1; }" };
+                let parsed = phases.parse(source).unwrap();
+                let analyzed = phases.analyze(parsed).unwrap();
+                let program = phases.translate(analyzed).unwrap();
+                let submitted = DEBUG_TEST_METHOD_SUBMISSIONS.load(Ordering::SeqCst);
+                let executed = DEBUG_TEST_METHOD_EXECUTIONS.load(Ordering::SeqCst);
+                let cancel = cancellation.clone();
+                let coordinator = std::thread::spawn(move || {
+                    let reached = (0..workers).all(|_| arrived_rx.recv_timeout(std::time::Duration::from_secs(30)).is_ok());
+                    cancel.cancel();
+                    for _ in 0..workers { let _ = release_tx.send(()); }
+                    reached
+                });
+                let outcome = verify_native_parallel_with_reporting(&mut context, &program, &[], None, None, None);
+                assert!(coordinator.join().unwrap(), "failure capture did not reach barrier");
+                use crate::verifier::verification_pool_manager::{NativeParallelError, ThreadPoolError};
+                use crate::verifier::native_context::NativeError;
+                use crate::decider::{decider::DeciderError, prover_std_io::ProverError};
+                let error = outcome.expect_err("cancelled capture unexpectedly completed");
+                match error {
+                    NativeParallelError::Worker(ThreadPoolError::Worker(NativeError::Cleanup(detail))) => {
+                        assert!(detail.contains("Service(Cancelled)") && detail.contains("SourceProtocol") && detail.contains("BrokenPipe"), "unexpected cleanup provenance: {detail}");
+                    }
+                    other => panic!("unexpected cancellation result: {other:?}"),
+                }
+                assert!(DEBUG_TEST_METHOD_SUBMISSIONS.load(Ordering::SeqCst) > submitted, "no member task submitted");
+                assert!(DEBUG_TEST_METHOD_EXECUTIONS.load(Ordering::SeqCst) > executed, "no member task executed");
+                context.stop().expect("main verifier cleanup"); drop(context);
+                let pool = Rc::try_unwrap(pool).ok().unwrap().into_inner();
+                match pool.shutdown() {
+                    Err(ThreadPoolError::Cleanup { primary, errors }) => {
+                        assert!(matches!(*primary, ThreadPoolError::Stopped));
+                        assert!(!errors.is_empty());
+                        for error in errors {
+                            match error {
+                                ThreadPoolError::Stopped => (),
+                                ThreadPoolError::Worker(NativeError::Decider(DeciderError::Prover(ProverError::Io(error)))) if error.kind() == std::io::ErrorKind::BrokenPipe => (),
+                                other => panic!("unexpected pool cleanup: {other:?}"),
+                            }
+                        }
+                    }
+                    other => panic!("unexpected pool shutdown result: {other:?}"),
+                }
+                for handle in handles.lock().unwrap().iter() { assert!(!handle.has_child_handle(), "solver child handle retained after pool shutdown"); }
+                #[cfg(target_os = "linux")]
+                for pid in child_ids { assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists(), "solver process {pid} was not reaped"); }
+                let captured = captures.lock().unwrap();
+                assert_eq!(captured.len(), workers, "capture collector leaked or lost a job");
+                let worker_ids = captured.iter().map(|failure| failure.obligation.verifier.worker_id.clone()).collect::<std::collections::HashSet<_>>();
+                assert_eq!(worker_ids.len(), workers, "captured failures did not execute on distinct workers");
+                assert!(worker_ids.iter().all(|id| id.starts_with("detached-")));
+                let mut first = Vec::new();
+                run_obligation(&config, options.clone(), factory.clone(), &captured[0], &mut Cursor::new(b"af\nfalse\np\nq\n"), &mut first).unwrap();
+                assert!(String::from_utf8(first).unwrap().contains("PASS: Proving obligation was successful."));
+                let mut second = Vec::new();
+                run_obligation(&config, options, factory, &captured[0], &mut Cursor::new(b"p\nq\n"), &mut second).unwrap();
+                assert!(String::from_utf8(second).unwrap().contains("FAIL: Proving obligation failed."), "detached sessions shared assumptions");
+            }
+        }).unwrap().join().unwrap();
+    }
     use super::*;
     #[test]
     #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
