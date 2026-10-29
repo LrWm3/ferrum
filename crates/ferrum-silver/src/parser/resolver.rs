@@ -2888,8 +2888,14 @@ pub fn check_statement_core(
                 PNodeKind::Expression(e) => e.kind.clone(),
                 _ => return Err(TypeCheckError::Unsupported("assignment target")),
             };
+            let mut invalid_target = None;
             match target_kind {
                 PExpressionKind::IdnUse { idnref } => {
+                    let name = match &idnref.read().expect("poisoned parse node").kind {
+                        PNodeKind::IdnRef(reference) => reference.name.clone(),
+                        _ => return Err(TypeCheckError::Unsupported("assignment identifier")),
+                    };
+                    let original_count = super::parse_ast::PIdnRef::decls(&idnref, |_| true).len();
                     if let PNodeKind::IdnRef(reference) =
                         &mut idnref.write().expect("poisoned parse node").kind
                     {
@@ -2899,6 +2905,21 @@ pub fn check_statement_core(
                         |node: &PNodeHandle| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Declaration(d) if matches!(d.kind, PDeclarationKind::LocalVar | PDeclarationKind::FormalReturn)),
                     );
                     super::parse_ast::PIdnRef::filter_decls(&idnref, filter, |_| true);
+                    let count = super::parse_ast::PIdnRef::decls(&idnref, |_| true).len();
+                    if count != 1 {
+                        let message = if original_count == 0 {
+                            format!(
+                                "undeclared identifier `{name}`, expected parameter or local variable"
+                            )
+                        } else if count == 0 {
+                            format!("expected an assignable identifier `{name}` as lhs")
+                        } else {
+                            format!(
+                                "ambiguous identifier `{name}`, expected single parameter or local variable"
+                            )
+                        };
+                        invalid_target = Some((idnref.clone(), message));
+                    }
                 }
                 PExpressionKind::FieldAccess { idnref, .. } => {
                     if let PNodeKind::IdnRef(reference) =
@@ -2906,8 +2927,42 @@ pub fn check_statement_core(
                     {
                         reference.assign_use = true;
                     }
+                    let fields = super::parse_ast::PIdnRef::decls(
+                        &idnref,
+                        |node| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Declaration(d) if matches!(d.kind, PDeclarationKind::Field { .. })),
+                    );
+                    if fields.len() != 1 {
+                        let name = match &idnref.read().expect("poisoned parse node").kind {
+                            PNodeKind::IdnRef(id) => id.name.clone(),
+                            _ => return Err(TypeCheckError::Unsupported("assignment field")),
+                        };
+                        let message = if fields.is_empty() {
+                            format!("undeclared field `{name}`")
+                        } else {
+                            format!("ambiguous field `{name}`")
+                        };
+                        invalid_target = Some((idnref, message));
+                    }
                 }
                 _ => return Err(TypeCheckError::Unsupported("assignment target")),
+            }
+            if let Some((node, message)) = invalid_target {
+                let mut errors = vec![TypeCheckError::PositionedMessage { node, message }];
+                match check_program_expression(&rhs, None, &mut *warn) {
+                    Ok(actual) => errors.push(TypeCheckError::Incompatible {
+                        expression: rhs.node().clone(),
+                        actual,
+                        expected: PTypeHandle::new(
+                            super::parse_ast::PTypeKind::Unknown,
+                            (
+                                crate::ast::position::Position::NoPosition,
+                                crate::ast::position::Position::NoPosition,
+                            ),
+                        ),
+                    }),
+                    Err(error) => retain_type_mismatches(&mut errors, Err::<(), _>(error))?,
+                }
+                return Err(TypeCheckError::Mismatches(errors));
             }
             let target_type = check_program_expression(target, None, &mut *warn)?;
             if check_new_fields(&rhs)? {

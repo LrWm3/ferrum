@@ -2175,6 +2175,48 @@ mod tests {
         );
     }
     #[test]
+    fn invalid_assignment_targets_keep_context_and_rhs_type_errors() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("method m(x: Int) { x := 1 }\nmethod n() { missing := 1 }\n")
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "expected an assignable identifier `x` as lhs (test.vpr@1.20--1.21)",
+                "found incompatible type `Int`, expected `<error>` (test.vpr@1.25--1.26)",
+                "undeclared identifier `missing`, expected parameter or local variable (test.vpr@2.14--2.21)",
+                "found incompatible type `Int`, expected `<error>` (test.vpr@2.25--2.26)",
+            ]
+        );
+    }
+    #[test]
+    fn missing_assignment_field_takes_precedence_over_receiver() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("field f: Int\nmethod m() {\n  var tmp: Int\n  f.r := tmp\n}\n")
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "undeclared field `r` (test.vpr@4.5--4.6)",
+                "found incompatible type `Int`, expected `<error>` (test.vpr@4.10--4.13)",
+            ]
+        );
+    }
+    #[test]
     fn recursive_function_postconditions_report_each_call() {
         let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
         let mut phases = SilFrontendPhases::new(
