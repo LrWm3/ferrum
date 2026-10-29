@@ -155,6 +155,7 @@ type ExecutingContext<P> = NativeVerifierContext<
 type WorkerPool<P> = ThreadVerificationPool<NativeMethodWorker<P>>;
 type ParallelMain<P> = ExecutingContext<BroadcastingProver<P, NativeMethodWorker<P>>>;
 type SharedWarnings = Arc<Mutex<Vec<String>>>;
+type StartedProvers = Arc<Mutex<std::collections::HashSet<String>>>;
 type SharedPostconditionAxioms = Rc<RefCell<Vec<Term>>>;
 type RunLogAttachment = silicon::logger::run_owner::RunLogAttachment;
 type RunLogOwner = silicon::logger::run_owner::RunLogOwner;
@@ -199,7 +200,13 @@ where
         general_logger: Option<silicon::logger::general::GeneralLogger>,
         reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
         postcondition_axioms: SharedPostconditionAxioms,
-    ) -> Result<Self, FerrumError> {
+        started_provers: StartedProvers,
+    ) -> Result<Self, FerrumError>
+    where
+        P: silicon::interfaces::decider::prover::Prover<
+                Version = silicon::common::config::package::Version,
+            >,
+    {
         let worker_config = config.clone();
         let worker_factory = factory.clone();
         let worker_options = options.clone();
@@ -208,6 +215,7 @@ where
         let worker_logging = logging.clone();
         let worker_general_logger = general_logger.clone();
         let worker_reporter = reporter.clone();
+        let worker_started_provers = started_provers.clone();
         let create = move |index| {
             // Counterexample lookup uses raw term identifiers, as in upstream.
             // Keep generated worker names unchanged by SMT symbol sanitization.
@@ -225,13 +233,25 @@ where
                 silicon::verifier::native_context::NativeError::Execution(error.to_string())
             })?;
             let mut worker = native_method_worker(
-                id,
+                id.clone(),
                 prover,
                 identifiers,
                 worker_factory.clone(),
                 worker_options.clone(),
                 &worker_config,
             );
+            attach_version_observer(
+                &mut worker.context,
+                &id,
+                &worker_config,
+                worker_started_provers.clone(),
+                worker_reporter.clone(),
+                worker_general_logger.clone(),
+                worker_warnings.clone(),
+            )
+            .map_err(|e| {
+                silicon::verifier::native_context::NativeError::Diagnostic(format!("{e:?}"))
+            })?;
             if let Some(logging) = &worker_logging {
                 logging.attach(
                     &mut worker.context,
@@ -270,6 +290,9 @@ where
             logging.as_ref(),
             general_logger,
             postcondition_axioms,
+            started_provers,
+            reporter,
+            warning_sink.clone(),
         );
         match context {
             Ok(context) => Ok(Self {
@@ -450,7 +473,116 @@ impl OwnedContext {
     }
 }
 
-fn start_context<P: silicon::interfaces::decider::prover::Prover>(
+/// Decider.createProver reports a version only for the first start of each
+/// source verifier. Native reset reconstructs contexts, so history belongs to
+/// the backend session rather than a transient prover object.
+fn attach_version_observer<P>(
+    context: &mut ExecutingContext<P>,
+    id: &str,
+    config: &Config,
+    started: StartedProvers,
+    reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
+    logger: Option<silicon::logger::general::GeneralLogger>,
+    warnings: SharedWarnings,
+) -> Result<(), FerrumError>
+where
+    P: silicon::interfaces::decider::prover::Prover<
+            Version = silicon::common::config::package::Version,
+        > + 'static,
+    P::Error: std::fmt::Debug,
+{
+    let location = if config.prover == "Z3-API" {
+        "No Path".to_owned()
+    } else {
+        config
+            .prover_settings(id)
+            .map_err(|e| FerrumError::Configuration(e.to_string()))?
+            .executable
+            .display()
+            .to_string()
+    };
+    let id = id.to_owned();
+    let logger_name = if id == "main" {
+        "viper.silicon.verifier.DefaultMainVerifier-00".to_owned()
+    } else {
+        let index: usize = id.strip_prefix("worker_").unwrap().parse().unwrap();
+        format!("viper.silicon.verifier.WorkerVerifier-{:02}", index + 1)
+    };
+    context.set_start_observer(move |prover| {
+        use silicon::decider::decider::DeciderError;
+        use silicon::logger::general::Level;
+        use silicon::verifier::native_context::NativeError;
+        use silver::reporter::message::{Message, SimpleMessageKind};
+        if started
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(&id)
+        {
+            return Ok(());
+        }
+        let version = prover
+            .version()
+            .map_err(|e| NativeError::Decider(DeciderError::Prover(e)))?;
+        let message = format!("Using {} {version} located at {location}", prover.name());
+        if let Some(reporter) = &reporter {
+            reporter
+                .report(Message::Simple {
+                    kind: SimpleMessageKind::ConfigurationConfirmation,
+                    text: message.clone(),
+                })
+                .map_err(|e| NativeError::Diagnostic(format!("prover version reporter: {e:?}")))?;
+        }
+        if let Some(logger) = &logger {
+            logger.emit(&logger_name, Level::Debug, || message);
+        }
+        let mut version_warnings = Vec::new();
+        if version.less_than(&prover.min_version()) {
+            version_warnings.push(format!(
+                "Expected at least {} version {}, but found {version}",
+                prover.name(),
+                prover.min_version()
+            ));
+        }
+        if let Some(maximum) = prover.max_version().filter(|m| m.less_than(&version)) {
+            version_warnings.push(format!(
+                "Silicon might not work with {} version {version}, consider using {maximum}",
+                prover.name()
+            ));
+        }
+        for message in version_warnings {
+            if let Some(reporter) = &reporter {
+                reporter
+                    .report(Message::Simple {
+                        kind: SimpleMessageKind::InternalWarning,
+                        text: message.clone(),
+                    })
+                    .map_err(|e| {
+                        NativeError::Diagnostic(format!("prover version warning reporter: {e:?}"))
+                    })?;
+            } else {
+                warnings
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(message.clone());
+            }
+            if let Some(logger) = &logger {
+                logger.emit(&logger_name, Level::Warn, || message);
+            }
+        }
+        started
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id.clone());
+        Ok(())
+    });
+    Ok(())
+}
+
+fn start_context<
+    P: silicon::interfaces::decider::prover::Prover<
+            Version = silicon::common::config::package::Version,
+        > + 'static,
+>(
     prover: P,
     identifiers: silicon::state::identifiers::DefaultIdentifierFactory,
     config: &Config,
@@ -460,6 +592,9 @@ fn start_context<P: silicon::interfaces::decider::prover::Prover>(
     logging: Option<&RunLogAttachment>,
     general_logger: Option<silicon::logger::general::GeneralLogger>,
     postcondition_axioms: SharedPostconditionAxioms,
+    started_provers: StartedProvers,
+    reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
+    warnings: SharedWarnings,
 ) -> Result<ExecutingContext<P>, FerrumError>
 where
     P::Error: std::fmt::Debug,
@@ -481,6 +616,15 @@ where
     );
     let mut context = ExecutingContext::new(base, factory, options);
     context.set_postcondition_axioms_store(postcondition_axioms);
+    attach_version_observer(
+        &mut context,
+        "main",
+        config,
+        started_provers,
+        reporter,
+        general_logger.clone(),
+        warnings,
+    )?;
     context.set_preamble_config(config.prover_config_args.clone());
     if let Some(logger) = general_logger {
         context.set_general_logging(logger, config.prover_config_args.clone());
@@ -757,6 +901,7 @@ struct NativeBackend {
     reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
     logging: Option<RunLogOwner>,
     general_logger: Option<silicon::logger::general::GeneralLogger>,
+    started_provers: StartedProvers,
     // Same owner-thread function postcondition vector survives source verifier resets.
     postcondition_axioms: SharedPostconditionAxioms,
 }
@@ -776,6 +921,7 @@ impl NativeBackend {
             reporter: None,
             logging: None,
             general_logger: Some(general_logger),
+            started_provers: Arc::new(Mutex::new(Default::default())),
             postcondition_axioms: Rc::new(RefCell::new(Vec::new())),
         }
     }
@@ -950,6 +1096,7 @@ impl SiliconBackend for NativeBackend {
                         self.general_logger.clone(),
                         self.reporter.clone(),
                         self.postcondition_axioms.clone(),
+                        self.started_provers.clone(),
                     )?))
                 } else {
                     OwnedContext::Api(Box::new(start_context(
@@ -962,6 +1109,9 @@ impl SiliconBackend for NativeBackend {
                         self.logging.as_ref().map(RunLogOwner::attachment).as_ref(),
                         self.general_logger.clone(),
                         self.postcondition_axioms.clone(),
+                        self.started_provers.clone(),
+                        self.reporter.clone(),
+                        self.warnings.clone(),
                     )?))
                 });
                 return Ok(());
@@ -991,6 +1141,7 @@ impl SiliconBackend for NativeBackend {
                 self.general_logger.clone(),
                 self.reporter.clone(),
                 self.postcondition_axioms.clone(),
+                self.started_provers.clone(),
             )?))
         } else {
             OwnedContext::Stdio(Box::new(start_context(
@@ -1003,6 +1154,9 @@ impl SiliconBackend for NativeBackend {
                 self.logging.as_ref().map(RunLogOwner::attachment).as_ref(),
                 self.general_logger.clone(),
                 self.postcondition_axioms.clone(),
+                self.started_provers.clone(),
+                self.reporter.clone(),
+                self.warnings.clone(),
             )?))
         });
         Ok(())
@@ -2423,6 +2577,11 @@ mod postcondition_owner_tests {
                 let starts_reported = events.iter().filter(|e| e.starts_with("report: Starting prover at location")).count();
                 let starts_logged = events.iter().filter(|e| e.starts_with("log: Starting prover at location")).count();
                 assert!(starts_reported >= 2 && starts_reported == starts_logged, "{events:?}");
+                let version_reports = events.iter().filter(|e| e.starts_with("report: Using Z3 ")).count();
+                let version_logs = events.iter().filter(|e| e.starts_with("log: Using Z3 ")).count();
+                let expected_provers = if workers == 1 { 1 } else { workers + 1 };
+                assert_eq!(version_reports, expected_provers, "{events:?}");
+                assert_eq!(version_logs, expected_provers, "{events:?}");
                 assert_eq!(config_events.len(), 4, "report then log once per verification");
                 assert!(config_events[0].starts_with("report: ") && config_events[1].starts_with("log: ") && config_events[2].starts_with("report: ") && config_events[3].starts_with("log: "));
                 assert!(events.iter().any(|e| e.contains("EVAL ")), "recursive evaluation debug event missing: {events:?}");

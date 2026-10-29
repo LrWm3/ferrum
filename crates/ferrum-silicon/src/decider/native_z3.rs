@@ -1903,7 +1903,7 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
         self.last_reason_unknown = None;
     }
     fn name(&self) -> &str {
-        "Z3"
+        "Z3-API"
     }
     fn min_version(&self) -> Self::Version {
         Self::Version::new("4.16.0.0")

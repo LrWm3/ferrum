@@ -415,6 +415,7 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     cancellation: Option<crate::verifier::verification_pool_manager::CancellationController>,
     havoc_counter: u64,
     config_options: Vec<String>,
+    start_observer: Option<Box<dyn FnMut(&mut S) -> Result<(), NativeError<S::Error>>>>,
     preamble_config: std::collections::BTreeMap<String, String>,
     general_logger_name: String,
     general_logging: Option<(
@@ -762,6 +763,7 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             cancellation: None,
             havoc_counter: 0,
             config_options: Vec::new(),
+            start_observer: None,
             preamble_config: Default::default(),
             general_logger_name: "viper.silicon.verifier.DefaultMainVerifier-00".into(),
             general_logging: None,
@@ -1371,6 +1373,13 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         }
         Ok(())
     }
+    /// Observe a newly started prover before any preamble is installed.
+    pub fn set_start_observer(
+        &mut self,
+        observer: impl FnMut(&mut S) -> Result<(), NativeError<S::Error>> + 'static,
+    ) {
+        self.start_observer = Some(Box::new(observer));
+    }
     /// Start the owned solver and install the source static settings and base preamble.
     /// Contributor-specific declarations and axioms must be installed separately after analysis.
     pub fn start(
@@ -1380,6 +1389,17 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
     ) -> Result<(), NativeError<S::Error>> {
         self.checkpoint()?;
         self.base.start(user_args).map_err(NativeError::Decider)?;
+        if let Some(observer) = &mut self.start_observer {
+            if let Err(primary) = observer(&mut self.base.decider.prover) {
+                return match self.base.stop() {
+                    Ok(()) => Err(primary),
+                    Err(cleanup) => Err(NativeError::StartCleanup {
+                        primary: Box::new(primary),
+                        cleanup,
+                    }),
+                };
+            }
+        }
         if let Err(cancelled) = self.checkpoint() {
             return match self.base.stop() {
                 Ok(()) => Err(cancelled),

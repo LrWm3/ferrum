@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 418 mapped and assembly modules. `described` files
+The Cargo workspace now has 419 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
@@ -1119,3 +1119,11 @@ reporter configuration events. Other levels and named --logger overrides stay
 gated, and event parity is incomplete. CLI tests use regular-file-backed stdin;
 the existing frontend still rejects pipe-backed /dev/stdin. Prusti must pass
 ERROR when updating to this backend revision.
+
+Prover startup now queries and reports the version before emitting the preamble,
+including source min/max warnings. Session-owned history prevents repeat queries
+when native contexts are reconstructed for reset. Observer failures stop the
+solver and retain cleanup errors; linked Z3 reports its source name Z3-API. Stdio
+transcript tests cover one/two workers, resets and rejecting reporters. History
+is keyed by native verifier ID; replacement of worker instances under reused IDs
+remains a source-lifecycle compatibility gap.

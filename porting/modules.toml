@@ -2655,3 +2655,8 @@ role = "assembly"
 destination = "tests/native_prover_comments.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "tests/native_version_lifecycle.rs"
+status = "wired"
+role = "assembly"
