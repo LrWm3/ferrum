@@ -150,8 +150,8 @@ production and consumption adapters preserve direct typed context errors,
 including function-precondition and ordinary assertion-tail checkpoints.
 Execution adapters now preserve direct context/service errors as well. Saved
 callback adapters recognize a typed continuation-abort sentinel and retain any
-independent cleanup error together with the callback failure. The resource and
-quantified bridges remain under a separate audit.
+independent cleanup error together with the callback failure. Reviewed quantified retry, summary, merge, mask and wand adapters now retain
+their nested service/solver errors too.
 Nested arbitrary expression callbacks without an explicit receiver remain
 synchronous. Active member logging, packaging and extended exhale still disable
 owned dispatch. Generic borrowed callback entry points remain local; parallelism
@@ -237,11 +237,19 @@ typed errors across the reviewed direct context/service boundaries. Conditional
 evaluation, production and consumption regressions cover successful cleanup and
 an independent cleanup error after callback failure, plus a nested inhale tail.
 The injected error occurs after a successful solver pop; these checks establish
-error retention, not state recovery after an actual failed pop. Resource wrappers
-and untested callback sites remain separate audit items.
+error retention, not state recovery after an actual failed pop. This covers the inspected adapters; it does not establish exhaustive coverage
+of every nested error family or callback site.
 
 Both-operand tests assert actual submissions and executions on each side with
 one and two workers, including an else-only right permission failure. A separate
 probe cancels after the right receiver starts and its sibling has been submitted;
 it checks typed cancellation and pool draining, without assuming that sibling
 has already executed. Both run under an external process watchdog.
+
+Quantified single/general retry continuations preserve their typed callback
+errors across both retry layers. Independent negative controls restoring either
+old bridge lose the expected Diagnostic. Resource summaries, ordering, removal,
+consolidation and mask/wand operations preserve the inspected nested
+Service/Solver/Fresh/Render errors. The full real-Z3 library suite passes; these
+additional resource mappings have source/type review but no per-site injected
+failures. Pure transformation errors retain their existing diagnostic formatting.

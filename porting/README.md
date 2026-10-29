@@ -1094,5 +1094,8 @@ right receiver followed by pool draining. Each transfer retains runtime guards.
 Execution adapters now preserve typed context/service failures. Saved callback
 errors survive normal abort unwinding, and independent cleanup errors remain
 visible alongside the original error. Real-Z3 conditional adapter controls check
-three rule families and a nested inhale tail. Resource error bridges remain a
-separate follow-on; the cleanup injection runs after a successful solver pop.
+three rule families and a nested inhale tail. The cleanup injection runs after
+a successful solver pop. Quantified single and
+general retry callback controls now preserve exact errors through both retry
+layers. Reviewed summary, merge, ordering/removal, consolidation and mask/wand
+bridges also retain nested typed errors; pure transform formatting is unchanged.

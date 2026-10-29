@@ -1228,7 +1228,10 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
                     timeout,
                     &mut service,
                 )
-                .map_err(|e| NativeError::Chunk(format!("mask wand transfer: {e:?}")))?;
+                .map_err(|e| match e {
+                    crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => error,
+                    other => NativeError::Chunk(format!("mask wand transfer: {other:?}")),
+                })?;
                 let outcome = match step.remaining {
                     None => ConsumptionResult::Complete,
                     Some(perms_needed) => ConsumptionResult::Incomplete {
@@ -2671,10 +2674,13 @@ where
             let amount = crate::rules::mask_heap_supporter::current_permission::<
                 NativeError<S::Error>,
             >(&self.factory, &heap, resource, args)
-            .map_err(|e| {
-                EvaluationError::Context(NativeError::Chunk(format!(
-                    "mask current permission: {e:?}"
-                )))
+            .map_err(|e| match e {
+                crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => {
+                    EvaluationError::Context(error)
+                }
+                other => EvaluationError::Context(NativeError::Chunk(format!(
+                    "mask current permission: {other:?}"
+                ))),
             })?;
             return continuation(self, state, amount);
         }
@@ -4777,10 +4783,13 @@ where
                 adapter.context.options.assume_injectivity_on_inhale,
                 &mut adapter,
             )
-            .map_err(|e| {
-                ProductionError::Context(NativeError::Chunk(format!(
-                    "mask quantified production: {e:?}"
-                )))
+            .map_err(|e| match e {
+                crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => {
+                    ProductionError::Context(error)
+                }
+                other => ProductionError::Context(NativeError::Chunk(format!(
+                    "mask quantified production: {other:?}"
+                ))),
             })?;
             let recorder = adapter.recorder;
             return match outcome {
@@ -4904,8 +4913,14 @@ where
         match crate::rules::quantified_chunk_support::produce_general_quantified(
             &factory, self, state, resource, input, &failure,
         )
-        .map_err(|e| {
-            ProductionError::Context(NativeError::Chunk(format!("quantified production: {e:?}")))
+        .map_err(|e| match e {
+            crate::rules::quantified_chunk_support::GeneralProductionError::Service(error)
+            | crate::rules::quantified_chunk_support::GeneralProductionError::Inverse(
+                crate::rules::quantified_chunk_support::InverseGenerationError::Service(error),
+            ) => ProductionError::Context(error),
+            other => ProductionError::Context(NativeError::Chunk(format!(
+                "quantified production: {other:?}"
+            ))),
         })? {
             GeneralProductionOutcome::Produced(state) => continuation(self, state),
             GeneralProductionOutcome::Failed(result) => Ok(result),
@@ -6112,10 +6127,13 @@ where
                     &input,
                     &mut adapter,
                 )
-                .map_err(|e| {
-                    ConsumptionError::Context(NativeError::Chunk(format!(
-                        "mask quantified preparation: {e:?}"
-                    )))
+                .map_err(|e| match e {
+                    crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => {
+                        ConsumptionError::Context(error)
+                    }
+                    other => ConsumptionError::Context(NativeError::Chunk(format!(
+                        "mask quantified preparation: {other:?}"
+                    ))),
                 })?;
                 let prepared = match prepared {
                     MaskQuantifiedPreparation::Ready(value) => value,
@@ -6209,8 +6227,13 @@ where
                             &prepared.inverse,
                             &mut service,
                         )
-                        .map_err(|e| {
-                            NativeError::Chunk(format!("mask quantified wand transfer: {e:?}"))
+                        .map_err(|e| match e {
+                            crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => {
+                                error
+                            }
+                            other => NativeError::Chunk(format!(
+                                "mask quantified wand transfer: {other:?}"
+                            )),
                         })?;
                         if step.consumed.is_some() {
                             state.function_recorder = service.recorder;
@@ -6292,10 +6315,13 @@ where
                 simplify,
                 &mut adapter,
             )
-            .map_err(|e| {
-                ConsumptionError::Context(NativeError::Chunk(format!(
-                    "mask quantified consumption: {e:?}"
-                )))
+            .map_err(|e| match e {
+                crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => {
+                    ConsumptionError::Context(error)
+                }
+                other => ConsumptionError::Context(NativeError::Chunk(format!(
+                    "mask quantified consumption: {other:?}"
+                ))),
             })?;
             let recorder = adapter.recorder;
             return match outcome {
@@ -6385,10 +6411,14 @@ where
                 input,
                 &failure,
             )
-            .map_err(|e| {
-                ConsumptionError::Context(NativeError::Chunk(format!(
-                    "quantified consumption preparation: {e:?}"
-                )))
+            .map_err(|e| match e {
+                crate::rules::quantified_chunk_support::GeneralProductionError::Service(error)
+                | crate::rules::quantified_chunk_support::GeneralProductionError::Inverse(
+                    crate::rules::quantified_chunk_support::InverseGenerationError::Service(error),
+                ) => ConsumptionError::Context(error),
+                other => ConsumptionError::Context(NativeError::Chunk(format!(
+                    "quantified consumption preparation: {other:?}"
+                ))),
             })? {
                 GeneralConsumptionPreparation::Ready(plan) => plan,
                 GeneralConsumptionPreparation::Failed(result) => return Ok(result),
@@ -6413,11 +6443,28 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_service_callback_error!(
+            callback_error,
+            result,
+            GeneralConsumptionExecutionError,
+            ConsumptionError,
+            Context
+        );
         result.map_err(|e| match e {
-            GeneralConsumptionExecutionError::Service(error) => ConsumptionError::Context(error),
+            GeneralConsumptionExecutionError::Service(error)
+            | GeneralConsumptionExecutionError::Order(
+                crate::rules::quantified_chunk_support::QuantifiedMatchError::Solver(error),
+            )
+            | GeneralConsumptionExecutionError::Removal(
+                crate::rules::quantified_chunk_support::QuantifiedRemovalError::Service(error),
+            )
+            | GeneralConsumptionExecutionError::Removal(
+                crate::rules::quantified_chunk_support::QuantifiedRemovalError::Read(
+                    crate::rules::quantified_chunk_support::QuantifiedReadPermissionError::Solver(
+                        error,
+                    ),
+                ),
+            ) => ConsumptionError::Context(error),
             other => ConsumptionError::Context(NativeError::Chunk(format!(
                 "quantified consumption: {other:?}"
             ))),
@@ -6716,7 +6763,15 @@ where
         };
         let translated = replacing
             .translate_postconditions(&translator, std::slice::from_ref(expression))
-            .map_err(|e| NativeError::Execution(format!("frame expression: {e:?}")))?;
+            .map_err(|e| match e {
+                crate::supporters::expression_translator::ExpressionTranslationError::Service(
+                    error,
+                )
+                | crate::supporters::expression_translator::ExpressionTranslationError::Render(
+                    error,
+                ) => error,
+                other => NativeError::Execution(format!("frame expression: {other:?}")),
+            })?;
         let term = translated
             .into_iter()
             .next()
@@ -6881,7 +6936,7 @@ where
             crate::supporters::functions::mask_heap_function_encoding::MaskHeapFunctionEncoding::compute_frame(
                 &factory, &mut translator, data, &resources,
             )
-                .map_err(|e| NativeError::Execution(format!("mask function frame: {e:?}")))
+                .map_err(|e| match e { crate::supporters::functions::mask_heap_function_encoding::FrameConstructionError::Service(error) => error, other => NativeError::Execution(format!("mask function frame: {other:?}")) })
         };
         self.mask_frames_in_progress.pop();
         if let Ok(frame) = &result {
@@ -7259,8 +7314,13 @@ where
                                 &factory, self, chunks, incoming,
                             )
                         };
-                    result.map_err(|e| {
-                        NativeError::Chunk(format!("quantified merge candidate: {e:?}"))
+                    result.map_err(|e| match e {
+                        crate::rules::quantified_chunk_support::QuantifiedMatchError::Solver(
+                            error,
+                        ) => error,
+                        other => {
+                            NativeError::Chunk(format!("quantified merge candidate: {other:?}"))
+                        }
                     })
                 }
             }
@@ -7278,7 +7338,13 @@ where
         crate::rules::state_consolidator::merge_quantified_pair(
             &factory, self, state, recorder, first, second, qvars,
         )
-        .map_err(|e| NativeError::Chunk(format!("quantified chunk merge: {e:?}")))
+        .map_err(|e| match e {
+            crate::rules::state_consolidator::QuantifiedMergeError::Service(error)
+            | crate::rules::state_consolidator::QuantifiedMergeError::Combination(
+                crate::rules::quantified_chunk_support::SnapshotCombinationError::Fresh(error),
+            ) => error,
+            other => NativeError::Chunk(format!("quantified chunk merge: {other:?}")),
+        })
     }
     fn fresh_merged_snapshot(
         &mut self,
@@ -7452,7 +7518,12 @@ where
                 heaps,
                 &factory.predef_receiver_var(),
             )
-            .map_err(|e| NativeError::Consolidation(format!("quantified field bounds: {e:?}")))
+            .map_err(|e| match e {
+                crate::rules::state_consolidator::QuantifiedFieldBoundError::Service(error) => {
+                    error
+                }
+                other => NativeError::Consolidation(format!("quantified field bounds: {other:?}")),
+            })
         }
     }
     fn assume_more_complete_field_bounds(
@@ -7746,7 +7817,10 @@ where
                 let result = crate::rules::chunk_supporter::consume_greedy(
                     ctx, state, heap, identifier, args, needed, needed_exp,
                 )
-                .map_err(|e| NativeError::Chunk(format!("wand transfer consume: {e:?}")))?;
+                .map_err(|e| match e {
+                    crate::rules::chunk_supporter::ChunkSupportError::Solver(error) => error,
+                    other => NativeError::Chunk(format!("wand transfer consume: {other:?}")),
+                })?;
                 Ok((result.result, result.state, result.heap, result.taken))
             },
             &mut |ctx, state, chunks| match continuation(ctx, state, chunks) {
@@ -8128,11 +8202,28 @@ where
                 }
             },
         );
-        if let Some(error) = callback_error {
-            return Err(error);
-        }
+        recover_service_callback_error!(
+            callback_error,
+            result,
+            SingleConsumptionError,
+            ChunkExecutionError,
+            Context
+        );
         result.map_err(|e| match e {
-            SingleConsumptionError::Service(error) => ChunkExecutionError::Context(error),
+            SingleConsumptionError::Service(error)
+            | SingleConsumptionError::Order(
+                crate::rules::quantified_chunk_support::QuantifiedMatchError::Solver(error),
+            )
+            | SingleConsumptionError::Removal(
+                crate::rules::quantified_chunk_support::QuantifiedRemovalError::Service(error),
+            )
+            | SingleConsumptionError::Removal(
+                crate::rules::quantified_chunk_support::QuantifiedRemovalError::Read(
+                    crate::rules::quantified_chunk_support::QuantifiedReadPermissionError::Solver(
+                        error,
+                    ),
+                ),
+            ) => ChunkExecutionError::Context(error),
             other => ChunkExecutionError::Context(NativeError::Chunk(format!(
                 "quantified single consumption: {other:?}"
             ))),
@@ -8236,7 +8327,16 @@ where
                 cache_options.disable_value_map_caching,
                 cache_options.disable_caches,
             )
-            .map_err(|e| NativeError::Chunk(format!("quantified current permission: {e:?}")))?;
+            .map_err(|e| match e {
+                crate::rules::quantified_chunk_support::SummaryCacheError::Emit(error)
+                | crate::rules::quantified_chunk_support::SummaryCacheError::Snapshot(
+                    crate::rules::quantified_chunk_support::SnapshotSummaryError::Fresh(error),
+                )
+                | crate::rules::quantified_chunk_support::SummaryCacheError::Permission(
+                    crate::rules::quantified_chunk_support::PermissionSummaryError::Fresh(error),
+                ) => error,
+                other => NativeError::Chunk(format!("quantified current permission: {other:?}")),
+            })?;
         if trigger {
             self.assume_term(&factory.resource_trigger(
                 resource,
@@ -8348,10 +8448,19 @@ where
                     cache_options.disable_value_map_caching,
                     cache_options.disable_caches,
                 )
-                .map_err(|e| {
-                    ChunkExecutionError::Context(NativeError::Chunk(format!(
-                        "field snapshot summary: {e:?}"
-                    )))
+                .map_err(|e| match e {
+                    crate::rules::quantified_chunk_support::SummaryCacheError::Emit(error)
+                    | crate::rules::quantified_chunk_support::SummaryCacheError::Snapshot(
+                        crate::rules::quantified_chunk_support::SnapshotSummaryError::Fresh(error),
+                    )
+                    | crate::rules::quantified_chunk_support::SummaryCacheError::Permission(
+                        crate::rules::quantified_chunk_support::PermissionSummaryError::Fresh(
+                            error,
+                        ),
+                    ) => ChunkExecutionError::Context(error),
+                    other => ChunkExecutionError::Context(NativeError::Chunk(format!(
+                        "field snapshot summary: {other:?}"
+                    ))),
                 })?;
             let total = factory.resource_permission_lookup(
                 resource,
@@ -8502,10 +8611,13 @@ where
                     std::slice::from_ref(receiver),
                     &hints,
                 )
-                .map_err(|e| {
-                    ChunkExecutionError::Context(NativeError::Chunk(format!(
-                        "field assignment ordering: {e:?}"
-                    )))
+                .map_err(|e| match e {
+                    crate::rules::quantified_chunk_support::QuantifiedMatchError::Solver(error) => {
+                        ChunkExecutionError::Context(error)
+                    }
+                    other => ChunkExecutionError::Context(NativeError::Chunk(format!(
+                        "field assignment ordering: {other:?}"
+                    ))),
                 })?
             };
             if state.heap_dependent_triggers.contains(resource) {
@@ -8549,10 +8661,16 @@ where
                 disable_isc_triggers,
                 false,
             )
-            .map_err(|e| {
-                ChunkExecutionError::Context(NativeError::Chunk(format!(
-                    "field assignment removal: {e:?}"
-                )))
+            .map_err(|e| match e {
+                crate::rules::quantified_chunk_support::QuantifiedRemovalError::Service(error)
+                | crate::rules::quantified_chunk_support::QuantifiedRemovalError::Read(
+                    crate::rules::quantified_chunk_support::QuantifiedReadPermissionError::Solver(
+                        error,
+                    ),
+                ) => ChunkExecutionError::Context(error),
+                other => ChunkExecutionError::Context(NativeError::Chunk(format!(
+                    "field assignment removal: {other:?}"
+                ))),
             })?;
             if !matches!(outcome, ConsumptionResult::Complete) {
                 let failure =
@@ -9075,8 +9193,13 @@ where
                         .map_err(NativeError::Decider)
                 },
             )
-            .map_err(|e| {
-                ExecutionError::Context(NativeError::Chunk(format!("mask field write: {e:?}")))
+            .map_err(|e| match e {
+                crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => {
+                    ExecutionError::Context(error)
+                }
+                other => ExecutionError::Context(NativeError::Chunk(format!(
+                    "mask field write: {other:?}"
+                ))),
             })?;
             return match result {
                 crate::rules::mask_heap_supporter::MaskFieldWrite::Updated(heap) => {
@@ -11058,7 +11181,12 @@ where
                         crate::rules::state_consolidator::consolidate(
                             &factory, ctx, merged, choice, false,
                         )
-                        .map_err(|e| NativeError::Consolidation(format!("CFG join: {e:?}")))?
+                        .map_err(|e| match e {
+                            crate::rules::state_consolidator::ConsolidationError::Service(
+                                error,
+                            ) => error,
+                            other => NativeError::Consolidation(format!("CFG join: {other:?}")),
+                        })?
                     }
                     _ => return Err(NativeError::Unsupported("unexpected CFG join entries")),
                 };
@@ -14857,7 +14985,10 @@ where
         let trigger_snapshot = if self.options.mask_heap_mode {
             let resource = ResourceKey::Predicate(Arc::new(predicate.clone()));
             crate::rules::mask_heap_supporter::find_chunk::<NativeError<S::Error>>(heap, &resource)
-                .map_err(|e| NativeError::Chunk(format!("mask predicate trigger: {e:?}")))?
+                .map_err(|e| match e {
+                    crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => error,
+                    other => NativeError::Chunk(format!("mask predicate trigger: {other:?}")),
+                })?
                 .ok_or(NativeError::Unsupported("missing predicate mask chunk"))?
                 .heap
                 .clone()
@@ -17250,10 +17381,13 @@ where
                     crate::rules::state_consolidator::consolidate(
                         &factory, self, merged, choice, false,
                     )
-                    .map_err(|e| {
-                        ExecutionError::Context(NativeError::Consolidation(format!(
-                            "CFG join: {e:?}"
-                        )))
+                    .map_err(|e| match e {
+                        crate::rules::state_consolidator::ConsolidationError::Service(error) => {
+                            ExecutionError::Context(error)
+                        }
+                        other => ExecutionError::Context(NativeError::Consolidation(format!(
+                            "CFG join: {other:?}"
+                        ))),
                     })?
                 } else {
                     merged
@@ -18872,7 +19006,10 @@ where
                 trigger,
                 disable_isc_triggers,
             )
-            .map_err(|e| NativeError::Chunk(format!("quantified snapshot summary: {e:?}")))?;
+            .map_err(|e| match e {
+                crate::rules::quantified_chunk_support::SnapshotSummaryError::Fresh(error) => error,
+                other => NativeError::Chunk(format!("quantified snapshot summary: {other:?}")),
+            })?;
         let equations = value_definitions.clone();
         Ok((
             SnapshotMapDefinition {
@@ -18919,7 +19056,10 @@ where
             &ListBackedHeap::from_chunks([chunk.clone()]),
             choice,
         )
-        .map_err(|e| NativeError::Chunk(format!("quantified heap merge: {e:?}")))
+        .map_err(|e| match e {
+            crate::rules::state_consolidator::ConsolidationError::Service(error) => error,
+            other => NativeError::Chunk(format!("quantified heap merge: {other:?}")),
+        })
     }
     fn assume_quantified_chunk_properties(
         &mut self,
@@ -18995,7 +19135,12 @@ where
                     true,
                     disable_isc_triggers,
                 )
-                .map_err(|e| NativeError::Chunk(format!("singleton trigger summary: {e:?}")))?;
+                .map_err(|e| match e {
+                    crate::rules::quantified_chunk_support::SnapshotSummaryError::Fresh(error) => {
+                        error
+                    }
+                    other => NativeError::Chunk(format!("singleton trigger summary: {other:?}")),
+                })?;
             let definition = SnapshotMapDefinition {
                 resource: source,
                 snapshot_map,
@@ -19308,16 +19453,16 @@ where
             &mut |ctx, state, done| {
                 action(ctx, state, &mut |ctx, state, heap, snapshot| {
                     done(ctx, state, heap, snapshot)
-                        .map_err(|e| SE::Service(NativeError::Chunk(format!("{e:?}"))))
+                        .map_err(|e| SE::Service(match e { ChunkExecutionError::Context(error) | ChunkExecutionError::Greedy(crate::rules::chunk_supporter::ChunkSupportError::Solver(error)) => error, other => NativeError::Chunk(format!("{other:?}")) }))
                 })
-                .map_err(|e| ChunkExecutionError::Context(NativeError::Chunk(format!("{e:?}"))))
+                .map_err(|e| ChunkExecutionError::Context(match e { SE::Service(error) | SE::Order(crate::rules::quantified_chunk_support::QuantifiedMatchError::Solver(error)) | SE::Removal(crate::rules::quantified_chunk_support::QuantifiedRemovalError::Service(error)) | SE::Removal(crate::rules::quantified_chunk_support::QuantifiedRemovalError::Read(crate::rules::quantified_chunk_support::QuantifiedReadPermissionError::Solver(error))) => error, other => NativeError::Chunk(format!("{other:?}")) }))
             },
             &mut |ctx, state, heap, snapshot| {
                 continuation(ctx, state, heap, snapshot)
-                    .map_err(|e| ChunkExecutionError::Context(NativeError::Chunk(format!("{e:?}"))))
+                    .map_err(|e| ChunkExecutionError::Context(match e { SE::Service(error) | SE::Order(crate::rules::quantified_chunk_support::QuantifiedMatchError::Solver(error)) | SE::Removal(crate::rules::quantified_chunk_support::QuantifiedRemovalError::Service(error)) | SE::Removal(crate::rules::quantified_chunk_support::QuantifiedRemovalError::Read(crate::rules::quantified_chunk_support::QuantifiedReadPermissionError::Solver(error))) => error, other => NativeError::Chunk(format!("{other:?}")) }))
             },
         )
-        .map_err(|e| SE::Service(NativeError::Chunk(format!("{e:?}"))))
+        .map_err(|e| SE::Service(match e { ChunkExecutionError::Context(error) | ChunkExecutionError::Greedy(crate::rules::chunk_supporter::ChunkSupportError::Solver(error)) => error, other => NativeError::Chunk(format!("{other:?}")) }))
     }
     fn single_consumption_failure(
         &mut self,
@@ -19376,7 +19521,7 @@ where
                     let hints = qp::extract_hints(&factory, None, args)
                         .map_err(|e| NativeError::Chunk(format!("wand quantified hints: {e:?}")))?;
                     qp::single_receiver_chunk_order(&factory, ctx, &relevant, args, &hints)
-                        .map_err(|e| NativeError::Chunk(format!("wand quantified order: {e:?}")))?
+                        .map_err(|e| match e { crate::rules::quantified_chunk_support::QuantifiedMatchError::Solver(error) => error, other => NativeError::Chunk(format!("wand quantified order: {other:?}")) })?
                 };
                 let condition = factory.and(
                     codomain_vars
@@ -19408,7 +19553,7 @@ where
                         disable_triggers,
                         false,
                     )
-                    .map_err(|e| NativeError::Chunk(format!("wand quantified removal: {e:?}")))?;
+                    .map_err(|e| match e { crate::rules::quantified_chunk_support::QuantifiedRemovalError::Service(error) | crate::rules::quantified_chunk_support::QuantifiedRemovalError::Read(crate::rules::quantified_chunk_support::QuantifiedReadPermissionError::Solver(error)) => error, other => NativeError::Chunk(format!("wand quantified removal: {other:?}")) })?;
                 remaining.extend(untouched.clone());
                 remaining.extend(others);
                 let mut consumed = relevant;
@@ -19563,7 +19708,12 @@ where
                     state.heap_dependent_triggers.contains(resource),
                     disable_isc_triggers,
                 )
-                .map_err(|e| NativeError::Chunk(format!("consumed snapshot summary: {e:?}")))?;
+                .map_err(|e| match e {
+                    crate::rules::quantified_chunk_support::SnapshotSummaryError::Fresh(error) => {
+                        error
+                    }
+                    other => NativeError::Chunk(format!("consumed snapshot summary: {other:?}")),
+                })?;
             let definition = SnapshotMapDefinition {
                 resource: source,
                 snapshot_map,
@@ -19798,7 +19948,7 @@ where
                 &factory, fun,
             ))
         })
-        .map_err(|e| NativeError::Chunk(format!("quantified precondition: {e:?}")))
+        .map_err(|e| match e { crate::state::function_precondition_transformer::PreconditionTransformError::Precondition(error) => error, other => NativeError::Chunk(format!("quantified precondition: {other:?}")) })
     }
     fn quantified_prover_comment(&mut self, comment: &str) -> Result<(), Self::Error> {
         self.base
@@ -20206,16 +20356,16 @@ where
             &mut |ctx, state, done| {
                 action(ctx, state, &mut |ctx, state, heap, snapshot| {
                     done(ctx, state, heap, snapshot)
-                        .map_err(|e| GE::Service(NativeError::Chunk(format!("{e:?}"))))
+                        .map_err(|e| GE::Service(match e { ChunkExecutionError::Context(error) | ChunkExecutionError::Greedy(crate::rules::chunk_supporter::ChunkSupportError::Solver(error)) => error, other => NativeError::Chunk(format!("{other:?}")) }))
                 })
-                .map_err(|e| ChunkExecutionError::Context(NativeError::Chunk(format!("{e:?}"))))
+                .map_err(|e| ChunkExecutionError::Context(match e { GE::Service(error) | GE::Order(crate::rules::quantified_chunk_support::QuantifiedMatchError::Solver(error)) | GE::Removal(crate::rules::quantified_chunk_support::QuantifiedRemovalError::Service(error)) | GE::Removal(crate::rules::quantified_chunk_support::QuantifiedRemovalError::Read(crate::rules::quantified_chunk_support::QuantifiedReadPermissionError::Solver(error))) => error, other => NativeError::Chunk(format!("{other:?}")) }))
             },
             &mut |ctx, state, heap, snapshot| {
                 continuation(ctx, state, heap, snapshot)
-                    .map_err(|e| ChunkExecutionError::Context(NativeError::Chunk(format!("{e:?}"))))
+                    .map_err(|e| ChunkExecutionError::Context(match e { GE::Service(error) | GE::Order(crate::rules::quantified_chunk_support::QuantifiedMatchError::Solver(error)) | GE::Removal(crate::rules::quantified_chunk_support::QuantifiedRemovalError::Service(error)) | GE::Removal(crate::rules::quantified_chunk_support::QuantifiedRemovalError::Read(crate::rules::quantified_chunk_support::QuantifiedReadPermissionError::Solver(error))) => error, other => NativeError::Chunk(format!("{other:?}")) }))
             },
         )
-        .map_err(|e| GE::Service(NativeError::Chunk(format!("{e:?}"))))
+        .map_err(|e| GE::Service(match e { ChunkExecutionError::Context(error) | ChunkExecutionError::Greedy(crate::rules::chunk_supporter::ChunkSupportError::Solver(error)) => error, other => NativeError::Chunk(format!("{other:?}")) }))
     }
     fn general_insufficient_permission(
         &mut self,
@@ -20301,7 +20451,12 @@ where
                         &plan.qvars,
                         &plan.hints,
                     )
-                    .map_err(|e| NativeError::Chunk(format!("wand general order: {e:?}")))?
+                    .map_err(|e| match e {
+                        crate::rules::quantified_chunk_support::QuantifiedMatchError::Solver(
+                            error,
+                        ) => error,
+                        other => NativeError::Chunk(format!("wand general order: {other:?}")),
+                    })?
                 };
                 let disabled = ctx.disable_general_isc_triggers();
                 let (removal, mut state, mut remaining, untouched) =
@@ -20322,7 +20477,7 @@ where
                         disabled,
                         false,
                     )
-                    .map_err(|e| NativeError::Chunk(format!("wand general removal: {e:?}")))?;
+                    .map_err(|e| match e { crate::rules::quantified_chunk_support::QuantifiedRemovalError::Service(error) | crate::rules::quantified_chunk_support::QuantifiedRemovalError::Read(crate::rules::quantified_chunk_support::QuantifiedReadPermissionError::Solver(error)) => error, other => NativeError::Chunk(format!("wand general removal: {other:?}")) })?;
                 remaining.extend(untouched.clone());
                 remaining.extend(others);
                 let mut consumed = relevant;
@@ -20384,7 +20539,12 @@ where
                     &plan.qid,
                     disabled,
                 )
-                .map_err(|e| NativeError::Chunk(format!("wand general inverse: {e:?}")))?;
+                .map_err(|e| match e {
+                    crate::rules::quantified_chunk_support::InverseGenerationError::Service(
+                        error,
+                    ) => error,
+                    other => NativeError::Chunk(format!("wand general inverse: {other:?}")),
+                })?;
                 let mut counts: Vec<(i32, usize)> = Vec::new();
                 for chunk in &consumed {
                     let tag = match chunk {
@@ -20563,8 +20723,13 @@ where
                     state.heap_dependent_triggers.contains(resource),
                     disable_isc_triggers,
                 )
-                .map_err(|e| {
-                    NativeError::Chunk(format!("general consumed snapshot summary: {e:?}"))
+                .map_err(|e| match e {
+                    crate::rules::quantified_chunk_support::SnapshotSummaryError::Fresh(error) => {
+                        error
+                    }
+                    other => {
+                        NativeError::Chunk(format!("general consumed snapshot summary: {other:?}"))
+                    }
                 })?;
             let definition = SnapshotMapDefinition {
                 resource: source,
@@ -20690,7 +20855,16 @@ where
             cache_options.disable_value_map_caching,
             cache_options.disable_caches,
         )
-        .map_err(|e| NativeError::Consolidation(format!("quantified bound summaries: {e:?}")))
+        .map_err(|e| match e {
+            crate::rules::quantified_chunk_support::SummaryCacheError::Emit(error)
+            | crate::rules::quantified_chunk_support::SummaryCacheError::Snapshot(
+                crate::rules::quantified_chunk_support::SnapshotSummaryError::Fresh(error),
+            )
+            | crate::rules::quantified_chunk_support::SummaryCacheError::Permission(
+                crate::rules::quantified_chunk_support::PermissionSummaryError::Fresh(error),
+            ) => error,
+            other => NativeError::Consolidation(format!("quantified bound summaries: {other:?}")),
+        })
     }
     fn assume_quantified_field_bound(
         &mut self,
@@ -20788,7 +20962,10 @@ where
             new_heap,
             choice,
         )
-        .map_err(|e| NativeError::Consolidation(format!("wand operations heap: {e:?}")))
+        .map_err(|e| match e {
+            crate::rules::state_consolidator::ConsolidationError::Service(error) => error,
+            other => NativeError::Consolidation(format!("wand operations heap: {other:?}")),
+        })
     }
 }
 
@@ -20912,8 +21089,12 @@ where
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
         let choice = self.consolidation_choice(&state)?;
         let factory = self.factory.clone();
-        crate::rules::state_consolidator::consolidate(&factory, self, state, choice, false)
-            .map_err(|e| NativeError::Consolidation(format!("wand application: {e:?}")))
+        crate::rules::state_consolidator::consolidate(&factory, self, state, choice, false).map_err(
+            |e| match e {
+                crate::rules::state_consolidator::ConsolidationError::Service(error) => error,
+                other => NativeError::Consolidation(format!("wand application: {other:?}")),
+            },
+        )
     }
 }
 
@@ -21036,7 +21217,10 @@ where
             &ListBackedHeap::from_chunks(chunks.iter().cloned()),
             choice,
         )
-        .map_err(|e| NativeError::Consolidation(format!("wand transferred chunks: {e:?}")))
+        .map_err(|e| match e {
+            crate::rules::state_consolidator::ConsolidationError::Service(error) => error,
+            other => NativeError::Consolidation(format!("wand transferred chunks: {other:?}")),
+        })
     }
 }
 
@@ -21079,8 +21263,12 @@ where
     ) -> Result<State<PD, FD, JoinMode>, Self::Error> {
         let choice = self.consolidation_choice(&state)?;
         let factory = self.factory.clone();
-        crate::rules::state_consolidator::consolidate(&factory, self, state, choice, false)
-            .map_err(|e| NativeError::Consolidation(format!("wand package branches: {e:?}")))
+        crate::rules::state_consolidator::consolidate(&factory, self, state, choice, false).map_err(
+            |e| match e {
+                crate::rules::state_consolidator::ConsolidationError::Service(error) => error,
+                other => NativeError::Consolidation(format!("wand package branches: {other:?}")),
+            },
+        )
     }
     fn create_packaged_wand(
         &mut self,
@@ -21134,7 +21322,10 @@ where
                 args,
                 function.clone(),
             )
-            .map_err(|e| NativeError::Chunk(format!("wand singleton map: {e:?}")))?;
+            .map_err(|e| match e {
+                crate::rules::quantified_chunk_support::SingletonMapError::Fresh(error) => error,
+                other => NativeError::Chunk(format!("wand singleton map: {other:?}")),
+            })?;
             self.base
                 .decider
                 .assume([(definition, None)], false, true)
@@ -23246,7 +23437,10 @@ where
         crate::rules::state_consolidator::merge_heaps(
             &factory, self, state, recorder, &state.h, heap, choice,
         )
-        .map_err(|e| NativeError::Consolidation(format!("predicate leaf merge: {e:?}")))
+        .map_err(|e| match e {
+            crate::rules::state_consolidator::ConsolidationError::Service(error) => error,
+            other => NativeError::Consolidation(format!("predicate leaf merge: {other:?}")),
+        })
     }
     fn branch_predicate_contents(
         &mut self,
@@ -23391,7 +23585,10 @@ where
                     .fresh_variable(&factory, "$t", &sort, false, None)
                     .map_err(NativeError::Decider)
             })
-            .map_err(|e| NativeError::Chunk(format!("mask upper bound: {e:?}")))?;
+            .map_err(|e| match e {
+                crate::rules::mask_heap_supporter::MaskHeapError::Service(error) => error,
+                other => NativeError::Chunk(format!("mask upper bound: {other:?}")),
+            })?;
         self.context.assume_term(&bound)
     }
 }
@@ -23453,7 +23650,7 @@ where
                 &factory, fun,
             ))
         })
-        .map_err(|e| NativeError::Chunk(format!("mask precondition: {e:?}")))
+        .map_err(|e| match e { crate::state::function_precondition_transformer::PreconditionTransformError::Precondition(error) => error, other => NativeError::Chunk(format!("mask precondition: {other:?}")) })
     }
     fn assume_definition(&mut self, term: Term) -> Result<(), Self::Error> {
         self.context
@@ -23602,7 +23799,10 @@ where
             &input.qid,
             disabled,
         )
-        .map_err(|e| NativeError::Chunk(format!("mask inverse: {e:?}")))
+        .map_err(|e| match e {
+            crate::rules::quantified_chunk_support::InverseGenerationError::Service(error) => error,
+            other => NativeError::Chunk(format!("mask inverse: {other:?}")),
+        })
     }
     fn injectivity(
         &mut self,
@@ -23626,7 +23826,7 @@ where
                 &factory, fun,
             ))
         })
-        .map_err(|e| NativeError::Chunk(format!("mask precondition: {e:?}")))
+        .map_err(|e| match e { crate::state::function_precondition_transformer::PreconditionTransformError::Precondition(error) => error, other => NativeError::Chunk(format!("mask precondition: {other:?}")) })
     }
     fn assert_goal(&mut self, term: Term) -> Result<bool, Self::Error> {
         let timeout = self.context.base.decider.assert_timeout;
@@ -27409,6 +27609,46 @@ mod conditional_callback_cleanup_regression {
                 }
             }
         }
+        // Quantified retry continuations must retain the original service error,
+        // rather than converting the abort sentinel to formatted Chunk text.
+        use crate::rules::quantified_chunk_support::{
+            GeneralConsumptionExecution, GeneralConsumptionExecutionError, SingleConsumptionError,
+            SingleLocationConsumption,
+        };
+        let single = SingleLocationConsumption::retry_single_quantified(
+            &mut worker.context,
+            state.clone(),
+            &mut |ctx, state, done| {
+                let heap = state.h.clone();
+                done(ctx, state, heap, None)
+            },
+            &mut |_, _, _, _| {
+                Err(SingleConsumptionError::Service(NativeError::Diagnostic(
+                    "single callback".into(),
+                )))
+            },
+        );
+        assert!(
+            matches!(single, Err(SingleConsumptionError::Service(NativeError::Diagnostic(ref message))) if message == "single callback"),
+            "{single:?}"
+        );
+        let general = GeneralConsumptionExecution::retry_general_quantified(
+            &mut worker.context,
+            state.clone(),
+            &mut |ctx, state, done| {
+                let heap = state.h.clone();
+                done(ctx, state, heap, None)
+            },
+            &mut |_, _, _, _| {
+                Err(GeneralConsumptionExecutionError::Service(
+                    NativeError::Diagnostic("general callback".into()),
+                ))
+            },
+        );
+        assert!(
+            matches!(general, Err(GeneralConsumptionExecutionError::Service(NativeError::Diagnostic(ref message))) if message == "general callback"),
+            "{general:?}"
+        );
         worker.stop().unwrap();
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
