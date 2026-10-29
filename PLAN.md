@@ -89,6 +89,12 @@ The current continuation coverage, synchronous fallbacks and cleanup behavior ar
 recorded in [porting/continuations.md](porting/continuations.md).
 Full compatibility and comparative performance remain unmeasured.
 
+The next work follows the user's requested order: diagnostics/reporting,
+advanced features and hardening, fresh Prusti verification, then broader
+compatibility testing. Performance measurement is deferred until that sequence
+finishes. The active checklist and completion evidence are recorded in
+[porting/completion.md](porting/completion.md).
+
 ## Upstream baseline and scope
 
 Use these checked-out revisions as the initial reference:
