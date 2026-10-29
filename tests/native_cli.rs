@@ -816,3 +816,23 @@ fn singleton_quantified_wand_resource_properties_verify() {
     "#;
     check(source, 0);
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn forperm_matches_nonquantified_magic_wand_chunks() {
+    let prefix = r#"
+        field f: Int
+        method m(x: Ref, y: Ref, z: Ref) {
+            inhale acc(x.f)
+            inhale acc(y.f)
+            inhale acc(z.f)
+            inhale acc(x.f) --* acc(y.f)
+            inhale acc(z.f) --* acc(y.f)
+            inhale forperm a: Ref, b: Ref [acc(a.f) --* acc(b.f)] :: a.f > 0 && b.f < 0
+    "#;
+    check(&format!("{prefix} assert x.f > 0; assert y.f < 0; }}"), 0);
+    check(
+        &format!("{prefix} assert forperm a: Ref, b: Ref [acc(a.f) --* acc(b.f)] :: false; }}"),
+        1,
+    );
+}

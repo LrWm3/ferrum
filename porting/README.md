@@ -986,3 +986,8 @@ verification. Parsing rejects nested macro definitions while retaining method
 local macros; argument expansion distinguishes nested calls from recursive
 declarations (silver/0138 and silver/0209). Injected AST clients retain the
 source API boundary and do not run text-translation checks.
+
+Ordinary forperm conditions now match magic-wand chunks by structural resource
+identity, arguments and positive permission, as for other nonquantified chunks.
+The source forpermWands fixture verifies; an intentionally false quantified
+assertion remains rejected.

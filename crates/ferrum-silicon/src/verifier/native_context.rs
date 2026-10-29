@@ -3164,28 +3164,33 @@ where
         }
         let mut out = Vec::new();
         for chunk in state.h.values() {
-            let Chunk::Basic(chunk) = chunk else { continue };
-            let same = match resource {
-                ResourceKey::Field(field) => {
-                    chunk.id_ref().0 == field.name
-                        && chunk.resource_id() == crate::resources::resources::ResourceId::Field
+            let (chunk_args, permission) = match (chunk, resource) {
+                (Chunk::Basic(chunk), ResourceKey::Field(field))
+                    if chunk.id_ref().0 == field.name
+                        && chunk.resource_id()
+                            == crate::resources::resources::ResourceId::Field =>
+                {
+                    (chunk.args_ref().as_slice(), chunk.permission(&factory))
                 }
-                ResourceKey::Predicate(predicate) => {
-                    chunk.id_ref().0 == predicate.name
-                        && chunk.resource_id() == crate::resources::resources::ResourceId::Predicate
+                (Chunk::Basic(chunk), ResourceKey::Predicate(predicate))
+                    if chunk.id_ref().0 == predicate.name
+                        && chunk.resource_id()
+                            == crate::resources::resources::ResourceId::Predicate =>
+                {
+                    (chunk.args_ref().as_slice(), chunk.permission(&factory))
                 }
-                ResourceKey::Wand(_) => false,
+                (Chunk::MagicWand(chunk), ResourceKey::Wand(wand)) if chunk.id_ref() == wand => {
+                    (chunk.args_ref().as_slice(), chunk.permission(&factory))
+                }
+                _ => continue,
             };
-            if !same {
-                continue;
-            }
-            if args.len() != chunk.args_ref().len() {
+            if args.len() != chunk_args.len() {
                 return Err(NativeError::Unsupported("forperm resource arity"));
             }
             let pairs: Vec<_> = args
                 .iter()
                 .cloned()
-                .zip(chunk.args_ref().iter().cloned())
+                .zip(chunk_args.iter().cloned())
                 .collect();
             let mut substitutions = std::collections::HashMap::new();
             let mut bindings = Vec::new();
@@ -3220,7 +3225,7 @@ where
                     ),
                 );
             }
-            equalities.push(factory.is_positive_perm(chunk.permission(&factory)));
+            equalities.push(factory.is_positive_perm(permission));
             out.push(ForPermCondition {
                 condition: factory.and(equalities),
                 original: name("chunk matches forperm pattern and has positive permission"),
