@@ -160,6 +160,12 @@ pub struct OwnedOldValueFrame {
 pub enum OwnedEvaluationReturnFrame {
     Old(OwnedOldValueFrame),
     Asserting(OwnedValueWrapper),
+    ExplicitCollectionArg {
+        wrapper: OwnedValueWrapper,
+        index: usize,
+        terms: Vec<Term>,
+        debug_args: Vec<Option<Exp>>,
+    },
     FunctionArg {
         wrapper: OwnedValueWrapper,
         function: ferrum_silver::ast::program::Function,
@@ -1007,6 +1013,7 @@ enum OwnedPathStep {
     LetBody,
     DomainArg(usize),
     FunctionArg(usize),
+    ExplicitCollectionArg(usize),
     CurrentPermArg(usize),
     AddLeft,
     AddRight,
@@ -1069,6 +1076,16 @@ fn owned_asserting_path(expression: &Exp) -> Option<Vec<OwnedPathStep>> {
                         }
                         _ => (),
                     },
+                    ExpKind::ExplicitSeq(args)
+                    | ExpKind::ExplicitSet(args)
+                    | ExpKind::ExplicitMultiset(args) => {
+                        for (index, arg) in args.iter().enumerate().rev() {
+                            work.push(Work::Visit(
+                                arg,
+                                Some(OwnedPathStep::ExplicitCollectionArg(index)),
+                            ));
+                        }
+                    }
                     ExpKind::FuncApp(_, args) => {
                         for (index, arg) in args.iter().enumerate().rev() {
                             work.push(Work::Visit(arg, Some(OwnedPathStep::FunctionArg(index))));
@@ -1116,6 +1133,9 @@ pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
             }
             _ => false,
         },
+        ExpKind::ExplicitSeq(args)
+        | ExpKind::ExplicitSet(args)
+        | ExpKind::ExplicitMultiset(args) => args.iter().any(has_owned_asserting_path),
         ExpKind::FuncApp(_, args) => args.iter().any(has_owned_asserting_path),
         ExpKind::DomainFuncApp(_, args, _) | ExpKind::BackendFuncApp(_, args) => {
             args.iter().any(has_owned_asserting_path)
@@ -1325,6 +1345,22 @@ where
                 frames,
             )
         }
+        (
+            ExpKind::ExplicitSeq(_) | ExpKind::ExplicitSet(_) | ExpKind::ExplicitMultiset(_),
+            OwnedPathStep::ExplicitCollectionArg(index),
+        ) => evaluate_owned_arguments(
+            context,
+            state,
+            &wrapper,
+            &OwnedArgumentsTerminal::ExplicitCollection,
+            0,
+            Vec::new(),
+            Vec::new(),
+            &frames,
+            error,
+            receiver,
+            Some((*index, rest)),
+        ),
         (ExpKind::FuncApp(name, _), OwnedPathStep::FunctionArg(index)) => {
             let function = state
                 .program
@@ -1747,6 +1783,88 @@ where
             },continuation)
 }
 
+/// Complete an explicit sequence, set or multiset after evaluating elements.
+fn complete_explicit_collection<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    terms: Vec<Term>,
+    debug_elements: Option<Vec<Exp>>,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let (kind, elements) = match expression.kind() {
+        ExpKind::ExplicitSeq(es) => (0, es),
+        ExpKind::ExplicitSet(es) => (1, es),
+        ExpKind::ExplicitMultiset(es) => (2, es),
+        _ => unreachable!("explicit collection frame"),
+    };
+    let factory = context.factory().clone();
+    let Some((first, rest)) = terms.split_first() else {
+        return Err(EvaluationError::EmptyExplicitCollection);
+    };
+    let mut result = match kind {
+        0 => factory.seq_singleton(first.clone()),
+        1 => factory.singleton_set(first.clone()),
+        _ => factory.singleton_multiset(first.clone()),
+    };
+    for term in rest {
+        result = match kind {
+            0 => factory.seq_append(result, factory.seq_singleton(term.clone())),
+            1 => factory.set_add(result, term.clone()),
+            _ => factory.multiset_add(result, term.clone()),
+        };
+    }
+    let reconstructed = debug_elements.map(|es| {
+        Exp::new(
+            match kind {
+                0 => ExpKind::ExplicitSeq(es),
+                1 => ExpKind::ExplicitSet(es),
+                _ => ExpKind::ExplicitMultiset(es),
+            },
+            expression.metadata().clone(),
+        )
+    });
+    if kind == 0 {
+        let equality = factory.equals(
+            factory.seq_length(result.clone()),
+            factory.int_literal(elements.len()),
+        );
+        let make_equality = |seq: Exp| {
+            Exp::new(
+                ExpKind::EqCmp(
+                    Exp::new(ExpKind::SeqLength(seq), Default::default()),
+                    Exp::new(ExpKind::IntLit(elements.len().into()), Default::default()),
+                ),
+                expression.metadata().clone(),
+            )
+        };
+        let original = context
+            .debugging()
+            .then(|| make_equality(expression.clone()));
+        let rewritten = if context.debugging() {
+            Some(make_equality(
+                reconstructed
+                    .clone()
+                    .ok_or(EvaluationError::MissingDebugExpression)?,
+            ))
+        } else {
+            None
+        };
+        context
+            .assume_generated(&equality, original.as_ref(), rewritten.as_ref())
+            .map_err(EvaluationError::Context)?;
+    }
+    continuation(context, state, result, reconstructed)
+}
+
 /// Complete a resolved domain/backend application after its arguments.
 fn complete_domain_application<C, P, D, J: Clone, V>(
     context: &mut C,
@@ -1826,6 +1944,7 @@ fn rebuild_domain_debug_arguments<E>(
 
 #[derive(Clone)]
 enum OwnedArgumentsTerminal {
+    ExplicitCollection,
     Function {
         function: ferrum_silver::ast::program::Function,
         record_heap: bool,
@@ -1857,6 +1976,12 @@ where
     C: EvaluationContext<P, D, J, V>,
 {
     let args = match terminal {
+        OwnedArgumentsTerminal::ExplicitCollection => match wrapper.expression.kind() {
+            ExpKind::ExplicitSeq(args)
+            | ExpKind::ExplicitSet(args)
+            | ExpKind::ExplicitMultiset(args) => args,
+            _ => unreachable!("explicit collection frame"),
+        },
         OwnedArgumentsTerminal::Function { .. } => match wrapper.expression.kind() {
             ExpKind::FuncApp(_, args) => args,
             _ => unreachable!("function argument frame"),
@@ -1874,6 +1999,14 @@ where
             resume_owned_return_frames(context, state, term, debug, frames, error, receiver)
         };
         return match terminal {
+            OwnedArgumentsTerminal::ExplicitCollection => complete_explicit_collection(
+                context,
+                state,
+                &wrapper.expression,
+                terms,
+                debug,
+                &mut done,
+            ),
             OwnedArgumentsTerminal::Function {
                 function,
                 record_heap,
@@ -1924,6 +2057,14 @@ where
     if let Some(path) = planned {
         let mut next = frames.to_vec();
         next.push(match terminal {
+            OwnedArgumentsTerminal::ExplicitCollection => {
+                OwnedEvaluationReturnFrame::ExplicitCollectionArg {
+                    wrapper: wrapper.clone(),
+                    index,
+                    terms,
+                    debug_args,
+                }
+            }
             OwnedArgumentsTerminal::Function {
                 function,
                 record_heap,
@@ -2144,6 +2285,30 @@ where
                             receiver,
                         )
                     },
+                );
+            }
+            OwnedEvaluationReturnFrame::ExplicitCollectionArg {
+                wrapper,
+                index: argument_index,
+                terms,
+                debug_args,
+            } => {
+                let mut terms = terms.clone();
+                terms.push(term);
+                let mut debug_args = debug_args.clone();
+                debug_args.push(debug);
+                return evaluate_owned_arguments(
+                    context,
+                    state,
+                    wrapper,
+                    &OwnedArgumentsTerminal::ExplicitCollection,
+                    argument_index + 1,
+                    terms,
+                    debug_args,
+                    &frames[..index],
+                    error,
+                    receiver,
+                    None,
                 );
             }
             OwnedEvaluationReturnFrame::FunctionArg {
@@ -3735,77 +3900,26 @@ where
         );
     }
     let explicit = match expression.kind() {
-        ExpKind::ExplicitSeq(es) => Some((0, es)),
-        ExpKind::ExplicitSet(es) => Some((1, es)),
-        ExpKind::ExplicitMultiset(es) => Some((2, es)),
+        ExpKind::ExplicitSeq(es) | ExpKind::ExplicitSet(es) | ExpKind::ExplicitMultiset(es) => {
+            Some(es)
+        }
         _ => None,
     };
-    if let Some((kind, elements)) = explicit {
+    if let Some(elements) = explicit {
         return evaluate_all(
             context,
             state,
             elements,
             &|_| error.clone(),
             &mut |context, state, terms, debug_elements| {
-                let Some((first, rest)) = terms.split_first() else {
-                    return Err(EvaluationError::EmptyExplicitCollection);
-                };
-                let mut result = match kind {
-                    0 => factory.seq_singleton(first.clone()),
-                    1 => factory.singleton_set(first.clone()),
-                    _ => factory.singleton_multiset(first.clone()),
-                };
-                for term in rest {
-                    result = match kind {
-                        0 => factory.seq_append(result, factory.seq_singleton(term.clone())),
-                        1 => factory.set_add(result, term.clone()),
-                        _ => factory.multiset_add(result, term.clone()),
-                    };
-                }
-                let reconstructed = debug_elements.map(|es| {
-                    Exp::new(
-                        match kind {
-                            0 => ExpKind::ExplicitSeq(es),
-                            1 => ExpKind::ExplicitSet(es),
-                            _ => ExpKind::ExplicitMultiset(es),
-                        },
-                        expression.metadata().clone(),
-                    )
-                });
-                if kind == 0 {
-                    let equality = factory.equals(
-                        factory.seq_length(result.clone()),
-                        factory.int_literal(elements.len()),
-                    );
-                    let make_equality = |seq: Exp| {
-                        Exp::new(
-                            ExpKind::EqCmp(
-                                Exp::new(ExpKind::SeqLength(seq), Default::default()),
-                                Exp::new(
-                                    ExpKind::IntLit(elements.len().into()),
-                                    Default::default(),
-                                ),
-                            ),
-                            expression.metadata().clone(),
-                        )
-                    };
-                    let original = context
-                        .debugging()
-                        .then(|| make_equality(expression.clone()));
-                    let rewritten = if context.debugging() {
-                        Some(make_equality(
-                            reconstructed
-                                .clone()
-                                .ok_or(EvaluationError::MissingDebugExpression)?,
-                        ))
-                    } else {
-                        None
-                    };
-                    context
-                        .assume_generated(&equality, original.as_ref(), rewritten.as_ref())
-                        .map_err(EvaluationError::Context)?;
-                }
-                continuation(context, state, result, reconstructed)
+                complete_explicit_collection(
+                    context,
+                    state,
+                    expression,
+                    terms,
+                    debug_elements,
+                    continuation,
+                )
             },
         );
     }

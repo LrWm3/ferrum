@@ -538,3 +538,32 @@ method bad(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref, d: {typ}) returns (
         }
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn explicit_collection_element_failure_order_and_tail() {
+    for kind in ["Seq", "Set", "Multiset"] {
+        let first = format!(
+            r#"field val: Int
+method bad(x: Ref, y: Ref, b: Bool, c: Bool) returns (r: {kind}[Int]) requires x != y
+{{ r := {kind}((asserting (b ? acc(x.val) : acc(y.val)) in 1), (asserting (c ? false : false) in 2)); }}
+"#
+        );
+        let later = format!(
+            r#"field val: Int
+method bad(x: Ref, y: Ref, w: Ref, b: Bool, c: Bool) returns (r: {kind}[Int])
+ requires w != x && w != y && acc(x.val) && acc(y.val)
+{{ r := {kind}((asserting (b ? acc(x.val) : acc(y.val)) in 1), (asserting (c ? acc(w.val) : acc(w.val)) in 2)); assert false; }}
+"#
+        );
+        for source in [&first, &later] {
+            for workers in ["1", "2"] {
+                let output = run(source, workers);
+                assert!(!output.status.success());
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                assert!(stderr.contains("insufficient.permission"), "{stderr}");
+                assert!(!stderr.contains("assertion.false"), "{stderr}");
+            }
+        }
+    }
+}

@@ -12950,6 +12950,11 @@ where
                             [usize::from(argument != 0)]
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
+                    for argument in frame.return_frames.iter().filter_map(|f| match f {
+                        crate::rules::evaluator::OwnedEvaluationReturnFrame::ExplicitCollectionArg { index, .. } => Some(*index), _ => None,
+                    }) {
+                        super::verification_pool_manager::COLLECTION_ARG_EXECUTIONS[usize::from(argument != 0)].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
                     if frame.return_frames.len() >= 2 {
                         super::verification_pool_manager::NESTED_RETURN_EXECUTIONS
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
