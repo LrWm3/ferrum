@@ -160,6 +160,13 @@ pub struct OwnedOldValueFrame {
 pub enum OwnedEvaluationReturnFrame {
     Old(OwnedOldValueFrame),
     Asserting(OwnedValueWrapper),
+    LetValue(OwnedValueWrapper),
+    LetBody {
+        wrapper: OwnedValueWrapper,
+        before: crate::state::package::OrderedMap<Exp, Term>,
+        local: Exp,
+        value_debug: Option<Exp>,
+    },
     Minus(OwnedValueWrapper),
     Not(OwnedValueWrapper),
     StrictLeft {
@@ -949,6 +956,8 @@ enum OwnedPathStep {
     Old,
     Minus,
     Not,
+    LetValue,
+    LetBody,
     AddLeft,
     AddRight,
     StrictLeft,
@@ -988,6 +997,10 @@ fn owned_asserting_path(expression: &Exp) -> Option<Vec<OwnedPathStep>> {
                         work.push(Work::Visit(body, Some(OwnedPathStep::Minus)))
                     }
                     ExpKind::Not(body) => work.push(Work::Visit(body, Some(OwnedPathStep::Not))),
+                    ExpKind::Let(_, value, body) => {
+                        work.push(Work::Visit(body, Some(OwnedPathStep::LetBody)));
+                        work.push(Work::Visit(value, Some(OwnedPathStep::LetValue)));
+                    }
                     ExpKind::Add(left, right) => {
                         work.push(Work::Visit(right, Some(OwnedPathStep::AddRight)));
                         work.push(Work::Visit(left, Some(OwnedPathStep::AddLeft)));
@@ -1012,6 +1025,9 @@ pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
         | ExpKind::DebugLabelledOld(body, _)
         | ExpKind::Minus(body)
         | ExpKind::Not(body) => has_owned_asserting_path(body),
+        ExpKind::Let(_, value, body) => {
+            has_owned_asserting_path(value) || has_owned_asserting_path(body)
+        }
         ExpKind::Add(left, right) => {
             has_owned_asserting_path(left) || has_owned_asserting_path(right)
         }
@@ -1194,6 +1210,29 @@ where
             frames.push(OwnedEvaluationReturnFrame::Not(wrapper));
             evaluate_owned_planned(context, state, body, error, receiver, rest, frames)
         }
+        (ExpKind::Let(_, value, _), OwnedPathStep::LetValue) => {
+            frames.push(OwnedEvaluationReturnFrame::LetValue(wrapper));
+            evaluate_owned_planned(context, state, value, error, receiver, rest, frames)
+        }
+        (ExpKind::Let(_, value, _), OwnedPathStep::LetBody) => evaluate(
+            context,
+            state,
+            value,
+            error,
+            &mut |context, state, term, debug| {
+                resume_owned_let_value(
+                    context,
+                    state,
+                    term,
+                    debug,
+                    &wrapper,
+                    &frames,
+                    error,
+                    receiver,
+                    Some(rest),
+                )
+            },
+        ),
         (_, OwnedPathStep::StrictLeft) => {
             let (_, left, right) =
                 owned_strict_binary(expression).expect("planned strict operator");
@@ -1342,8 +1381,73 @@ pub(crate) fn test_capture_old_returns(enabled: bool) -> Vec<OldReturnSnapshot> 
     OLD_RETURN_SNAPSHOTS.with(|slot| slot.replace(enabled.then(Vec::new)).unwrap_or_default())
 }
 
-/// Resume saved wrappers without losing the remaining stack when evaluating an
-/// addition's right operand invokes its continuation more than once.
+/// Bind a completed Let value, then evaluate its body with an owned return frame.
+fn resume_owned_let_value<C, P, D, J: Clone, V>(
+    context: &mut C,
+    mut state: State<P, D, J>,
+    value_term: Term,
+    value_debug: Option<Exp>,
+    wrapper: &OwnedValueWrapper,
+    frames: &[OwnedEvaluationReturnFrame],
+    error: &C::PartialError,
+    receiver: &crate::rules::executor::OwnedAssignmentValue,
+    body_path: Option<&[OwnedPathStep]>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let ExpKind::Let(declaration, value, body) = wrapper.expression.kind() else {
+        unreachable!("let frame")
+    };
+    let mut variables = state.function_recorder.arguments().unwrap_or_default();
+    variables.extend(state.packaging_wand_snapshots.clone());
+    variables.extend(state.quantified_variables.clone());
+    let variables: Vec<_> = variables.into_iter().map(|(term, _)| term).collect();
+    let (fresh, applicable) = context
+        .fresh_let_application(&declaration.typ, &variables)
+        .map_err(EvaluationError::Context)?;
+    let equality = context.factory().builtin_equals(fresh, value_term.clone());
+    let variable = declaration.local_var();
+    if context.debugging() && value_debug.is_none() {
+        return Err(EvaluationError::MissingDebugExpression);
+    }
+    context
+        .assume_let_definition(&equality, &variable, value, value_debug.as_ref())
+        .map_err(EvaluationError::Context)?;
+    state.function_recorder = state
+        .function_recorder
+        .record_fresh_snapshot(applicable)
+        .enter_let(wrapper.expression.clone());
+    let before = state.possible_triggers.clone();
+    let local = Exp::new(ExpKind::LocalVar(variable), declaration.meta.clone());
+    let key = AbstractLocalVar::new(local.clone());
+    state.g = Arc::new(state.g.with_binding(key, (value_term, value_debug.clone())));
+    let mut next = frames.to_vec();
+    next.push(OwnedEvaluationReturnFrame::LetBody {
+        wrapper: wrapper.clone(),
+        before,
+        local,
+        value_debug,
+    });
+    if let Some(path) = body_path {
+        return evaluate_owned_planned(context, state, body, error, receiver, path, next);
+    }
+    if context.can_transfer_owned_asserting(&state) {
+        if let Some(path) = owned_asserting_path(body) {
+            return evaluate_owned_planned(context, state, body, error, receiver, &path, next);
+        }
+    }
+    evaluate(
+        context,
+        state,
+        body,
+        error,
+        &mut |context, state, term, debug| {
+            resume_owned_return_frames(context, state, term, debug, &next, error, receiver)
+        },
+    )
+}
+
 fn resume_owned_return_frames<C, P, D, J: Clone, V>(
     context: &mut C,
     mut state: State<P, D, J>,
@@ -1407,6 +1511,57 @@ where
                 context
                     .close_evaluation_scope(None)
                     .map_err(EvaluationError::Context)?;
+            }
+            OwnedEvaluationReturnFrame::LetValue(wrapper) => {
+                return resume_owned_let_value(
+                    context,
+                    state,
+                    term,
+                    debug,
+                    wrapper,
+                    &frames[..index],
+                    error,
+                    receiver,
+                    None,
+                );
+            }
+            OwnedEvaluationReturnFrame::LetBody {
+                wrapper,
+                before,
+                local,
+                value_debug,
+            } => {
+                let ExpKind::Let(declaration, value, _) = wrapper.expression.kind() else {
+                    unreachable!("let body frame")
+                };
+                if state.record_possible_triggers {
+                    let added: Vec<_> = state
+                        .possible_triggers
+                        .iter()
+                        .filter(|(exp, _)| before.get(exp).is_none())
+                        .cloned()
+                        .collect();
+                    for (trigger, value_term) in added {
+                        let replaced =
+                            ferrum_silver::ast::utility::rewriter::strategy::replace_expressions(
+                                &trigger,
+                                &[(local.clone(), value.clone())],
+                            )
+                            .map_err(EvaluationError::Rewrite)?;
+                        state.possible_triggers.insert(replaced, value_term);
+                    }
+                }
+                state.function_recorder = state.function_recorder.leave_let(&wrapper.expression);
+                debug = if let Some(value) = value_debug {
+                    let body = debug.ok_or(EvaluationError::MissingDebugExpression)?;
+                    Some(Exp::new(
+                        ExpKind::Let(declaration.clone(), value.clone(), body),
+                        wrapper.expression.metadata().clone(),
+                    ))
+                } else {
+                    None
+                };
+                finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
             }
             OwnedEvaluationReturnFrame::Asserting(wrapper) => {
                 finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;

@@ -1145,3 +1145,9 @@ pinned evaluator wording instead of dumping the Rust AST. One/two-worker tests
 check the exact message and reporter rejection. The warning transport still
 batches strings without source positions, so position, reporter-kind and delivery
 timing parity remain incomplete.
+
+Let expression values and bodies now use owned return frames, preserving source
+binding, recorder and return ordering. Actual one/two-worker tests cover both
+transfers and permission-failure order, with a separate LetBody cancellation
+probe. Trigger/debug reconstruction matches the ordinary evaluator by review;
+its Let-specific runtime coverage remains incomplete.

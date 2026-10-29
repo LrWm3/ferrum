@@ -177,7 +177,7 @@ cancellation before removing their guard.
 | Inhale/exhale/assert (including disable-subsumption probes), method/call contracts, fold snapshots and statement unfold | Owned rule and caller frames |
 | Loop collection, establishment and backedges | Identified phase outputs and explicit consumption terminals |
 | Function preconditions and cached/uncached expression Unfolding | Owned snapshot/value receivers and identified join outputs |
-| Local assignment with old/labelled-old, negation, addition, subtraction, multiplication, equality and ordered comparisons around Asserting | Composable owned return frames; both eligible strict operands can transfer |
+| Local assignment with Let, old/labelled-old, negation, addition, subtraction, multiplication, equality and ordered comparisons around Asserting | Composable owned return frames; both eligible strict operands can transfer |
 | Arbitrary nested value callbacks, other old-expression shapes and custom borrowed entry points | Safe synchronous fallback; not complete parallel source coverage |
 | Active member logs, extended exhale and packaging | Owned dispatch disabled; logger migration remains unfinished |
 
@@ -269,7 +269,7 @@ Strict operator returns reuse the ordinary evaluator term/debug constructors.
 Real one/two-worker checks observe both operand submissions and executions;
 source-matched permission failures check left-before-right order and that a
 failed right operand skips the captured tail. Division/remainder, short-circuit
-and conditional expressions, function/field/collection arguments and lets still
+and conditional expressions, function/field/collection arguments still
 use local callbacks when their exact return action is not represented.
 
 Owned expression descent rechecks transfer eligibility at every subtree entry.
@@ -294,3 +294,15 @@ appends return frames and resumes them in reverse. This removes repeated suffix
 searches and front insertion. The evaluator still descends recursively, and
 right-operand callbacks and later transfers still clone outer frames; this is
 not a general linear-time or stack-safety guarantee.
+
+Let values and bodies now have explicit bind/return frames. They preserve the
+ordinary evaluator fresh definition, recorder entry/exit, trigger substitution,
+debug reconstruction and returned store binding. Actual one/two-worker tests
+cover transfers from both value and body, nested distinct binders, an existing
+outer local, old/current heaps and permission failures before the caller tail.
+An internal-only test checks an existing identical store key; pinned Silver
+rejects duplicate source binder names. Let-specific trigger recording and debug
+reconstruction have static source comparison, not independent runtime fixtures.
+A LetBody receiver cancellation probe checks typed cancellation and pool draining
+after sibling submission, without claiming sibling execution or direct parent
+solver-state inspection at that hook.

@@ -1961,6 +1961,21 @@ pub(crate) static NESTED_RETURN_SUBMISSIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static NESTED_RETURN_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static LET_RECEIVER_CANCEL_HOOKS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static LET_VALUE_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static LET_VALUE_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static LET_BODY_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static LET_BODY_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
 pub(crate) static ASSERTING_BODY_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -2244,6 +2259,22 @@ where
                         }) {
                             ASSERTING_BODY_SUBMISSIONS
                                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if frame.return_frames.iter().any(|f| {
+                            matches!(
+                                f,
+                                crate::rules::evaluator::OwnedEvaluationReturnFrame::LetValue(_)
+                            )
+                        }) {
+                            LET_VALUE_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if frame.return_frames.iter().any(|f| {
+                            matches!(
+                                f,
+                                crate::rules::evaluator::OwnedEvaluationReturnFrame::LetBody { .. }
+                            )
+                        }) {
+                            LET_BODY_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         }
                         if frame.return_frames.len() >= 2 {
                             NESTED_RETURN_SUBMISSIONS
@@ -6006,15 +6037,20 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
 
     #[test]
     fn real_stdio_cancel_after_owned_right_receiver_starts() {
-        cancel_after_owned_receiver_starts(false);
+        cancel_after_owned_receiver_starts(0);
     }
 
     #[test]
     fn real_stdio_cancel_after_inner_asserting_receiver_starts() {
-        cancel_after_owned_receiver_starts(true);
+        cancel_after_owned_receiver_starts(1);
     }
 
-    fn cancel_after_owned_receiver_starts(inner: bool) {
+    #[test]
+    fn real_stdio_cancel_after_let_body_receiver_starts() {
+        cancel_after_owned_receiver_starts(2);
+    }
+
+    fn cancel_after_owned_receiver_starts(kind: u8) {
         let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
             return;
         };
@@ -6032,7 +6068,13 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
             sil_front_end_config::SilFrontendConfig,
             sil_frontend::{SilFrontendPhases, standard_plugin_manager},
         };
-        let source = if inner {
+        let source = if kind == 2 {
+            r#"field f: Int
+method cancel_let(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+{ r := (let v == (asserting (b ? acc(x.f) : acc(y.f)) in 1) in (asserting (c ? acc(z.f) : acc(w.f)) in v)); }
+"#
+        } else if kind == 1 {
             r#"field f: Int
 method cancel_inner(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
  requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
@@ -6091,7 +6133,9 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
                     );
                     worker.context.joined_branch_scheduler_enabled = true;
                     worker.set_cancellation(worker_cancel.clone());
-                    if inner {
+                    if kind == 2 {
+                        worker.context.test_cancel_owned_let = Some(worker_cancel.clone());
+                    } else if kind == 1 {
                         worker.context.test_cancel_owned_inner = Some(worker_cancel.clone());
                     } else {
                         worker.context.test_cancel_owned_right = Some(worker_cancel.clone());
@@ -6134,7 +6178,9 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
             let program = phases.translate(checked).unwrap();
             let program = phases.check_consistency(program).unwrap();
             let program = phases.prepare_verification(program).unwrap();
-            let (submission_counter, hook_counter) = if inner {
+            let (submission_counter, hook_counter) = if kind == 2 {
+                (&LET_BODY_SUBMISSIONS, &LET_RECEIVER_CANCEL_HOOKS)
+            } else if kind == 1 {
                 (&ASSERTING_BODY_SUBMISSIONS, &INNER_RECEIVER_CANCEL_HOOKS)
             } else {
                 (&RETURN_ADD_RIGHT_SUBMISSIONS, &RETURN_RIGHT_CANCEL_HOOKS)
@@ -6169,6 +6215,73 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
             drop(context);
             let pool = std::rc::Rc::try_unwrap(pool).ok().unwrap().into_inner();
             assert!(pool.cancel_and_join().is_empty());
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_let_value_and_body() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(k: Int, b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+  requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
+  requires x.f == 7 && y.f == 8 && z.f == 4 && w.f == 5
+  ensures acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f) && x.f == 11
+  ensures r == (b ? 7 : 8) + k + 1 + (c ? 4 : 5)
+{
+  label L; x.f := 11;
+  r := (let v == (old(asserting (b ? acc(x.f) : acc(y.f)) in (b ? x.f : y.f))) in
+        (let u == (v + k + 1) in old[L](asserting (c ? acc(z.f) : acc(w.f)) in (u + (c ? z.f : w.f)))));
+  assert x.f == 11;
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before = [
+                LET_VALUE_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                LET_VALUE_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                LET_BODY_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                LET_BODY_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+            ];
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            let after = [
+                LET_VALUE_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                LET_VALUE_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                LET_BODY_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                LET_BODY_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+            ];
+            assert!(
+                before
+                    .iter()
+                    .zip(after)
+                    .all(|(before, after)| after > *before),
+                "let value/body jobs did not run: {before:?} -> {after:?}"
+            );
         }
     }
 

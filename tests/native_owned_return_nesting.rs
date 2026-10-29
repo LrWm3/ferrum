@@ -145,3 +145,42 @@ method bad(x: Ref, y: Ref, w: Ref, b: Bool, c: Bool) returns (r: Int)
         assert!(!stderr.contains("assertion.false"), "{stderr}");
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn let_value_failure_precedes_body_assertion() {
+    let source = r#"field f: Int
+method bad(x: Ref, y: Ref, b: Bool, c: Bool) returns (r: Int)
+  requires x != y
+{
+  r := (let v == (asserting (b ? acc(x.f) : acc(y.f)) in 1) in (asserting (c ? false : false) in v));
+}
+"#;
+    for workers in ["1", "2"] {
+        let output = run(source, workers);
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("insufficient.permission"), "{stderr}");
+        assert!(!stderr.contains("assertion.false"), "{stderr}");
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn let_body_failure_skips_caller_tail() {
+    let source = r#"field f: Int
+method bad(x: Ref, y: Ref, w: Ref, b: Bool, c: Bool) returns (r: Int)
+  requires w != x && w != y && acc(x.f) && acc(y.f)
+{
+  r := (let v == (asserting (b ? acc(x.f) : acc(y.f)) in 1) in (asserting (c ? acc(w.f) : acc(w.f)) in v));
+  assert false;
+}
+"#;
+    for workers in ["1", "2"] {
+        let output = run(source, workers);
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("insufficient.permission"), "{stderr}");
+        assert!(!stderr.contains("assertion.false"), "{stderr}");
+    }
+}

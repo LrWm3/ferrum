@@ -384,6 +384,9 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub(crate) test_cancel_owned_inner:
         Option<crate::verifier::verification_pool_manager::CancellationController>,
     #[cfg(test)]
+    pub(crate) test_cancel_owned_let:
+        Option<crate::verifier::verification_pool_manager::CancellationController>,
+    #[cfg(test)]
     executor_debug_for_test: bool,
     /// Owner-local symbolic logger and record constructor. Both are inactive until
     /// the verification lifecycle explicitly installs a member log.
@@ -751,6 +754,8 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             test_cancel_owned_right: None,
             #[cfg(test)]
             test_cancel_owned_inner: None,
+            #[cfg(test)]
+            test_cancel_owned_let: None,
             #[cfg(test)]
             executor_debug_for_test: false,
             logging_root: None,
@@ -3473,6 +3478,18 @@ where
         }) {
             if let Some(cancel) = self.test_cancel_owned_inner.take() {
                 super::verification_pool_manager::INNER_RECEIVER_CANCEL_HOOKS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                cancel.cancel();
+            }
+        }
+        if frame.return_frames.iter().any(|f| {
+            matches!(
+                f,
+                crate::rules::evaluator::OwnedEvaluationReturnFrame::LetBody { .. }
+            )
+        }) {
+            if let Some(cancel) = self.test_cancel_owned_let.take() {
+                super::verification_pool_manager::LET_RECEIVER_CANCEL_HOOKS
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 cancel.cancel();
             }
@@ -12834,6 +12851,24 @@ where
                         )
                     }) {
                         super::verification_pool_manager::ASSERTING_BODY_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if frame.return_frames.iter().any(|f| {
+                        matches!(
+                            f,
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::LetValue(_)
+                        )
+                    }) {
+                        super::verification_pool_manager::LET_VALUE_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if frame.return_frames.iter().any(|f| {
+                        matches!(
+                            f,
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::LetBody { .. }
+                        )
+                    }) {
+                        super::verification_pool_manager::LET_BODY_EXECUTIONS
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
                     if frame.return_frames.len() >= 2 {
@@ -27511,6 +27546,76 @@ mod queued_cfg_isolation_tests {
                     );
                 }
             }
+        }
+        // Synthetic AST: source rejects duplicate binder names, but an existing
+        // store key must be shadowed consistently with ordinary Let evaluation.
+        {
+            let waited = std::rc::Rc::new(std::cell::Cell::new(0));
+            source.context.joined_branch_scheduler_enabled = true;
+            source.context.joined_branch_scheduler = Some(std::rc::Rc::new(OldProbe {
+                waited: waited.clone(),
+                cancellation: None,
+                kind: 0,
+                capture: None,
+            }));
+            let decl = ferrum_silver::ast::program::LocalVarDecl::new(
+                "shadowed".into(),
+                ferrum_silver::ast::r#type::Type::Int,
+                Default::default(),
+            );
+            let local = Exp::new(ExpKind::LocalVar(decl.local_var()), Default::default());
+            let value = Exp::new(
+                ExpKind::Asserting(
+                    Exp::new(ExpKind::TrueLit, Default::default()),
+                    Exp::new(ExpKind::IntLit(1.into()), Default::default()),
+                ),
+                Default::default(),
+            );
+            let rhs = Exp::new(ExpKind::Let(decl, value, local.clone()), Default::default());
+            let mut input = state.clone();
+            input.under_join = false;
+            input.parallelize_branches = true;
+            input.method_cfg = Some(Arc::new(cfg.clone()));
+            input.g = Arc::new(input.g.with_binding(
+                crate::state::store::AbstractLocalVar::new(local.clone()),
+                (factory.int_literal(9), None),
+            ));
+            let check = Exp::new(
+                ExpKind::EqCmp(
+                    local,
+                    Exp::new(ExpKind::IntLit(1.into()), Default::default()),
+                ),
+                Default::default(),
+            );
+            let tail = Stmt::new(
+                ferrum_silver::ast::statement::StmtKind::Assert(check),
+                Default::default(),
+            );
+            let mut shadow_receiver = receiver.clone();
+            shadow_receiver.rhs = rhs.clone();
+            shadow_receiver.tail =
+                crate::rules::executor::test_statement_tail_with(join.clone(), &[tail]);
+            crate::rules::evaluator::test_capture_fallback_values(true);
+            let result = crate::rules::evaluator::evaluate_owned_nested(
+                &mut source.context,
+                input,
+                &rhs,
+                &partial,
+                &shadow_receiver,
+                vec![],
+            )
+            .unwrap();
+            let values = crate::rules::evaluator::test_capture_fallback_values(false);
+            assert!(
+                !result.is_fatal(),
+                "bound value was not visible to caller tail: {result:?}"
+            );
+            assert_eq!(
+                values,
+                vec![factory.int_literal(1)],
+                "body must read the shadowing binding exactly once"
+            );
+            assert_eq!(waited.get(), 0);
         }
         // Capture a real AssertProbe consumption job using the same source Q.
         let captured_probe = std::rc::Rc::new(std::cell::RefCell::new(None));
