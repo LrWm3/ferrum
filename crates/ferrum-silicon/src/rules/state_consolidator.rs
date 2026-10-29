@@ -98,6 +98,7 @@ pub trait ConsolidationServices<P, D, J> {
         &mut self,
         equations: &[Term],
         definitions: bool,
+        label: &str,
     ) -> Result<(), Self::Error>;
     fn assume_chunk_properties(
         &mut self,
@@ -308,7 +309,11 @@ pub fn merge_heaps<P, D: Clone, J, C: ConsolidationServices<P, D, J>>(
         &qvars,
     )?;
     context
-        .assume_merge_equations(&equations.iter().cloned().collect::<Vec<_>>(), false)
+        .assume_merge_equations(
+            &equations.iter().cloned().collect::<Vec<_>>(),
+            false,
+            "Snapshot",
+        )
         .map_err(ConsolidationError::Service)?;
     let heap = ListBackedHeap::from_chunks(chunks);
     for chunk in added.iter().filter(|c| matches!(c, Chunk::Basic(_))) {
@@ -382,7 +387,11 @@ pub fn consolidate<P, D: Clone, J: Clone + PartialEq, C: ConsolidationServices<P
                 single_merge(factory, context, &state, recorder, &[], &current, &qvars)?;
             let changed = !equations.is_empty();
             context
-                .assume_merge_equations(&equations.iter().cloned().collect::<Vec<_>>(), false)
+                .assume_merge_equations(
+                    &equations.iter().cloned().collect::<Vec<_>>(),
+                    false,
+                    "Snapshot Equations",
+                )
                 .map_err(ConsolidationError::Service)?;
             recorder = next_recorder;
             current = chunks;

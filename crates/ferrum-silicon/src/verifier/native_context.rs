@@ -4619,7 +4619,13 @@ where
             qvars: data.qvars.clone(),
             qvar_exps: data.qvar_expressions.clone(),
             formal_vars: formals,
-            formal_var_exps: None,
+            formal_var_exps: if self.base.decider.debug_mode {
+                Some(state.formal_arg_decls(&source).map_err(|e| {
+                    ProductionError::Context(NativeError::Diagnostic(format!("{e:?}")))
+                })?)
+            } else {
+                None
+            },
             qid: qid.into(),
             has_explicit_triggers,
             triggers: data.triggers.clone(),
@@ -6986,16 +6992,40 @@ where
         &mut self,
         equations: &[Term],
         definitions: bool,
+        label: &str,
     ) -> Result<(), Self::Error> {
-        {
+        let debug = self.base.decider.debug_mode.then(|| {
+            crate::debugger::debug_exp::DebugExp::create(
+                Some(label.into()),
+                None,
+                None,
+                None,
+                true,
+                Default::default(),
+                false,
+                &|e: &Exp| Ok::<_, std::convert::Infallible>(e.clone()),
+            )
+            .expect("infallible debug expression")
+        });
+        if label == "Snapshot Equations" {
             for term in equations {
                 self.base
                     .decider
-                    .assume([(term.clone(), None)], false, definitions)
+                    .assume([(term.clone(), debug.clone())], false, definitions)
                     .map_err(NativeError::Decider)?;
             }
-            Ok(())
+            return Ok(());
         }
+        self.base
+            .decider
+            .assume_terms(
+                &self.factory,
+                equations.iter().cloned(),
+                debug.as_ref(),
+                false,
+                definitions,
+            )
+            .map_err(NativeError::Decider)
     }
     fn assume_chunk_properties(
         &mut self,
@@ -11371,28 +11401,25 @@ where
         self.close_member_log()
     }
     fn fresh_predicate_snapshot(&mut self) -> Result<Term, Self::Error> {
+        let debug_type = self.base.decider.debug_mode.then(|| {
+            ferrum_silver::parser::parse_ast::PTypeHandle::new(
+                ferrum_silver::parser::parse_ast::PTypeKind::Unknown,
+                (
+                    ferrum_silver::ast::position::Position::NoPosition,
+                    ferrum_silver::ast::position::Position::NoPosition,
+                ),
+            )
+        });
         self.base
             .decider
-            .fresh_variable(&self.factory, "predicate", &Sort::Snap, false, None)
+            .fresh_variable(&self.factory, "predicate", &Sort::Snap, false, debug_type)
             .map_err(NativeError::Decider)
     }
     fn fresh_predicate_argument(
         &mut self,
         formal: &ferrum_silver::ast::program::LocalVarDecl,
     ) -> Result<(Term, Option<Exp>), Self::Error> {
-        {
-            let sort = self
-                .base
-                .symbol_converter
-                .to_sort(&formal.typ)
-                .map_err(NativeError::Sort)?;
-            let term = self
-                .base
-                .decider
-                .fresh_variable(&self.factory, &formal.name, &sort, false, None)
-                .map_err(NativeError::Decider)?;
-            Ok((term, None))
-        }
+        self.fresh_debuggable_local(&formal.local_var())
     }
     fn empty_predicate_heap(
         &mut self,
@@ -17834,7 +17861,21 @@ where
     fn fresh_summary_binder(&mut self) -> Result<Term, Self::Error> {
         self.base
             .decider
-            .fresh_variable(&self.factory, "s", &Sort::Snap, false, None)
+            .fresh_variable(
+                &self.factory,
+                "s",
+                &Sort::Snap,
+                false,
+                self.base.decider.debug_mode.then(|| {
+                    ferrum_silver::parser::parse_ast::PTypeHandle::new(
+                        ferrum_silver::parser::parse_ast::PTypeKind::Unknown,
+                        (
+                            ferrum_silver::ast::position::Position::NoPosition,
+                            ferrum_silver::ast::position::Position::NoPosition,
+                        ),
+                    )
+                }),
+            )
             .map_err(NativeError::Decider)
     }
     fn next_snapshot_summary_id(&mut self) -> u64 {
@@ -17899,11 +17940,21 @@ where
     }
     fn replace_quantified_debug(
         &mut self,
-        _: &Exp,
-        _: &[ferrum_silver::ast::program::LocalVarDecl],
-        _: &[ferrum_silver::ast::program::LocalVarDecl],
+        expression: &Exp,
+        from: &[ferrum_silver::ast::program::LocalVarDecl],
+        to: &[ferrum_silver::ast::program::LocalVarDecl],
     ) -> Result<Exp, NativeError<S::Error>> {
-        Err(NativeError::Unsupported("quantified chunk merge debugging"))
+        let names = from
+            .iter()
+            .map(|decl| decl.name.clone())
+            .collect::<Vec<_>>();
+        let replacements = to
+            .iter()
+            .map(|decl| Exp::new(ExpKind::LocalVar(decl.local_var()), decl.meta.clone()))
+            .collect::<Vec<_>>();
+        crate::utils::ast::replace_vars_in_exp(expression, &names, &replacements).map_err(|e| {
+            NativeError::Diagnostic(format!("quantified merge debug substitution: {e:?}"))
+        })
     }
     fn summarise_quantified_pair(
         &mut self,
@@ -21557,6 +21608,70 @@ mod worker_analysis_contract_tests {
                 );
                 let parsed = phases
                     .parse("field x: Int method m() requires forall r: Ref :: r != null ==> acc(r.x) { exhale forall r: Ref :: r != null ==> acc(r.x, wildcard) }")
+                    .unwrap();
+                let analyzed = phases.analyze(parsed).unwrap();
+                let program = phases.translate(analyzed).unwrap();
+                worker.context.start(None, &[]).unwrap();
+                worker.context.evaluator_debug_for_test = true;
+                worker.context.executor_debug_for_test = true;
+                worker.context.base.decider.debug_mode = true;
+                let results = worker.context.verify_program(&program, &[]).unwrap();
+                assert!(results.iter().all(|result| !result.is_fatal()));
+                worker.context.stop().unwrap();
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn method_debug_quantified_predicate_merge_executes_real_method() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024 * 1024)
+            .spawn(|| {
+                use super::*;
+                use crate::{
+                    config::Config, decider::z3_prover_std_io, state::terms::TermOptions,
+                    verifier::verification_pool_manager::native_method_worker,
+                };
+                use ferrum_silver::frontend::{
+                    frontend::FrontendPhases, sil_frontend::SilFrontendPhases,
+                };
+                let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+                let config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3.clone(),
+                    "--exhaleModeQP".into(), "0".into(),
+                    "debug.vpr".into(),
+                ])
+                .unwrap();
+                let factory = TermFactory::new(TermOptions {
+                    use_flyweight: config.use_flyweight(),
+                    use_old_axiomatization: config.use_old_axiomatization,
+                    mask_heap_mode: config.mask_heap_mode,
+                });
+                let prover = z3_prover_std_io::new(
+                    "function-debug".into(),
+                    z3_prover_std_io::settings(z3.into()),
+                    factory.clone(),
+                    |_| {},
+                );
+                let identifiers = prover.identifier_factory();
+                let mut worker = native_method_worker(
+                    "function-debug".into(),
+                    prover,
+                    identifiers,
+                    factory,
+                    NativeOptions::from_config(&config).unwrap(),
+                    &config,
+                );
+                let mut phases = SilFrontendPhases::new(
+                    "debug.vpr".into(),
+                    ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                let parsed = phases
+                    .parse("field x: Int predicate P(r: Ref) { acc(r.x) } method m() requires forall r: Ref :: r != null ==> acc(P(r), 1/2) requires forall r: Ref :: r != null ==> acc(P(r), 1/2) { }")
                     .unwrap();
                 let analyzed = phases.analyze(parsed).unwrap();
                 let program = phases.translate(analyzed).unwrap();

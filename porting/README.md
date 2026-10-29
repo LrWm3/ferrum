@@ -1014,3 +1014,8 @@ Compound expression spans preserve parenthesized operands at the same grammar
 boundaries as Silver: equality/Boolean expressions start at their full parse,
 arithmetic/comparison folds retain the left operand start, and compound ends
 include a grouped right operand. The inner expression keeps its own span.
+
+Quantified merging substitutes source debug variables and preserves the distinct
+snapshot-equation groups. Predicate snapshots, arguments and summary binders carry
+the source debug types. A real-solver greedy quantified merge fixture exercises
+the replacement hook; public interactive debugging remains gated.
