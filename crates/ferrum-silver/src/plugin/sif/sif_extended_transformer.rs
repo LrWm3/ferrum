@@ -2897,6 +2897,73 @@ struct SifControls<'a> {
     except: Option<&'a SifControlPair>,
 }
 
+// Translate relational expressions in executable conditions before translating the
+// surrounding ordinary expression for each execution. The placeholders retain
+// node identity, so the already translated comparison is never primed twice.
+fn sif_condition_expression(
+    exp: &Exp,
+    prime: bool,
+    first: &Exp,
+    second: &Exp,
+    names: &HashMap<String, String>,
+    fields: &HashMap<String, crate::ast::program::Field>,
+    program: &Program,
+) -> Result<Exp, String> {
+    use super::sif_ast_extensions::{SifExpression, SifExpressionKind};
+    use crate::ast::{ast::Metadata, r#type::Type};
+    let replacements = std::cell::RefCell::new(Vec::<(Exp, Exp)>::new());
+    let skeleton = rewrite_loop_preorder(exp, &|node| {
+        let ExpKind::Extension(handle) = node.kind() else {
+            return Ok(node.clone());
+        };
+        let Some(sif) = handle.0.as_any().downcast_ref::<SifExpression>() else {
+            return Ok(node.clone());
+        };
+        let SifExpressionKind::Low {
+            exp: value,
+            comparator,
+            type_variables,
+        } = &sif.kind
+        else {
+            return Ok(node.clone());
+        };
+        let equality = sif_low_comparison(
+            node,
+            value,
+            comparator.as_deref(),
+            type_variables,
+            names,
+            fields,
+            program,
+        )?;
+        let both = Exp::new(
+            ExpKind::And(first.clone(), second.clone()),
+            Metadata::default(),
+        );
+        let translated = Exp::new(
+            ExpKind::Implies(both, equality),
+            sif_forward_meta(Node::Exp(node.clone()), node.metadata()),
+        );
+        let placeholder = Exp::new(
+            ExpKind::LocalVarWithVersion("$sif_condition".into(), Type::Bool),
+            Metadata::default(),
+        );
+        replacements
+            .borrow_mut()
+            .push((placeholder.clone(), translated));
+        Ok(placeholder)
+    })?;
+    let skeleton = sif_pure_expression(&skeleton, prime, names, fields)?;
+    rewrite_loop_preorder(&skeleton, &|node| {
+        Ok(replacements
+            .borrow()
+            .iter()
+            .find(|(placeholder, _)| placeholder.same_node(node))
+            .map(|(_, value)| value.clone())
+            .unwrap_or_else(|| node.clone()))
+    })
+}
+
 fn sif_active(
     p: Option<&Exp>,
     controls: SifControls<'_>,
@@ -3987,8 +4054,12 @@ fn sif_assertion_block(
                 else_branch,
             } => {
                 flush(&mut normal, &mut primed, &mut result);
-                let normal_cond = sif_pure_expression(condition, false, names, fields)?;
-                let prime_cond = sif_pure_expression(condition, true, names, fields)?;
+                let normal_cond = sif_condition_expression(
+                    condition, false, first, second, names, fields, program,
+                )?;
+                let prime_cond = sif_condition_expression(
+                    condition, true, first, second, names, fields, program,
+                )?;
                 let controls = ["p1", "p2", "p3", "p4"]
                     .into_iter()
                     .map(|name| {
@@ -4265,8 +4336,12 @@ fn sif_assertion_block(
                         }
                     }
                 }
-                let normal_condition = sif_pure_expression(condition, false, names, fields)?;
-                let prime_condition = sif_pure_expression(condition, true, names, fields)?;
+                let normal_condition = sif_condition_expression(
+                    condition, false, first, second, names, fields, program,
+                )?;
+                let prime_condition = sif_condition_expression(
+                    condition, true, first, second, names, fields, program,
+                )?;
                 let loop_condition = Exp::new(
                     ExpKind::Or(
                         and(

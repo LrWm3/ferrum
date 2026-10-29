@@ -1000,3 +1000,58 @@ fn heap_trigger_failed_argument_does_not_hide_later_assertion_failure() {
         "{stderr}"
     );
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn sif_relational_conditions_preserve_branch_and_loop_failures() {
+    for source in [
+        include_str!("fixtures/sif_branch_condition.vpr"),
+        include_str!("fixtures/sif_branch_issue_903.vpr"),
+        include_str!("fixtures/sif_loop_condition.vpr"),
+        "method m(t: Int) requires lowEvent { if (!low(t)) { assert false } }",
+    ] {
+        let output = run(
+            source,
+            &[
+                "--plugin",
+                "viper.silver.plugin.sif.SIFPlugin",
+                "--disableCaches",
+                "--numberOfParallelVerifiers",
+                "1",
+            ],
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{stderr}");
+        assert_eq!(
+            stderr.matches("assert.failed:assertion.false").count(),
+            1,
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("Assertion false might not hold"),
+            "{stderr}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn sif_relational_condition_respects_active_executions() {
+    let source = "method m(t: Int) requires lowEvent { if (low(t)) { assert low(t) } else { assert !low(t) } } method n(t: Int) requires !lowEvent { if (low(t)) { assert true } else { assert false } }";
+    let output = run(
+        source,
+        &[
+            "--plugin",
+            "viper.silver.plugin.sif.SIFPlugin",
+            "--disableCaches",
+            "--numberOfParallelVerifiers",
+            "1",
+        ],
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
