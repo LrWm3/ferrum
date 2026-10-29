@@ -1620,7 +1620,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Brancher.scala"
 destination = "crates/ferrum-silicon/src/rules/brancher.rs"
 status = "skeleton"
-remaining = ["Feasibility, branch selection and concrete path/declaration/option/error transfer plus cooperative-join restoration exist. Owned continuations, scheduling/waits, reporting and full cancellation integration remain gated."]
+remaining = ["Owned dispatch, cooperative waits, reporting, typed cancellation/error draining and solver-context restoration are connected. Exact receiver coverage and active logger migration remain incomplete."]
 
 [[modules]]
 repository = "silicon"
@@ -1647,7 +1647,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Evaluator.scala"
 destination = "crates/ferrum-silicon/src/rules/evaluator.rs"
 status = "skeleton"
-remaining = ["Owned function snapshots, Unfolding collectors and direct Asserting assignment receivers run worker branches. Nested borrowed receivers, diagnostics/logging and broader compatibility remain."]
+remaining = ["Owned function snapshots, Unfolding collectors, nested asserting bodies and old/strict-operator assignment return frames run worker branches. Other expression receiver families, full diagnostics and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -1661,7 +1661,7 @@ repository = "silicon"
 upstream = "src/main/scala/rules/Executor.scala"
 destination = "crates/ferrum-silicon/src/rules/executor.rs"
 status = "skeleton"
-remaining = ["Owned CFG, statement, method-call, loop and direct Asserting assignment frames connect worker branches to exact terminals. Further borrowed receivers, logging and broader compatibility remain."]
+remaining = ["Owned CFG, statement, method-call, loop and composable assignment frames connect worker branches to exact terminals. Other borrowed receivers, active logger migration and broader compatibility remain."]
 
 [[modules]]
 repository = "silicon"
@@ -2567,7 +2567,7 @@ role = "assembly"
 [[scaffolding]]
 destination = "crates/ferrum-silicon/src/verifier/native_context.rs"
 status = "skeleton"
-remaining = ["Public branch scheduling connects typed CFG/rule/loop/predicate/value continuations with solver and collector isolation. Borrowed receiver fallbacks, active logging/debug reporting, CFG-only contributor analysis and broader compatibility remain."]
+remaining = ["Public branch scheduling connects typed CFG/rule/loop/predicate/value continuations with solver and collector isolation and reviewed typed error/cleanup bridges. Other borrowed receivers, active logger migration, complete diagnostics, CFG-only contributor analysis and broader compatibility remain."]
 
 [[scaffolding]]
 destination = "tests/native_cli.rs"
