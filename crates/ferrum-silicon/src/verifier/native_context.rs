@@ -402,6 +402,24 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub(crate) test_cancel_owned_inner:
         Option<crate::verifier::verification_pool_manager::CancellationController>,
     #[cfg(test)]
+    pub(crate) test_cancel_wand_access:
+        Option<crate::verifier::verification_pool_manager::CancellationController>,
+    #[cfg(test)]
+    test_in_wand_access_worker: bool,
+    #[cfg(test)]
+    pub(crate) test_cancel_applying_rhs:
+        Option<crate::verifier::verification_pool_manager::CancellationController>,
+    #[cfg(test)]
+    test_in_applying_rhs_worker: bool,
+    #[cfg(test)]
+    pub(crate) test_cancel_applying_lhs:
+        Option<crate::verifier::verification_pool_manager::CancellationController>,
+    #[cfg(test)]
+    test_in_applying_lhs_worker: bool,
+    #[cfg(test)]
+    pub(crate) test_cancel_apply_after_wand:
+        Option<crate::verifier::verification_pool_manager::CancellationController>,
+    #[cfg(test)]
     pub(crate) test_cancel_owned_let:
         Option<crate::verifier::verification_pool_manager::CancellationController>,
     #[cfg(test)]
@@ -820,6 +838,20 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             test_cancel_owned_right: None,
             #[cfg(test)]
             test_cancel_owned_inner: None,
+            #[cfg(test)]
+            test_cancel_wand_access: None,
+            #[cfg(test)]
+            test_in_wand_access_worker: false,
+            #[cfg(test)]
+            test_cancel_applying_rhs: None,
+            #[cfg(test)]
+            test_in_applying_rhs_worker: false,
+            #[cfg(test)]
+            test_cancel_applying_lhs: None,
+            #[cfg(test)]
+            test_in_applying_lhs_worker: false,
+            #[cfg(test)]
+            test_cancel_apply_after_wand: None,
             #[cfg(test)]
             test_cancel_owned_let: None,
             #[cfg(test)]
@@ -4014,6 +4046,15 @@ where
                 cancel.cancel();
             }
         }
+        if self.test_in_wand_access_worker
+            && matches!(&frame.receiver, crate::rules::evaluator::OwnedEvaluationReceiver::ConsumptionAccess(access) if matches!(access.resource, crate::state::terms::ResourceKey::Wand(_)))
+        {
+            if let Some(cancel) = self.test_cancel_wand_access.take() {
+                super::verification_pool_manager::WAND_ACCESS_CANCEL_HOOKS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                cancel.cancel();
+            }
+        }
         if frame.return_frames.iter().any(|f| {
             matches!(
                 f,
@@ -4892,6 +4933,9 @@ fn owned_production_destination<P, D>(
 ) -> Option<OwnedCollectorDestination> {
     use crate::rules::producer::OwnedProductionTerminal;
     match tail {
+        OwnedProductionTerminal::ApplyingRhs(frame) => Some(OwnedCollectorDestination::Evaluation(
+            frame.applying.join.collector_id.clone(),
+        )),
         OwnedProductionTerminal::UnfoldEvaluation(frame) => Some(
             OwnedCollectorDestination::Evaluation(frame.collector_id.clone()),
         ),
@@ -4928,6 +4972,18 @@ fn owned_consumption_destination<P, D, J>(
 ) -> Option<OwnedCollectorDestination> {
     use crate::rules::consumer::{OwnedConsumptionFrame, OwnedConsumptionTerminal};
     frames.iter().find_map(|f| match f {
+        OwnedConsumptionFrame::Finish {
+            terminal: OwnedConsumptionTerminal::ApplyingWand(frame),
+            ..
+        } => Some(OwnedCollectorDestination::Evaluation(
+            frame.join.collector_id.clone(),
+        )),
+        OwnedConsumptionFrame::Finish {
+            terminal: OwnedConsumptionTerminal::ApplyingLhs(frame),
+            ..
+        } => Some(OwnedCollectorDestination::Evaluation(
+            frame.applying.join.collector_id.clone(),
+        )),
         OwnedConsumptionFrame::Finish {
             terminal: OwnedConsumptionTerminal::FunctionPre(frame),
             ..
@@ -4992,6 +5048,10 @@ where
         state: &State<PD, FD, JoinMode>,
         terminal: &crate::rules::producer::OwnedProductionTerminal<PD, FD>,
     ) -> bool {
+        if let crate::rules::producer::OwnedProductionTerminal::ApplyingRhs(frame) = terminal {
+            return <Self as EvaluationContext<PD, FD, JoinMode, VerificationError>>::can_transfer_owned_receiver(
+                self, state, &crate::rules::evaluator::OwnedEvaluationReceiver::Join(frame.applying.join.clone()));
+        }
         if matches!(
             terminal,
             crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(_)
@@ -5354,6 +5414,61 @@ where
                         macros,
                     });
                 Ok(VerificationResult::success())
+            }
+            crate::rules::producer::OwnedProductionTerminal::ApplyingRhs(frame) => {
+                #[cfg(test)]
+                if self.test_in_applying_rhs_worker {
+                    if let Some(cancel) = self.test_cancel_applying_rhs.take() {
+                        super::verification_pool_manager::APPLY_RHS_CANCEL_HOOKS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        cancel.cancel();
+                    }
+                }
+                use crate::rules::evaluator::OwnedEvaluationReceiver;
+                use crate::rules::magic_wand_supporter::WandApplicationServices;
+                let mut state = state;
+                state.g = frame.original_store.clone();
+                state.conserving_snapshot_generation = frame.old_conserving;
+                let mut state = self
+                    .consolidate_wand_state(state)
+                    .map_err(ProductionError::Context)?;
+                state.old_heaps = frame.original_old.clone();
+                let receiver = OwnedEvaluationReceiver::Join(frame.applying.join.clone());
+                let result =
+                    if crate::rules::evaluator::has_owned_asserting_path(&frame.applying.body)
+                        && self.can_transfer_owned_receiver(&state, &receiver)
+                    {
+                        crate::rules::evaluator::evaluate_owned_received(
+                            self,
+                            state,
+                            &frame.applying.body,
+                            &frame.applying.error,
+                            &receiver,
+                            vec![],
+                        )
+                    } else {
+                        crate::rules::evaluator::evaluate(
+                            self,
+                            state,
+                            &frame.applying.body,
+                            &frame.applying.error,
+                            &mut |ctx, state, term, debug| {
+                                ctx.finish_owned_join_value(
+                                    state,
+                                    term,
+                                    debug,
+                                    &frame.applying.join,
+                                )
+                                .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
+                            },
+                        )
+                    };
+                result.map_err(|e| match e {
+                    EvaluationError::Context(e) => ProductionError::Context(e),
+                    other => ProductionError::Context(NativeError::Evaluation(format!(
+                        "applying body: {other:?}"
+                    ))),
+                })
             }
             crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(frame) => {
                 use crate::rules::predicate_supporter::PredicateTreeServices;
@@ -6423,6 +6538,18 @@ where
             JoinMode,
         >],
     ) -> bool {
+        let applying = frames.iter().any(|frame| match frame {
+            crate::rules::consumer::OwnedConsumptionFrame::Finish { terminal: crate::rules::consumer::OwnedConsumptionTerminal::ApplyingWand(frame), .. } =>
+                <Self as EvaluationContext<PD, FD, JoinMode, VerificationError>>::can_transfer_owned_receiver(
+                    self, state, &crate::rules::evaluator::OwnedEvaluationReceiver::Join(frame.join.clone())),
+            crate::rules::consumer::OwnedConsumptionFrame::Finish { terminal: crate::rules::consumer::OwnedConsumptionTerminal::ApplyingLhs(frame), .. } =>
+                <Self as EvaluationContext<PD, FD, JoinMode, VerificationError>>::can_transfer_owned_receiver(
+                    self, state, &crate::rules::evaluator::OwnedEvaluationReceiver::Join(frame.applying.join.clone())),
+            _ => false,
+        });
+        if applying {
+            return true;
+        }
         let function = frames.iter().any(|frame| {
             matches!(
                 frame,
@@ -6522,6 +6649,20 @@ where
                     crate::state::terms::ResourceKey::Predicate(Arc::new(decl.clone())),
                     predicate.location.args.clone(),
                 )
+            }
+            ExpKind::MagicWand(..) => {
+                let wand = match crate::state::chunks::MagicWandIdentifier::new(
+                    assertion.clone(),
+                    &state.program,
+                ) {
+                    Ok(wand) => wand,
+                    Err(_) => return None,
+                };
+                let arguments = match assertion.magic_wand_subexpressions(&state.program) {
+                    Ok(arguments) => arguments,
+                    Err(_) => return None,
+                };
+                (crate::state::terms::ResourceKey::Wand(wand), arguments)
             }
             _ => return None,
         };
@@ -6759,6 +6900,220 @@ where
                             "owned asserting expression: {other:?}"
                         ))),
                     });
+            }
+            crate::rules::consumer::OwnedConsumptionTerminal::ApplyingWand(frame) => {
+                #[cfg(test)]
+                if self.test_in_wand_access_worker {
+                    super::verification_pool_manager::APPLY_WAND_WORKER_FINISH
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                #[cfg(test)]
+                if self.test_in_wand_access_worker {
+                    if let Some(cancel) = self.test_cancel_apply_after_wand.take() {
+                        super::verification_pool_manager::APPLY_WAND_CANCEL_HOOKS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        cancel.cancel();
+                    }
+                }
+                use crate::rules::evaluator::OwnedEvaluationReceiver;
+                use crate::rules::magic_wand_supporter::WandApplicationError as WE;
+                if let ExpKind::MagicWand(lhs, _) = frame.wand.kind() {
+                    let rhs_eligible = matches!(frame.wand.kind(), ExpKind::MagicWand(_, rhs) if state.more_joins == JoinMode::Off && !rhs.is_pure() && matches!(rhs.kind(), ExpKind::CondExp(..) | ExpKind::Implies(..)));
+                    if rhs_eligible
+                        || (state.more_joins == JoinMode::Off
+                            && !lhs.is_pure()
+                            && matches!(lhs.kind(), ExpKind::CondExp(..) | ExpKind::Implies(..)))
+                    {
+                        let Some(wand_snapshot) = snapshot else {
+                            return Err(ConsumptionError::Context(NativeError::Execution(
+                                "applying wand: MissingSnapshot".into(),
+                            )));
+                        };
+                        let next = crate::rules::consumer::OwnedApplyingLhs {
+                            applying: frame.clone(),
+                            reference: Arc::new(state.clone()),
+                            wand_snapshot,
+                        };
+                        return crate::rules::consumer::consume_many_owned(
+                            self,
+                            state,
+                            std::slice::from_ref(lhs),
+                            true,
+                            &|_| frame.error.clone(),
+                            crate::rules::consumer::OwnedConsumptionTerminal::ApplyingLhs(
+                                Arc::new(next),
+                            ),
+                        );
+                    }
+                }
+                let factory = self.factory.clone();
+                let receiver = OwnedEvaluationReceiver::Join(frame.join.clone());
+                return crate::rules::magic_wand_supporter::apply_wand_after_consume(
+                    &factory,
+                    self,
+                    state,
+                    &frame.wand,
+                    snapshot,
+                    &frame.error,
+                    &mut |ctx, state| {
+                        let result =
+                            if crate::rules::evaluator::has_owned_asserting_path(&frame.body)
+                                && ctx.can_transfer_owned_receiver(&state, &receiver)
+                            {
+                                crate::rules::evaluator::evaluate_owned_received(
+                                    ctx,
+                                    state,
+                                    &frame.body,
+                                    &frame.error,
+                                    &receiver,
+                                    vec![],
+                                )
+                            } else {
+                                crate::rules::evaluator::evaluate(
+                                    ctx,
+                                    state,
+                                    &frame.body,
+                                    &frame.error,
+                                    &mut |ctx, state, term, debug| {
+                                        ctx.finish_owned_join_value(state, term, debug, &frame.join)
+                                            .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
+                                    },
+                                )
+                            };
+                        result.map_err(|e| {
+                            WE::Service(match e {
+                                EvaluationError::Context(e) => e,
+                                other => {
+                                    NativeError::Evaluation(format!("applying body: {other:?}"))
+                                }
+                            })
+                        })
+                    },
+                )
+                .map_err(|e| match e {
+                    WE::Service(e) => ConsumptionError::Context(e),
+                    other => ConsumptionError::Context(NativeError::Execution(format!(
+                        "applying wand: {other:?}"
+                    ))),
+                });
+            }
+            crate::rules::consumer::OwnedConsumptionTerminal::ApplyingLhs(frame) => {
+                #[cfg(test)]
+                if self.test_in_applying_lhs_worker {
+                    if let Some(cancel) = self.test_cancel_applying_lhs.take() {
+                        super::verification_pool_manager::APPLY_LHS_CANCEL_HOOKS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        cancel.cancel();
+                    }
+                }
+                use crate::rules::evaluator::OwnedEvaluationReceiver;
+                use crate::rules::magic_wand_supporter::WandApplicationError as WE;
+                let factory = self.factory.clone();
+                let receiver = OwnedEvaluationReceiver::Join(frame.applying.join.clone());
+                let ExpKind::MagicWand(_, rhs) = frame.applying.wand.kind() else {
+                    return Err(ConsumptionError::Context(NativeError::Unsupported(
+                        "invalid owned applying wand",
+                    )));
+                };
+                if state.more_joins == JoinMode::Off
+                    && !rhs.is_pure()
+                    && matches!(rhs.kind(), ExpKind::CondExp(..) | ExpKind::Implies(..))
+                {
+                    use crate::rules::producer::ProductionContext;
+                    let (state, rhs_snapshot, old_conserving) =
+                        crate::rules::magic_wand_supporter::prepare_wand_rhs(
+                            &factory,
+                            self,
+                            state,
+                            &frame.reference,
+                            &frame.wand_snapshot,
+                            snapshot,
+                        )
+                        .map_err(|e| match e {
+                            WE::Service(e) => ConsumptionError::Context(e),
+                            other => ConsumptionError::Context(NativeError::Execution(format!(
+                                "applying wand: {other:?}"
+                            ))),
+                        })?;
+                    let terminal = crate::rules::producer::OwnedProductionTerminal::ApplyingRhs(
+                        crate::rules::producer::OwnedApplyingRhs {
+                            applying: frame.applying.clone(),
+                            original_store: frame.reference.g.clone(),
+                            original_old: frame.reference.old_heaps.clone(),
+                            old_conserving,
+                        },
+                    );
+                    return crate::rules::producer::produce_all_owned(
+                        self,
+                        state,
+                        NativeSnapshot::Projection(rhs_snapshot),
+                        std::slice::from_ref(rhs),
+                        &|_| frame.applying.error.clone(),
+                        &terminal,
+                        &mut |ctx, state| ctx.finish_owned_production(state, &terminal),
+                    )
+                    .map_err(|e| match e {
+                        ProductionError::Context(e) => ConsumptionError::Context(e),
+                        other => ConsumptionError::Context(NativeError::Production(format!(
+                            "applying rhs: {other:?}"
+                        ))),
+                    });
+                }
+                return crate::rules::magic_wand_supporter::apply_wand_after_lhs(
+                    &factory,
+                    self,
+                    state,
+                    &frame.reference,
+                    &frame.wand_snapshot,
+                    snapshot,
+                    rhs,
+                    &frame.applying.error,
+                    &mut |ctx, state| {
+                        let result = if crate::rules::evaluator::has_owned_asserting_path(
+                            &frame.applying.body,
+                        ) && ctx.can_transfer_owned_receiver(&state, &receiver)
+                        {
+                            crate::rules::evaluator::evaluate_owned_received(
+                                ctx,
+                                state,
+                                &frame.applying.body,
+                                &frame.applying.error,
+                                &receiver,
+                                vec![],
+                            )
+                        } else {
+                            crate::rules::evaluator::evaluate(
+                                ctx,
+                                state,
+                                &frame.applying.body,
+                                &frame.applying.error,
+                                &mut |ctx, state, term, debug| {
+                                    ctx.finish_owned_join_value(
+                                        state,
+                                        term,
+                                        debug,
+                                        &frame.applying.join,
+                                    )
+                                    .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
+                                },
+                            )
+                        };
+                        result.map_err(|e| {
+                            WE::Service(match e {
+                                EvaluationError::Context(e) => e,
+                                other => {
+                                    NativeError::Evaluation(format!("applying body: {other:?}"))
+                                }
+                            })
+                        })
+                    },
+                )
+                .map_err(|e| match e {
+                    WE::Service(e) => ConsumptionError::Context(e),
+                    other => ConsumptionError::Context(NativeError::Execution(format!(
+                        "applying wand: {other:?}"
+                    ))),
+                });
             }
             crate::rules::consumer::OwnedConsumptionTerminal::FunctionPre(frame) => {
                 return crate::rules::evaluator::complete_owned_function_pre(
@@ -15288,6 +15643,10 @@ where
                         super::verification_pool_manager::ACCESS_EXECUTIONS
                             [super::verification_pool_manager::access_counter_index(frame)]
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        if matches!(frame.resource, crate::state::terms::ResourceKey::Wand(_)) {
+                            super::verification_pool_manager::WAND_ACCESS_EXECUTIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
                     }
                     if matches!(
                         &frame.receiver,
@@ -15703,6 +16062,27 @@ where
             &mut self.test_in_unfold_permission_worker,
             unfold_permission_job,
         );
+        #[cfg(test)]
+        let applying_lhs_job = matches!(&branch.action,
+            super::verification_pool_manager::NativeJoinAction::Consumption(action) if action.frames.iter().any(|f| matches!(f, crate::rules::consumer::OwnedConsumptionFrame::Finish { terminal: crate::rules::consumer::OwnedConsumptionTerminal::ApplyingLhs(_), .. })));
+        #[cfg(test)]
+        if applying_lhs_job {
+            super::verification_pool_manager::APPLY_LHS_EXECUTIONS
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        #[cfg(test)]
+        let previous_applying_lhs_worker =
+            std::mem::replace(&mut self.test_in_applying_lhs_worker, applying_lhs_job);
+        #[cfg(test)]
+        let applying_rhs_job = matches!(&branch.action, super::verification_pool_manager::NativeJoinAction::Production(action) if matches!(&action.tail, crate::rules::producer::OwnedProductionTerminal::ApplyingRhs(_)));
+        #[cfg(test)]
+        if applying_rhs_job {
+            super::verification_pool_manager::APPLY_RHS_EXECUTIONS
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        #[cfg(test)]
+        let previous_applying_rhs_worker =
+            std::mem::replace(&mut self.test_in_applying_rhs_worker, applying_rhs_job);
         let phase_id = match &branch.action {
             super::verification_pool_manager::NativeJoinAction::Production(action) => match &action
                 .tail
@@ -15726,6 +16106,9 @@ where
                 match &action.tail {
                     crate::rules::producer::OwnedProductionTerminal::UnfoldEvaluation(frame) => {
                         Some(frame.collector_id.clone())
+                    }
+                    crate::rules::producer::OwnedProductionTerminal::ApplyingRhs(frame) => {
+                        Some(frame.applying.join.collector_id.clone())
                     }
                     _ => None,
                 }
@@ -15768,6 +16151,16 @@ where
             self.quantified_evaluation_collector = Some((id.clone(), entries.clone()));
             entries
         });
+        #[cfg(test)]
+        let wand_access_job = match &branch.action {
+            super::verification_pool_manager::NativeJoinAction::Consumption(action) => action.frames.iter().any(|f| matches!(f,
+                crate::rules::consumer::OwnedConsumptionFrame::Finish { terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), .. }
+                    if matches!(&frame.receiver, crate::rules::evaluator::OwnedEvaluationReceiver::ConsumptionAccess(access) if matches!(access.resource, crate::state::terms::ResourceKey::Wand(_))))),
+            _ => false,
+        };
+        #[cfg(test)]
+        let previous_wand_access =
+            std::mem::replace(&mut self.test_in_wand_access_worker, wand_access_job);
         let previous_evaluation_collector = self.unfold_evaluation_collector.take();
         let evaluation_entries = evaluation_id.as_ref().map(|id| {
             let entries = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
@@ -15945,6 +16338,18 @@ where
                 "quantified receiver: {primary:?}; cleanup: {cleanup:?}"
             ))),
         };
+        #[cfg(test)]
+        {
+            self.test_in_wand_access_worker = previous_wand_access;
+        }
+        #[cfg(test)]
+        {
+            self.test_in_applying_lhs_worker = previous_applying_lhs_worker;
+        }
+        #[cfg(test)]
+        {
+            self.test_in_applying_rhs_worker = previous_applying_rhs_worker;
+        }
         self.unfold_evaluation_collector = previous_evaluation_collector;
         let evaluation_entries = match (evaluation_id, evaluation_entries) {
             (Some(id), Some(entries)) => entries
@@ -18619,80 +19024,158 @@ where
         joined.under_join = true;
         let mut entries = Vec::new();
         use crate::rules::magic_wand_supporter::WandApplicationError as WE;
+        let eligible = self.joined_branch_scheduler_enabled
+            && self.joined_branch_scheduler.is_some()
+            && self.member_log.is_none()
+            && state.parallelize_branches
+            && !state.is_in_package
+            && !state.exhale_ext
+            && (wand
+                .magic_wand_subexpressions(&state.program)
+                .ok()
+                .is_some_and(|args| {
+                    args.iter()
+                        .any(crate::rules::evaluator::has_owned_asserting_path)
+                })
+                || matches!(wand.kind(), ExpKind::MagicWand(lhs, rhs) if state.more_joins == JoinMode::Off
+                    && ((!lhs.is_pure() && matches!(lhs.kind(), ExpKind::CondExp(..) | ExpKind::Implies(..)))
+                        || (!rhs.is_pure() && matches!(rhs.kind(), ExpKind::CondExp(..) | ExpKind::Implies(..))))));
+        let collector = if eligible {
+            let id = Arc::new(());
+            let shared = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let previous = self
+                .unfold_evaluation_collector
+                .replace((id.clone(), shared.clone()));
+            let join = crate::rules::evaluator::OwnedJoinedValue {
+                restore: crate::rules::joiner::JoinRestoreState::capture(&state),
+                mark,
+                collector_id: id,
+            };
+            Some((previous, shared, join))
+        } else {
+            None
+        };
         let mut evaluation_error = None;
-        let block = crate::rules::magic_wand_supporter::apply_wand(
-            &factory,
-            self,
-            joined,
-            wand,
-            error,
-            &mut |ctx, result_state| {
-                let eligible = ctx.joined_branch_scheduler_enabled
-                    && ctx.joined_branch_scheduler.is_some()
-                    && ctx.member_log.is_none()
-                    && result_state.parallelize_branches
-                    && !result_state.is_in_package
-                    && !result_state.exhale_ext
-                    && crate::rules::evaluator::has_owned_asserting_path(in_expression);
-                let result = if eligible {
-                    #[cfg(test)]
-                    super::verification_pool_manager::APPLYING_BODY_OWNED_ATTEMPTS
-                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    ctx.execute_identified_evaluation_branch(
-                        result_state,
-                        crate::rules::evaluator::EvaluationBranchAction::Evaluate {
-                            expression: in_expression.clone(),
-                            error: error.clone(),
-                        },
-                        &state,
-                        mark,
-                    )
-                    .map(|(result, returned)| {
-                        entries.extend(returned);
-                        result
-                    })
-                } else {
-                    crate::rules::evaluator::evaluate(
-                        ctx,
-                        result_state,
-                        in_expression,
-                        error,
-                        &mut |ctx, result_state, value, debug| {
-                            let path_conditions = ctx
-                                .base
-                                .decider
-                                .pcs
-                                .after(mark)
-                                .map_err(EvaluationError::Path)?;
-                            entries.push(JoinDataEntry {
-                                state: joiner::restore_state(result_state, &state),
-                                data: (value, debug),
-                                path_conditions,
-                            });
-                            Ok(VerificationResult::success())
-                        },
-                    )
-                };
-                match result {
-                    Ok(value) => Ok(value),
-                    Err(e) => {
-                        evaluation_error = Some(e);
-                        Err(WE::Service(NativeError::ContinuationAbort))
-                    }
-                }
-            },
-        );
-        let block = match (evaluation_error, block) {
-            (Some(error), Ok(_) | Err(WE::Service(NativeError::ContinuationAbort))) => Err(error),
-            (Some(error), Err(other)) => Err(EvaluationError::Context(NativeError::Cleanup(
-                format!("applying callback: {error:?}; adapter: {other:?}"),
-            ))),
-            (None, result) => result.map_err(|e| match e {
-                WE::Service(error) => EvaluationError::Context(error),
-                other => EvaluationError::Context(NativeError::Execution(format!(
-                    "applying expression: {other:?}"
+        let block = if let Some((_, _, join)) = &collector {
+            let terminal = crate::rules::consumer::OwnedConsumptionTerminal::ApplyingWand(
+                crate::rules::consumer::OwnedApplyingWand {
+                    wand: wand.clone(),
+                    body: in_expression.clone(),
+                    error: error.clone(),
+                    join: join.clone(),
+                },
+            );
+            crate::rules::consumer::consume_many_owned(
+                self,
+                joined,
+                std::slice::from_ref(wand),
+                true,
+                &|_| error.clone(),
+                terminal,
+            )
+            .map_err(|e| match e {
+                ConsumptionError::Context(e) => EvaluationError::Context(e),
+                other => EvaluationError::Context(NativeError::Consumption(format!(
+                    "applying wand: {other:?}"
                 ))),
-            }),
+            })
+        } else {
+            let block = crate::rules::magic_wand_supporter::apply_wand(
+                &factory,
+                self,
+                joined,
+                wand,
+                error,
+                &mut |ctx, result_state| {
+                    let eligible = ctx.joined_branch_scheduler_enabled
+                        && ctx.joined_branch_scheduler.is_some()
+                        && ctx.member_log.is_none()
+                        && result_state.parallelize_branches
+                        && !result_state.is_in_package
+                        && !result_state.exhale_ext
+                        && crate::rules::evaluator::has_owned_asserting_path(in_expression);
+                    let result = if eligible {
+                        #[cfg(test)]
+                        super::verification_pool_manager::APPLYING_BODY_OWNED_ATTEMPTS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        ctx.execute_identified_evaluation_branch(
+                            result_state,
+                            crate::rules::evaluator::EvaluationBranchAction::Evaluate {
+                                expression: in_expression.clone(),
+                                error: error.clone(),
+                            },
+                            &state,
+                            mark,
+                        )
+                        .map(|(result, returned)| {
+                            entries.extend(returned);
+                            result
+                        })
+                    } else {
+                        crate::rules::evaluator::evaluate(
+                            ctx,
+                            result_state,
+                            in_expression,
+                            error,
+                            &mut |ctx, result_state, value, debug| {
+                                let path_conditions = ctx
+                                    .base
+                                    .decider
+                                    .pcs
+                                    .after(mark)
+                                    .map_err(EvaluationError::Path)?;
+                                entries.push(JoinDataEntry {
+                                    state: joiner::restore_state(result_state, &state),
+                                    data: (value, debug),
+                                    path_conditions,
+                                });
+                                Ok(VerificationResult::success())
+                            },
+                        )
+                    };
+                    match result {
+                        Ok(value) => Ok(value),
+                        Err(e) => {
+                            evaluation_error = Some(e);
+                            Err(WE::Service(NativeError::ContinuationAbort))
+                        }
+                    }
+                },
+            );
+            let block = match (evaluation_error, block) {
+                (Some(error), Ok(_) | Err(WE::Service(NativeError::ContinuationAbort))) => {
+                    Err(error)
+                }
+                (Some(error), Err(other)) => Err(EvaluationError::Context(NativeError::Cleanup(
+                    format!("applying callback: {error:?}; adapter: {other:?}"),
+                ))),
+                (None, result) => result.map_err(|e| match e {
+                    WE::Service(error) => EvaluationError::Context(error),
+                    other => EvaluationError::Context(NativeError::Execution(format!(
+                        "applying expression: {other:?}"
+                    ))),
+                }),
+            };
+            block
+        };
+        let collected = if let Some((previous, shared, _)) = collector {
+            self.unfold_evaluation_collector = previous;
+            match shared.try_borrow_mut() {
+                Ok(mut shared) => {
+                    entries.extend(shared.drain(..));
+                    Ok(())
+                }
+                Err(_) => Err(NativeError::Unsupported(
+                    "applying evaluation collector borrowed",
+                )),
+            }
+        } else {
+            Ok(())
+        };
+        let block = match (block, collected) {
+            (block, Ok(())) => block,
+            (Ok(_), Err(error)) => Err(EvaluationError::Context(error)),
+            (Err(primary), Err(cleanup)) => Err(coalesce_evaluation_cleanup(primary, cleanup)),
         };
         let cleanup = self.base.decider.pop_scope().map_err(NativeError::Decider);
         let block = match (block, cleanup) {

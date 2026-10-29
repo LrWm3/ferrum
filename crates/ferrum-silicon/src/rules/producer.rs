@@ -188,6 +188,16 @@ pub enum OwnedProductionRemainder<S, E> {
     },
 }
 
+#[derive(Clone)]
+pub struct OwnedApplyingRhs {
+    pub applying: crate::rules::consumer::OwnedApplyingWand,
+    pub original_store: std::sync::Arc<crate::state::store::MapBackedStore>,
+    pub original_old: crate::state::package::OrderedMap<
+        String,
+        std::sync::Arc<crate::state::heap::ListBackedHeap>,
+    >,
+    pub old_conserving: bool,
+}
 pub enum OwnedProductionTerminal<P, D> {
     Inhale(crate::rules::executor::CfgStatementTail),
     MethodPre(crate::supporters::method_supporter::MethodPreContinuation),
@@ -199,6 +209,7 @@ pub enum OwnedProductionTerminal<P, D> {
     CallPost(crate::rules::executor::MethodCallPreFrame),
     Unfold(crate::rules::predicate_supporter::OwnedUnfoldFinish),
     UnfoldEvaluation(crate::rules::predicate_supporter::OwnedUnfoldEvaluation<P, D>),
+    ApplyingRhs(OwnedApplyingRhs),
 }
 impl<P, D> Clone for OwnedProductionTerminal<P, D> {
     fn clone(&self) -> Self {
@@ -213,6 +224,7 @@ impl<P, D> Clone for OwnedProductionTerminal<P, D> {
             Self::CallPost(x) => Self::CallPost(x.clone()),
             Self::Unfold(x) => Self::Unfold(x.clone()),
             Self::UnfoldEvaluation(x) => Self::UnfoldEvaluation(x.clone()),
+            Self::ApplyingRhs(x) => Self::ApplyingRhs(x.clone()),
         }
     }
 }

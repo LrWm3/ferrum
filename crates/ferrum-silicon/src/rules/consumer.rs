@@ -69,6 +69,19 @@ pub enum OwnedConsumptionCompletion {
         reserve: Vec<Arc<ListBackedHeap>>,
     },
 }
+/// Exact Applying expression continuation after its wand chunk is consumed.
+#[derive(Clone)]
+pub struct OwnedApplyingWand {
+    pub wand: Exp,
+    pub body: Exp,
+    pub error: ferrum_silver::verifier::verification_error::PartialVerificationError,
+    pub join: crate::rules::evaluator::OwnedJoinedValue,
+}
+pub struct OwnedApplyingLhs<P, D, J> {
+    pub applying: OwnedApplyingWand,
+    pub reference: Arc<State<P, D, J>>,
+    pub wand_snapshot: Term,
+}
 pub enum OwnedConsumptionTerminal<P, D, J> {
     Statement {
         completion: OwnedConsumptionCompletion,
@@ -85,6 +98,8 @@ pub enum OwnedConsumptionTerminal<P, D, J> {
         >,
     ),
     FunctionPre(Arc<crate::rules::evaluator::OwnedFunctionPre<P, D, J>>),
+    ApplyingWand(OwnedApplyingWand),
+    ApplyingLhs(Arc<OwnedApplyingLhs<P, D, J>>),
     LoopBackedgeSuccess,
     MethodCallPre(crate::rules::executor::MethodCallPreFrame),
     FoldBody(
@@ -108,6 +123,8 @@ impl<P, D, J> Clone for OwnedConsumptionTerminal<P, D, J> {
             Self::AssertProbe => Self::AssertProbe,
             Self::Asserting(frame) => Self::Asserting(frame.clone()),
             Self::FunctionPre(frame) => Self::FunctionPre(frame.clone()),
+            Self::ApplyingWand(frame) => Self::ApplyingWand(frame.clone()),
+            Self::ApplyingLhs(frame) => Self::ApplyingLhs(frame.clone()),
             Self::LoopBackedgeSuccess => Self::LoopBackedgeSuccess,
             Self::MethodCallPre(f) => Self::MethodCallPre(f.clone()),
             Self::FoldBody(f) => Self::FoldBody(f.clone()),
@@ -952,7 +969,9 @@ where
     next.extend_from_slice(frames);
     if matches!(
         assertion.kind(),
-        ExpKind::FieldAccessPredicate(..) | ExpKind::PredicateAccessPredicate(..)
+        ExpKind::FieldAccessPredicate(..)
+            | ExpKind::PredicateAccessPredicate(..)
+            | ExpKind::MagicWand(..)
     ) && context.supports_owned_consumption_frames(&state, frames)
     {
         if let Some(result) = context.try_consume_owned_access(
