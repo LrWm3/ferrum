@@ -8592,7 +8592,7 @@ where
                     rhs,
                     &partial,
                     receiver,
-                    None,
+                    vec![],
                 )
             })
             .map_err(|e| match e {
@@ -12063,7 +12063,9 @@ where
                     ..
                 } = f
                 {
-                    if let Some(old) = &frame.old_frame {
+                    for crate::rules::evaluator::OwnedEvaluationReturnFrame::Old(old) in
+                        &frame.return_frames
+                    {
                         super::verification_pool_manager::OLD_ASSERTING_EXECUTIONS
                             [usize::from(old.kind != 0)]
                         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -26172,7 +26174,10 @@ mod queued_cfg_isolation_tests {
                                 crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame),
                             ..
                         } => match self.kind {
-                            0 => frame.old_frame.is_some(),
+                            0 => frame.return_frames.iter().any(|frame| matches!(
+                                frame,
+                                crate::rules::evaluator::OwnedEvaluationReturnFrame::Old(_)
+                            )),
                             _ => false,
                         },
                         crate::rules::consumer::OwnedConsumptionFrame::Finish {

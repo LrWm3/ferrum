@@ -2155,7 +2155,9 @@ where
                         ..
                     } = f
                     {
-                        if let Some(old) = &frame.old_frame {
+                        for crate::rules::evaluator::OwnedEvaluationReturnFrame::Old(old) in
+                            &frame.return_frames
+                        {
                             OLD_ASSERTING_SUBMISSIONS[usize::from(old.kind != 0)]
                                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         }

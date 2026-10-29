@@ -207,3 +207,8 @@ cancellation remains typed only when restoration and reporting succeed, while a
 distinct child or cleanup error remains visible. They also cover a stopped queue
 at submission with and without a latched cancellation. These do not establish
 real simultaneous parent/child execution at every cancellation boundary.
+
+The assignment receiver now carries an immutable vector of typed return frames,
+ordered from inner to outer. The first migration represents the existing old
+frame and keeps dispatch eligibility unchanged. This supplies a compositional
+representation; it does not yet enable additional nested expression shapes.

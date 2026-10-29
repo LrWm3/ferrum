@@ -155,6 +155,12 @@ pub struct OwnedOldValueFrame {
     pub evaluation_reserve: Vec<Arc<crate::state::heap::ListBackedHeap>>,
     pub evaluation_exhale: bool,
 }
+/// Return operations are ordered from the innermost caller to the outermost.
+#[derive(Clone)]
+pub enum OwnedEvaluationReturnFrame {
+    Old(OwnedOldValueFrame),
+}
+
 /// State and value receiver for a direct assignment of an asserting expression.
 #[derive(Clone)]
 pub struct OwnedAsserting<E> {
@@ -167,7 +173,7 @@ pub struct OwnedAsserting<E> {
     pub body: Exp,
     pub error: E,
     pub receiver: crate::rules::executor::OwnedAssignmentValue,
-    pub old_frame: Option<OwnedOldValueFrame>,
+    pub return_frames: Vec<OwnedEvaluationReturnFrame>,
 }
 
 /// Explicit ownership token for a value-producing outer join.
@@ -845,7 +851,7 @@ pub(crate) fn evaluate_owned_asserting<C, P, D, J: Clone, V>(
     expression: &Exp,
     error: &C::PartialError,
     receiver: &crate::rules::executor::OwnedAssignmentValue,
-    old_frame: Option<OwnedOldValueFrame>,
+    return_frames: Vec<OwnedEvaluationReturnFrame>,
 ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
 where
     C: EvaluationContext<P, D, J, V>,
@@ -881,7 +887,7 @@ where
         body: body.clone(),
         error: error.clone(),
         receiver: receiver.clone(),
-        old_frame,
+        return_frames,
     };
     context
         .try_consume_owned_asserting(&state, assertion, &frame)
@@ -967,7 +973,14 @@ where
     let state = context
         .consolidate_old(state)
         .map_err(EvaluationError::Context)?;
-    evaluate_owned_asserting(context, state, body, error, receiver, Some(frame))
+    evaluate_owned_asserting(
+        context,
+        state,
+        body,
+        error,
+        receiver,
+        vec![OwnedEvaluationReturnFrame::Old(frame)],
+    )
 }
 #[cfg(test)]
 thread_local! {
@@ -1012,7 +1025,9 @@ where
             context
                 .close_evaluation_scope(None)
                 .map_err(EvaluationError::Context)?;
-            let debug = if let Some(old) = &frame.old_frame {
+            let mut debug = debug;
+            for return_frame in &frame.return_frames {
+                let OwnedEvaluationReturnFrame::Old(old) = return_frame;
                 let mut triggers = old.possible_triggers.clone();
                 if old.record_possible_triggers {
                     for (exp, value) in state.possible_triggers.iter() {
@@ -1061,10 +1076,8 @@ where
                 context
                     .close_evaluation_scope(None)
                     .map_err(EvaluationError::Context)?;
-                wrapped
-            } else {
-                debug
-            };
+                debug = wrapped;
+            }
             context
                 .finish_owned_assignment_value(state, term, debug, &frame.receiver)
                 .ok_or(EvaluationError::OwnedSchedulerUnavailable)?
