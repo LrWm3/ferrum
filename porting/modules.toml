@@ -2690,3 +2690,18 @@ role = "assembly"
 destination = "crates/ferrum-silicon/src/debugger/native_failure.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/debugger/native_debugger.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/debugger/native_presentation.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/debugger/native_session.rs"
+status = "wired"
+role = "assembly"

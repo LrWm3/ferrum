@@ -195,13 +195,163 @@ impl DebugSourceScope {
 pub enum DebugTranslateError {
     MissingSourceProgram,
     InvalidDebugVariableName(String),
-    Parse(ferrum_silver::parser::fast_parser::SyntaxError),
+    Parse {
+        error: ferrum_silver::parser::fast_parser::SyntaxError,
+        input: String,
+    },
     Name(ferrum_silver::parser::resolver::NameAnalysisError),
     NameMessages(Vec<ferrum_silver::parser::fast_message::FastMessage>),
     Children(ferrum_silver::parser::parse_ast::ChildrenNotPorted),
     DebugTypes(Vec<DebugTypeMessage>),
     Type(ferrum_silver::parser::resolver::TypeCheckError),
+    TypeMessage(String),
     Translation(ferrum_silver::parser::translator::TranslationError),
+}
+
+fn source_parse_detail(
+    error: &ferrum_silver::parser::fast_parser::SyntaxError,
+    input: &str,
+) -> String {
+    let Some(pos) = error.position.line_column() else {
+        return error.message.clone();
+    };
+    let line = pos.line().max(1) as usize;
+    let column = pos.column().max(1) as usize;
+    let mut offset = 0;
+    for part in input.split_inclusive('\n').take(line - 1) {
+        offset += part.len();
+    }
+    let rest = &input[offset.min(input.len())..];
+    let column_offset = rest
+        .char_indices()
+        .nth(column - 1)
+        .map(|(i, _)| i)
+        .unwrap_or(rest.len());
+    let found = rest[column_offset..].chars().take(10).collect::<String>();
+    format!("Parse Error, Position {line}:{column}, found {found:?}")
+}
+impl DebugTranslateError {
+    /// Source prints a parser-specific diagnostic before the generic retry line.
+    pub fn prelude(&self, input: &str) -> Option<String> {
+        match self {
+            Self::Parse { error, .. } => Some(format!(
+                "Error while parsing {input}: {}",
+                source_parse_detail(error, input)
+            )),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for DebugTranslateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingSourceProgram => f.write_str("debugger source program was not retained"),
+            Self::InvalidDebugVariableName(name) => {
+                write!(f, "invalid captured debugger variable name {name}")
+            }
+            Self::Parse { error, input } => f.write_str(&source_parse_detail(error, input)),
+            Self::Name(error) => write!(f, "name resolution unavailable: {error:?}"),
+            Self::NameMessages(messages) => {
+                let messages = messages
+                    .iter()
+                    .map(|m| format!("FastMessage({},{},{})", m.label, m.pos, m.error))
+                    .collect::<Vec<_>>()
+                    .join("\n\t ");
+                write!(f, "Error while typechecking:\n\t {messages}")
+            }
+            Self::Children(error) => write!(f, "debugger source traversal unavailable: {error:?}"),
+            Self::DebugTypes(messages) => {
+                let messages = messages
+                    .iter()
+                    .map(|m| format!("FastMessage({},{},true)", m.message, m.position))
+                    .collect::<Vec<_>>()
+                    .join("\n\t ");
+                write!(f, "Error while typechecking:\n\t {messages}")
+            }
+            Self::TypeMessage(message) => write!(f, "Error while typechecking:\n\t {message}"),
+            Self::Type(error) => write!(f, "typechecking unavailable: {error:?}"),
+            Self::Translation(error) => write!(f, "expression translation unavailable: {error:?}"),
+        }
+    }
+}
+impl std::error::Error for DebugTranslateError {}
+
+fn source_type_message(
+    error: &ferrum_silver::parser::resolver::TypeCheckError,
+    expression: &PExpHandle,
+) -> Option<String> {
+    use ferrum_silver::parser::{
+        parse_ast::{PNodeHandle, PNodeKind, subnodes},
+        resolver::{TypeCheckError, UnificationError},
+        translator,
+    };
+    fn find_reference(node: &PNodeHandle, name: &str) -> Option<PNodeHandle> {
+        if matches!(&node.read().ok()?.kind, PNodeKind::IdnRef(r) if r.name == name) {
+            return Some(node.clone());
+        }
+        subnodes(node)
+            .ok()?
+            .iter()
+            .find_map(|child| find_reference(child, name))
+    }
+    if let TypeCheckError::Mismatches(errors) = error {
+        let messages = errors
+            .iter()
+            .map(|error| source_type_message(error, expression))
+            .collect::<Option<Vec<_>>>()?;
+        return Some(messages.join("\n\t "));
+    }
+    let (message, node) = match error {
+        TypeCheckError::Undeclared(name) => (
+            format!("undeclared identifier `{name}`"),
+            find_reference(expression.node(), name)?,
+        ),
+        TypeCheckError::AmbiguousIdentifier(name) => (
+            format!("ambiguous identifier `{name}`"),
+            find_reference(expression.node(), name)?,
+        ),
+        TypeCheckError::UnresolvedValue {
+            name,
+            identifier,
+            ambiguous,
+        } => (
+            if *ambiguous {
+                format!("ambiguous identifier `{name}`")
+            } else {
+                format!("undeclared identifier `{name}`")
+            },
+            identifier.clone(),
+        ),
+        TypeCheckError::PositionedMessage { node, message } => (message.clone(), node.clone()),
+        TypeCheckError::Incompatible {
+            expression,
+            actual,
+            expected,
+        }
+        | TypeCheckError::Unification(UnificationError::Mismatch {
+            expression,
+            actual,
+            expected,
+        }) => {
+            let actual = ferrum_silver::ast::pretty::pretty_printer::show_type(
+                &translator::translate_type(actual).ok()?,
+            )
+            .ok()?;
+            let expected = ferrum_silver::ast::pretty::pretty_printer::show_type(
+                &translator::translate_type(expected).ok()?,
+            )
+            .ok()?;
+            (
+                format!("found incompatible type `{actual}`, expected `{expected}`"),
+                expression.clone(),
+            )
+        }
+        TypeCheckError::Positioned { node, message } => (message.to_string(), node.clone()),
+        _ => return None,
+    };
+    let position = node.read().ok()?.error_position();
+    Some(format!("FastMessage({message},{position},true)"))
 }
 
 /// Parse a debugger command against the retained source scope and captured
@@ -230,7 +380,10 @@ fn translate_debug_boolean_in_scope(
         "userInput",
         &[fast_parser::ParserFeature::Debugger],
     )
-    .map_err(DebugTranslateError::Parse)?
+    .map_err(|error| DebugTranslateError::Parse {
+        error,
+        input: input.to_owned(),
+    })?
     .expression;
     let resolved = if let Some(scope) = scope {
         names.run_in_scope(expression.node(), scope)
@@ -260,10 +413,16 @@ fn translate_debug_boolean_in_scope(
         return Err(DebugTranslateError::DebugTypes(checker.messages));
     }
     let bool_type = fast_parser::parse_type("Bool", "userInput")
-        .map_err(DebugTranslateError::Parse)?
+        .map_err(|error| DebugTranslateError::Parse {
+            error,
+            input: "Bool".into(),
+        })?
         .typ;
-    resolver::check_top_expression(&expression, Some(&bool_type), |_, _| {})
-        .map_err(DebugTranslateError::Type)?;
+    resolver::check_top_expression(&expression, Some(&bool_type), |_, _| {}).map_err(|error| {
+        source_type_message(&error, &expression)
+            .map(DebugTranslateError::TypeMessage)
+            .unwrap_or(DebugTranslateError::Type(error))
+    })?;
     translator::translate_expression_in_program(&expression, program)
         .map_err(DebugTranslateError::Translation)
 }
@@ -332,12 +491,53 @@ mod adapter_tests {
         }
         assert!(matches!(
             translate_debug_boolean("x", &program, &mut names, &scope, &types),
-            Err(DebugTranslateError::Type(_))
+            Err(DebugTranslateError::TypeMessage(_))
         ));
-        assert!(matches!(
-            translate_debug_boolean("x@2 > 0", &program, &mut names, &scope, &types),
-            Err(DebugTranslateError::DebugTypes(_))
-        ));
+        let invalid =
+            translate_debug_boolean("x@2 > 0", &program, &mut names, &scope, &types).unwrap_err();
+        assert_eq!(
+            invalid.to_string(),
+            "Error while typechecking:\n\t FastMessage(Could not resolve the type of x@2,userInput@1.1--1.4,true)"
+        );
+        let undeclared =
+            translate_debug_boolean("missing > 0", &program, &mut names, &scope, &types)
+                .unwrap_err();
+        assert_eq!(
+            undeclared.to_string(),
+            "Error while typechecking:\n\t FastMessage(undeclared identifier `missing`,userInput@1.1--1.8,true)"
+        );
+        let incompatible =
+            translate_debug_boolean("x", &program, &mut names, &scope, &types).unwrap_err();
+        assert_eq!(
+            incompatible.to_string(),
+            "Error while typechecking:\n\t FastMessage(found incompatible type `Int`, expected `Bool`,userInput@1.1--1.2,true)"
+        );
+        let parse =
+            translate_debug_boolean("x +", &program, &mut names, &scope, &types).unwrap_err();
+        assert_eq!(parse.to_string(), "Parse Error, Position 1:4, found \"\"");
+        assert_eq!(
+            parse.prelude("x +").unwrap(),
+            "Error while parsing x +: Parse Error, Position 1:4, found \"\""
+        );
+        let parse = translate_debug_boolean(
+            "x + * 1234567890123456",
+            &program,
+            &mut names,
+            &scope,
+            &types,
+        )
+        .unwrap_err();
+        assert_eq!(
+            parse.to_string(),
+            "Parse Error, Position 1:5, found \"* 12345678\""
+        );
+        let mismatch =
+            translate_debug_boolean("x + true > 0", &program, &mut names, &scope, &types)
+                .unwrap_err();
+        assert_eq!(
+            mismatch.to_string(),
+            "Error while typechecking:\n\t FastMessage(found incompatible type `Bool`, expected `Int`,userInput@1.5--1.9,true)"
+        );
     }
 }
 

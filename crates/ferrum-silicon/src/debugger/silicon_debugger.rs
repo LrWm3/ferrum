@@ -166,6 +166,10 @@ pub trait DebuggerServices<S, V> {
     {
         format!("{error:?}")
     }
+    /// Optional phase-specific diagnostic printed before the retry message.
+    fn error_prelude(&self, _error: &Self::Error) -> Option<String> {
+        None
+    }
     /// The evaluator should retain the source verification-result text on failure.
     fn evaluation_failure_message(&self) -> Option<String> {
         None
@@ -709,6 +713,13 @@ impl SiliconDebugger {
                 Ok(false) => return Ok(()),
                 Err(DebugSessionError::Io(error)) => return Err(DebugSessionError::Io(error)),
                 Err(error) => {
+                    if let DebugSessionError::Service(DebuggerError::Service(service_error)) =
+                        &error
+                    {
+                        if let Some(prelude) = context.error_prelude(service_error) {
+                            writeln!(output, "{prelude}").map_err(DebugSessionError::Io)?;
+                        }
+                    }
                     let message = match &error {
                         DebugSessionError::Service(DebuggerError::Service(error)) => {
                             context.error_message(error)
@@ -742,11 +753,15 @@ mod session_tests {
         workers: usize,
         fail_next_assertion: bool,
         state_preparations: usize,
+        events: Arc<Mutex<Vec<&'static str>>>,
     }
     impl DebuggerServices<(), usize> for Services {
         type Error = ();
         fn error_message(&self, _: &()) -> String {
             "source-readable failure".into()
+        }
+        fn error_prelude(&self, _: &()) -> Option<String> {
+            Some("phase prelude".into())
         }
         fn solver_name(&self, _: &usize) -> String {
             "Z3".into()
@@ -766,9 +781,11 @@ mod session_tests {
             Ok(())
         }
         fn emit(&mut self, _: &mut usize, _: &[String]) -> Result<(), ()> {
+            self.events.lock().unwrap().push("emit");
             Ok(())
         }
         fn assume_axioms(&mut self, _: &mut usize, _: &DebugAxiom) -> Result<(), ()> {
+            self.events.lock().unwrap().push("axiom");
             Ok(())
         }
         fn debugger_assume(
@@ -777,6 +794,7 @@ mod session_tests {
             _: &[Term],
             _: Option<&DebugExp>,
         ) -> Result<(), ()> {
+            self.events.lock().unwrap().push("assumption");
             Ok(())
         }
         fn evaluation_failure_message(&self) -> Option<String> {
@@ -844,6 +862,60 @@ mod session_tests {
         }
     }
     #[test]
+    fn initialization_progress_occurs_between_preamble_and_assumptions() {
+        struct Writer(Arc<Mutex<Vec<&'static str>>>);
+        impl std::io::Write for Writer {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if !bytes.is_empty() {
+                    self.0.lock().unwrap().push("progress");
+                }
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let assumption = DebugExp::group("assumption".into(), Default::default());
+        let obl = ProofObligation {
+            state: (),
+            verifier: 0,
+            prover_emits: vec!["declaration".into()],
+            preamble_assumptions: vec![DebugAxiom {
+                description: "axiom".into(),
+                terms: Default::default(),
+            }],
+            branch_conditions: vec![],
+            branch_condition_exps: vec![],
+            assumptions: [assumption].into_iter().collect(),
+            assertion: factory.boolean(false),
+            assertion_exp: DebugExp::group("assertion".into(), Default::default()),
+            timeout: None,
+            print_config: Default::default(),
+            original_error_reason: (),
+        };
+        let mut services = Services::default();
+        let events = services.events.clone();
+        SiliconDebugger::default()
+            .initialize_with_output(
+                &factory,
+                &mut services,
+                &obl,
+                "Z3",
+                None,
+                &mut Writer(events.clone()),
+            )
+            .unwrap();
+        assert_eq!(
+            *events.lock().unwrap(),
+            ["emit", "axiom", "progress", "assumption"]
+        );
+    }
+    #[test]
     fn scripted_session_changes_timeout_proves_and_resets() {
         let factory = TermFactory::new(TermOptions {
             use_flyweight: false,
@@ -884,7 +956,7 @@ mod session_tests {
         assert_eq!(services.workers, 1);
         assert_eq!(services.state_preparations, 1);
         let output = String::from_utf8(output).unwrap();
-        assert!(output.contains("Unexpected error: source-readable failure."));
+        assert!(output.contains("phase prelude\nUnexpected error: source-readable failure."));
         assert!(output.contains("Try again"));
         assert!(output.contains("Initializing prover..."));
         assert!(output.contains("Error while evaluating expression: verification failed"));

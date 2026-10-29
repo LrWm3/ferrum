@@ -7,3 +7,9 @@ pub mod debug_typechecker;
 pub mod silicon_debugger;
 
 pub mod native_failure;
+
+pub mod native_debugger;
+
+pub mod native_presentation;
+
+pub mod native_session;
