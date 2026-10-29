@@ -631,7 +631,15 @@ impl FrontendPhases for SilFrontendPhases {
                         continue;
                     }
                 };
-                let render = |typ| {
+                let render = |typ: &crate::parser::parse_ast::PTypeHandle| {
+                    use crate::parser::parse_ast::PTypeKind;
+                    match typ.kind() {
+                        PTypeKind::Unknown => return Some("<error>".into()),
+                        PTypeKind::BoolImpure => return Some("<impure>".into()),
+                        PTypeKind::BoolWand => return Some("<wand>".into()),
+                        PTypeKind::BoolPredicate => return Some("<predicate>".into()),
+                        _ => {}
+                    }
                     crate::parser::translator::translate_type(typ)
                         .ok()
                         .and_then(|t| crate::ast::pretty::pretty_printer::show_type(&t).ok())
@@ -2137,6 +2145,25 @@ mod tests {
                 "found incompatible type `Ref`, expected `Int` (test.vpr@1.58--1.59)",
                 "found incompatible type `Ref`, expected `Int` (test.vpr@2.39--2.40)",
                 "undeclared call `absent`, expected function or predicate (test.vpr@3.21--3.27)",
+            ]
+        );
+    }
+    #[test]
+    fn type_mismatch_renders_parser_only_types() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let source = "field f: Int\nfunction a(x: Ref): Int\n  ensures acc(x.f)\n{ 0 }\nfunction b(): Int\n  ensures true --* true\n{ 0 }\n";
+        let parsed = phases.parse(source).unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "found incompatible type `<impure>`, expected `Bool` (test.vpr@3.11--3.19)",
+                "found incompatible type `<wand>`, expected `Bool` (test.vpr@6.11--6.24)",
             ]
         );
     }
