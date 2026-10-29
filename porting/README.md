@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 409 mapped and assembly modules. `described` files
+The Cargo workspace now has 410 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
@@ -278,6 +278,26 @@ FERRUM_TEST_PROVER=Z3-API RUSTFLAGS="-L native=$Z3_LIB_DIR" \
   LD_LIBRARY_PATH="$Z3_LIB_DIR" \
   cargo test --features native-z3 --test native_cli -- --ignored
 ```
+
+For broader outcome triage, `tools/compare_upstream.py` runs both CLIs on the
+source suite directories named by pinned `SiliconTests.scala`. It records fixture
+and binary hashes, repository revisions, exact commands, full output and elapsed
+time in a new output directory. Each process group has a wall-clock limit and
+is cleaned up on timeout or crash. For example:
+
+```sh
+python3 tools/compare_upstream.py --ferrum target/release/ferrum \
+  --java /path/to/java --silicon-jar /path/to/silicon.jar --z3 /path/to/z3 \
+  --suite all --filter /basic/ --output /tmp/ferrum-basic-comparison
+python3 -m unittest discover -s tools -p 'test_*.py'
+```
+
+The report identifies source-success/native-failure and native-success/source-error
+cases for investigation. Two failing runs always require review; equal exit codes
+do not establish matching error IDs, locations or proof obligations. This runner
+does not yet implement upstream annotation/issue-cancellation semantics. Its cold
+CLI timings include startup and concurrent load; they are not warm-session or
+isolated performance measurements.
 
 `--upstream` requires the pinned Git objects in the sibling checkouts named in
 `sources.toml`; omit it for local document checks without those checkouts. To

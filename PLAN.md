@@ -62,8 +62,10 @@ compatibility still require completion and comparison.
 Explicit multiworker configuration now runs source function/predicate phases once
 and dispatches methods or supported standalone CFGs to thread-owned solvers with
 ordered preamble broadcast, result collection and warning delivery. The default
-native profile remains single-worker; nested branch parallelism and advanced
-reporting/configuration profiles still require integration. Global verification
+native profile remains single-worker. `--parallelizeBranches` now dispatches owned
+continuations with isolated solver contexts, including a cooperative one-worker
+queue. Additional borrowed receivers and advanced reporting/configuration profiles
+still require integration. Global verification
 deadlines now cancel queued work, interrupt active solvers and join their owner
 threads before returning a timeout; repeated sessions recreate their solvers.
 Native Rust work observes cooperative cancellation checkpoints.
@@ -73,7 +75,7 @@ Ordinary failure contexts now capture and render source counterexample views,
 caller-store transformations and branch conditions. Alternative function
 verification order is connected; debugger and remaining reporting profiles are
 still incomplete.
-The current continuation boundary and remaining nonjoined scheduling work are
+The current continuation coverage, synchronous fallbacks and cleanup behavior are
 recorded in [porting/continuations.md](porting/continuations.md).
 Full compatibility and comparative performance remain unmeasured.
 
