@@ -76,9 +76,13 @@ fn main() -> std::process::ExitCode {
         }
     }
     let time_info = !config.frontend.no_timing;
+    let catch_exceptions = !config.disable_catching_exceptions;
     let debug_config = config.enable_debugging.then(|| config.clone());
     let report = match ferrum::run_file(config) {
         Ok(report) => report,
+        Err(ferrum::FerrumError::SourceException(_)) if catch_exceptions => {
+            return std::process::ExitCode::from(1);
+        }
         Err(error) => {
             eprintln!("{error}");
             return std::process::ExitCode::from(2);

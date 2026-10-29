@@ -374,3 +374,24 @@ When a macro expands to a non-resource expression inside a resource operand,
 Silver reports a parse-tree duplication exception containing a Scala AST dump.
 Ferrum reports a parse error at the same enclosing expression and describes the
 required resource operand without reproducing runtime-specific AST internals.
+
+
+## Source exception reporting and native error preservation
+
+The native frontend now connects Silicon's `disableCatchingExceptions` setting
+and exception reporter events. Explicit source prover-protocol and external-tool
+failures retain their source classes and messages. Verification catches convert
+those failures through the ported `exceptionToViperError` mapping; startup reports
+use the frontend logger and preserve startup failure. Disabling catches propagates
+the typed failure. Warning delivery, reporter rejection and cleanup failures stay
+visible together with the original failure instead of being discarded during
+conversion.
+
+Malformed quantifier counts and repeated linked-Z3 assumption errors carry actual
+native error messages and captured Rust backtraces. Ferrum does not fabricate JVM
+stack frames or classify arbitrary Rust panics and unsupported port paths as source
+exceptions. Rust writer errors remain explicit as described above. Nine integrated
+exception/protocol tests pass with real stdio and linked Z3, including malformed
+responses, EOF, invalid startup/version, assertion and assumption retry failures,
+reporter rejection, and cleanup; the workspace all-target check also passes with
+`native-z3`. These are focused exception checks, not complete compatibility claims.

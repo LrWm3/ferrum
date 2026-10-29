@@ -84,6 +84,11 @@ pub enum FerrumError {
     Input(std::io::Error),
     Diagnostics(Vec<AbstractError>),
     Execution(String),
+    SourceException(silicon::reporting::package::ExceptionCause),
+    ExceptionReporting {
+        primary: Box<FerrumError>,
+        reporting: Box<FerrumError>,
+    },
     Cleanup {
         primary: Box<FerrumError>,
         cleanup: Box<FerrumError>,
@@ -93,6 +98,10 @@ impl std::fmt::Display for FerrumError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Configuration(message) | Self::Execution(message) => f.write_str(message),
+            Self::SourceException(error) => write!(f, "{}", source_exception_display(error)),
+            Self::ExceptionReporting { primary, reporting } => {
+                write!(f, "{primary}; exception reporting also failed: {reporting}")
+            }
             Self::Input(error) => write!(f, "{error}"),
             Self::Diagnostics(errors) => {
                 for (i, error) in errors.iter().enumerate() {
@@ -112,6 +121,187 @@ impl std::fmt::Display for FerrumError {
 impl std::error::Error for FerrumError {}
 fn execution(error: impl std::fmt::Debug) -> FerrumError {
     FerrumError::Execution(format!("{error:?}"))
+}
+fn source_exception_display(error: &silicon::reporting::package::ExceptionCause) -> String {
+    use silicon::reporting::{exceptions::SiliconException, package::ExceptionCause};
+    match error {
+        ExceptionCause::Silicon(e) => {
+            let class = match e {
+                SiliconException::ExternalToolError { .. } => "ExternalToolError",
+                SiliconException::ProverInteractionFailed { .. } => "ProverInteractionFailed",
+            };
+            format!("viper.silicon.reporting.{class}: {}", e.message())
+        }
+        ExceptionCause::Ordinary { message, .. } => message.clone(),
+        _ => format!("{error:?}"),
+    }
+}
+#[derive(Debug)]
+struct CapturedSourceException(String);
+impl std::fmt::Display for CapturedSourceException {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+impl std::error::Error for CapturedSourceException {}
+fn report_source_exception(
+    error: &silicon::reporting::package::ExceptionCause,
+    reporter: Option<&Arc<dyn silver::reporter::reporter::Reporter>>,
+    logger: Option<&silicon::logger::general::GeneralLogger>,
+    logger_name: &str,
+) -> Result<(), FerrumError> {
+    let display = source_exception_display(error);
+    if let Some(reporter) = reporter {
+        let stack_trace = match error {
+            silicon::reporting::package::ExceptionCause::Ordinary { stack_trace, .. } => {
+                format!("{display}\n{}", stack_trace.join("\n"))
+            }
+            _ => display.clone(),
+        };
+        reporter
+            .report(silver::reporter::message::Message::captured_exception(
+                Arc::new(CapturedSourceException(display.clone())),
+                silver::reporter::message::CapturedExceptionDetails {
+                    display: display.clone(),
+                    stack_trace,
+                    cause: None,
+                },
+            ))
+            .map_err(execution)?;
+    }
+    if let Some(logger) = logger {
+        logger.emit(logger_name, silicon::logger::general::Level::Debug, || {
+            format!("An exception occurred:\n{display}")
+        });
+    }
+    Ok(())
+}
+
+// Only errors with an explicit source exception counterpart are converted. In
+// particular, reporter failures and port-only unsupported cases must propagate.
+trait SourceProverException {
+    fn source_exception(&self) -> Option<silicon::reporting::package::ExceptionCause>;
+}
+impl SourceProverException for silicon::decider::prover_std_io::ProverError {
+    fn source_exception(&self) -> Option<silicon::reporting::package::ExceptionCause> {
+        match self {
+            Self::SourceProtocol { prover_id, message } => {
+                Some(silicon::reporting::package::ExceptionCause::Silicon(
+                    silicon::reporting::exceptions::SiliconException::ProverInteractionFailed {
+                        prover_id: prover_id.clone(),
+                        message: message.clone(),
+                    },
+                ))
+            }
+            Self::SourceExternalTool { message } => {
+                Some(silicon::reporting::package::ExceptionCause::Silicon(
+                    silicon::reporting::exceptions::SiliconException::ExternalToolError {
+                        tool: "Prover".into(),
+                        message: message.clone(),
+                    },
+                ))
+            }
+            Self::QuantifierNumber { error, stack_trace } => {
+                Some(silicon::reporting::package::ExceptionCause::Ordinary {
+                    message: format!("native integer parse error: {error}"),
+                    stack_trace: stack_trace.clone(),
+                })
+            }
+            _ => None,
+        }
+    }
+}
+#[cfg(feature = "native-z3")]
+impl SourceProverException for silicon::decider::native_z3::LinkedProverError {
+    fn source_exception(&self) -> Option<silicon::reporting::package::ExceptionCause> {
+        use silicon::{
+            decider::native_z3::LinkedProverError, reporting::exceptions::SiliconException,
+        };
+        match self {
+            LinkedProverError::SourceInteraction { prover_id, message } => {
+                Some(silicon::reporting::package::ExceptionCause::Silicon(
+                    SiliconException::ProverInteractionFailed {
+                        prover_id: prover_id.clone(),
+                        message: message.clone(),
+                    },
+                ))
+            }
+            LinkedProverError::SourceToolError(message) => {
+                Some(silicon::reporting::package::ExceptionCause::Silicon(
+                    SiliconException::ExternalToolError {
+                        tool: "Prover".into(),
+                        message: message.clone(),
+                    },
+                ))
+            }
+            LinkedProverError::SourceOrdinary {
+                message,
+                stack_trace,
+            } => Some(silicon::reporting::package::ExceptionCause::Ordinary {
+                message: message.clone(),
+                stack_trace: stack_trace.clone(),
+            }),
+            _ => None,
+        }
+    }
+}
+fn native_exception<E: SourceProverException>(
+    error: &silicon::verifier::native_context::NativeError<E>,
+) -> Option<silicon::reporting::package::ExceptionCause> {
+    use silicon::decider::decider::DeciderError;
+    use silicon::verifier::native_context::NativeError;
+    match error {
+        NativeError::Decider(DeciderError::Prover(error)) => error.source_exception(),
+        // Warning delivery may itself have failed; never discard the compound.
+        _ => None,
+    }
+}
+fn classify_native<E: SourceProverException + std::fmt::Debug>(
+    error: silicon::verifier::native_context::NativeError<E>,
+) -> FerrumError {
+    native_exception(&error)
+        .map(FerrumError::SourceException)
+        .unwrap_or_else(|| execution(error))
+}
+impl<E: SourceProverException> SourceProverException
+    for silicon::verifier::verification_pool_manager::BroadcastingProverError<
+        E,
+        silicon::verifier::native_context::NativeError<E>,
+    >
+{
+    fn source_exception(&self) -> Option<silicon::reporting::package::ExceptionCause> {
+        use silicon::verifier::verification_pool_manager::BroadcastingProverError;
+        match self {
+            BroadcastingProverError::Main(error) => error.source_exception(),
+            BroadcastingProverError::Workers(error) => worker_exception(error),
+            BroadcastingProverError::Unsupported(_) => None,
+        }
+    }
+}
+fn worker_exception<E: SourceProverException>(
+    error: &silicon::verifier::verification_pool_manager::ThreadPoolError<
+        silicon::verifier::native_context::NativeError<E>,
+    >,
+) -> Option<silicon::reporting::package::ExceptionCause> {
+    use silicon::verifier::verification_pool_manager::ThreadPoolError;
+    match error {
+        ThreadPoolError::Worker(error) => native_exception(error),
+        // Cleanup failures must remain visible instead of being discarded.
+        _ => None,
+    }
+}
+fn classify_parallel<E: SourceProverException + std::fmt::Debug>(
+    error: silicon::verifier::verification_pool_manager::NativeParallelError<E>,
+) -> FerrumError {
+    use silicon::verifier::verification_pool_manager::NativeParallelError;
+    let classified = match &error {
+        NativeParallelError::Main(error) => native_exception(error),
+        NativeParallelError::Worker(error) => worker_exception(error),
+        _ => None,
+    };
+    classified
+        .map(FerrumError::SourceException)
+        .unwrap_or_else(|| execution(error))
 }
 fn diagnostic(error: VerificationError) -> Result<AbstractError, FerrumError> {
     RenderedVerificationError::new(error, Arc::new(NativeErrorNodeRenderer))
@@ -245,6 +435,7 @@ where
         P: silicon::interfaces::decider::prover::Prover<
                 Version = silicon::common::config::package::Version,
             >,
+        P::Error: SourceProverException,
     {
         let worker_config = config.clone();
         let worker_factory = factory.clone();
@@ -318,7 +509,11 @@ where
             ),
             None => ThreadVerificationPool::start(count, create),
         }
-        .map_err(execution)?;
+        .map_err(|error| {
+            worker_exception(&error)
+                .map(FerrumError::SourceException)
+                .unwrap_or_else(|| execution(error))
+        })?;
         let pool = Rc::new(RefCell::new(pool));
         let context = start_context(
             BroadcastingProver::new(main, pool.clone()),
@@ -368,7 +563,10 @@ where
         cfgs: &[SilverCfg],
         file: Option<&str>,
         reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
-    ) -> Result<Vec<SiliconResult<VerificationError>>, FerrumError> {
+    ) -> Result<Vec<SiliconResult<VerificationError>>, FerrumError>
+    where
+        P::Error: SourceProverException,
+    {
         let context = self
             .context
             .as_mut()
@@ -381,7 +579,7 @@ where
             reporter,
             Some(self.warning_sink.clone()),
         )
-        .map_err(execution);
+        .map_err(classify_parallel);
         self.warnings.append(&mut context.warnings);
         self.warnings.append(&mut context.reported_source_warnings);
         result
@@ -461,13 +659,17 @@ impl OwnedContext {
         match self {
             Self::Stdio(context) => {
                 context.set_preprocessing_reporter(reporter);
-                context.verify_program(program, cfgs).map_err(execution)
+                context
+                    .verify_program(program, cfgs)
+                    .map_err(classify_native)
             }
             Self::ParallelStdio(context) => context.verify_program(program, cfgs, file, reporter),
             #[cfg(feature = "native-z3")]
             Self::Api(context) => {
                 context.set_preprocessing_reporter(reporter);
-                context.verify_program(program, cfgs).map_err(execution)
+                context
+                    .verify_program(program, cfgs)
+                    .map_err(classify_native)
             }
             #[cfg(feature = "native-z3")]
             Self::ParallelApi(context) => context.verify_program(program, cfgs, file, reporter),
@@ -664,7 +866,7 @@ fn start_context<
     warnings: SharedWarnings,
 ) -> Result<ExecutingContext<P>, FerrumError>
 where
-    P::Error: std::fmt::Debug,
+    P::Error: std::fmt::Debug + SourceProverException,
 {
     let decider = DefaultDecider::new(
         prover,
@@ -719,7 +921,7 @@ where
     };
     context
         .start(config.prover_args.as_deref(), &settings)
-        .map_err(execution)?;
+        .map_err(classify_native)?;
     Ok(context)
 }
 
@@ -1472,7 +1674,28 @@ impl SiliconBackend for NativeBackend {
             }
             deadline.finish()?;
         }
-        let (result, elapsed, failures) = result?;
+        let (result, elapsed, failures) = match result {
+            Err(FerrumError::SourceException(error))
+                if !self.config.disable_catching_exceptions =>
+            {
+                use silicon::reporting::package::exception_to_viper_error;
+                if let Err(reporting) = report_source_exception(
+                    &error,
+                    self.reporter.as_ref(),
+                    self.general_logger.as_ref(),
+                    "viper.silicon.Silicon",
+                ) {
+                    return Err(FerrumError::ExceptionReporting {
+                        primary: Box::new(FerrumError::SourceException(error)),
+                        reporting: Box::new(reporting),
+                    });
+                }
+                let (_, converted) =
+                    exception_to_viper_error(error).expect("Silicon exceptions are recoverable");
+                return Ok(converted);
+            }
+            other => other?,
+        };
         if let Some(logger) = &self.general_logger {
             use silicon::logger::general::Level;
             let name = "viper.silicon.Silicon";
@@ -1515,10 +1738,7 @@ pub struct Session {
 }
 impl Session {
     pub fn new(config: Config) -> Result<Self, FerrumError> {
-        let mut silicon = Silicon::new(NativeBackend::new(config));
-        silicon.configure(&[]).map_err(execution)?;
-        silicon.start().map_err(execution)?;
-        Ok(Self { silicon })
+        Self::new_inner(config, Arc::new(Mutex::new(Vec::new())), None)
     }
     /// Construct a native session that delivers verifier events to the supplied reporter.
     /// The session remains owner-thread bound and uses the same configuration gates as `new`.
@@ -1534,13 +1754,42 @@ impl Session {
         warnings: SharedWarnings,
         reporter: Arc<dyn silver::reporter::reporter::Reporter>,
     ) -> Result<Self, FerrumError> {
+        Self::new_inner(config, warnings, Some(reporter))
+    }
+    fn new_inner(
+        config: Config,
+        warnings: SharedWarnings,
+        reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
+    ) -> Result<Self, FerrumError> {
         let mut backend = NativeBackend::new(config);
         backend.warnings = warnings;
-        backend.reporter = Some(reporter);
+        backend.reporter = reporter;
         let mut silicon = Silicon::new(backend);
         silicon.configure(&[]).map_err(execution)?;
         if let Err(error) = silicon.start() {
-            let primary = execution(error);
+            let primary = match error {
+                silicon::silicon::SiliconError::Backend(error) => error,
+                other => execution(other),
+            };
+            let primary = match &primary {
+                FerrumError::SourceException(error)
+                    if !silicon.backend().config.disable_catching_exceptions =>
+                {
+                    match report_source_exception(
+                        error,
+                        silicon.backend().reporter.as_ref(),
+                        silicon.backend().general_logger.as_ref(),
+                        "SiliconFrontend",
+                    ) {
+                        Ok(()) => primary,
+                        Err(reporting) => FerrumError::ExceptionReporting {
+                            primary: Box::new(primary),
+                            reporting: Box::new(reporting),
+                        },
+                    }
+                }
+                _ => primary,
+            };
             return match silicon.stop() {
                 Ok(()) => Err(primary),
                 Err(cleanup) => Err(FerrumError::Cleanup {
@@ -1835,6 +2084,7 @@ impl silver::reporter::reporter::Reporter for CliLoggingReporter {
             &message,
             silver::reporter::message::Message::ExecutionTrace { .. }
                 | silver::reporter::message::Message::VerifierState { .. }
+                | silver::reporter::message::Message::Exception { .. }
         ) {
             silver::reporter::reporter::Reporter::report(&self.0, message)?;
         }
@@ -1891,15 +2141,11 @@ fn run_file_on_current_thread(config: Config) -> Result<RunReport, FerrumError> 
             .iter()
             .map(|w| w.readable_message().unwrap_or_else(|_| w.full_id().into())),
     );
-    let mut session = if config.frontend.ide_mode_advanced || config.report_state_after.is_some() {
-        let reporter = CliLoggingReporter(silver::reporter::reporter::StdIoReporter::new(
-            std::io::stdout(),
-            !config.frontend.no_timing,
-        ));
-        Session::new_with_reporter(config, Arc::new(reporter))?
-    } else {
-        Session::new(config)?
-    };
+    let reporter = CliLoggingReporter(silver::reporter::reporter::StdIoReporter::new(
+        std::io::stdout(),
+        !config.frontend.no_timing,
+    ));
+    let mut session = Session::new_with_reporter(config, Arc::new(reporter))?;
     let result = session.verify(&program, &[]);
     let cleanup = session.stop();
     warnings.extend(session.take_warnings());
@@ -3418,5 +3664,34 @@ mod debug_parallel_capture_test {
             .unwrap()
             .join()
             .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod compound_exception_classification_tests {
+    use super::*;
+    #[test]
+    fn branch_warning_delivery_failure_is_not_discarded_by_source_exception_conversion() {
+        use silicon::{
+            decider::{decider::DeciderError, prover_std_io::ProverError},
+            verifier::native_context::NativeError,
+        };
+        let error = NativeError::BranchWarnings {
+            primary: Box::new(NativeError::Decider(DeciderError::Prover(
+                ProverError::SourceProtocol {
+                    prover_id: "worker".into(),
+                    message: "solver failed".into(),
+                },
+            ))),
+            warnings: vec!["warning delivery failed: reporter rejected".into()],
+        };
+        let result = classify_native(error);
+        assert!(!matches!(result, FerrumError::SourceException(_)));
+        let text = result.to_string();
+        assert!(text.contains("solver failed"), "{text}");
+        assert!(
+            text.contains("warning delivery failed: reporter rejected"),
+            "{text}"
+        );
     }
 }

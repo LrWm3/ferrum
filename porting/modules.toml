@@ -2710,3 +2710,13 @@ role = "assembly"
 destination = "tests/native_debugger_cli.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "tests/native_exception_path.rs"
+status = "wired"
+role = "assembly"
+
+[[scaffolding]]
+destination = "tests/native_statistics_exception.rs"
+status = "wired"
+role = "assembly"

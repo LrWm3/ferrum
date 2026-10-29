@@ -122,7 +122,25 @@ pub enum ProverError {
     Io(io::Error),
     Report(ferrum_silver::reporter::reporter::ReportError),
     Conversion(ConversionError),
-    Protocol { prover_id: String, message: String },
+    Protocol {
+        prover_id: String,
+        message: String,
+    },
+    SourceProtocol {
+        prover_id: String,
+        message: String,
+    },
+    SourceExternalTool {
+        message: String,
+    },
+    QuantifierNumber {
+        error: std::num::ParseIntError,
+        stack_trace: Vec<String>,
+    },
+    ConfigurationObserver {
+        prover_id: String,
+        message: String,
+    },
     Model(String),
     InvalidLifecycle(&'static str),
     UnsupportedPlatform,
@@ -134,7 +152,11 @@ impl std::fmt::Display for ProverError {
             Self::Io(e) => e.fmt(f),
             Self::Report(e) => write!(f, "Prover event reporter failed: {e:?}"),
             Self::Conversion(e) => write!(f, "{e:?}"),
-            Self::Protocol { prover_id, message } => write!(
+            Self::SourceExternalTool { message } => f.write_str(message),
+            Self::QuantifierNumber { error, .. } => error.fmt(f),
+            Self::Protocol { prover_id, message }
+            | Self::SourceProtocol { prover_id, message }
+            | Self::ConfigurationObserver { prover_id, message } => write!(
                 f,
                 "Interaction with prover (instance {prover_id}) failed: {message}"
             ),
@@ -232,7 +254,7 @@ impl ProverStdIo {
     }
     fn report_configuration(&mut self, message: String) -> Result<(), ProverError> {
         if let Some(observer) = &mut self.configuration_observer {
-            observer(&message).map_err(|message| ProverError::Protocol {
+            observer(&message).map_err(|message| ProverError::ConfigurationObserver {
                 prover_id: self.unique_id.clone(),
                 message,
             })?;
@@ -289,6 +311,12 @@ impl ProverStdIo {
             message: message.into(),
         }
     }
+    fn source_protocol(&self, message: impl Into<String>) -> ProverError {
+        ProverError::SourceProtocol {
+            prover_id: self.unique_id.clone(),
+            message: message.into(),
+        }
+    }
     pub fn write_line(&mut self, line: &str) -> Result<(), ProverError> {
         if let Some(log) = &mut self.log {
             log.println(line)?;
@@ -308,7 +336,7 @@ impl ProverStdIo {
             .ok_or(ProverError::InvalidLifecycle("prover is not started"))?;
         let mut line = String::new();
         if input.read_line(&mut line)? == 0 {
-            return Err(self.protocol("solver closed its output stream"));
+            return Err(self.source_protocol("Interaction with prover yielded null. This might indicate that the prover crashed."));
         }
         if line.ends_with('\n') {
             line.pop();
@@ -346,7 +374,14 @@ impl ProverStdIo {
                 } else {
                     let parse = |s: &str| {
                         s.parse::<i32>()
-                            .map_err(|_| self.protocol(format!("invalid quantifier count: {s}")))
+                            .map_err(|error| ProverError::QuantifierNumber {
+                                error,
+                                stack_trace: std::backtrace::Backtrace::force_capture()
+                                    .to_string()
+                                    .lines()
+                                    .map(str::to_owned)
+                                    .collect(),
+                            })
                     };
                     let event = ProverEvent::QuantifierInstances {
                         raw: line.clone(),
@@ -370,7 +405,9 @@ impl ProverStdIo {
         if line == "success" {
             Ok(())
         } else {
-            Err(self.protocol(format!("expected success, received {line}")))
+            Err(self.source_protocol(format!(
+                "Unexpected output of prover. Expected 'success' but found: {line}"
+            )))
         }
     }
     fn read_sat(&mut self) -> Result<SatResult, ProverError> {
@@ -378,9 +415,9 @@ impl ProverStdIo {
             "sat" => Ok(SatResult::Sat),
             "unsat" => Ok(SatResult::Unsat),
             "unknown" => Ok(SatResult::Unknown),
-            other => {
-                Err(self.protocol(format!("expected satisfiability result, received {other}")))
-            }
+            other => Err(self.source_protocol(format!(
+                "Unexpected output of prover while trying to refute an assertion: {other}"
+            ))),
         }
     }
     pub fn set_timeout(&mut self, timeout: Option<i32>) -> Result<(), ProverError> {
@@ -527,7 +564,7 @@ impl ProverLike for ProverStdIo {
         self.write_line(&format!("(get-option :{name})"))?;
         let old = self.read_line()?;
         if old == "unsupported" {
-            return Err(self.protocol(format!("unsupported option {name}")));
+            return Err(self.source_protocol(format!("Prover does not support option {name}")));
         }
         self.emit(&format!("(set-option :{name} {value})"))?;
         Ok(old)
@@ -601,10 +638,29 @@ impl Prover for ProverStdIo {
             self.settings.executable.display()
         ))?;
         if !self.settings.executable.is_file() {
-            return Err(self.protocol(format!(
-                "prover path is not a file: {}",
-                self.settings.executable.display()
-            )));
+            return Err(ProverError::SourceExternalTool {
+                message: format!(
+                    "Cannot run prover at location '{}': not a file.",
+                    self.settings.executable.display()
+                ),
+            });
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if std::fs::metadata(&self.settings.executable)?
+                .permissions()
+                .mode()
+                & 0o111
+                == 0
+            {
+                return Err(ProverError::SourceExternalTool {
+                    message: format!(
+                        "Cannot run prover at location '{}': file is not executable.",
+                        self.settings.executable.display()
+                    ),
+                });
+            }
         }
         let mut command = Command::new(&self.settings.executable);
         command
@@ -735,7 +791,9 @@ impl Prover for ProverStdIo {
             self.log_comment(&line)?;
             // Preserve upstream's conjunction (not a strengthened prefix rejection).
             if line.is_empty() && !line.starts_with("(:") {
-                return Err(self.protocol("empty statistics line"));
+                return Err(self.source_protocol(format!(
+                    "Unexpected output of prover while reading statistics: {line}"
+                )));
             }
             if let Some(entry) = pattern.captures(&line) {
                 stats.insert(entry[1].into(), entry[2].into());
@@ -783,9 +841,11 @@ impl Prover for ProverStdIo {
         self.log_comment(&line)?;
         let pattern = regex::Regex::new(r#"\A\(?\s*:version\s+"(.*?)(?:\s*-.*?)?"\)?\z"#)
             .expect("static version pattern");
-        let captures = pattern
-            .captures(&line)
-            .ok_or_else(|| self.protocol(format!("unexpected version: {line}")))?;
+        let captures = pattern.captures(&line).ok_or_else(|| {
+            self.source_protocol(format!(
+                "Unexpected output of prover while getting version: {line}"
+            ))
+        })?;
         Ok(Version::new(&captures[1]))
     }
     fn static_preamble(&self) -> &str {

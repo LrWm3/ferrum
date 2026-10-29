@@ -1479,6 +1479,15 @@ pub struct LinkedProverOptions {
 }
 #[derive(Debug)]
 pub enum LinkedProverError {
+    SourceInteraction {
+        prover_id: String,
+        message: String,
+    },
+    SourceToolError(String),
+    SourceOrdinary {
+        message: String,
+        stack_trace: Vec<String>,
+    },
     Native(NativeZ3Error),
     Session(super::z3_prover_api::ApiProverError<NativeZ3Error>),
     Inactive,
@@ -1528,6 +1537,7 @@ impl From<super::z3_prover_api::ApiProverError<NativeZ3Error>> for LinkedProverE
 }
 /// Source Prover adapter for the linked Z3 session. It is intentionally thread-bound.
 pub struct LinkedZ3Prover {
+    unique_id: String,
     factory: crate::state::terms::TermFactory,
     identifiers: crate::state::identifiers::DefaultIdentifierFactory,
     options: LinkedProverOptions,
@@ -1546,8 +1556,12 @@ impl LinkedZ3Prover {
         factory: crate::state::terms::TermFactory,
         options: LinkedProverOptions,
     ) -> Self {
+        let unique_id = unique_id.into();
         Self {
-            identifiers: crate::state::identifiers::DefaultIdentifierFactory::new(unique_id),
+            identifiers: crate::state::identifiers::DefaultIdentifierFactory::new(
+                unique_id.clone(),
+            ),
+            unique_id,
             factory,
             options,
             session: None,
@@ -1679,10 +1693,24 @@ impl LinkedZ3Prover {
             Ok(()) => Ok(()),
             Err(error) if error.is_z3_failure() => {
                 let clean = clean_invalid_triggers(&self.factory, term)?;
-                if clean == *term {
-                    return Err(error);
-                }
-                self.active()?.assume(&clean)?;
+                self.active()?.assume(&clean).map_err(|retry| {
+                    let retry = LinkedProverError::from(retry);
+                    if retry.is_z3_failure() {
+                        LinkedProverError::SourceOrdinary {
+                            message: format!(
+                                "Z3 error: {}",
+                                retry.z3_message().unwrap_or("unknown solver error")
+                            ),
+                            stack_trace: std::backtrace::Backtrace::force_capture()
+                                .to_string()
+                                .lines()
+                                .map(str::to_owned)
+                                .collect(),
+                        }
+                    } else {
+                        retry
+                    }
+                })?;
                 self.report_warning(format!(
                     "Z3 error: {}",
                     error.z3_message().unwrap_or("unknown solver error")
@@ -1749,7 +1777,11 @@ impl crate::interfaces::decider::prover::ProverLike for LinkedZ3Prover {
         Ok(())
     }
     fn set_option(&mut self, _: &str, _: &str) -> Result<String, Self::Error> {
-        Err(LinkedProverError::Unsupported("dynamic Z3 API options"))
+        Err(LinkedProverError::SourceInteraction {
+            prover_id: self.unique_id.clone(),
+            message: "Dynamically setting prover options via Z3 API is currently not supported."
+                .into(),
+        })
     }
     fn assume(&mut self, term: &crate::state::terms::Term) -> Result<(), Self::Error> {
         self.assume_with_trigger_retry(term)
@@ -1845,9 +1877,12 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
             Err(error) if error.is_z3_failure() => {
                 let clean = clean_invalid_triggers(&self.factory, goal)?;
                 if clean == *goal {
-                    Err(error)
+                    Err(LinkedProverError::SourceToolError(format!(
+                        "Z3 error: {}",
+                        error.z3_message().unwrap_or("unknown solver error")
+                    )))
                 } else {
-                    self.assert_goal_once(&clean, timeout_ms)
+                    self.assert_goal(&clean, timeout_ms)
                 }
             }
             result => result,
