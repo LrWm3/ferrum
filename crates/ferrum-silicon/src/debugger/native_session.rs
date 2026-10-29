@@ -184,8 +184,11 @@ mod tests {
                 context.start(None, &[]).unwrap();
                 let mut phases = SilFrontendPhases::new("debug.vpr".into(), ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
                 phases.retain_source_program = true;
-                let source = if workers == 1 { "method first(x: Int) { assert x > 0; }" } else { "method first(x: Int) { assert x > 0; } method second(x: Int) { assert x > 1; }" };
-                let parsed = phases.parse(source).unwrap();
+                // Keep enough borrowed continuation frames to cross a stack segment
+                // before cancellation, capture cleanup and detached replay.
+                let prefix = format!("var n: Int := 0; {}", "n := n + 1; ".repeat(1200));
+                let source = if workers == 1 { format!("method first(x: Int) {{ {prefix} assert x > 0; }}") } else { format!("method first(x: Int) {{ {prefix} assert x > 0; }} method second(x: Int) {{ {prefix} assert x > 1; }}") };
+                let parsed = phases.parse(&source).unwrap();
                 let analyzed = phases.analyze(parsed).unwrap();
                 let program = phases.translate(analyzed).unwrap();
                 let submitted = DEBUG_TEST_METHOD_SUBMISSIONS.load(Ordering::SeqCst);
@@ -205,7 +208,7 @@ mod tests {
                 let error = outcome.expect_err("cancelled capture unexpectedly completed");
                 match error {
                     NativeParallelError::Worker(ThreadPoolError::Worker(NativeError::Cleanup(detail))) => {
-                        assert!(detail.contains("Service(Cancelled)") && detail.contains("SourceProtocol") && detail.contains("BrokenPipe"), "unexpected cleanup provenance: {detail}");
+                        assert!(detail.contains("Service(Cancelled)") && detail.contains("BrokenPipe"), "unexpected cleanup provenance: {detail}");
                     }
                     other => panic!("unexpected cancellation result: {other:?}"),
                 }

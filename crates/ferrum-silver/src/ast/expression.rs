@@ -256,6 +256,28 @@ pub struct ExpNode {
     pub(crate) auto_triggered: std::sync::Mutex<Option<SimplifiedExp>>,
     implicit_full_permission: OnceLock<Exp>,
 }
+impl Drop for ExpNode {
+    fn drop(&mut self) {
+        // Arc destruction may release a long chain of owned expression nodes.
+        // Move fields in declaration order only after checking stack space;
+        // the placeholder fields left behind have no references to that chain.
+        crate::utility::stack::with_stack(|| self.drop_fields());
+    }
+}
+impl ExpNode {
+    #[inline(never)]
+    fn drop_fields(&mut self) {
+        let fields = (
+            std::mem::replace(&mut self.kind, ExpKind::TrueLit),
+            std::mem::take(&mut self.meta),
+            std::mem::take(&mut self.extra),
+            std::mem::take(&mut self.simplified),
+            std::mem::take(&mut self.auto_triggered),
+            std::mem::take(&mut self.implicit_full_permission),
+        );
+        drop(fields);
+    }
+}
 /// Avoid a strong Arc cycle when the cached simplified expression is itself.
 #[derive(Clone, Debug)]
 pub enum SimplifiedExp {
@@ -1078,5 +1100,96 @@ mod identity_reconstruction_tests {
         };
         assert!(matches!(child.0.extra.typ, Some(Type::Bool)));
         assert!(!parent.same_node(&result));
+    }
+}
+
+#[cfg(test)]
+mod stack_safe_exp_drop_tests {
+    use super::*;
+    use crate::ast::ast::{ExtensionInfo, Info, Metadata};
+    use std::{
+        any::Any,
+        sync::{Arc, Mutex},
+    };
+
+    #[derive(Debug)]
+    struct DropInfo(&'static str, Arc<Mutex<Vec<&'static str>>>);
+    impl Drop for DropInfo {
+        fn drop(&mut self) {
+            self.1.lock().unwrap().push(self.0);
+        }
+    }
+    impl ExtensionInfo for DropInfo {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+    fn leaf(name: &'static str, log: &Arc<Mutex<Vec<&'static str>>>) -> Exp {
+        Exp::new(
+            ExpKind::TrueLit,
+            Metadata {
+                info: Info::Extension(Arc::new(DropInfo(name, log.clone()))),
+                ..Default::default()
+            },
+        )
+    }
+    #[test]
+    fn deep_expression_drop_releases_every_node_on_a_small_stack() {
+        std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(|| {
+                let mut expression = Exp::new(ExpKind::TrueLit, Metadata::default());
+                let leaf = Arc::downgrade(&expression.0);
+                for _ in 0..10_000 {
+                    expression = Exp::new(ExpKind::Not(expression), Metadata::default());
+                }
+                let root = Arc::downgrade(&expression.0);
+                drop(expression);
+                assert!(root.upgrade().is_none());
+                assert!(leaf.upgrade().is_none());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    fn expression_drop_preserves_field_order_and_shared_ownership() {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let child = leaf("kind", &log);
+        let shared = child.clone();
+        let root = Exp::new(
+            ExpKind::Not(child),
+            Metadata {
+                info: Info::Extension(Arc::new(DropInfo("meta", log.clone()))),
+                ..Default::default()
+            },
+        );
+        *root.0.simplified.write().unwrap() = Some(SimplifiedExp::Other(leaf("simplified", &log)));
+        *root.0.auto_triggered.lock().unwrap() = Some(SimplifiedExp::Other(leaf("auto", &log)));
+        root.0
+            .implicit_full_permission
+            .set(leaf("implicit", &log))
+            .unwrap();
+        drop(root);
+        assert_eq!(
+            *log.lock().unwrap(),
+            ["meta", "simplified", "auto", "implicit"]
+        );
+        drop(shared);
+        assert_eq!(
+            *log.lock().unwrap(),
+            ["meta", "simplified", "auto", "implicit", "kind"]
+        );
+        log.lock().unwrap().clear();
+        let child = leaf("kind", &log);
+        let root = Exp::new(
+            ExpKind::Not(child),
+            Metadata {
+                info: Info::Extension(Arc::new(DropInfo("meta", log.clone()))),
+                ..Default::default()
+            },
+        );
+        drop(root);
+        assert_eq!(*log.lock().unwrap(), ["kind", "meta"]);
     }
 }

@@ -140,7 +140,16 @@ where
         }
         Ok(current)
     }
+    #[inline(never)]
     fn rewrite_node(
+        &mut self,
+        node: &R::Node,
+        context: &Context<R::Node, C>,
+    ) -> Result<R::Node, StrategyError<R::Error>> {
+        crate::utility::stack::with_stack(|| self.rewrite_node_inner(node, context))
+    }
+    #[inline(never)]
+    fn rewrite_node_inner(
         &mut self,
         node: &R::Node,
         context: &Context<R::Node, C>,
@@ -202,7 +211,16 @@ where
             self.force_copy,
         )?)
     }
+    #[inline(never)]
     fn rewrite_value(
+        &mut self,
+        value: ProductValue<R::Node, R::Atom>,
+        context: &Context<R::Node, C>,
+    ) -> Result<ProductValue<R::Node, R::Atom>, StrategyError<R::Error>> {
+        crate::utility::stack::with_stack(|| self.rewrite_value_inner(value, context))
+    }
+    #[inline(never)]
+    fn rewrite_value_inner(
         &mut self,
         value: ProductValue<R::Node, R::Atom>,
         context: &Context<R::Node, C>,
@@ -365,7 +383,12 @@ pub fn replace_expressions(
     replacements: &[(crate::ast::expression::Exp, crate::ast::expression::Exp)],
 ) -> Result<crate::ast::expression::Exp, ExpressionReplacementError> {
     use crate::ast::expression::{Exp, ExpKind, Trigger};
+    #[inline(never)]
     fn go(e: &Exp, replacements: &[(Exp, Exp)]) -> Result<Exp, ExpressionReplacementError> {
+        crate::utility::stack::with_stack(|| go_inner(e, replacements))
+    }
+    #[inline(never)]
+    fn go_inner(e: &Exp, replacements: &[(Exp, Exp)]) -> Result<Exp, ExpressionReplacementError> {
         if let Some((_, replacement)) = replacements.iter().find(|(original, _)| original == e) {
             if !replacement.same_node(e) {
                 return Ok(replacement.clone());
@@ -618,5 +641,157 @@ mod extension_replacement_tests {
             .downcast_ref::<PredicateInstance>()
             .unwrap();
         assert!(instance.args[0].same_node(&replacement));
+    }
+}
+
+#[cfg(test)]
+mod stack_depth_regression_tests {
+    use super::*;
+    use crate::ast::{
+        ast::Metadata,
+        expression::{Exp, ExpKind},
+        position::Position,
+        utility::nodes::{Node, replace_expressions},
+    };
+    use std::sync::Arc;
+
+    #[derive(Clone)]
+    struct TestNode(Option<Arc<TestNode>>);
+    impl PartialEq for TestNode {
+        fn eq(&self, other: &Self) -> bool {
+            match (&self.0, &other.0) {
+                (None, None) => true,
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                _ => false,
+            }
+        }
+    }
+    struct Adapter;
+    impl Rewritable for Adapter {
+        type Node = Arc<TestNode>;
+        type Atom = ();
+        type Error = ();
+        fn children(
+            &self,
+            n: &Self::Node,
+        ) -> Result<Vec<ProductValue<Self::Node, Self::Atom>>, ()> {
+            Ok(vec![ProductValue::Optional(
+                n.0.clone().map(|c| Box::new(ProductValue::Node(c))),
+            )])
+        }
+        fn rebuild(
+            &self,
+            n: &Self::Node,
+            _: Vec<ProductValue<Self::Node, Self::Atom>>,
+        ) -> Result<Self::Node, ()> {
+            Ok(n.clone())
+        }
+        fn same_node(&self, a: &Self::Node, b: &Self::Node) -> bool {
+            Arc::ptr_eq(a, b)
+        }
+    }
+    #[test]
+    fn deep_generic_strategy_uses_a_grown_same_thread_stack() {
+        std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(|| {
+                let thread = std::thread::current().id();
+                let mut node = Arc::new(TestNode(None));
+                for _ in 0..2000 {
+                    node = Arc::new(TestNode(Some(node)));
+                }
+                let mut visited = 0;
+                let mut strategy = Strategy::new(
+                    Adapter,
+                    Traverse::TopDown,
+                    |_: &Arc<TestNode>, _: &mut Context<Arc<TestNode>, ()>| {
+                        assert_eq!(std::thread::current().id(), thread);
+                        assert!(stacker::remaining_stack().is_some_and(|n| n > 2 * 1024 * 1024));
+                        visited += 1;
+                        Ok::<_, ()>(None)
+                    },
+                );
+                let out = strategy.execute(&node, ()).unwrap();
+                assert!(Arc::ptr_eq(&node, &out));
+                drop(strategy);
+                assert_eq!(visited, 2001);
+                // Independently exercise the walker, not recursive Arc destruction.
+                std::mem::forget(node);
+                std::mem::forget(out);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    fn deep_expression_replacement_preserves_identity_and_metadata() {
+        std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(|| {
+                let meta = Metadata {
+                    position: Position::Virtual("deep".into()),
+                    ..Default::default()
+                };
+                let mut exp = Exp::new(ExpKind::TrueLit, meta.clone());
+                for _ in 0..2000 {
+                    exp = Exp::new(ExpKind::Not(exp), meta.clone());
+                }
+                let root = Node::Exp(exp.clone());
+                let from = Exp::new(ExpKind::FalseLit, Metadata::default());
+                let to = Exp::new(ExpKind::TrueLit, Metadata::default());
+                let Node::Exp(out) = replace_expressions(&root, &[(from, to)]).unwrap() else {
+                    panic!("expected expression")
+                };
+                assert!(out.same_node(&exp));
+                assert_eq!(out.metadata().position, Position::Virtual("deep".into()));
+                // Independently exercise the walker, not recursive Arc destruction.
+                std::mem::forget(root);
+                std::mem::forget(exp);
+                std::mem::forget(out);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    fn deep_expression_rewrite_keeps_metadata_and_changes_only_the_leaf() {
+        std::thread::Builder::new()
+            .stack_size(512 * 1024)
+            .spawn(|| {
+                let meta = Metadata {
+                    position: Position::Virtual("deep".into()),
+                    ..Default::default()
+                };
+                let from = Exp::new(ExpKind::FalseLit, meta.clone());
+                let to = Exp::new(ExpKind::TrueLit, meta.clone());
+                let mut exp = from.clone();
+                for _ in 0..2000 {
+                    exp = Exp::new(ExpKind::Not(exp), meta.clone());
+                }
+                let root = Node::Exp(exp.clone());
+                let Node::Exp(out) =
+                    replace_expressions(&root, &[(from.clone(), to.clone())]).unwrap()
+                else {
+                    panic!("expected expression")
+                };
+                assert!(!out.same_node(&exp));
+                let mut cursor = &out;
+                for _ in 0..2000 {
+                    assert_eq!(cursor.metadata().position, Position::Virtual("deep".into()));
+                    let ExpKind::Not(next) = cursor.kind() else {
+                        panic!("wrong rewritten shape")
+                    };
+                    cursor = next;
+                }
+                assert!(cursor.same_node(&to));
+                assert_eq!(cursor.metadata().position, Position::Virtual("deep".into()));
+                // These long chains would exercise recursive Arc drop, a separate problem.
+                std::mem::forget(root);
+                std::mem::forget(exp);
+                std::mem::forget(out);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }

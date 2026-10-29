@@ -9,3 +9,5 @@ pub mod program_submitter;
 pub mod sanitizer;
 pub mod sil_name_generator;
 pub mod timing_utils;
+
+pub mod stack;

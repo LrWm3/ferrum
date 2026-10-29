@@ -314,7 +314,13 @@ impl TermToSmtLib2Converter {
             ))
         }
     }
+    #[inline(never)]
     pub fn convert_term(&mut self, term: &Term) -> Result<String, ConversionError> {
+        ferrum_silver::utility::stack::with_stack(|| self.convert_term_on_stack(term))
+    }
+
+    #[inline(never)]
+    fn convert_term_on_stack(&mut self, term: &Term) -> Result<String, ConversionError> {
         use TermKind::*;
         if matches!(
             term.kind(),
@@ -744,6 +750,39 @@ mod tests {
             mask_heap_mode: false,
         })
     }
+    #[test]
+    fn deeply_nested_terms_render_on_a_small_initial_stack() {
+        std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(|| {
+                use crate::state::terms::{ApplicableData, ApplicableKind};
+                let f = TermFactory::new(TermOptions {
+                    use_flyweight: false,
+                    use_old_axiomatization: false,
+                    mask_heap_mode: false,
+                });
+                let fun = f.applicable(ApplicableData {
+                    kind: ApplicableKind::SmtFun,
+                    id: Identifier::new("f"),
+                    arg_sorts: vec![Sort::Int],
+                    result_sort: Sort::Int,
+                });
+                let mut nodes = vec![f.int_literal(0)];
+                for _ in 0..4000 {
+                    nodes.push(f.app(fun.clone(), vec![nodes.last().unwrap().clone()]));
+                }
+                let mut converter = TermToSmtLib2Converter::new(f);
+                let text = converter.convert_term(nodes.last().unwrap()).unwrap();
+                assert_eq!(text, format!("{}0{}", "(f ".repeat(4000), ")".repeat(4000)));
+                // Retain each node until its parent is dropped to isolate rendering
+                // from the separately recursive Arc tree destruction path.
+                while nodes.pop().is_some() {}
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
     #[test]
     fn macro_body_replay_ignores_mutated_self_and_nested_aliases() {
         let f = TermFactory::new(TermOptions {

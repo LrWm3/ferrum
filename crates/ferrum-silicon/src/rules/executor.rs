@@ -593,7 +593,27 @@ where
     execute_with_owned_tail(context, state, statement, None, continuation)
 }
 
+#[inline(never)]
 fn execute_with_owned_tail<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    statement: &Stmt,
+    owned_tail: Option<&CfgStatementTail>,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+    ) -> Result<VerificationResult<V>, ExecutionError<C::Error>>,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: ExecutionContext<P, D, J, V>,
+{
+    ferrum_silver::utility::stack::with_stack(|| {
+        execute_with_owned_tail_inner(context, state, statement, owned_tail, continuation)
+    })
+}
+
+#[inline(never)]
+fn execute_with_owned_tail_inner<C, P, D, J: Clone, V>(
     context: &mut C,
     mut state: State<P, D, J>,
     statement: &Stmt,

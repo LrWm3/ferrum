@@ -1223,3 +1223,26 @@ fn arp_wand_and_indirect_use_emit_independent_source_errors() {
         "{stderr}"
     );
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn deep_statement_execution_keeps_success_and_failure_obligations() {
+    let statements = "x := x + 1;\n".repeat(1200);
+    let source = format!(
+        "method good() {{ var x: Int := 0; {statements} assert x == 1200; }}\nmethod bad() {{ var x: Int := 0; {statements} assert x == 1201; }}"
+    );
+    for workers in ["1", "2"] {
+        let output = run(
+            &source,
+            &["--disableCaches", "--numberOfParallelVerifiers", workers],
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{stderr}");
+        assert_eq!(
+            stderr.matches("assert.failed:assertion.false").count(),
+            1,
+            "{stderr}"
+        );
+        assert!(stderr.contains("x == 1201"), "{stderr}");
+    }
+}

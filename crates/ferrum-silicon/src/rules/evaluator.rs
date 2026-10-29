@@ -4553,7 +4553,29 @@ where
         .map_err(EvaluationError::Context)
 }
 
+#[inline(never)]
 pub fn evaluate<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    ferrum_silver::utility::stack::with_stack(|| {
+        evaluate_on_stack(context, state, expression, error, continuation)
+    })
+}
+
+#[inline(never)]
+fn evaluate_on_stack<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,
     expression: &Exp,

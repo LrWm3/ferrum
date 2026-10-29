@@ -7,6 +7,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+stacker.workspace = true
 chrono.workspace = true
 regex.workspace = true
 indexmap.workspace = true
