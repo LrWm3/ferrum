@@ -1932,6 +1932,27 @@ pub(crate) static LOOP_PHASE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static LOOP_PHASE_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static CFG_SINGLE_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static CFG_SINGLE_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static CFG_GUARD_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static LOOP_GUARD_CANCEL_HOOKS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static LOOP_GUARD_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static LOOP_GUARD_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static CFG_GUARD_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
 pub(crate) static BOOLEAN_HEAD_CANCEL_HOOKS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -2339,6 +2360,26 @@ where
                         ..
                     } = f
                     {
+                        if matches!(
+                            &frame.receiver,
+                            crate::rules::evaluator::OwnedEvaluationReceiver::LoopGuardCheck
+                        ) {
+                            LOOP_GUARD_SUBMISSIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if matches!(
+                            &frame.receiver,
+                            crate::rules::evaluator::OwnedEvaluationReceiver::CfgSingleGuard(_)
+                        ) {
+                            CFG_SINGLE_SUBMISSIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if matches!(
+                            &frame.receiver,
+                            crate::rules::evaluator::OwnedEvaluationReceiver::CfgGuard(_)
+                        ) {
+                            CFG_GUARD_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
                         if frame.return_frames.iter().any(|f| {
                             matches!(
                                 f,
@@ -4615,7 +4656,14 @@ mod thread_pool_tests {
                     .scope()
                     .unwrap()
                     .expect("reported error scope");
-                assert_eq!(scope.name(), "bad");
+                assert_eq!(
+                    scope.name(),
+                    if source.contains("synthetic_sequence_guard") {
+                        "synthetic_sequence_guard"
+                    } else {
+                        "bad"
+                    }
+                );
             }
             drop(reports);
             for result in &results {
@@ -4625,7 +4673,14 @@ mod thread_pool_tests {
                             assert!(error.scope().is_none());
                         } else {
                             let scope = error.scope().expect("member scope on failure");
-                            assert_eq!(scope.name(), "bad");
+                            assert_eq!(
+                                scope.name(),
+                                if source.contains("synthetic_sequence_guard") {
+                                    "synthetic_sequence_guard"
+                                } else {
+                                    "bad"
+                                }
+                            );
                         }
                     }
                 });
@@ -6691,6 +6746,15 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
         cancel_after_owned_receiver_starts(6);
     }
 
+    #[test]
+    fn real_stdio_cancel_after_cfg_guard_receiver_starts() {
+        cancel_after_owned_receiver_starts(9);
+    }
+    #[test]
+    fn real_stdio_cancel_after_loop_guard_check_receiver_starts() {
+        cancel_after_owned_receiver_starts(11);
+    }
+
     fn cancel_after_owned_receiver_starts(kind: u8) {
         let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
             return;
@@ -6709,7 +6773,19 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
             sil_front_end_config::SilFrontendConfig,
             sil_frontend::{SilFrontendPhases, standard_plugin_manager},
         };
-        let source = if kind == 6 {
+        let source = if kind == 9 {
+            r#"field f: Int
+method cancel_cfg_guard(b: Bool, c: Bool, x: Ref, y: Ref) returns (r: Int)
+ requires acc(x.f) && acc(y.f)
+{ if (asserting (c ? acc(x.f) : acc(y.f)) in b) { r := 1; } else { r := 2; } }
+"#
+        } else if kind == 11 {
+            r#"field f: Int
+method cancel_loop(b: Bool, c: Bool, x: Ref, y: Ref)
+ requires acc(x.f) && acc(y.f)
+{ var go: Bool; go := b; while (asserting (c ? acc(x.f) : acc(y.f)) in go) invariant acc(x.f) && acc(y.f) { go := false; } }
+"#
+        } else if kind == 6 {
             r#"field f: Int
 method cancel_boolean_tail(b: Bool, c: Bool, x: Ref, y: Ref) returns (r: Bool)
  requires b && acc(x.f) && acc(y.f)
@@ -6815,7 +6891,7 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
                         worker.context.test_cancel_quantified_after_prefix = kind == 8;
                     } else if kind == 4 {
                         worker.context.test_cancel_owned_join = Some(worker_cancel.clone());
-                    } else if matches!(kind, 3 | 6) {
+                    } else if matches!(kind, 3 | 6 | 9 | 11) {
                         worker.context.test_cancel_owned_boolean = Some(worker_cancel.clone());
                     } else if kind == 2 {
                         worker.context.test_cancel_owned_let = Some(worker_cancel.clone());
@@ -6862,7 +6938,11 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
             let program = phases.translate(checked).unwrap();
             let program = phases.check_consistency(program).unwrap();
             let program = phases.prepare_verification(program).unwrap();
-            let (submission_counter, hook_counter) = if kind == 6 {
+            let (submission_counter, hook_counter) = if kind == 9 {
+                (&CFG_GUARD_SUBMISSIONS, &BOOLEAN_HEAD_CANCEL_HOOKS)
+            } else if kind == 11 {
+                (&LOOP_GUARD_SUBMISSIONS, &LOOP_GUARD_CANCEL_HOOKS)
+            } else if kind == 6 {
                 (&BOOLEAN_HEAD_SUBMISSIONS[3], &BOOLEAN_HEAD_CANCEL_HOOKS)
             } else if matches!(kind, 5 | 7 | 8) {
                 (
@@ -8390,6 +8470,174 @@ method bad() {{ assert false; }}
                     "head job missing: {expression}, {workers}: {before:?} -> {after:?}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_cfg_single_guard() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method synthetic_single_guard(c: Bool, x: Ref, y: Ref)
+ requires acc(x.f) && acc(y.f)
+{ if (asserting (c ? acc(x.f) : acc(y.f)) in true) { assert true; } else { assert false; } }
+method bad() { assert false; }
+"#;
+        let false_source = source.replace(
+            "in true) { assert true; } else { assert false; }",
+            "in false) { assert false; } else { assert true; }",
+        );
+        let sequence_source = source
+            .replace("synthetic_single_guard", "synthetic_sequence_guard")
+            .replace("method bad() { assert false; }", "");
+        for case in [source, false_source.as_str(), sequence_source.as_str()] {
+            for workers in [1, 2] {
+                let before = [
+                    CFG_SINGLE_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                    CFG_SINGLE_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                ];
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    case,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(
+                    fatal.iter().filter(|v| **v).count(),
+                    1,
+                    "{workers}: {fatal:?}"
+                );
+                let after = [
+                    CFG_SINGLE_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                    CFG_SINGLE_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                ];
+                assert!(
+                    before.iter().zip(after).all(|(a, b)| b > *a),
+                    "single guard jobs missing: {before:?} -> {after:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_loop_guard_check() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref)
+ requires acc(x.f) && acc(y.f)
+{ var go: Bool; go := b;
+  while (asserting (c ? acc(x.f) : acc(y.f)) in go) invariant acc(x.f) && acc(y.f) { go := false; }
+  assert !go;
+}
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before = [
+                LOOP_GUARD_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                LOOP_GUARD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+            ];
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "{workers}: {fatal:?}"
+            );
+            let after = [
+                LOOP_GUARD_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                LOOP_GUARD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+            ];
+            assert!(
+                before.iter().zip(after).all(|(a, b)| b > *a),
+                "loop guard jobs missing: {before:?} -> {after:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_cfg_guard() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field f: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref) returns (r: Int)
+ requires acc(x.f) && acc(y.f) ensures r == (b ? 1 : 2)
+{ if (asserting (c ? acc(x.f) : acc(y.f)) in b) { r := 1; } else { r := 2; } }
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before = [
+                CFG_GUARD_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                CFG_GUARD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+            ];
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "{workers}: {fatal:?}"
+            );
+            let after = [
+                CFG_GUARD_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                CFG_GUARD_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+            ];
+            assert!(
+                before.iter().zip(after).all(|(a, b)| b > *a),
+                "guard jobs missing: {before:?} -> {after:?}"
+            );
         }
     }
 

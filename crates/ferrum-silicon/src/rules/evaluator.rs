@@ -283,6 +283,9 @@ pub struct OwnedValueWrapper {
 #[derive(Clone)]
 pub enum OwnedEvaluationReceiver {
     Assignment(crate::rules::executor::OwnedAssignmentValue),
+    CfgGuard(crate::rules::executor::OwnedCfgGuard),
+    CfgSingleGuard(crate::rules::executor::OwnedCfgSingleGuard),
+    LoopGuardCheck,
     FieldAssignment(crate::rules::executor::OwnedFieldAssignment),
     CallArgument(crate::rules::executor::OwnedCallArgument),
     Join(OwnedJoinedValue),
@@ -565,6 +568,9 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
     ) -> bool {
         match receiver {
             OwnedEvaluationReceiver::Assignment(_)
+            | OwnedEvaluationReceiver::CfgGuard(_)
+            | OwnedEvaluationReceiver::CfgSingleGuard(_)
+            | OwnedEvaluationReceiver::LoopGuardCheck
             | OwnedEvaluationReceiver::FieldAssignment(_)
             | OwnedEvaluationReceiver::CallArgument(_) => self.can_transfer_owned_asserting(state),
             OwnedEvaluationReceiver::Join(_) | OwnedEvaluationReceiver::Quantified(_) => false,
@@ -593,6 +599,24 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
         _state: &State<P, D, J>,
         _assertion: &Exp,
         _frame: &OwnedAsserting<Self::PartialError>,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_cfg_single_guard(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _receiver: &crate::rules::executor::OwnedCfgSingleGuard,
+    ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
+        None
+    }
+    fn finish_owned_cfg_guard(
+        &mut self,
+        _state: State<P, D, J>,
+        _term: Term,
+        _debug: Option<Exp>,
+        _receiver: &crate::rules::executor::OwnedCfgGuard,
     ) -> Option<Result<VerificationResult<V>, EvaluationError<Self::Error>>> {
         None
     }
@@ -3709,6 +3733,13 @@ where
         OwnedEvaluationReceiver::FieldAssignment(receiver) => {
             context.finish_owned_field_assignment(state, term, debug, receiver)
         }
+        OwnedEvaluationReceiver::CfgGuard(receiver) => {
+            context.finish_owned_cfg_guard(state, term, debug, receiver)
+        }
+        OwnedEvaluationReceiver::CfgSingleGuard(receiver) => {
+            context.finish_owned_cfg_single_guard(state, term, debug, receiver)
+        }
+        OwnedEvaluationReceiver::LoopGuardCheck => Some(Ok(VerificationResult::success())),
         OwnedEvaluationReceiver::Join(receiver) => {
             context.finish_owned_join_value(state, term, debug, receiver)
         }

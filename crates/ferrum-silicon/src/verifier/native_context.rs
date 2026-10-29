@@ -2585,6 +2585,42 @@ where
             }),
         )
     }
+    fn finish_owned_cfg_single_guard(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        receiver: &crate::rules::executor::OwnedCfgSingleGuard,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        Some(
+            crate::rules::executor::execute_owned_cfg_single_guard(
+                self, state, term, debug, receiver,
+            )
+            .map_err(|e| match e {
+                ExecutionError::Context(error) => EvaluationError::Context(error),
+                other => EvaluationError::Context(NativeError::Execution(format!(
+                    "owned CFG single guard: {other:?}"
+                ))),
+            }),
+        )
+    }
+    fn finish_owned_cfg_guard(
+        &mut self,
+        state: State<PD, FD, JoinMode>,
+        term: Term,
+        debug: Option<Exp>,
+        receiver: &crate::rules::executor::OwnedCfgGuard,
+    ) -> Option<Result<VerificationResult<VerificationError>, EvaluationError<Self::Error>>> {
+        Some(
+            crate::rules::executor::execute_owned_cfg_guard(self, state, term, debug, receiver)
+                .map_err(|e| match e {
+                    ExecutionError::Context(error) => EvaluationError::Context(error),
+                    other => EvaluationError::Context(NativeError::Execution(format!(
+                        "owned CFG guard: {other:?}"
+                    ))),
+                }),
+        )
+    }
     fn finish_owned_assignment_value(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -3566,6 +3602,26 @@ where
                 cancel.cancel();
             }
         }
+        if matches!(
+            &frame.receiver,
+            crate::rules::evaluator::OwnedEvaluationReceiver::LoopGuardCheck
+        ) {
+            if let Some(cancel) = self.test_cancel_owned_boolean.take() {
+                super::verification_pool_manager::LOOP_GUARD_CANCEL_HOOKS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                cancel.cancel();
+            }
+        }
+        if matches!(
+            &frame.receiver,
+            crate::rules::evaluator::OwnedEvaluationReceiver::CfgGuard(_)
+        ) {
+            if let Some(cancel) = self.test_cancel_owned_boolean.take() {
+                super::verification_pool_manager::BOOLEAN_HEAD_CANCEL_HOOKS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                cancel.cancel();
+            }
+        }
         if frame.return_frames.iter().any(|f| {
             matches!(
                 f,
@@ -3638,6 +3694,9 @@ where
         use crate::rules::evaluator::OwnedEvaluationReceiver;
         match receiver {
             OwnedEvaluationReceiver::Assignment(_)
+            | OwnedEvaluationReceiver::CfgGuard(_)
+            | OwnedEvaluationReceiver::CfgSingleGuard(_)
+            | OwnedEvaluationReceiver::LoopGuardCheck
             | OwnedEvaluationReceiver::FieldAssignment(_)
             | OwnedEvaluationReceiver::CallArgument(_) => self.can_transfer_owned_asserting(state),
             OwnedEvaluationReceiver::Quantified(quant) => {
@@ -11563,6 +11622,106 @@ where
             })
         }
     }
+    fn try_evaluate_owned_loop_guard_check(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        condition: &Exp,
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+        use crate::rules::consumer::ConsumptionContext;
+        if !crate::rules::evaluator::has_owned_asserting_path(condition)
+            || !self.supports_owned_consumption(state)
+        {
+            return None;
+        }
+        let partial = PartialVerificationError::for_kind(VerificationErrorKind::WhileFailed(
+            condition.clone(),
+        ));
+        Some(
+            crate::rules::evaluator::evaluate_owned_received(
+                self,
+                state.clone(),
+                condition,
+                &partial,
+                &crate::rules::evaluator::OwnedEvaluationReceiver::LoopGuardCheck,
+                vec![],
+            )
+            .map_err(|e| match e {
+                EvaluationError::Context(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Evaluation(format!(
+                    "owned loop guard check: {other:?}"
+                ))),
+            }),
+        )
+    }
+    fn try_evaluate_owned_cfg_single_guard(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        guard: &crate::rules::executor::OwnedCfgSingleGuard,
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+        use crate::rules::consumer::ConsumptionContext;
+        if !crate::rules::evaluator::has_owned_asserting_path(&guard.condition)
+            || !self.supports_owned_consumption(state)
+        {
+            return None;
+        }
+        let partial = PartialVerificationError::for_kind(if guard.is_loop_guard {
+            VerificationErrorKind::WhileFailed(guard.condition.clone())
+        } else {
+            VerificationErrorKind::IfFailed(guard.condition.clone())
+        });
+        let receiver =
+            crate::rules::evaluator::OwnedEvaluationReceiver::CfgSingleGuard(guard.clone());
+        Some(
+            crate::rules::evaluator::evaluate_owned_received(
+                self,
+                state.clone(),
+                &guard.condition,
+                &partial,
+                &receiver,
+                vec![],
+            )
+            .map_err(|e| match e {
+                EvaluationError::Context(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Evaluation(format!(
+                    "owned CFG single guard: {other:?}"
+                ))),
+            }),
+        )
+    }
+    fn try_evaluate_owned_cfg_guard(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        guard: &crate::rules::executor::OwnedCfgGuard,
+    ) -> Option<Result<VerificationResult<VerificationError>, ExecutionError<Self::Error>>> {
+        use crate::rules::consumer::ConsumptionContext;
+        if !crate::rules::evaluator::has_owned_asserting_path(&guard.condition)
+            || !self.supports_owned_consumption(state)
+        {
+            return None;
+        }
+        let partial = PartialVerificationError::for_kind(if guard.is_loop_guard {
+            VerificationErrorKind::WhileFailed(guard.condition.clone())
+        } else {
+            VerificationErrorKind::IfFailed(guard.condition.clone())
+        });
+        let receiver = crate::rules::evaluator::OwnedEvaluationReceiver::CfgGuard(guard.clone());
+        Some(
+            crate::rules::evaluator::evaluate_owned_received(
+                self,
+                state.clone(),
+                &guard.condition,
+                &partial,
+                &receiver,
+                vec![],
+            )
+            .map_err(|e| match e {
+                EvaluationError::Context(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Evaluation(format!(
+                    "owned CFG guard: {other:?}"
+                ))),
+            }),
+        )
+    }
     fn branch_edge(
         &mut self,
         state: State<PD, FD, JoinMode>,
@@ -12622,6 +12781,74 @@ where
         continuation: crate::supporters::method_supporter::MethodCfgContinuation,
     ) -> Result<VerificationResult<VerificationError>, MethodVerificationError<Self::Error>> {
         {
+            #[cfg(test)]
+            let test_cfg = if let Some(ferrum_silver::ast::program::Member::Method(method)) =
+                &state.current_member
+            {
+                if method.name == "synthetic_single_guard"
+                    || method.name == "synthetic_sequence_guard"
+                {
+                    use ferrum_silver::{
+                        ast::statement::{Stmt, StmtKind},
+                        cfg::{
+                            block::Block,
+                            edge::{Edge, Kind},
+                        },
+                    };
+                    fn find_if(body: &Stmt) -> Option<(Exp, Stmt, Stmt)> {
+                        match body.kind() {
+                            StmtKind::If {
+                                condition,
+                                then_branch,
+                                else_branch,
+                            } => {
+                                Some((condition.clone(), then_branch.clone(), else_branch.clone()))
+                            }
+                            StmtKind::Seqn { statements, .. } => {
+                                statements.iter().find_map(find_if)
+                            }
+                            _ => None,
+                        }
+                    }
+                    let (condition, body, otherwise) =
+                        find_if(method.body.as_ref().unwrap()).expect("synthetic guard if");
+                    let entry = Block::statement(vec![]);
+                    let target = Block::statement(vec![body]);
+                    let exit = Block::statement(vec![]);
+                    let mut edges = vec![
+                        Edge::conditional(condition, entry.clone(), target.clone(), Kind::Normal),
+                        Edge::unconditional(target.clone(), exit.clone(), Kind::Normal),
+                    ];
+                    let mut blocks = vec![entry.clone(), target, exit.clone()];
+                    if method.name == "synthetic_sequence_guard" {
+                        let later = Block::statement(vec![otherwise]);
+                        edges.push(Edge::unconditional(
+                            entry.clone(),
+                            later.clone(),
+                            Kind::Normal,
+                        ));
+                        edges.push(Edge::unconditional(
+                            later.clone(),
+                            exit.clone(),
+                            Kind::Normal,
+                        ));
+                        blocks.push(later);
+                    }
+                    Some(SilverCfg::new(blocks, edges, entry, Some(exit)))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            #[cfg(test)]
+            let mut state = state;
+            #[cfg(test)]
+            if let Some(test_cfg) = &test_cfg {
+                state.method_cfg = Some(Arc::new(test_cfg.clone()));
+            }
+            #[cfg(test)]
+            let cfg = test_cfg.as_ref().unwrap_or(cfg);
             let mut callback_error = None;
             let terminal =
                 crate::rules::executor::CfgContinuationTerminal::Method(continuation.clone());
@@ -13293,6 +13520,27 @@ where
                     ..
                 } = f
                 {
+                    if matches!(
+                        &frame.receiver,
+                        crate::rules::evaluator::OwnedEvaluationReceiver::LoopGuardCheck
+                    ) {
+                        super::verification_pool_manager::LOOP_GUARD_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if matches!(
+                        &frame.receiver,
+                        crate::rules::evaluator::OwnedEvaluationReceiver::CfgSingleGuard(_)
+                    ) {
+                        super::verification_pool_manager::CFG_SINGLE_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if matches!(
+                        &frame.receiver,
+                        crate::rules::evaluator::OwnedEvaluationReceiver::CfgGuard(_)
+                    ) {
+                        super::verification_pool_manager::CFG_GUARD_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
                     if frame.return_frames.iter().any(|f| {
                         matches!(
                             f,

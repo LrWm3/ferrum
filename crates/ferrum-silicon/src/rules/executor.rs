@@ -1203,6 +1203,15 @@ pub struct CfgContinuationAction {
     pub terminal: CfgContinuationTerminal,
 }
 
+/// Exact complementary CFG branches resumed after evaluating their guard.
+#[derive(Clone)]
+pub struct OwnedCfgGuard {
+    pub condition: Exp,
+    pub is_loop_guard: bool,
+    pub yes: CfgContinuationAction,
+    pub no: CfgContinuationAction,
+}
+
 #[derive(Clone, Copy)]
 pub enum LoopDebugHeapStart {
     InhaleInvariant,
@@ -1255,6 +1264,27 @@ pub trait CfgContext<P, D, J, V>: ExecutionContext<P, D, J, V> {
         )
             -> Result<VerificationResult<V>, ExecutionError<Self::Error>>,
     ) -> Result<VerificationResult<V>, ExecutionError<Self::Error>>;
+    fn try_evaluate_owned_loop_guard_check(
+        &mut self,
+        _state: &State<P, D, J>,
+        _condition: &Exp,
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
+    }
+    fn try_evaluate_owned_cfg_single_guard(
+        &mut self,
+        _state: &State<P, D, J>,
+        _guard: &OwnedCfgSingleGuard,
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
+    }
+    fn try_evaluate_owned_cfg_guard(
+        &mut self,
+        _state: &State<P, D, J>,
+        _guard: &OwnedCfgGuard,
+    ) -> Option<Result<VerificationResult<V>, ExecutionError<Self::Error>>> {
+        None
+    }
     fn branch_edge(
         &mut self,
         state: State<P, D, J>,
@@ -2562,6 +2592,34 @@ where
             let _scope = context
                 .open_conditional_edge_scope(&state, first)
                 .map_err(ExecutionError::Context)?;
+            if owned_profile
+                && state.parallelize_branches
+                && !state.under_join
+                && !state.is_in_package
+                && !state.exhale_ext
+                && context.owned_cfg_conditional_close_is_noop(_scope)
+            {
+                let terminal = owned.expect("owned profile has terminal").clone();
+                let guard = OwnedCfgGuard {
+                    condition: first.clone(),
+                    is_loop_guard: matches!(source1.kind(), BlockKind::LoopHead { .. }),
+                    yes: CfgContinuationAction {
+                        edge: edges[0].clone(),
+                        outer_join: None,
+                        path_id: Some(path_id),
+                        terminal: terminal.clone(),
+                    },
+                    no: CfgContinuationAction {
+                        edge: edges[1].clone(),
+                        outer_join: None,
+                        path_id: None,
+                        terminal,
+                    },
+                };
+                if let Some(result) = context.try_evaluate_owned_cfg_guard(&state, &guard) {
+                    return result;
+                }
+            }
             return context.evaluate_edge(
                 state,
                 first,
@@ -2642,6 +2700,51 @@ where
     };
     execute_cfg_edge_sequence(context, state, &frame, owned, continuation)
 }
+pub(crate) fn execute_owned_cfg_guard<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    term: TermValue,
+    debug: Option<Exp>,
+    guard: &OwnedCfgGuard,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    if context.supports_owned_cfg_branch()
+        && state.parallelize_branches
+        && !state.under_join
+        && !state.is_in_package
+        && !state.exhale_ext
+    {
+        return context
+            .try_branch_owned_cfg(
+                &state,
+                &term,
+                &guard.condition,
+                debug.as_ref(),
+                guard.yes.clone(),
+                guard.no.clone(),
+            )
+            .ok_or(ExecutionError::OwnedCfgSchedulerUnavailable)?;
+    }
+    context.branch_edge(
+        state,
+        term,
+        &guard.condition,
+        debug.as_ref(),
+        &mut |ctx, state| {
+            execute_cfg_continuation(ctx, state, &guard.yes, &mut |ctx, state, terminal| {
+                ctx.resume_owned_cfg_terminal(state, terminal)
+            })
+        },
+        &mut |ctx, state| {
+            execute_cfg_continuation(ctx, state, &guard.no, &mut |ctx, state, terminal| {
+                ctx.resume_owned_cfg_terminal(state, terminal)
+            })
+        },
+    )
+}
+
 /// Run an owned branch action on its verifier thread; all callbacks remain local.
 pub(crate) fn execute_cfg_continuation<C, P, D, J: Clone, V>(
     context: &mut C,
@@ -2697,6 +2800,45 @@ struct CfgEdgeTargetFrame {
     incoming: ferrum_silver::cfg::edge::Kind,
     join_point: Option<SilverBlock>,
     path_id: i32,
+}
+
+#[derive(Clone)]
+pub struct OwnedCfgSingleGuard {
+    pub condition: Exp,
+    pub is_loop_guard: bool,
+    target: CfgEdgeTargetFrame,
+    terminal: CfgContinuationTerminal,
+}
+
+pub(crate) fn execute_owned_cfg_single_guard<C, P, D, J: Clone, V>(
+    context: &mut C,
+    mut state: State<P, D, J>,
+    term: TermValue,
+    debug: Option<Exp>,
+    guard: &OwnedCfgSingleGuard,
+) -> Result<VerificationResult<V>, ExecutionError<C::Error>>
+where
+    C: CfgContext<P, D, J, V>,
+{
+    let parallel = state.parallelize_branches;
+    state.parallelize_branches = false;
+    context.branch_edge(
+        state,
+        term,
+        &guard.condition,
+        debug.as_ref(),
+        &mut |ctx, mut state| {
+            state.parallelize_branches = parallel;
+            execute_cfg_edge_target(
+                ctx,
+                state,
+                &guard.target,
+                Some(&guard.terminal),
+                &mut |ctx, state| ctx.resume_owned_cfg_terminal(state, &guard.terminal),
+            )
+        },
+        &mut |_, _| Ok(VerificationResult::success()),
+    )
 }
 
 fn execute_cfg_edge_target<C, P, D, J: Clone, V>(
@@ -2782,52 +2924,69 @@ where
         }
         Edge::Conditional {
             condition, source, ..
-        } => context.evaluate_edge(
-            state,
-            condition,
-            matches!(
+        } => {
+            let is_loop_guard = matches!(
                 source.kind(),
                 ferrum_silver::cfg::block::BlockKind::LoopHead { .. }
-            ),
-            &mut |context, state, term, rewritten| {
-                let parallel = state.parallelize_branches;
-                let mut scoped = state;
-                scoped.parallelize_branches = false;
-                context.branch_edge(
-                    scoped,
-                    term,
-                    condition,
-                    rewritten.as_ref(),
-                    &mut |context, mut state| {
-                        state.parallelize_branches = parallel;
-                        let target_owned =
-                            if context.owned_cfg_conditional_close_is_noop(conditional_scope) {
-                                owned
-                            } else {
-                                None
-                            };
-                        execute_cfg_edge_target(
-                            context,
-                            state,
-                            &frame,
-                            target_owned,
-                            &mut |context, state| {
-                                context
-                                    .close_conditional_edge_scope(conditional_scope)
-                                    .map_err(ExecutionError::Context)?;
-                                continuation(context, state)
-                            },
-                        )
-                    },
-                    &mut |context, _| {
-                        context
-                            .close_conditional_edge_scope(conditional_scope)
-                            .map_err(ExecutionError::Context)?;
-                        Ok(VerificationResult::success())
-                    },
-                )
-            },
-        ),
+            );
+            if let Some(terminal) = owned.filter(|_| {
+                join_point.is_none()
+                    && context.owned_cfg_conditional_close_is_noop(conditional_scope)
+            }) {
+                let guard = OwnedCfgSingleGuard {
+                    condition: condition.clone(),
+                    is_loop_guard,
+                    target: frame.clone(),
+                    terminal: terminal.clone(),
+                };
+                if let Some(result) = context.try_evaluate_owned_cfg_single_guard(&state, &guard) {
+                    return result;
+                }
+            }
+            context.evaluate_edge(
+                state,
+                condition,
+                is_loop_guard,
+                &mut |context, state, term, rewritten| {
+                    let parallel = state.parallelize_branches;
+                    let mut scoped = state;
+                    scoped.parallelize_branches = false;
+                    context.branch_edge(
+                        scoped,
+                        term,
+                        condition,
+                        rewritten.as_ref(),
+                        &mut |context, mut state| {
+                            state.parallelize_branches = parallel;
+                            let target_owned =
+                                if context.owned_cfg_conditional_close_is_noop(conditional_scope) {
+                                    owned
+                                } else {
+                                    None
+                                };
+                            execute_cfg_edge_target(
+                                context,
+                                state,
+                                &frame,
+                                target_owned,
+                                &mut |context, state| {
+                                    context
+                                        .close_conditional_edge_scope(conditional_scope)
+                                        .map_err(ExecutionError::Context)?;
+                                    continuation(context, state)
+                                },
+                            )
+                        },
+                        &mut |context, _| {
+                            context
+                                .close_conditional_edge_scope(conditional_scope)
+                                .map_err(ExecutionError::Context)?;
+                            Ok(VerificationResult::success())
+                        },
+                    )
+                },
+            )
+        }
     }
 }
 
@@ -2862,6 +3021,9 @@ where
             break;
         }
         let result = context.locally_loop(state.clone(), &mut |context, state| {
+            if let Some(result) = context.try_evaluate_owned_loop_guard_check(&state, condition) {
+                return result;
+            }
             context.evaluate_edge(state, condition, true, &mut |_, _, _, _| {
                 Ok(VerificationResult::success())
             })
