@@ -2567,6 +2567,24 @@ mod tests {
         );
     }
     #[test]
+    fn invalid_access_locations_report_each_source_call() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("domain D { function loc(): Ref }\nfunction f(): Int\nmethod m()\n  requires acc(loc())\n  requires acc(f())\n{}\n").unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "specified location is not a field nor a predicate (test.vpr@4.16--4.21)",
+                "specified location is not a field nor a predicate (test.vpr@5.16--5.19)",
+            ]
+        );
+    }
+    #[test]
     fn forbidden_wands_report_each_source_expression() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));

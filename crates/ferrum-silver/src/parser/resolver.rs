@@ -1508,6 +1508,11 @@ fn ensure_location_access(expression: &PExpHandle, allow_wand: bool) -> Result<(
                 && matches!(&declarations[0].read().expect("poisoned parse node").kind, PNodeKind::Member(member) if matches!(member.kind, PMemberKind::Predicate { .. }))
             {
                 Ok(())
+            } else if !allow_wand {
+                Err(TypeCheckError::Positioned {
+                    node: expression.node().clone(),
+                    message: "specified location is not a field nor a predicate",
+                })
             } else {
                 Err(TypeCheckError::Unsupported("resource is not a predicate"))
             }
