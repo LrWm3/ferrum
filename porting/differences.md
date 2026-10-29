@@ -367,3 +367,10 @@ Silver loads standard imports from JVM classpath resources and includes the Java
 exception in a missing-resource diagnostic. Ferrum uses bundled native resources
 and identifies the same `import/` resource path as missing from those bundles.
 The parse error category and import statement position are preserved.
+
+## Invalid macro expansions in resource operands
+
+When a macro expands to a non-resource expression inside a resource operand,
+Silver reports a parse-tree duplication exception containing a Scala AST dump.
+Ferrum reports a parse error at the same enclosing expression and describes the
+required resource operand without reproducing runtime-specific AST internals.

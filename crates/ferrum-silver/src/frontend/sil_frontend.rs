@@ -1955,6 +1955,23 @@ mod tests {
         );
     }
     #[test]
+    fn macro_expansion_rejects_non_resource_in_resource_position() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let source = "predicate p()\ndefine P() p()\ndefine Q() true\nmethod ok() { inhale acc(P()) }\nmethod bad() { assert perm(Q()) == none }\n";
+        let errors = phases.parse(source).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "Parse error: Macro expansion would result in invalid code: expected a resource access (test.vpr@5.23--5.32)"
+            ]
+        );
+    }
+    #[test]
     fn recursive_function_postconditions_report_each_call() {
         let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
         let mut phases = SilFrontendPhases::new(

@@ -2063,6 +2063,29 @@ pub fn expand_global_expression_macros(
             let node = node.read().expect("poisoned parse node");
             (node.kind.clone(), node.pos.clone())
         };
+        // These operands have narrower source AST types than arbitrary expressions.
+        let constrained_macro_operand = if let PNodeKind::Expression(expression) = &kind {
+            let (operand, location) = match &expression.kind {
+                PExpressionKind::CurrentPerm { resource, .. } => (Some(resource.inner()), true),
+                PExpressionKind::AccPred { amount, .. } => (Some(amount.inner().first()), true),
+                PExpressionKind::Unfolding { acc, .. } => (Some(acc), false),
+                _ => (None, false),
+            };
+            operand.and_then(|operand| {
+                let kind = operand.node().read().expect("poisoned parse node").kind.clone();
+                let reference = match kind {
+                    PNodeKind::Expression(super::parse_ast::PExpression { kind: PExpressionKind::Call { idnref, .. } | PExpressionKind::IdnUse { idnref }, .. }) => idnref,
+                    _ => return None,
+                };
+                let is_macro = match &reference.read().expect("poisoned parse node").kind {
+                    PNodeKind::IdnRef(id) => definitions.contains_key(&id.name),
+                    _ => false,
+                };
+                is_macro.then(|| (operand.clone(), location))
+            })
+        } else {
+            None
+        };
         if let PNodeKind::Program(program) = &kind {
             // Scala expands imported PPrograms independently and catches each
             // MacroException at that program boundary before processing siblings.
@@ -2537,6 +2560,44 @@ pub fn expand_global_expression_macros(
             pos: pos.clone(),
         })? {
             walk(&child, definitions, stack, warnings, child_scope)?;
+        }
+        if let Some((operand, location)) = constrained_macro_operand {
+            let kind = operand
+                .node()
+                .read()
+                .expect("poisoned parse node")
+                .kind
+                .clone();
+            let valid = matches!(
+                kind,
+                PNodeKind::Expression(super::parse_ast::PExpression {
+                    kind: PExpressionKind::Call { .. },
+                    ..
+                })
+            ) || location
+                && matches!(
+                    kind,
+                    PNodeKind::Expression(super::parse_ast::PExpression {
+                        kind: PExpressionKind::FieldAccess { .. },
+                        ..
+                    })
+                )
+                || !location
+                    && matches!(
+                        kind,
+                        PNodeKind::Expression(super::parse_ast::PExpression {
+                            kind: PExpressionKind::AccPred { .. },
+                            ..
+                        })
+                    );
+            if !valid {
+                return Err(MacroError {
+                    message:
+                        "Macro expansion would result in invalid code: expected a resource access"
+                            .into(),
+                    pos,
+                });
+            }
         }
         if let Some(child) = nested_scope {
             scope.borrow_mut().fresh = child.into_inner().fresh;
