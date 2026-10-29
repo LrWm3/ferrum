@@ -977,3 +977,37 @@ method bad(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref)
         );
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn boolean_tail_failure_and_skipping() {
+    for (op, required, literal) in [("&&", "b", "false"), ("||", "!b", "true")] {
+        let reached = format!(
+            r#"field f: Int
+method bad(x: Ref, y: Ref, b: Bool, c: Bool) returns (r: Bool) requires {required} && x != y
+{{ r := b {op} (asserting (c ? acc(x.f) : acc(y.f)) in b); assert false; }}
+"#
+        );
+        let skipped = format!(
+            r#"field f: Int
+method good(x: Ref, y: Ref, c: Bool) returns (r: Bool)
+{{ r := {literal} {op} (asserting (c ? acc(x.f) : acc(y.f)) in true); }}
+"#
+        );
+        for workers in ["1", "2"] {
+            let output = run(&reached, workers);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                !output.status.success() && stderr.contains("insufficient.permission"),
+                "{stderr}"
+            );
+            assert!(!stderr.contains("assertion.false"), "{stderr}");
+            let output = run(&skipped, workers);
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+}

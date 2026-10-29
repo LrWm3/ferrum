@@ -1935,11 +1935,11 @@ pub(crate) static LOOP_PHASE_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static BOOLEAN_HEAD_CANCEL_HOOKS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
-pub(crate) static BOOLEAN_HEAD_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 3] =
-    [const { std::sync::atomic::AtomicUsize::new(0) }; 3];
+pub(crate) static BOOLEAN_HEAD_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 4] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 4];
 #[cfg(test)]
-pub(crate) static BOOLEAN_HEAD_EXECUTIONS: [std::sync::atomic::AtomicUsize; 3] =
-    [const { std::sync::atomic::AtomicUsize::new(0) }; 3];
+pub(crate) static BOOLEAN_HEAD_EXECUTIONS: [std::sync::atomic::AtomicUsize; 4] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 4];
 #[cfg(test)]
 pub(crate) static RETURN_STRICT_LEFT_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
@@ -2448,6 +2448,7 @@ where
                             crate::rules::evaluator::OwnedEvaluationReturnFrame::ConditionalHead(_) => Some(0),
                             crate::rules::evaluator::OwnedEvaluationReturnFrame::ImpliesHead(_) => Some(1),
                             crate::rules::evaluator::OwnedEvaluationReturnFrame::ShortCircuitHead { .. } => Some(2),
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::ShortCircuitTail { .. } => Some(3),
                             _ => None,
                         }) { BOOLEAN_HEAD_SUBMISSIONS[head].fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
                         if frame.return_frames.iter().any(|f| matches!(f, crate::rules::evaluator::OwnedEvaluationReturnFrame::CollectionUnary(_))) {
@@ -4340,6 +4341,7 @@ mod thread_pool_tests {
         };
         let mut config = Config::default();
         config.disable_subsumption = disable_subsumption;
+        config.disable_short_circuiting_evaluations = source.contains("// test_strict_booleans");
         if nonjoined {
             config.number_of_errors_to_report = 2;
             config.more_joins = crate::config::JoinMode::Off;
@@ -4538,8 +4540,18 @@ mod thread_pool_tests {
             None,
             Some(reporter.clone()),
             Some(worker_warnings.clone()),
-        )
-        .unwrap();
+        );
+        let results = if source.contains("// boolean_tail_invalid_join_check") {
+            let error =
+                results.expect_err("nested short-circuit join must retain the existing error");
+            assert!(
+                format!("{error:?}").contains("InvalidJoinEntries"),
+                "{error:?}"
+            );
+            return (vec![true], Vec::new());
+        } else {
+            results.unwrap()
+        };
         let reports = reporter.0.lock().unwrap();
         assert!(matches!(
             reports.last(),
@@ -6674,6 +6686,11 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
         cancel_after_owned_receiver_starts(4);
     }
 
+    #[test]
+    fn real_stdio_cancel_after_boolean_tail_receiver_starts() {
+        cancel_after_owned_receiver_starts(6);
+    }
+
     fn cancel_after_owned_receiver_starts(kind: u8) {
         let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
             return;
@@ -6692,7 +6709,13 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
             sil_front_end_config::SilFrontendConfig,
             sil_frontend::{SilFrontendPhases, standard_plugin_manager},
         };
-        let source = if kind == 8 {
+        let source = if kind == 6 {
+            r#"field f: Int
+method cancel_boolean_tail(b: Bool, c: Bool, x: Ref, y: Ref) returns (r: Bool)
+ requires b && acc(x.f) && acc(y.f)
+{ r := b && (asserting (c ? acc(x.f) : acc(y.f)) in b); }
+"#
+        } else if kind == 8 {
             r#"field f: Int
 method cancel_quant_suffix(a: Ref, b: Ref, c: Bool, d: Bool)
  requires a != b && acc(a.f) && acc(b.f)
@@ -6792,7 +6815,7 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
                         worker.context.test_cancel_quantified_after_prefix = kind == 8;
                     } else if kind == 4 {
                         worker.context.test_cancel_owned_join = Some(worker_cancel.clone());
-                    } else if kind == 3 {
+                    } else if matches!(kind, 3 | 6) {
                         worker.context.test_cancel_owned_boolean = Some(worker_cancel.clone());
                     } else if kind == 2 {
                         worker.context.test_cancel_owned_let = Some(worker_cancel.clone());
@@ -6839,7 +6862,9 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
             let program = phases.translate(checked).unwrap();
             let program = phases.check_consistency(program).unwrap();
             let program = phases.prepare_verification(program).unwrap();
-            let (submission_counter, hook_counter) = if matches!(kind, 5 | 7 | 8) {
+            let (submission_counter, hook_counter) = if kind == 6 {
+                (&BOOLEAN_HEAD_SUBMISSIONS[3], &BOOLEAN_HEAD_CANCEL_HOOKS)
+            } else if matches!(kind, 5 | 7 | 8) {
                 (
                     &QUANTIFIED_BODY_TEST_SUBMISSIONS,
                     &QUANTIFIED_BODY_CANCEL_HOOKS,
@@ -8363,6 +8388,97 @@ method bad() {{ assert false; }}
                 assert!(
                     before.iter().zip(after).all(|(a, b)| b > *a),
                     "head job missing: {expression}, {workers}: {before:?} -> {after:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_boolean_tails_and_strict() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let a = "(asserting (c ? acc(x.f) : acc(y.f)) in b)";
+        let a2 = "(asserting (d ? acc(x.f) : acc(y.f)) in b)";
+        for (expression, requirement, expected, strict) in [
+            (format!("b && {a}"), "b", "true", false),
+            (format!("b || {a}"), "!b", "false", false),
+            (format!("{a} && {a2}"), "b", "true", true),
+            (format!("{a} || {a2}"), "!b", "false", true),
+        ] {
+            let source = format!(
+                r#"// owned_return_tail_check
+{}
+field f: Int
+method good(b: Bool, c: Bool, d: Bool, x: Ref, y: Ref) returns (r: Bool)
+ requires acc(x.f) && acc(y.f) && ({requirement}) ensures r == ({expected})
+{{ r := {expression}; }}
+method bad() {{ assert false; }}
+"#,
+                if strict {
+                    "// test_strict_booleans"
+                } else {
+                    "// boolean_tail_invalid_join_check"
+                }
+            );
+            for workers in [1, 2] {
+                let before = if strict {
+                    [
+                        RETURN_STRICT_LEFT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                        RETURN_STRICT_LEFT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                        RETURN_STRICT_RIGHT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                        RETURN_STRICT_RIGHT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                    ]
+                } else {
+                    [
+                        BOOLEAN_HEAD_SUBMISSIONS[3].load(std::sync::atomic::Ordering::SeqCst),
+                        BOOLEAN_HEAD_EXECUTIONS[3].load(std::sync::atomic::Ordering::SeqCst),
+                        0,
+                        0,
+                    ]
+                };
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    &source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(
+                    fatal.iter().filter(|v| **v).count(),
+                    1,
+                    "{expression}, {workers}: {fatal:?}"
+                );
+                let after = if strict {
+                    [
+                        RETURN_STRICT_LEFT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                        RETURN_STRICT_LEFT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                        RETURN_STRICT_RIGHT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                        RETURN_STRICT_RIGHT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                    ]
+                } else {
+                    [
+                        BOOLEAN_HEAD_SUBMISSIONS[3].load(std::sync::atomic::Ordering::SeqCst),
+                        BOOLEAN_HEAD_EXECUTIONS[3].load(std::sync::atomic::Ordering::SeqCst),
+                        1,
+                        1,
+                    ]
+                };
+                assert!(
+                    before.iter().zip(after).all(|(a, b)| b > *a),
+                    "jobs missing: {expression}, {workers}: {before:?} -> {after:?}"
                 );
             }
         }

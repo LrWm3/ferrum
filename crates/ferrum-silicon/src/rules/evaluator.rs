@@ -167,6 +167,10 @@ pub enum OwnedEvaluationReturnFrame {
         expressions: Vec<Exp>,
         disjunction: bool,
     },
+    ShortCircuitTail {
+        expressions: Vec<Exp>,
+        disjunction: bool,
+    },
     IndexedCollectionArg {
         wrapper: OwnedValueWrapper,
         args: Vec<Exp>,
@@ -1099,6 +1103,8 @@ where
 /// Only transfer paths for which every intervening return action is represented.
 fn owned_strict_binary(expression: &Exp) -> Option<(Binary, &Exp, &Exp)> {
     match expression.kind() {
+        ExpKind::And(a, b) => Some((Binary::And, a, b)),
+        ExpKind::Or(a, b) => Some((Binary::Or, a, b)),
         ExpKind::Sub(a, b) => Some((Binary::Sub, a, b)),
         ExpKind::Mul(a, b) => Some((Binary::Mul, a, b)),
         ExpKind::Div(a, b) => Some((Binary::Div, a, b)),
@@ -1163,7 +1169,7 @@ enum OwnedPathStep {
 #[cfg(test)]
 thread_local! { static OWNED_PATH_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 /// Select one leftmost supported path in a single traversal.
-fn owned_asserting_path(expression: &Exp) -> Option<Vec<OwnedPathStep>> {
+fn owned_asserting_path(expression: &Exp, strict_boolean: bool) -> Option<Vec<OwnedPathStep>> {
     enum Work<'a> {
         Visit(&'a Exp, Option<OwnedPathStep>),
         Leave,
@@ -1201,6 +1207,10 @@ fn owned_asserting_path(expression: &Exp) -> Option<Vec<OwnedPathStep>> {
                     }
                     ExpKind::Implies(left, _) => {
                         work.push(Work::Visit(left, Some(OwnedPathStep::ImpliesHead)))
+                    }
+                    ExpKind::And(left, right) | ExpKind::Or(left, right) if strict_boolean => {
+                        work.push(Work::Visit(right, Some(OwnedPathStep::StrictRight)));
+                        work.push(Work::Visit(left, Some(OwnedPathStep::StrictLeft)));
                     }
                     ExpKind::And(..) | ExpKind::Or(..) => {
                         let disjunction = matches!(exp.kind(), ExpKind::Or(..));
@@ -1327,10 +1337,9 @@ pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
         | ExpKind::MapRange(body) => has_owned_asserting_path(body),
         ExpKind::CondExp(condition, _, _) => has_owned_asserting_path(condition),
         ExpKind::Implies(left, _) => has_owned_asserting_path(left),
-        ExpKind::And(..) | ExpKind::Or(..) => has_owned_asserting_path(first_boolean_head(
-            expression,
-            matches!(expression.kind(), ExpKind::Or(..)),
-        )),
+        ExpKind::And(left, right) | ExpKind::Or(left, right) => {
+            has_owned_asserting_path(left) || has_owned_asserting_path(right)
+        }
         ExpKind::FieldAccess(access) => has_owned_asserting_path(&access.receiver),
         ExpKind::CurrentPerm(access) => match access.kind() {
             ExpKind::FieldAccess(field) => has_owned_asserting_path(&field.receiver),
@@ -1464,9 +1473,19 @@ where
             },
         );
     }
-    let path =
-        owned_asserting_path(expression).ok_or(EvaluationError::OwnedSchedulerUnavailable)?;
-    evaluate_owned_planned(context, state, expression, error, receiver, &path, frames)
+    if let Some(path) = owned_asserting_path(expression, context.disable_short_circuiting()) {
+        evaluate_owned_planned(context, state, expression, error, receiver, &path, frames)
+    } else {
+        evaluate(
+            context,
+            state,
+            expression,
+            error,
+            &mut |context, state, term, debug| {
+                resume_owned_return_frames(context, state, term, debug, &frames, error, receiver)
+            },
+        )
+    }
 }
 
 fn evaluate_owned_planned<C, P, D, J: Clone, V>(
@@ -2746,7 +2765,7 @@ where
         Some((target, path)) if target == index => Some(path.to_vec()),
         Some(_) => None,
         None if context.can_transfer_owned_receiver(&state, receiver) => {
-            owned_asserting_path(argument)
+            owned_asserting_path(argument, context.disable_short_circuiting())
         }
         None => None,
     };
@@ -2885,7 +2904,7 @@ where
         return evaluate_owned_planned(context, state, body, error, receiver, path, next);
     }
     if context.can_transfer_owned_receiver(&state, receiver) {
-        if let Some(path) = owned_asserting_path(body) {
+        if let Some(path) = owned_asserting_path(body, context.disable_short_circuiting()) {
             return evaluate_owned_planned(context, state, body, error, receiver, &path, next);
         }
     }
@@ -3027,6 +3046,33 @@ where
                     error,
                     &mut |context, mut state, term, debug| {
                         finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+                        resume_owned_return_frames(
+                            context,
+                            state,
+                            term,
+                            debug,
+                            &frames[..index],
+                            error,
+                            receiver,
+                        )
+                    },
+                );
+            }
+            OwnedEvaluationReturnFrame::ShortCircuitTail {
+                expressions,
+                disjunction,
+            } => {
+                let (head, tail) = expressions.split_first().expect("boolean tail head");
+                return finish_short_circuit_head(
+                    context,
+                    state,
+                    head,
+                    tail,
+                    *disjunction,
+                    term,
+                    debug,
+                    error,
+                    &mut |context, state, term, debug| {
                         resume_owned_return_frames(
                             context,
                             state,
@@ -5540,6 +5586,33 @@ where
     }
 }
 
+pub(crate) fn evaluate_owned_short_circuit_tail<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expressions: &[Exp],
+    disjunction: bool,
+    error: &C::PartialError,
+    receiver: &OwnedEvaluationReceiver,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let (head, _) = expressions
+        .split_first()
+        .expect("nonempty short circuit tail");
+    evaluate_owned_received(
+        context,
+        state,
+        head,
+        error,
+        receiver,
+        vec![OwnedEvaluationReturnFrame::ShortCircuitTail {
+            expressions: expressions.to_vec(),
+            disjunction,
+        }],
+    )
+}
+
 /// Result of the general `evalQuantified` operation; a missing second result represents
 /// an infeasible inner path, not a successful proof.
 #[derive(Clone, Debug)]
@@ -6183,7 +6256,7 @@ mod tests {
             assert!(legacy_scan(suffix, &mut legacy_visits));
         }
         OWNED_PATH_VISITS.with(|count| count.set(0));
-        let path = owned_asserting_path(&exp).unwrap();
+        let path = owned_asserting_path(&exp, false).unwrap();
         let visits = OWNED_PATH_VISITS.with(|count| count.get());
         assert_eq!(path.len(), 128);
         assert_eq!(visits, 129);

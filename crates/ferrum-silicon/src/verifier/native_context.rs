@@ -3616,6 +3616,7 @@ where
             matches!(
                 f,
                 crate::rules::evaluator::OwnedEvaluationReturnFrame::ConditionalHead(_)
+                    | crate::rules::evaluator::OwnedEvaluationReturnFrame::ShortCircuitTail { .. }
             )
         }) {
             if let Some(cancel) = self.test_cancel_owned_boolean.take() {
@@ -13429,6 +13430,9 @@ where
                         crate::rules::evaluator::OwnedEvaluationReturnFrame::ShortCircuitHead {
                             ..
                         } => Some(2),
+                        crate::rules::evaluator::OwnedEvaluationReturnFrame::ShortCircuitTail {
+                            ..
+                        } => Some(3),
                         _ => None,
                     }) {
                         super::verification_pool_manager::BOOLEAN_HEAD_EXECUTIONS[head]
@@ -15870,8 +15874,15 @@ where
             && state.parallelize_branches
             && !state.is_in_package
             && !state.exhale_ext
-            && matches!(&action, evaluator::EvaluationBranchAction::Evaluate { expression, .. }
-                if evaluator::has_owned_asserting_path(expression));
+            && match &action {
+                evaluator::EvaluationBranchAction::Evaluate { expression, .. } => {
+                    evaluator::has_owned_asserting_path(expression)
+                }
+                evaluator::EvaluationBranchAction::ShortCircuit { expressions, .. } => expressions
+                    .first()
+                    .is_some_and(evaluator::has_owned_asserting_path),
+                _ => false,
+            };
         if !eligible {
             let mut entries = Vec::new();
             let result = evaluator::execute_branch_action(
@@ -15917,6 +15928,24 @@ where
                     error,
                     &receiver,
                     vec![],
+                )
+            }
+            evaluator::EvaluationBranchAction::ShortCircuit {
+                expressions,
+                disjunction,
+                error,
+            } if expressions
+                .first()
+                .is_some_and(evaluator::has_owned_asserting_path)
+                && self.can_transfer_owned_receiver(&state, &receiver) =>
+            {
+                evaluator::evaluate_owned_short_circuit_tail(
+                    self,
+                    state,
+                    expressions,
+                    *disjunction,
+                    error,
+                    &receiver,
                 )
             }
             _ => evaluator::execute_branch_action(
