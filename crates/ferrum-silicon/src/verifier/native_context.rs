@@ -4984,6 +4984,7 @@ where
             access,
         };
         let input = GeneralProductionInput {
+            quantifier_position: forall.metadata().position.clone(),
             qvars: data.qvars.clone(),
             qvar_exps: data.qvar_expressions.clone(),
             formal_vars: formals,
@@ -6483,6 +6484,7 @@ where
         }
 
         let input = GeneralProductionInput {
+            quantifier_position: forall.metadata().position.clone(),
             qvars: data.qvars.clone(),
             qvar_exps: data.qvar_expressions.clone(),
             formal_vars: formals,
@@ -20276,9 +20278,27 @@ where
         };
         self.failure(&error.partial, reason, state)
     }
-    fn warn_missing_quantified_triggers(&mut self) -> Result<(), Self::Error> {
-        self.warnings
-            .push("Quantified permission has no usable trigger".into());
+    fn warn_missing_quantified_triggers(
+        &mut self,
+        position: &ferrum_silver::ast::position::Position,
+    ) -> Result<(), Self::Error> {
+        let message = format!("No triggers available for quantifier at {position}");
+        self.reported_source_warnings.push(message.clone());
+        if let Some(reporter) = &self.preprocessing_reporter {
+            reporter
+                .report(ferrum_silver::reporter::message::Message::Simple {
+                    kind: ferrum_silver::reporter::message::SimpleMessageKind::InternalWarning,
+                    text: message.clone(),
+                })
+                .map_err(NativeError::Reporter)?;
+        }
+        if let Some((logger, _)) = &self.general_logging {
+            logger.emit(
+                &self.general_logger_name,
+                crate::logger::general::Level::Warn,
+                || message,
+            );
+        }
         Ok(())
     }
     fn assume_quantified_properties(

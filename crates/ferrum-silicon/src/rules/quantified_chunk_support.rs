@@ -2908,7 +2908,10 @@ pub trait GeneralQuantifiedProduction<P, D, J, V>: InverseFunctionServices {
         reason: QuantifiedProductionFailure,
         goal: &Term,
     ) -> Result<crate::interfaces::verification::VerificationResult<V>, Self::Error>;
-    fn warn_missing_quantified_triggers(&mut self) -> Result<(), Self::Error>;
+    fn warn_missing_quantified_triggers(
+        &mut self,
+        position: &ferrum_silver::ast::position::Position,
+    ) -> Result<(), Self::Error>;
     fn assume_quantified_properties(
         &mut self,
         state: &crate::state::state::State<P, D, J>,
@@ -2991,6 +2994,7 @@ fn internal_inverse_debug(label: &str) -> crate::debugger::debug_exp::DebugExp {
     .expect("infallible debug expression")
 }
 pub struct GeneralProductionInput {
+    pub quantifier_position: ferrum_silver::ast::position::Position,
     pub qvars: Vec<Term>,
     pub qvar_exps: Option<Vec<LocalVarDecl>>,
     pub formal_vars: Vec<Term>,
@@ -3186,7 +3190,7 @@ pub fn produce_general_quantified<
     };
     if effective_triggers.is_empty() {
         context
-            .warn_missing_quantified_triggers()
+            .warn_missing_quantified_triggers(&input.quantifier_position)
             .map_err(GeneralProductionError::Service)?;
     }
     context
