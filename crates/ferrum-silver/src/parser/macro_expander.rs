@@ -96,6 +96,21 @@ pub struct MacroError {
     pub pos: super::parse_ast_keyword::Span,
 }
 
+fn non_expression_substitution(
+    value: &PExpHandle,
+    target: &crate::ast::position::Position,
+) -> Option<String> {
+    let rendered = super::reformat_pretty_printer::show_node(
+        value.node(),
+        &super::reformat_pretty_printer::LeafReformatAdapter,
+    )
+    .ok()?;
+    let position = value.node().read().ok()?.pos.0.clone();
+    Some(format!(
+        "macro expansion cannot substitute expression `{rendered}` at {position} in non-expression position at {target}."
+    ))
+}
+
 impl MacroError {
     /// Source MacroExpander uses the exception span when file-backed, then the
     /// enclosing program span, finally the exception start position.
@@ -752,6 +767,7 @@ fn copy_expression(
             .cloned()
             .unwrap_or_else(|| id.name.clone());
         let name = if let Some(replacement) = replacements.get(&renamed) {
+            let original = replacement.clone();
             let replacement = replacement.node().read().expect("poisoned parse node");
             let PNodeKind::Expression(super::parse_ast::PExpression {
                 kind: E::IdnUse { idnref },
@@ -759,7 +775,9 @@ fn copy_expression(
             }) = &replacement.kind
             else {
                 return Err(MacroError {
-                    message: "macro expansion requires an identifier in this position".into(),
+                    message: non_expression_substitution(&original, &n.pos.0).unwrap_or_else(
+                        || "macro expansion requires an identifier in this position".into(),
+                    ),
                     pos: replacement.pos.clone(),
                 });
             };
@@ -1405,6 +1423,7 @@ fn copy_macro_reference(
         .cloned()
         .unwrap_or(reference.name);
     if let Some(value) = replacements.get(&reference.name) {
+        let original = value.clone();
         let value = value.node().read().expect("poisoned parse node");
         let PNodeKind::Expression(super::parse_ast::PExpression {
             kind: super::parse_ast::PExpressionKind::IdnUse { idnref },
@@ -1412,7 +1431,9 @@ fn copy_macro_reference(
         }) = &value.kind
         else {
             return Err(MacroError {
-                message: "macro expansion requires an identifier in this position".into(),
+                message: non_expression_substitution(&original, &node.pos.0).unwrap_or_else(|| {
+                    "macro expansion requires an identifier in this position".into()
+                }),
                 pos: value.pos.clone(),
             });
         };
@@ -1593,6 +1614,7 @@ fn copy_macro_statement(
             };
             let mut label_replacements = replacements.clone();
             if let Some(value) = replacements.get(&name) {
+                let original = value.clone();
                 let value = value.node().read().expect("poisoned parse node");
                 let PNodeKind::Expression(PExpression {
                     kind: PExpressionKind::IdnUse { idnref },
@@ -1600,7 +1622,10 @@ fn copy_macro_statement(
                 }) = &value.kind
                 else {
                     return Err(MacroError {
-                        message: "macro label replacement requires an identifier".into(),
+                        message: non_expression_substitution(&original, &name_pos.0)
+                            .unwrap_or_else(|| {
+                                "macro label replacement requires an identifier".into()
+                            }),
                         pos: value.pos.clone(),
                     });
                 };
@@ -1891,6 +1916,16 @@ pub fn expand_global_expression_macros(
                 }
             }
         }
+        if let PNodeKind::Statement(super::parse_ast::PStatement {
+            kind: super::parse_ast::PStatementKind::Label { idndef, .. },
+        }) = &kind
+        {
+            if let PNodeKind::IdnDef(id) = &idndef.read().expect("poisoned parse node").kind {
+                if !inner_bound.contains(&id.name) {
+                    free.insert(id.name.clone());
+                }
+            }
+        }
         if let PNodeKind::IdnRef(id) = kind {
             if !inner_bound.contains(&id.name) {
                 free.insert(id.name);
@@ -1981,15 +2016,16 @@ pub fn expand_global_expression_macros(
                         PDefineBody::Statement(s) => s.node(),
                     };
                     free_names(body_node, &HashSet::new(), &mut free)?;
-                    let unused: HashSet<_> = parameters
-                        .as_ref()
-                        .into_iter()
-                        .flatten()
-                        .filter(|param| !free.contains(*param))
-                        .cloned()
-                        .collect();
+                    // Scala's small immutable sets preserve insertion order; use a
+                    // deterministic native order for the erased larger-set case too.
+                    let mut unused = Vec::new();
+                    for parameter in parameters.as_ref().into_iter().flatten() {
+                        if !free.contains(parameter) && !unused.contains(parameter) {
+                            unused.push(parameter.clone());
+                        }
+                    }
                     if !unused.is_empty() {
-                        warnings.push(crate::verifier::verification_result::ParseReport::Warning(crate::verifier::verification_result::ParseWarning::new(format!("in macro `{name}`, the following parameters were defined but not used: {}", unused.into_iter().collect::<Vec<_>>().join(", ")), error_position)));
+                        warnings.push(crate::verifier::verification_result::ParseReport::Warning(crate::verifier::verification_result::ParseWarning::new(format!("in macro `{name}`, the following parameters were defined but not used: {}", unused.join(", ")), error_position)));
                     }
                     let definition = ExpressionMacro {
                         parameters,
@@ -2232,6 +2268,65 @@ pub fn expand_global_expression_macros(
             }
             return Ok(());
         }
+        // The source MacroExpander validates calls in assignment targets before
+        // ordinary expression expansion and before resolver/typechecker phases.
+        if let PNodeKind::Statement(super::parse_ast::PStatement {
+            kind:
+                super::parse_ast::PStatementKind::Assign {
+                    targets,
+                    op: Some(_),
+                    ..
+                },
+        }) = &kind
+        {
+            for target in targets.to_seq() {
+                let (target_kind, call_pos) = {
+                    let target = target.node().read().expect("poisoned parse node");
+                    (target.kind.clone(), target.pos.clone())
+                };
+                let PNodeKind::Expression(super::parse_ast::PExpression {
+                    kind:
+                        PExpressionKind::Call {
+                            idnref,
+                            type_annotated,
+                            ..
+                        },
+                    ..
+                }) = target_kind
+                else {
+                    continue;
+                };
+                let name = match &idnref.read().expect("poisoned parse node").kind {
+                    PNodeKind::IdnRef(reference) => reference.name.clone(),
+                    _ => {
+                        return Err(MacroError {
+                            message: "macro identifier expected".into(),
+                            pos: call_pos,
+                        });
+                    }
+                };
+                let is_macro = type_annotated.is_none()
+                    && definitions
+                        .get(&name)
+                        .is_some_and(|definition| definition.parameters.is_some());
+                if !is_macro {
+                    return Err(MacroError { message: "The only calls that can be on the left-hand side of an assignment statement are calls to macros".into(), pos: call_pos });
+                }
+                walk(target.node(), definitions, stack, warnings, scope)?;
+                let valid = matches!(
+                    &target.node().read().expect("poisoned parse node").kind,
+                    PNodeKind::Expression(super::parse_ast::PExpression {
+                        kind: PExpressionKind::IdnUse { .. }
+                            | PExpressionKind::FieldAccess { .. }
+                            | PExpressionKind::Call { .. },
+                        ..
+                    })
+                );
+                if !valid {
+                    return Err(MacroError { message: "The body of this macro is not a suitable left-hand side for an assignment statement".into(), pos: call_pos });
+                }
+            }
+        }
         if let PNodeKind::Statement(super::parse_ast::PStatement {
             kind:
                 super::parse_ast::PStatementKind::Assign {
@@ -2410,9 +2505,7 @@ pub fn expand_global_expression_macros(
                 }) = &copy.kind
                 else {
                     return Err(MacroError {
-                        message: format!(
-                            "macro `{name}` requires an identifier body in this position"
-                        ),
+                        message: "Expression macro used in identifier position".into(),
                         pos,
                     });
                 };
@@ -2758,4 +2851,99 @@ pub fn expand_global_expression_macros(
         program.local_errors.extend(warnings);
     }
     result
+}
+
+#[cfg(test)]
+mod macro_source_diagnostic_tests {
+    use super::*;
+    use crate::parser::{fast_parser, parse_ast};
+    fn expand(text: &str) -> MacroError {
+        let program = fast_parser::parse_program(text, "test.vpr").unwrap();
+        parse_ast::init_properties(program.node()).unwrap();
+        expand_global_expression_macros(&program).unwrap_err()
+    }
+    #[test]
+    fn unused_macro_parameters_follow_source_small_set_order() {
+        let program = fast_parser::parse_program(
+            "define B(x, res) true\nmethod m(x: Ref) ensures B(x)",
+            "test.vpr",
+        )
+        .unwrap();
+        parse_ast::init_properties(program.node()).unwrap();
+        let error = expand_global_expression_macros(&program).unwrap_err();
+        assert_eq!(error.message, "Number of macro arguments does not match");
+        let reports = program.errors();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(
+            reports[0].message(),
+            "in macro `B`, the following parameters were defined but not used: x, res"
+        );
+    }
+    #[test]
+    fn label_macro_parameter_counts_as_used() {
+        let program = fast_parser::parse_program(
+            "method main() { m(3) }\ndefine m(label_name) { label label_name }",
+            "test.vpr",
+        )
+        .unwrap();
+        parse_ast::init_properties(program.node()).unwrap();
+        let error = expand_global_expression_macros(&program).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains("macro expansion cannot substitute expression `3`")
+        );
+        assert!(
+            program.errors().is_empty(),
+            "label parameter is used and must not produce an unused warning"
+        );
+    }
+    #[test]
+    fn rejects_invalid_assignment_calls_during_macro_expansion() {
+        let error = expand("method f(x: Int) {} method m() { f(1) := 2 }");
+        assert_eq!(
+            error.message,
+            "The only calls that can be on the left-hand side of an assignment statement are calls to macros"
+        );
+        assert_eq!(error.pos.0.to_string(), "test.vpr@1.34");
+        let error = expand("define nonlhs() 3\nmethod m() { nonlhs() := 4 }");
+        assert_eq!(
+            error.message,
+            "The body of this macro is not a suitable left-hand side for an assignment statement"
+        );
+        assert_eq!(error.pos.0.to_string(), "test.vpr@2.14");
+        let program = fast_parser::parse_program(
+            "define target(x) x\nmethod m() { var x: Int; target(x) := 1 }",
+            "test.vpr",
+        )
+        .unwrap();
+        parse_ast::init_properties(program.node()).unwrap();
+        expand_global_expression_macros(&program).unwrap();
+        let program = fast_parser::parse_program(
+            "define deref(x) x.f\nfield f: Int\nmethod m(r: Ref) { deref(r) := 1 }",
+            "test.vpr",
+        )
+        .unwrap();
+        parse_ast::init_properties(program.node()).unwrap();
+        expand_global_expression_macros(&program).unwrap();
+    }
+    #[test]
+    fn reports_source_identifier_substitution_errors() {
+        let error = expand("define b 2\nmethod a() { b() }");
+        assert_eq!(
+            error.message,
+            "Expression macro used in identifier position"
+        );
+        let error =
+            expand("define checkThis(check) check(x)\nmethod foo() ensures checkThis(true)");
+        assert_eq!(
+            error.message,
+            "macro expansion cannot substitute expression `true` at test.vpr@2.32 in non-expression position at test.vpr@1.25."
+        );
+        let error = expand("method main() { m(3) }\ndefine m(label_name) { label label_name }");
+        assert_eq!(
+            error.message,
+            "macro expansion cannot substitute expression `3` at test.vpr@1.19 in non-expression position at test.vpr@2.30."
+        );
+    }
 }
