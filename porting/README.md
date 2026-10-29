@@ -916,3 +916,9 @@ Direct context resets retain the same history; method workers keep separate
 stores. The retained terms are diagnostic data and are not replayed as solver
 assumptions. Real-Z3 checks cover direct reset, one/two-worker repeated runs and
 postconditions retained when the function body fails verification.
+
+The initial 38-fixture upstream basic-suite comparison found nine shared successes
+and 29 cases requiring failure/diagnostic review. It exposed assignment and call
+source ranges extending through trailing whitespace/comments; these now end at
+the actual right-hand expression, matching source `assign` parsing. Other parser
+positions and aggregated frontend diagnostics still need reconciliation.

@@ -585,6 +585,7 @@ impl ExpressionParser<'_> {
         let mut left = self.atom()?;
         let mut comparison_middle: Option<(usize, u8)> = None;
         loop {
+            let before_trivia = self.cursor;
             self.trivia()?;
             let start = self.cursor;
             if minimum <= 1 && self.source[start..].starts_with('?') {
@@ -624,9 +625,11 @@ impl ExpressionParser<'_> {
             }
             let Some((op, precedence, right_assoc, comparison, length)) = self.binary_operator()
             else {
+                self.cursor = before_trivia;
                 break;
             };
             if precedence < minimum {
+                self.cursor = before_trivia;
                 break;
             }
             self.cursor += length;
@@ -3538,6 +3541,7 @@ impl ExpressionParser<'_> {
     }
     fn suffix(&mut self, mut base: PExpHandle) -> Result<PExpHandle, SyntaxError> {
         loop {
+            let before_trivia = self.cursor;
             self.trivia()?;
             let start = self.cursor;
             if self.source[start..].starts_with('[') {
@@ -3612,6 +3616,7 @@ impl ExpressionParser<'_> {
                 continue;
             }
             if !self.source[start..].starts_with('.') || self.source[start..].starts_with("..") {
+                self.cursor = before_trivia;
                 return Ok(base);
             }
             self.cursor += 1;
@@ -3730,6 +3735,38 @@ fn is_keyword(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn assignment_and_call_spans_exclude_trailing_trivia() {
+        for (source, end_column) in [
+            ("  x := 1 / 0 // trailing\n  next()", 13),
+            ("call(x) /* trailing */\nnext()", 8),
+            ("x := (1 + 2) ;\nnext()", 13),
+        ] {
+            let mut parser = ExpressionParser {
+                source,
+                file: "test.vpr".into(),
+                cursor: 0,
+                warnings: vec![],
+                features: &[],
+            };
+            let first = parser.statement().unwrap();
+            assert_eq!(
+                first.node().read().unwrap().pos.1,
+                Position::LineColumn(LineColumn::File(FilePosition {
+                    file: "test.vpr".into(),
+                    line: 1,
+                    column: end_column,
+                })),
+                "{source}",
+            );
+            parser.take(";").unwrap();
+            let second = parser.statement().unwrap();
+            assert!(matches!(
+                &second.node().read().unwrap().pos.0,
+                Position::LineColumn(LineColumn::File(FilePosition { line: 2, .. })),
+            ));
+        }
+    }
     #[test]
     fn domain_grammar_builds_typed_members() {
         let program = parse_program(
