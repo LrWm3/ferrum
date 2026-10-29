@@ -1985,6 +1985,30 @@ pub(crate) static PERM_ARG_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 2] =
 pub(crate) static PERM_ARG_EXECUTIONS: [std::sync::atomic::AtomicUsize; 2] =
     [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
 #[cfg(test)]
+pub(crate) static SEQ_CONTAINS_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 2] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
+#[cfg(test)]
+pub(crate) static SEQ_CONTAINS_EXECUTIONS: [std::sync::atomic::AtomicUsize; 2] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 2];
+#[cfg(test)]
+pub(crate) static ANY_SET_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 3] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 3];
+#[cfg(test)]
+pub(crate) static ANY_SET_EXECUTIONS: [std::sync::atomic::AtomicUsize; 3] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 3];
+#[cfg(test)]
+pub(crate) static MAP_LITERAL_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static MAP_LITERAL_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static COLLECTION_UNARY_SUBMISSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static COLLECTION_UNARY_EXECUTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
 pub(crate) static INDEXED_ARG_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 3] =
     [const { std::sync::atomic::AtomicUsize::new(0) }; 3];
 #[cfg(test)]
@@ -2365,6 +2389,27 @@ where
                             crate::rules::evaluator::OwnedEvaluationReturnFrame::ShortCircuitHead { .. } => Some(2),
                             _ => None,
                         }) { BOOLEAN_HEAD_SUBMISSIONS[head].fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
+                        if frame.return_frames.iter().any(|f| matches!(f, crate::rules::evaluator::OwnedEvaluationReturnFrame::CollectionUnary(_))) {
+                            COLLECTION_UNARY_SUBMISSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        if frame.return_frames.iter().any(|f| {
+                            matches!(
+                                f,
+                                crate::rules::evaluator::OwnedEvaluationReturnFrame::ExplicitMap(_)
+                            )
+                        }) {
+                            MAP_LITERAL_SUBMISSIONS
+                                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        for side in frame.return_frames.iter().filter_map(|f| match f {
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::AnySetCardinality { .. } => Some(0),
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::AnySetLeft { .. } => Some(1),
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::AnySetRight { .. } => Some(2), _ => None,
+                        }) { ANY_SET_SUBMISSIONS[side].fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
+                        for side in frame.return_frames.iter().filter_map(|f| match f {
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::SeqContainsSequence { .. } => Some(0),
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::SeqContainsElement { .. } => Some(1), _ => None,
+                        }) { SEQ_CONTAINS_SUBMISSIONS[side].fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
                         if frame.return_frames.len() >= 2 {
                             NESTED_RETURN_SUBMISSIONS
                                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -6524,6 +6569,490 @@ method bad() { assert false; }
                     && after[1] - before[1] > after[3] - before[3],
                 "outer jobs did not execute: {before:?} -> {after:?}"
             );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_sequence_membership_operands() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Bool)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r
+{ r := (asserting (c ? acc(z.val) : acc(w.val)) in 1) in (asserting (b ? acc(x.val) : acc(y.val)) in Seq(1, 2)); }
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before: Vec<_> = (0..2)
+                .map(|i| {
+                    (
+                        SEQ_CONTAINS_SUBMISSIONS[i].load(std::sync::atomic::Ordering::SeqCst),
+                        SEQ_CONTAINS_EXECUTIONS[i].load(std::sync::atomic::Ordering::SeqCst),
+                    )
+                })
+                .collect();
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            for (i, (submitted, executed)) in before.into_iter().enumerate() {
+                assert!(
+                    SEQ_CONTAINS_SUBMISSIONS[i].load(std::sync::atomic::Ordering::SeqCst)
+                        > submitted,
+                    "operand {i} not submitted"
+                );
+                assert!(
+                    SEQ_CONTAINS_EXECUTIONS[i].load(std::sync::atomic::Ordering::SeqCst) > executed,
+                    "operand {i} not executed"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_anyset_operators() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let sources = [
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == |Set(1, 2)|
+{ r := |(asserting (b ? acc(x.val) : acc(y.val)) in Set(1, 2))|; }
+method bad() { assert false; }
+"#,
+                1,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Set[Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == (Set(1, 2) union Set(2, 3))
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Set(1, 2)) union (asserting (c ? acc(z.val) : acc(w.val)) in Set(2, 3)); }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Set[Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == (Set(1, 2) intersection Set(2, 3))
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Set(1, 2)) intersection (asserting (c ? acc(z.val) : acc(w.val)) in Set(2, 3)); }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Bool)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == (Set(1, 2) subset Set(2, 3))
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Set(1, 2)) subset (asserting (c ? acc(z.val) : acc(w.val)) in Set(2, 3)); }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Set[Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == (Set(1, 2) setminus Set(2, 3))
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Set(1, 2)) setminus (asserting (c ? acc(z.val) : acc(w.val)) in Set(2, 3)); }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Bool)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == (1 in Set(1, 2))
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in 1) in (asserting (c ? acc(z.val) : acc(w.val)) in Set(1, 2)); }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == |Multiset(1, 2)|
+{ r := |(asserting (b ? acc(x.val) : acc(y.val)) in Multiset(1, 2))|; }
+method bad() { assert false; }
+"#,
+                1,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Multiset[Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == (Multiset(1, 2) union Multiset(2, 3))
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Multiset(1, 2)) union (asserting (c ? acc(z.val) : acc(w.val)) in Multiset(2, 3)); }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Multiset[Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == (Multiset(1, 2) intersection Multiset(2, 3))
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Multiset(1, 2)) intersection (asserting (c ? acc(z.val) : acc(w.val)) in Multiset(2, 3)); }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Bool)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == (Multiset(1, 2) subset Multiset(2, 3))
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Multiset(1, 2)) subset (asserting (c ? acc(z.val) : acc(w.val)) in Multiset(2, 3)); }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Multiset[Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == (Multiset(1, 2) setminus Multiset(2, 3))
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Multiset(1, 2)) setminus (asserting (c ? acc(z.val) : acc(w.val)) in Multiset(2, 3)); }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == (1 in Multiset(1, 2))
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in 1) in (asserting (c ? acc(z.val) : acc(w.val)) in Multiset(1, 2)); }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+        ];
+        for (source, count) in sources {
+            for workers in [1, 2] {
+                let indices: &[usize] = if count == 1 { &[0] } else { &[1, 2] };
+                let before: Vec<_> = indices
+                    .iter()
+                    .map(|i| {
+                        (
+                            ANY_SET_SUBMISSIONS[*i].load(std::sync::atomic::Ordering::SeqCst),
+                            ANY_SET_EXECUTIONS[*i].load(std::sync::atomic::Ordering::SeqCst),
+                        )
+                    })
+                    .collect();
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(
+                    fatal.iter().filter(|v| **v).count(),
+                    1,
+                    "workers={workers}: {fatal:?}"
+                );
+                for (index, (submitted, executed)) in indices.iter().zip(before) {
+                    assert!(
+                        ANY_SET_SUBMISSIONS[*index].load(std::sync::atomic::Ordering::SeqCst)
+                            > submitted,
+                        "operand {index} not submitted"
+                    );
+                    assert!(
+                        ANY_SET_EXECUTIONS[*index].load(std::sync::atomic::Ordering::SeqCst)
+                            > executed,
+                        "operand {index} not executed"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_explicit_map_entries() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let source = r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Map[Int, Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == Map(1 := 2, 3 := 4)
+{ r := Map((asserting (b ? acc(x.val) : acc(y.val)) in 1) := (asserting (c ? acc(z.val) : acc(w.val)) in 2), 3 := 4); }
+method bad() { assert false; }
+"#;
+        for workers in [1, 2] {
+            let before = [
+                MAP_LITERAL_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                MAP_LITERAL_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                INDEXED_ARG_SUBMISSIONS[1].load(std::sync::atomic::Ordering::SeqCst),
+                INDEXED_ARG_EXECUTIONS[1].load(std::sync::atomic::Ordering::SeqCst),
+                INDEXED_ARG_SUBMISSIONS[2].load(std::sync::atomic::Ordering::SeqCst),
+                INDEXED_ARG_EXECUTIONS[2].load(std::sync::atomic::Ordering::SeqCst),
+            ];
+            let (fatal, _) = run_parallel_source_with_warnings_impl(
+                source,
+                workers,
+                make.clone(),
+                false,
+                true,
+                true,
+            );
+            assert_eq!(
+                fatal.iter().filter(|v| **v).count(),
+                1,
+                "workers={workers}: {fatal:?}"
+            );
+            let after = [
+                MAP_LITERAL_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                MAP_LITERAL_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                INDEXED_ARG_SUBMISSIONS[1].load(std::sync::atomic::Ordering::SeqCst),
+                INDEXED_ARG_EXECUTIONS[1].load(std::sync::atomic::Ordering::SeqCst),
+                INDEXED_ARG_SUBMISSIONS[2].load(std::sync::atomic::Ordering::SeqCst),
+                INDEXED_ARG_EXECUTIONS[2].load(std::sync::atomic::Ordering::SeqCst),
+            ];
+            assert!(
+                before
+                    .iter()
+                    .zip(after)
+                    .all(|(before, after)| after > *before),
+                "map key/value jobs did not run: {before:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_collection_operators() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let sources = [
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == 2
+{ r := |(asserting (b ? acc(x.val) : acc(y.val)) in Seq(1,2))|; }
+method bad() { assert false; }
+"#,
+                1,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == 1
+{ r := |(asserting (b ? acc(x.val) : acc(y.val)) in Map(1 := 2))|; }
+method bad() { assert false; }
+"#,
+                1,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Set[Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == Set(1)
+{ r := domain((asserting (b ? acc(x.val) : acc(y.val)) in Map(1 := 2))); }
+method bad() { assert false; }
+"#,
+                1,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Set[Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == range(Map(1 := 2))
+{ r := range((asserting (b ? acc(x.val) : acc(y.val)) in Map(1 := 2))); }
+method bad() { assert false; }
+"#,
+                1,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Seq[Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == Seq(1,2)
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Seq(1)) ++ (asserting (c ? acc(z.val) : acc(w.val)) in Seq(2)); }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Seq[Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == Seq(2)
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Seq(1,2))[(asserting (c ? acc(z.val) : acc(w.val)) in 1)..]; }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Seq[Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == Seq(1)
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Seq(1,2))[..(asserting (c ? acc(z.val) : acc(w.val)) in 1)]; }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Seq[Int])
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == Seq(0,1)
+{ r := [(asserting (b ? acc(x.val) : acc(y.val)) in 0)..(asserting (c ? acc(z.val) : acc(w.val)) in 2)); }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+            (
+                r#"// owned_return_tail_check
+field val: Int
+method good(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Bool)
+ requires acc(x.val) && acc(y.val) && acc(z.val) && acc(w.val)
+ ensures r == true
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in 1) in (asserting (c ? acc(z.val) : acc(w.val)) in Map(1 := 2)); }
+method bad() { assert false; }
+"#,
+                2,
+            ),
+        ];
+        for (source, count) in sources {
+            for workers in [1, 2] {
+                let before = if count == 1 {
+                    vec![
+                        COLLECTION_UNARY_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                        COLLECTION_UNARY_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                    ]
+                } else {
+                    vec![
+                        RETURN_STRICT_LEFT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                        RETURN_STRICT_LEFT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                        RETURN_STRICT_RIGHT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                        RETURN_STRICT_RIGHT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                    ]
+                };
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(
+                    fatal.iter().filter(|v| **v).count(),
+                    1,
+                    "workers={workers}: {fatal:?}"
+                );
+                let after = if count == 1 {
+                    vec![
+                        COLLECTION_UNARY_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                        COLLECTION_UNARY_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                    ]
+                } else {
+                    vec![
+                        RETURN_STRICT_LEFT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                        RETURN_STRICT_LEFT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                        RETURN_STRICT_RIGHT_SUBMISSIONS.load(std::sync::atomic::Ordering::SeqCst),
+                        RETURN_STRICT_RIGHT_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst),
+                    ]
+                };
+                assert!(
+                    before
+                        .iter()
+                        .zip(after)
+                        .all(|(before, after)| after > *before),
+                    "operator jobs did not run: {before:?}"
+                );
+            }
         }
     }
 

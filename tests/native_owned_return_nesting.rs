@@ -762,3 +762,99 @@ method bad(x: Ref, y: Ref, b: Bool) returns (r: Bool) requires acc(x.f) && acc(y
         std::fs::remove_file(path).unwrap();
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn collection_operator_failure_order_and_tail() {
+    let unary = r#"field val: Int
+method bad(x: Ref, y: Ref, b: Bool) returns (r: Int) requires x != y
+{ r := |(asserting (b ? acc(x.val) : acc(y.val)) in Seq(1))|; assert false; }
+"#;
+    let binary = r#"field val: Int
+method bad(x: Ref, y: Ref, b: Bool, c: Bool) returns (r: Seq[Int]) requires x != y
+{ r := (asserting (b ? acc(x.val) : acc(y.val)) in Seq(1)) ++ (asserting (c ? false : false) in Seq(2)); }
+"#;
+    for source in [unary, binary] {
+        for workers in ["1", "2"] {
+            let output = run(source, workers);
+            assert!(!output.status.success());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("insufficient.permission"), "{stderr}");
+            assert!(
+                !stderr.contains("[assert.failed:assertion.false]"),
+                "{stderr}"
+            );
+            assert!(
+                !stderr.contains("assignment.failed:assertion.false"),
+                "{stderr}"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn explicit_map_entry_order_and_tail() {
+    let first = r#"field val: Int
+method bad(x: Ref, y: Ref, b: Bool, c: Bool) returns (r: Map[Int, Int]) requires x != y
+{ r := Map((asserting (b ? acc(x.val) : acc(y.val)) in 1) := (asserting (c ? false : false) in 2)); }
+"#;
+    let later = r#"field val: Int
+method bad(x: Ref, y: Ref, w: Ref, b: Bool, c: Bool) returns (r: Map[Int, Int])
+ requires w != x && w != y && acc(x.val) && acc(y.val)
+{ r := Map((asserting (b ? acc(x.val) : acc(y.val)) in 1) := (asserting (c ? acc(w.val) : acc(w.val)) in 2)); assert false; }
+"#;
+    for source in [first, later] {
+        for workers in ["1", "2"] {
+            let output = run(source, workers);
+            assert!(!output.status.success());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("insufficient.permission"), "{stderr}");
+            assert!(!stderr.contains("assertion.false"), "{stderr}");
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn anyset_operator_failure_order_and_tail() {
+    for kind in ["Set", "Multiset"] {
+        let first = format!(
+            r#"field val: Int
+method bad(x: Ref, y: Ref, b: Bool, c: Bool) returns (r: {kind}[Int]) requires x != y
+{{ r := (asserting (b ? acc(x.val) : acc(y.val)) in {kind}(1)) union (asserting (c ? false : false) in {kind}(2)); }}
+"#
+        );
+        let unary = format!(
+            r#"field val: Int
+method bad(x: Ref, y: Ref, b: Bool) returns (r: Int) requires x != y
+{{ r := |(asserting (b ? acc(x.val) : acc(y.val)) in {kind}(1))|; assert false; }}
+"#
+        );
+        for source in [&first, &unary] {
+            for workers in ["1", "2"] {
+                let output = run(source, workers);
+                assert!(!output.status.success());
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                assert!(stderr.contains("insufficient.permission"), "{stderr}");
+                assert!(!stderr.contains("assertion.false"), "{stderr}");
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn sequence_membership_evaluates_sequence_before_element() {
+    let source = r#"field val: Int
+method bad(x: Ref, y: Ref, b: Bool) returns (r: Bool) requires x != y
+{ r := (asserting (false) in 1) in (asserting (b ? acc(x.val) : acc(y.val)) in Seq(1)); }
+"#;
+    for workers in ["1", "2"] {
+        let output = run(source, workers);
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("insufficient.permission"), "{stderr}");
+        assert!(!stderr.contains("assertion.false"), "{stderr}");
+    }
+}

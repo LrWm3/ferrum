@@ -12992,6 +12992,33 @@ where
                         super::verification_pool_manager::BOOLEAN_HEAD_EXECUTIONS[head]
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
+                    if frame.return_frames.iter().any(|f| {
+                        matches!(
+                            f,
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::CollectionUnary(_)
+                        )
+                    }) {
+                        super::verification_pool_manager::COLLECTION_UNARY_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    if frame.return_frames.iter().any(|f| {
+                        matches!(
+                            f,
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::ExplicitMap(_)
+                        )
+                    }) {
+                        super::verification_pool_manager::MAP_LITERAL_EXECUTIONS
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    for side in frame.return_frames.iter().filter_map(|f| match f {
+                        crate::rules::evaluator::OwnedEvaluationReturnFrame::AnySetCardinality { .. } => Some(0),
+                        crate::rules::evaluator::OwnedEvaluationReturnFrame::AnySetLeft { .. } => Some(1),
+                        crate::rules::evaluator::OwnedEvaluationReturnFrame::AnySetRight { .. } => Some(2), _ => None,
+                    }) { super::verification_pool_manager::ANY_SET_EXECUTIONS[side].fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
+                    for side in frame.return_frames.iter().filter_map(|f| match f {
+                        crate::rules::evaluator::OwnedEvaluationReturnFrame::SeqContainsSequence { .. } => Some(0),
+                        crate::rules::evaluator::OwnedEvaluationReturnFrame::SeqContainsElement { .. } => Some(1), _ => None,
+                    }) { super::verification_pool_manager::SEQ_CONTAINS_EXECUTIONS[side].fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
                     if frame.return_frames.len() >= 2 {
                         super::verification_pool_manager::NESTED_RETURN_EXECUTIONS
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);

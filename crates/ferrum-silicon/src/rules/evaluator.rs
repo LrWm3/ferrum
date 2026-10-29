@@ -219,6 +219,32 @@ pub enum OwnedEvaluationReturnFrame {
     Minus(OwnedValueWrapper),
     PermMinus(OwnedValueWrapper),
     Not(OwnedValueWrapper),
+    CollectionUnary(OwnedValueWrapper),
+    ExplicitMap(OwnedValueWrapper),
+    SeqContainsSequence {
+        wrapper: OwnedValueWrapper,
+        element: Exp,
+    },
+    SeqContainsElement {
+        wrapper: OwnedValueWrapper,
+        sequence: Term,
+        sequence_debug: Option<Exp>,
+    },
+    AnySetCardinality {
+        wrapper: OwnedValueWrapper,
+        multi: bool,
+    },
+    AnySetLeft {
+        wrapper: OwnedValueWrapper,
+        multi: bool,
+        right: Exp,
+    },
+    AnySetRight {
+        wrapper: OwnedValueWrapper,
+        multi: bool,
+        left: Term,
+        left_debug: Option<Exp>,
+    },
     StrictLeft {
         wrapper: OwnedValueWrapper,
         right: Exp,
@@ -1012,6 +1038,11 @@ fn owned_strict_binary(expression: &Exp) -> Option<(Binary, &Exp, &Exp)> {
         ExpKind::LtCmp(a, b) => Some((Binary::Lt, a, b)),
         ExpKind::GeCmp(a, b) => Some((Binary::Ge, a, b)),
         ExpKind::GtCmp(a, b) => Some((Binary::Gt, a, b)),
+        ExpKind::SeqAppend(a, b) => Some((Binary::SeqAppend, a, b)),
+        ExpKind::SeqDrop(a, b) => Some((Binary::SeqDrop, a, b)),
+        ExpKind::SeqTake(a, b) => Some((Binary::SeqTake, a, b)),
+        ExpKind::RangeSeq(a, b) => Some((Binary::SeqRange, a, b)),
+        ExpKind::MapContains(a, b) => Some((Binary::MapContains, a, b)),
         _ => None,
     }
 }
@@ -1022,6 +1053,13 @@ enum OwnedPathStep {
     Minus,
     PermMinus,
     Not,
+    CollectionUnary,
+    ExplicitMap,
+    AnySetCardinality,
+    SeqContainsSequence,
+    SeqContainsElement,
+    AnySetLeft,
+    AnySetRight,
     ConditionalHead,
     ImpliesHead,
     ShortCircuitHead,
@@ -1088,6 +1126,12 @@ fn owned_asserting_path(expression: &Exp) -> Option<Vec<OwnedPathStep>> {
                             Some(OwnedPathStep::ShortCircuitHead),
                         ));
                     }
+                    ExpKind::SeqLength(body)
+                    | ExpKind::MapCardinality(body)
+                    | ExpKind::MapDomain(body)
+                    | ExpKind::MapRange(body) => {
+                        work.push(Work::Visit(body, Some(OwnedPathStep::CollectionUnary)))
+                    }
                     ExpKind::FieldAccess(access) => work.push(Work::Visit(
                         &access.receiver,
                         Some(OwnedPathStep::FieldReceiver),
@@ -1107,6 +1151,35 @@ fn owned_asserting_path(expression: &Exp) -> Option<Vec<OwnedPathStep>> {
                         }
                         _ => (),
                     },
+                    ExpKind::SeqContains(element, sequence) => {
+                        work.push(Work::Visit(
+                            element,
+                            Some(OwnedPathStep::SeqContainsElement),
+                        ));
+                        work.push(Work::Visit(
+                            sequence,
+                            Some(OwnedPathStep::SeqContainsSequence),
+                        ));
+                    }
+                    ExpKind::AnySetCardinality(body) => {
+                        work.push(Work::Visit(body, Some(OwnedPathStep::AnySetCardinality)))
+                    }
+                    ExpKind::AnySetUnion(a, b)
+                    | ExpKind::AnySetIntersection(a, b)
+                    | ExpKind::AnySetSubset(a, b)
+                    | ExpKind::AnySetMinus(a, b)
+                    | ExpKind::AnySetContains(a, b) => {
+                        work.push(Work::Visit(b, Some(OwnedPathStep::AnySetRight)));
+                        work.push(Work::Visit(a, Some(OwnedPathStep::AnySetLeft)));
+                    }
+                    ExpKind::ExplicitMap(entries) => {
+                        for entry in entries.iter().rev() {
+                            if let ExpKind::Maplet(key, value) = entry.kind() {
+                                work.push(Work::Visit(value, Some(OwnedPathStep::ExplicitMap)));
+                                work.push(Work::Visit(key, Some(OwnedPathStep::ExplicitMap)));
+                            }
+                        }
+                    }
                     ExpKind::SeqIndex(a, b) | ExpKind::MapLookup(a, b) => {
                         work.push(Work::Visit(b, Some(OwnedPathStep::IndexedCollectionArg(1))));
                         work.push(Work::Visit(a, Some(OwnedPathStep::IndexedCollectionArg(0))));
@@ -1164,7 +1237,11 @@ pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
         | ExpKind::DebugLabelledOld(body, _)
         | ExpKind::Minus(body)
         | ExpKind::PermMinus(body)
-        | ExpKind::Not(body) => has_owned_asserting_path(body),
+        | ExpKind::Not(body)
+        | ExpKind::SeqLength(body)
+        | ExpKind::MapCardinality(body)
+        | ExpKind::MapDomain(body)
+        | ExpKind::MapRange(body) => has_owned_asserting_path(body),
         ExpKind::CondExp(condition, _, _) => has_owned_asserting_path(condition),
         ExpKind::Implies(left, _) => has_owned_asserting_path(left),
         ExpKind::And(..) | ExpKind::Or(..) => has_owned_asserting_path(first_boolean_head(
@@ -1179,6 +1256,23 @@ pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
             }
             _ => false,
         },
+        ExpKind::SeqContains(element, sequence) => {
+            has_owned_asserting_path(sequence) || has_owned_asserting_path(element)
+        }
+        ExpKind::AnySetCardinality(body) => has_owned_asserting_path(body),
+        ExpKind::AnySetUnion(a, b)
+        | ExpKind::AnySetIntersection(a, b)
+        | ExpKind::AnySetSubset(a, b)
+        | ExpKind::AnySetMinus(a, b)
+        | ExpKind::AnySetContains(a, b) => {
+            has_owned_asserting_path(a) || has_owned_asserting_path(b)
+        }
+        ExpKind::ExplicitMap(entries) => entries.iter().any(|entry| match entry.kind() {
+            ExpKind::Maplet(key, value) => {
+                has_owned_asserting_path(key) || has_owned_asserting_path(value)
+            }
+            _ => false,
+        }),
         ExpKind::SeqIndex(a, b) | ExpKind::MapLookup(a, b) => {
             has_owned_asserting_path(a) || has_owned_asserting_path(b)
         }
@@ -1390,6 +1484,16 @@ where
             frames.push(OwnedEvaluationReturnFrame::PermMinus(wrapper));
             evaluate_owned_planned(context, state, body, error, receiver, rest, frames)
         }
+        (
+            ExpKind::SeqLength(body)
+            | ExpKind::MapCardinality(body)
+            | ExpKind::MapDomain(body)
+            | ExpKind::MapRange(body),
+            OwnedPathStep::CollectionUnary,
+        ) => {
+            frames.push(OwnedEvaluationReturnFrame::CollectionUnary(wrapper));
+            evaluate_owned_planned(context, state, body, error, receiver, rest, frames)
+        }
         (ExpKind::Not(body), OwnedPathStep::Not) => {
             frames.push(OwnedEvaluationReturnFrame::Not(wrapper));
             evaluate_owned_planned(context, state, body, error, receiver, rest, frames)
@@ -1489,6 +1593,72 @@ where
                 rest,
                 frames,
             )
+        }
+        (ExpKind::SeqContains(element, sequence), OwnedPathStep::SeqContainsSequence) => {
+            frames.push(OwnedEvaluationReturnFrame::SeqContainsSequence {
+                wrapper,
+                element: element.clone(),
+            });
+            evaluate_owned_planned(context, state, sequence, error, receiver, rest, frames)
+        }
+        (ExpKind::SeqContains(element, sequence), OwnedPathStep::SeqContainsElement) => evaluate(
+            context,
+            state,
+            sequence,
+            error,
+            &mut |context, state, term, debug| {
+                let mut next = frames.clone();
+                next.push(OwnedEvaluationReturnFrame::SeqContainsElement {
+                    wrapper: wrapper.clone(),
+                    sequence: term,
+                    sequence_debug: debug,
+                });
+                evaluate_owned_planned(context, state, element, error, receiver, rest, next)
+            },
+        ),
+        (ExpKind::AnySetCardinality(body), OwnedPathStep::AnySetCardinality) => {
+            let multi = any_set_multi_type::<C::Error>(
+                &body.typ().map_err(EvaluationError::ExpressionType)?,
+            )?;
+            frames.push(OwnedEvaluationReturnFrame::AnySetCardinality { wrapper, multi });
+            evaluate_owned_planned(context, state, body, error, receiver, rest, frames)
+        }
+        (_, OwnedPathStep::AnySetLeft) => {
+            let (operator, left, right) =
+                any_set_binary::<C::Error>(expression)?.expect("any-set frame");
+            let multi = any_set_operator_is_multi(operator);
+            frames.push(OwnedEvaluationReturnFrame::AnySetLeft {
+                wrapper,
+                multi,
+                right: right.clone(),
+            });
+            evaluate_owned_planned(context, state, left, error, receiver, rest, frames)
+        }
+        (_, OwnedPathStep::AnySetRight) => {
+            let (operator, left, right) =
+                any_set_binary::<C::Error>(expression)?.expect("any-set frame");
+            let multi = any_set_operator_is_multi(operator);
+            evaluate(
+                context,
+                state,
+                left,
+                error,
+                &mut |context, state, term, debug| {
+                    let mut next = frames.clone();
+                    next.push(OwnedEvaluationReturnFrame::AnySetRight {
+                        wrapper: wrapper.clone(),
+                        multi,
+                        left: term,
+                        left_debug: debug,
+                    });
+                    evaluate_owned_planned(context, state, right, error, receiver, rest, next)
+                },
+            )
+        }
+        (ExpKind::ExplicitMap(_), OwnedPathStep::ExplicitMap) => {
+            let desugared = desugar_explicit_map(expression)?;
+            frames.push(OwnedEvaluationReturnFrame::ExplicitMap(wrapper));
+            evaluate_owned_nested(context, state, &desugared, error, receiver, frames)
         }
         (
             ExpKind::SeqIndex(..)
@@ -1949,6 +2119,118 @@ where
                     done(context,state,term,debug)
                 })
             },continuation)
+}
+
+fn complete_seq_contains<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    sequence: Term,
+    sequence_debug: Option<Exp>,
+    element: Term,
+    element_debug: Option<Exp>,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let debug = match (&element_debug, &sequence_debug) {
+        (Some(element), Some(sequence)) => Some(Exp::new(
+            ExpKind::SeqContains(element.clone(), sequence.clone()),
+            expression.metadata().clone(),
+        )),
+        (None, _) => None,
+        (Some(_), None) => return Err(EvaluationError::MissingDebugExpression),
+    };
+    let term = context.factory().seq_in(sequence, element);
+    continuation(context, state, term, debug)
+}
+
+fn any_set_multi_type<E>(
+    typ: &ferrum_silver::ast::r#type::Type,
+) -> Result<bool, EvaluationError<E>> {
+    match typ {
+        ferrum_silver::ast::r#type::Type::Set(_) => Ok(false),
+        ferrum_silver::ast::r#type::Type::Multiset(_) => Ok(true),
+        _ => Err(EvaluationError::ExpectedSetType),
+    }
+}
+fn any_set_operator(expression: &Exp, multi: bool) -> Option<Binary> {
+    match expression.kind() {
+        ExpKind::AnySetUnion(..) => Some(Binary::SetUnion(multi)),
+        ExpKind::AnySetIntersection(..) => Some(Binary::SetIntersection(multi)),
+        ExpKind::AnySetSubset(..) => Some(Binary::SetSubset(multi)),
+        ExpKind::AnySetMinus(..) => Some(Binary::SetMinus(multi)),
+        ExpKind::AnySetContains(..) => Some(Binary::SetContains(multi)),
+        _ => None,
+    }
+}
+fn any_set_operator_is_multi(operator: Binary) -> bool {
+    match operator {
+        Binary::SetUnion(m)
+        | Binary::SetIntersection(m)
+        | Binary::SetSubset(m)
+        | Binary::SetMinus(m)
+        | Binary::SetContains(m) => m,
+        _ => unreachable!("any-set operator"),
+    }
+}
+fn any_set_binary<E>(expression: &Exp) -> Result<Option<(Binary, &Exp, &Exp)>, EvaluationError<E>> {
+    let (kind, a, b) = match expression.kind() {
+        ExpKind::AnySetUnion(a, b) => (0, a, b),
+        ExpKind::AnySetIntersection(a, b) => (1, a, b),
+        ExpKind::AnySetSubset(a, b) => (2, a, b),
+        ExpKind::AnySetMinus(a, b) => (3, a, b),
+        ExpKind::AnySetContains(a, b) => (4, a, b),
+        _ => return Ok(None),
+    };
+    let typ = if kind == 4 {
+        b.typ()
+    } else if kind == 2 {
+        a.typ()
+    } else {
+        expression.typ()
+    }
+    .map_err(EvaluationError::ExpressionType)?;
+    let multi = any_set_multi_type(&typ)?;
+    Ok(Some((
+        any_set_operator(expression, multi).expect("any-set operator"),
+        a,
+        b,
+    )))
+}
+
+fn desugar_explicit_map<E>(expression: &Exp) -> Result<Exp, EvaluationError<E>> {
+    let ExpKind::ExplicitMap(entries) = expression.kind() else {
+        unreachable!("explicit map frame")
+    };
+    let Some(first) = entries.first() else {
+        return Err(EvaluationError::EmptyExplicitCollection);
+    };
+    let ExpKind::Maplet(first_key, first_value) = first.kind() else {
+        return Err(EvaluationError::InvalidMapLiteral);
+    };
+    let key_type = first_key.typ().map_err(EvaluationError::ExpressionType)?;
+    let value_type = first_value.typ().map_err(EvaluationError::ExpressionType)?;
+    let mut desugared = Exp::new(
+        ExpKind::EmptyMap(key_type, value_type),
+        expression.metadata().clone(),
+    );
+    for entry in entries {
+        let ExpKind::Maplet(key, value) = entry.kind() else {
+            return Err(EvaluationError::InvalidMapLiteral);
+        };
+        desugared = Exp::new(
+            ExpKind::MapUpdate(desugared, key.clone(), value.clone()),
+            expression.metadata().clone(),
+        );
+    }
+    Ok(desugared)
 }
 
 fn indexed_collection_arguments(expression: &Exp) -> Option<(u8, Vec<Exp>)> {
@@ -2883,6 +3165,185 @@ where
                 debug = debug.map(|value| {
                     Exp::new(
                         ExpKind::PermMinus(value),
+                        wrapper.expression.metadata().clone(),
+                    )
+                });
+                finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+            }
+            OwnedEvaluationReturnFrame::SeqContainsSequence { wrapper, element } => {
+                if has_owned_asserting_path(element) && context.can_transfer_owned_asserting(&state)
+                {
+                    let mut next = frames[..index].to_vec();
+                    next.push(OwnedEvaluationReturnFrame::SeqContainsElement {
+                        wrapper: wrapper.clone(),
+                        sequence: term,
+                        sequence_debug: debug,
+                    });
+                    return evaluate_owned_nested(context, state, element, error, receiver, next);
+                }
+                return evaluate(
+                    context,
+                    state,
+                    element,
+                    error,
+                    &mut |context, state, element_term, element_debug| {
+                        complete_seq_contains(
+                            context,
+                            state,
+                            &wrapper.expression,
+                            term.clone(),
+                            debug.clone(),
+                            element_term,
+                            element_debug,
+                            &mut |context, mut state, value, rebuilt| {
+                                finish_owned_wrapper::<C, P, D, J, V>(
+                                    context, &mut state, wrapper, &value,
+                                )?;
+                                resume_owned_return_frames(
+                                    context,
+                                    state,
+                                    value,
+                                    rebuilt,
+                                    &frames[..index],
+                                    error,
+                                    receiver,
+                                )
+                            },
+                        )
+                    },
+                );
+            }
+            OwnedEvaluationReturnFrame::SeqContainsElement {
+                wrapper,
+                sequence,
+                sequence_debug,
+            } => {
+                return complete_seq_contains(
+                    context,
+                    state,
+                    &wrapper.expression,
+                    sequence.clone(),
+                    sequence_debug.clone(),
+                    term,
+                    debug,
+                    &mut |context, mut state, value, rebuilt| {
+                        finish_owned_wrapper::<C, P, D, J, V>(
+                            context, &mut state, wrapper, &value,
+                        )?;
+                        resume_owned_return_frames(
+                            context,
+                            state,
+                            value,
+                            rebuilt,
+                            &frames[..index],
+                            error,
+                            receiver,
+                        )
+                    },
+                );
+            }
+            OwnedEvaluationReturnFrame::AnySetCardinality { wrapper, multi } => {
+                term = if *multi {
+                    context.factory().multiset_cardinality(term)
+                } else {
+                    context.factory().set_cardinality(term)
+                };
+                debug = debug.map(|value| {
+                    Exp::new(
+                        ExpKind::AnySetCardinality(value),
+                        wrapper.expression.metadata().clone(),
+                    )
+                });
+                finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+            }
+            OwnedEvaluationReturnFrame::AnySetRight {
+                wrapper,
+                multi,
+                left,
+                left_debug,
+            } => {
+                let operator =
+                    any_set_operator(&wrapper.expression, *multi).expect("any-set frame");
+                term = operator.build(context.factory(), left.clone(), term);
+                debug = match (left_debug, debug) {
+                    (Some(left), Some(right)) => Some(Exp::new(
+                        operator.expression(left.clone(), right),
+                        wrapper.expression.metadata().clone(),
+                    )),
+                    (None, _) => None,
+                    (Some(_), None) => return Err(EvaluationError::MissingDebugExpression),
+                };
+                finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+            }
+            OwnedEvaluationReturnFrame::AnySetLeft {
+                wrapper,
+                multi,
+                right,
+            } => {
+                let operator =
+                    any_set_operator(&wrapper.expression, *multi).expect("any-set frame");
+                if has_owned_asserting_path(right) && context.can_transfer_owned_asserting(&state) {
+                    let mut next = frames[..index].to_vec();
+                    next.push(OwnedEvaluationReturnFrame::AnySetRight {
+                        wrapper: wrapper.clone(),
+                        multi: *multi,
+                        left: term,
+                        left_debug: debug,
+                    });
+                    return evaluate_owned_nested(context, state, right, error, receiver, next);
+                }
+                return evaluate(
+                    context,
+                    state,
+                    right,
+                    error,
+                    &mut |context, mut state, right_term, right_debug| {
+                        let value = operator.build(context.factory(), term.clone(), right_term);
+                        let rebuilt = match (&debug, right_debug) {
+                            (Some(left), Some(right)) => Some(Exp::new(
+                                operator.expression(left.clone(), right),
+                                wrapper.expression.metadata().clone(),
+                            )),
+                            (None, _) => None,
+                            (Some(_), None) => return Err(EvaluationError::MissingDebugExpression),
+                        };
+                        finish_owned_wrapper::<C, P, D, J, V>(
+                            context, &mut state, wrapper, &value,
+                        )?;
+                        resume_owned_return_frames(
+                            context,
+                            state,
+                            value,
+                            rebuilt,
+                            &frames[..index],
+                            error,
+                            receiver,
+                        )
+                    },
+                );
+            }
+            OwnedEvaluationReturnFrame::ExplicitMap(wrapper) => {
+                debug = context.debugging().then(|| wrapper.expression.clone());
+                finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+            }
+            OwnedEvaluationReturnFrame::CollectionUnary(wrapper) => {
+                let factory = context.factory().clone();
+                term = match wrapper.expression.kind() {
+                    ExpKind::SeqLength(_) => factory.seq_length(term),
+                    ExpKind::MapCardinality(_) => factory.map_cardinality(term),
+                    ExpKind::MapDomain(_) => factory.map_domain(term),
+                    ExpKind::MapRange(_) => factory.map_range(term),
+                    _ => unreachable!("collection unary frame"),
+                };
+                debug = debug.map(|value| {
+                    Exp::new(
+                        match wrapper.expression.kind() {
+                            ExpKind::SeqLength(_) => ExpKind::SeqLength(value),
+                            ExpKind::MapCardinality(_) => ExpKind::MapCardinality(value),
+                            ExpKind::MapDomain(_) => ExpKind::MapDomain(value),
+                            ExpKind::MapRange(_) => ExpKind::MapRange(value),
+                            _ => unreachable!("collection unary frame"),
+                        },
                         wrapper.expression.metadata().clone(),
                     )
                 });
@@ -4449,28 +4910,8 @@ fn evaluate_collection_family<C, P, D, J: Clone, V>(
 where
     C: EvaluationContext<P, D, J, V>,
 {
-    if let ExpKind::ExplicitMap(entries) = expression.kind() {
-        let Some(first) = entries.first() else {
-            return Err(EvaluationError::EmptyExplicitCollection);
-        };
-        let ExpKind::Maplet(first_key, first_value) = first.kind() else {
-            return Err(EvaluationError::InvalidMapLiteral);
-        };
-        let key_type = first_key.typ().map_err(EvaluationError::ExpressionType)?;
-        let value_type = first_value.typ().map_err(EvaluationError::ExpressionType)?;
-        let mut desugared = Exp::new(
-            ExpKind::EmptyMap(key_type, value_type),
-            expression.metadata().clone(),
-        );
-        for entry in entries {
-            let ExpKind::Maplet(key, value) = entry.kind() else {
-                return Err(EvaluationError::InvalidMapLiteral);
-            };
-            desugared = Exp::new(
-                ExpKind::MapUpdate(desugared, key.clone(), value.clone()),
-                expression.metadata().clone(),
-            );
-        }
+    if matches!(expression.kind(), ExpKind::ExplicitMap(_)) {
+        let desugared = desugar_explicit_map(expression)?;
         return evaluate(
             context,
             state,
@@ -4609,19 +5050,15 @@ where
                     element,
                     error,
                     &mut |context, state, element_term, element_exp| {
-                        let debug = match (&element_exp, &seq_exp) {
-                            (Some(e), Some(s)) => Some(Exp::new(
-                                ExpKind::SeqContains(e.clone(), s.clone()),
-                                expression.metadata().clone(),
-                            )),
-                            (None, _) => None,
-                            (Some(_), None) => return Err(EvaluationError::MissingDebugExpression),
-                        };
-                        continuation(
+                        complete_seq_contains(
                             context,
                             state,
-                            factory.seq_in(seq.clone(), element_term),
-                            debug,
+                            expression,
+                            seq.clone(),
+                            seq_exp.clone(),
+                            element_term,
+                            element_exp,
+                            continuation,
                         )
                     },
                 )
@@ -4656,39 +5093,7 @@ where
             },
         );
     }
-    let collection_kind = match expression.kind() {
-        ExpKind::AnySetUnion(a, b) => Some((0, a, b)),
-        ExpKind::AnySetIntersection(a, b) => Some((1, a, b)),
-        ExpKind::AnySetSubset(a, b) => Some((2, a, b)),
-        ExpKind::AnySetMinus(a, b) => Some((3, a, b)),
-        ExpKind::AnySetContains(a, b) => Some((4, a, b)),
-        _ => None,
-    };
-    let collection = if let Some((kind, a, b)) = collection_kind {
-        let typ = if kind == 4 {
-            b.typ()
-        } else if kind == 2 {
-            a.typ()
-        } else {
-            expression.typ()
-        }
-        .map_err(EvaluationError::ExpressionType)?;
-        let multi = match typ {
-            ferrum_silver::ast::r#type::Type::Set(_) => false,
-            ferrum_silver::ast::r#type::Type::Multiset(_) => true,
-            _ => return Err(EvaluationError::ExpectedSetType),
-        };
-        let op = match kind {
-            0 => Binary::SetUnion(multi),
-            1 => Binary::SetIntersection(multi),
-            2 => Binary::SetSubset(multi),
-            3 => Binary::SetMinus(multi),
-            _ => Binary::SetContains(multi),
-        };
-        Some((op, a, b))
-    } else {
-        None
-    };
+    let collection = any_set_binary(expression)?;
     let binary = match expression.kind() {
         ExpKind::EqCmp(a, b) => Some((Binary::Eq, a, b)),
         ExpKind::NeCmp(a, b) => Some((Binary::Ne, a, b)),
