@@ -118,6 +118,45 @@ fn diagnostic(error: VerificationError) -> Result<AbstractError, FerrumError> {
         .map(|e| AbstractError::Verification(Arc::new(e)))
         .map_err(execution)
 }
+/// Java SimpleDateFormat uses the local timezone's short name, rather than a
+/// numeric UTC offset. Ask the platform formatter for that name lazily.
+#[cfg(unix)]
+fn local_source_timestamp() -> Result<String, FerrumError> {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(execution)?
+        .as_secs();
+    let seconds: libc::time_t = seconds.try_into().map_err(execution)?;
+    let mut local = std::mem::MaybeUninit::<libc::tm>::uninit();
+    let mut buffer = [0u8; 128];
+    // localtime_r fills the provided tm; strftime writes at most the buffer size.
+    let length = unsafe {
+        if libc::localtime_r(&seconds, local.as_mut_ptr()).is_null() {
+            return Err(FerrumError::Execution(
+                "local time conversion failed".into(),
+            ));
+        }
+        libc::strftime(
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            b"%Y-%m-%d %H:%M:%S %Z\0".as_ptr().cast(),
+            local.as_ptr(),
+        )
+    };
+    if length == 0 {
+        return Err(FerrumError::Execution(
+            "local time formatting failed".into(),
+        ));
+    }
+    String::from_utf8(buffer[..length].to_vec()).map_err(execution)
+}
+#[cfg(not(unix))]
+fn local_source_timestamp() -> Result<String, FerrumError> {
+    Err(FerrumError::Execution(
+        "local timezone name is unsupported on this platform".into(),
+    ))
+}
+
 fn final_result(errors: Vec<AbstractError>) -> VerificationResult {
     if errors.is_empty() {
         VerificationResult::Success
@@ -1168,6 +1207,17 @@ impl SiliconBackend for NativeBackend {
     fn stop(&mut self) -> Result<(), FerrumError> {
         self.stop_with_reportability().0
     }
+    fn verification_started(&mut self) -> Result<(), Self::Error> {
+        if let Some(logger) = &self.general_logger {
+            use silicon::logger::general::Level;
+            let name = "viper.silicon.Silicon";
+            if logger.enabled(name, Level::Debug) {
+                let time = local_source_timestamp()?;
+                logger.emit(name, Level::Debug, || format!("Silicon started {time}"));
+            }
+        }
+        Ok(())
+    }
     fn input_file(&self) -> Option<&str> {
         self.config.frontend.file.as_deref()
     }
@@ -1192,12 +1242,20 @@ impl SiliconBackend for NativeBackend {
             .clone()
             .map(|controller| Deadline::start(self.config.timeout as u64, controller))
             .transpose()?;
+        let log_run = self.general_logger.as_ref().is_some_and(|logger| {
+            logger.enabled(
+                "viper.silicon.Silicon",
+                silicon::logger::general::Level::Debug,
+            )
+        });
         let work = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-            || -> Result<VerificationResult, FerrumError> {
+            || -> Result<(VerificationResult, std::time::Duration, Vec<VerificationError>), FerrumError> {
                 let context = self.context.as_mut().ok_or_else(|| {
                     FerrumError::Execution("Native solver has not been started".into())
                 })?;
+                let start = std::time::Instant::now();
                 let results = context.verify_program(program, cfgs, file, self.reporter.clone());
+                let elapsed = start.elapsed();
                 self.warnings
                     .lock()
                     .expect("poisoned warning buffer")
@@ -1211,19 +1269,19 @@ impl SiliconBackend for NativeBackend {
                         ResultKind::Failure(e) => Some(e.clone()),
                         _ => None,
                     }) {
+                        let raw_error = log_run.then(|| error.clone());
                         let error = diagnostic(error)?;
                         let transformed = error.transformed_error().map_err(execution)?;
                         let position = transformed.position();
                         let key = position
                             .line_column()
                             .map_or((-1, -1), |p| (p.line(), p.column()));
-                        errors.push((key, error));
+                        errors.push((key, error, raw_error));
                     }
                 }
-                errors.sort_by_key(|(key, _)| *key);
-                Ok(final_result(
-                    errors.into_iter().map(|(_, error)| error).collect(),
-                ))
+                errors.sort_by_key(|(key, _, _)| *key);
+                let (errors, originals): (Vec<_>, Vec<_>) = errors.into_iter().map(|(_, error, raw)| (error, raw)).unzip();
+                Ok((final_result(errors), elapsed, originals.into_iter().flatten().collect()))
             },
         ));
         let result =
@@ -1350,7 +1408,32 @@ impl SiliconBackend for NativeBackend {
             }
             deadline.finish()?;
         }
-        result
+        let (result, elapsed, failures) = result?;
+        if let Some(logger) = &self.general_logger {
+            use silicon::logger::general::Level;
+            let name = "viper.silicon.Silicon";
+            if logger.enabled(name, Level::Debug) {
+                let renderer = NativeErrorNodeRenderer;
+                use silver::verifier::verification_error::ErrorNodeRenderer;
+                for failure in &failures {
+                    let text = failure
+                        .readable_message(true, true, &|node| renderer.render_node(node))
+                        .map_err(execution)?;
+                    logger.emit(name, Level::Debug, || format!("\n{text}"));
+                }
+                let time = silver::reporter::format::package::format_millis_readably(
+                    i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX),
+                )
+                .map_err(execution)?;
+                logger.emit(name, Level::Debug, || {
+                    format!(
+                        "Verification finished in {time} with {} error(s)",
+                        failures.len()
+                    )
+                });
+            }
+        }
+        Ok(result)
     }
 }
 
@@ -1842,6 +1925,14 @@ mod run_logging_factory_tests {
         },
     };
 
+    #[derive(Default)]
+    struct RunEventCapture(Mutex<Vec<String>>);
+    impl silicon::logger::general::Sink for RunEventCapture {
+        fn write(&self, message: &str) {
+            self.0.lock().unwrap().push(message.to_owned());
+        }
+    }
+
     #[test]
     #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
     fn timed_out_trace_uses_retained_logs_and_source_timeout_axiom_lists() {
@@ -1895,6 +1986,15 @@ mod run_logging_factory_tests {
                             .unwrap();
                     let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
                     let mut backend = NativeBackend::new(config);
+                    let events = Arc::new(RunEventCapture::default());
+                    backend.general_logger = Some(silicon::logger::general::GeneralLogger::new(
+                        None,
+                        &std::collections::BTreeMap::from([(
+                            "viper.silicon.Silicon".into(),
+                            "DEBUG".into(),
+                        )]),
+                        events.clone(),
+                    ));
                     backend.logging = Some(owner);
                     backend.reporter = Some(reporter.clone());
                     let mut silicon = Silicon::new(backend);
@@ -1910,6 +2010,18 @@ mod run_logging_factory_tests {
                             .iter()
                             .any(|error| error.full_id() == "timeout.error")
                     );
+                    let events = events.0.lock().unwrap();
+                    assert!(
+                        events.iter().any(|s| s.starts_with("Silicon started ")),
+                        "{events:?}"
+                    );
+                    assert!(
+                        !events
+                            .iter()
+                            .any(|s| s.starts_with("Verification finished in ")),
+                        "{events:?}"
+                    );
+                    drop(events);
                     let mut traces = 0;
                     let mut terminated = false;
                     while reporter.has_new_message() {
@@ -3009,6 +3121,101 @@ mod public_logging_tests {
                         "injected.vpr".into()
                     ])
                     .is_err()
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod silicon_general_run_tests {
+    use super::*;
+    use silver::frontend::frontend::FrontendPhases;
+    #[derive(Default)]
+    struct Capture(Mutex<Vec<String>>);
+    impl silicon::logger::general::Sink for Capture {
+        fn write(&self, message: &str) {
+            self.0.lock().unwrap().push(message.to_owned());
+        }
+    }
+
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn start_finish_and_consistency_events_follow_verification_lifecycle() {
+        std::thread::Builder::new()
+            .stack_size(VERIFICATION_STACK_SIZE)
+            .spawn(|| {
+                let z3 = std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+                let config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3,
+                    "test.vpr".into(),
+                ])
+                .unwrap();
+                let sink = Arc::new(Capture::default());
+                let named = std::collections::BTreeMap::from([(
+                    "viper.silicon.Silicon".into(),
+                    "DEBUG".into(),
+                )]);
+                let mut backend = NativeBackend::new(config);
+                backend.general_logger = Some(silicon::logger::general::GeneralLogger::new(
+                    None,
+                    &named,
+                    sink.clone(),
+                ));
+                let mut verifier = Silicon::new(backend);
+                verifier.configure(&[]).unwrap();
+                verifier.start().unwrap();
+                let mut phases = SilFrontendPhases::new(
+                    "test.vpr".into(),
+                    silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                for (source, consistency) in [
+                    ("method m() { assert true; }", false),
+                    ("method m() { assert false; }", false),
+                    ("method m() { assert epsilon == epsilon; }", true),
+                ] {
+                    let parsed = phases.parse(source).unwrap();
+                    let checked = phases.analyze(parsed).unwrap();
+                    let program = phases.translate(checked).unwrap();
+                    let result = verifier.verify(&program, &[]).unwrap();
+                    assert_eq!(
+                        matches!(result, SiliconOutcome::ConsistencyFailures(_)),
+                        consistency,
+                        "{result:?}"
+                    );
+                }
+                verifier.stop().unwrap();
+                let events = sink.0.lock().unwrap();
+                let starts: Vec<_> = events
+                    .iter()
+                    .filter(|s| s.starts_with("Silicon started "))
+                    .collect();
+                let finishes: Vec<_> = events
+                    .iter()
+                    .filter(|s| s.starts_with("Verification finished in "))
+                    .collect();
+                assert_eq!(starts.len(), 3, "{events:?}");
+                assert_eq!(finishes.len(), 2, "{events:?}");
+                assert!(finishes[0].ends_with(" with 0 error(s)"), "{events:?}");
+                assert!(finishes[1].ends_with(" with 1 error(s)"), "{events:?}");
+                assert!(
+                    events
+                        .iter()
+                        .any(|s| s.starts_with("\n[assert.failed:assertion.false]")),
+                    "{events:?}"
+                );
+                let timezone = std::process::Command::new("date")
+                    .arg("+%Z")
+                    .output()
+                    .unwrap();
+                let timezone = String::from_utf8(timezone.stdout).unwrap();
+                assert!(
+                    starts.iter().all(|s| s.ends_with(timezone.trim())),
+                    "{events:?}"
                 );
             })
             .unwrap()

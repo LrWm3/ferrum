@@ -46,6 +46,10 @@ pub trait SiliconBackend {
     fn start(&mut self) -> Result<(), Self::Error>;
     fn reset(&mut self) -> Result<(), Self::Error>;
     fn stop(&mut self) -> Result<(), Self::Error>;
+    /// The source emits its start event before consistency checking.
+    fn verification_started(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
     fn input_file(&self) -> Option<&str>;
     fn ignore_file(&self) -> bool;
     fn set_recorded_source(&mut self, file: Option<&str>);
@@ -109,6 +113,9 @@ impl<B: SiliconBackend> Silicon<B> {
             Lifetime::Running => self.backend.reset().map_err(SiliconError::Backend)?,
         }
         self.lifetime = Lifetime::Running;
+        self.backend
+            .verification_started()
+            .map_err(SiliconError::Backend)?;
         let file = if self.backend.ignore_file() {
             None
         } else {

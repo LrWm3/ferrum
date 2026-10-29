@@ -34,6 +34,9 @@ num-traits = "=0.2.19"
 ferrum-silver.workspace = true
 ferrum-silicon.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.191"
+
 # These recursive verification crates use smaller stack frames with optimization.
 [profile.dev.package.ferrum]
 opt-level = 1

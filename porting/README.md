@@ -1132,3 +1132,10 @@ Nested asserting-expression bodies can now transfer through a typed return frame
 that restores the outer evaluation state before resuming the caller. One/two-
 worker tests observe outer and inner jobs, mixed old-state values and permissions,
 and expected failure order. Unsupported body shapes retain local evaluation.
+
+Internal DEBUG run logging now starts before consistency checks and emits sorted
+readable failures plus elapsed verifier time after completed runs. Timeouts and
+consistency failures omit the completion event. Formatting stays lazy; the
+Unix timestamp uses the source local timezone name. Non-Unix DEBUG timestamps
+remain unsupported, and public DEBUG/named levels remain gated. Exact source
+exception/throwable events and broader diagnostic parity are still incomplete.
