@@ -975,3 +975,7 @@ checks cover field and quantified function contracts. Singleton quantified wands
 now participate in ordinary resource properties (upstream silicon/0678b).
 Quantified consumption, paired wand debug values and public debugger activation
 remain separate work.
+
+Mapped counterexamples retain the raw current/old stores, domains and functions
+before presentation interpretation and renaming. This exposes the same values
+used by Prusti's JNI converter bridge; rendered native models remain unchanged.

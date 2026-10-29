@@ -1472,6 +1472,11 @@ pub fn map_heap_to_store(
 /// Source mapped-model extraction and its recursively interpreted current/old stores.
 #[derive(Clone, Debug)]
 pub struct MappedModel {
+    /// Converter values before presentation-only domain interpretation and renaming.
+    pub raw_current: ExtractedModel,
+    pub raw_old: Vec<(String, ExtractedModel)>,
+    pub raw_domains: Vec<DomainEntry>,
+    pub raw_functions: Vec<ExtractedFunction>,
     pub current: ExtractedModel,
     pub old: Vec<(String, ExtractedModel)>,
     pub domains: Vec<DomainEntry>,
@@ -1841,6 +1846,10 @@ pub fn build_mapped_model(
                 .collect::<Result<Vec<_>, String>>()?,
         })
     };
+    let raw_current = current.clone();
+    let raw_old = old.clone();
+    let raw_domains = domains.clone();
+    let raw_functions = functions.clone();
     let current_interpreted = interpret(current.clone())?;
     let old = old
         .into_iter()
@@ -1901,6 +1910,10 @@ pub fn build_mapped_model(
         rename_function(function);
     }
     Ok(MappedModel {
+        raw_current,
+        raw_old,
+        raw_domains,
+        raw_functions,
         current: current_interpreted,
         old,
         domains,
