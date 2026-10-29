@@ -975,6 +975,27 @@ where
     evaluate_owned_nested(context, state, expression, error, receiver, Vec::new())
 }
 
+#[cfg(test)]
+thread_local! {
+    static FORCE_OWNED_FALLBACK_AFTER_LEFT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static FALLBACK_RECEIVER_VALUES: std::cell::RefCell<Option<Vec<Term>>> = const { std::cell::RefCell::new(None) };
+}
+#[cfg(test)]
+pub(crate) fn test_force_owned_fallback_after_left() {
+    FORCE_OWNED_FALLBACK_AFTER_LEFT.with(|flag| flag.set(true));
+}
+#[cfg(test)]
+pub(crate) fn test_capture_fallback_values(enabled: bool) -> Vec<Term> {
+    FALLBACK_RECEIVER_VALUES.with(|slot| slot.replace(enabled.then(Vec::new)).unwrap_or_default())
+}
+#[cfg(test)]
+fn test_change_guard_after_left<P, D, J>(mut state: State<P, D, J>) -> State<P, D, J> {
+    if FORCE_OWNED_FALLBACK_AFTER_LEFT.with(|flag| flag.replace(false)) {
+        state.under_join = true;
+    }
+    state
+}
+
 /// Descend one source expression at a time, saving each surrounding evaluator
 /// return action in inner-to-outer order. Add always evaluates its left first.
 pub(crate) fn evaluate_owned_nested<C, P, D, J: Clone, V>(
@@ -988,6 +1009,17 @@ pub(crate) fn evaluate_owned_nested<C, P, D, J: Clone, V>(
 where
     C: EvaluationContext<P, D, J, V>,
 {
+    if !context.can_transfer_owned_asserting(&state) {
+        return evaluate(
+            context,
+            state,
+            expression,
+            error,
+            &mut |context, state, term, debug| {
+                resume_owned_return_frames(context, state, term, debug, &frames, error, receiver)
+            },
+        );
+    }
     if matches!(expression.kind(), ExpKind::Asserting(..)) {
         return evaluate_owned_asserting(context, state, expression, error, receiver, frames);
     }
@@ -1091,6 +1123,8 @@ where
                     left,
                     error,
                     &mut |context, state, term, debug| {
+                        #[cfg(test)]
+                        let state = test_change_guard_after_left(state);
                         let mut next = frames.clone();
                         next.insert(
                             0,
@@ -1121,6 +1155,8 @@ where
             left,
             error,
             &mut |context, state, term, debug| {
+                #[cfg(test)]
+                let state = test_change_guard_after_left(state);
                 let mut next = frames.clone();
                 next.insert(
                     0,
@@ -1427,6 +1463,12 @@ where
     OLD_RETURN_SNAPSHOTS.with(|slot| {
         if let Some(snapshots) = slot.borrow_mut().as_mut() {
             snapshots.push(test_old_return_snapshot(&state));
+        }
+    });
+    #[cfg(test)]
+    FALLBACK_RECEIVER_VALUES.with(|slot| {
+        if let Some(values) = slot.borrow_mut().as_mut() {
+            values.push(term.clone());
         }
     });
     context

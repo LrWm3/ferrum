@@ -270,3 +270,10 @@ source-matched permission failures check left-before-right order and that a
 failed right operand skips the captured tail. Division/remainder, short-circuit
 and conditional expressions, function/field/collection arguments and lets still
 use local callbacks when their exact return action is not represented.
+
+Owned expression descent rechecks transfer eligibility at every subtree entry.
+If a borrowed left operand changes the guard, the remaining subtree evaluates
+synchronously before resuming the saved return frames and exact assignment
+receiver. A real-Z3 test injects that change after Add/Sub left operands; it
+checks no submitted job, one correct result, the captured failing tail and an
+earlier permission failure that skips assignment and tail.

@@ -27364,6 +27364,103 @@ mod queued_cfg_isolation_tests {
                 );
             }
         }
+        // Lose transfer eligibility after evaluating a borrowed left operand.
+        // The remaining expression must complete synchronously and resume all
+        // outer frames and the exact tail without submitting a job.
+        for strict in [false, true] {
+            for permission_failure in [false, true] {
+                let waited = std::rc::Rc::new(std::cell::Cell::new(0));
+                let captured = std::rc::Rc::new(std::cell::RefCell::new(None));
+                source.context.joined_branch_scheduler_enabled = true;
+                source.context.joined_branch_scheduler = Some(std::rc::Rc::new(OldProbe {
+                    waited: waited.clone(),
+                    cancellation: None,
+                    kind: 0,
+                    capture: Some(captured.clone()),
+                }));
+                let check = if permission_failure {
+                    match assertion.kind() {
+                        ExpKind::CondExp(_, _, no) => no.clone(),
+                        _ => unreachable!(),
+                    }
+                } else {
+                    Exp::new(ExpKind::TrueLit, Default::default())
+                };
+                let right = Exp::new(
+                    ExpKind::Asserting(
+                        check,
+                        Exp::new(ExpKind::IntLit(4.into()), Default::default()),
+                    ),
+                    Default::default(),
+                );
+                let seven = Exp::new(ExpKind::IntLit(7.into()), Default::default());
+                let binary = if strict {
+                    ExpKind::Sub(seven, right)
+                } else {
+                    ExpKind::Add(seven, right)
+                };
+                let rhs = Exp::new(
+                    ExpKind::Minus(Exp::new(binary, Default::default())),
+                    Default::default(),
+                );
+                let mut receiver = receiver.clone();
+                receiver.rhs = rhs.clone();
+                let tail = Stmt::new(
+                    ferrum_silver::ast::statement::StmtKind::Assert(Exp::new(
+                        ExpKind::FalseLit,
+                        Default::default(),
+                    )),
+                    Default::default(),
+                );
+                receiver.tail =
+                    crate::rules::executor::test_statement_tail_with(join.clone(), &[tail]);
+                let mut input = state.clone();
+                input.under_join = false;
+                input.parallelize_branches = true;
+                input.method_cfg = Some(Arc::new(cfg.clone()));
+                crate::rules::evaluator::test_capture_fallback_values(true);
+                crate::rules::evaluator::test_force_owned_fallback_after_left();
+                let result = crate::rules::evaluator::evaluate_owned_nested(
+                    &mut source.context,
+                    input,
+                    &rhs,
+                    &partial,
+                    &receiver,
+                    vec![],
+                )
+                .unwrap();
+                let values = crate::rules::evaluator::test_capture_fallback_values(false);
+                assert_eq!(waited.get(), 0);
+                assert!(
+                    captured.borrow().is_none(),
+                    "fallback must not submit a job"
+                );
+                assert!(result.is_fatal());
+                let id = result.with_kind(|kind| match kind {
+                    crate::interfaces::verification::ResultKind::Failure(error) => error.full_id(),
+                    _ => panic!("expected failure"),
+                });
+                if permission_failure {
+                    assert!(id.contains("insufficient.permission"), "{id}");
+                    assert!(
+                        values.is_empty(),
+                        "failed assertion must skip assignment and tail"
+                    );
+                } else {
+                    assert!(id.contains("assertion.false"), "tail did not run: {id}");
+                    let inner = if strict {
+                        factory.minus(factory.int_literal(7), factory.int_literal(4))
+                    } else {
+                        factory.plus(factory.int_literal(7), factory.int_literal(4))
+                    };
+                    assert_eq!(
+                        values,
+                        vec![factory.minus(factory.int_literal(0), inner)],
+                        "receiver must see one correctly restored value"
+                    );
+                }
+            }
+        }
         // Capture a real AssertProbe consumption job using the same source Q.
         let captured_probe = std::rc::Rc::new(std::cell::RefCell::new(None));
         let waited = std::rc::Rc::new(std::cell::Cell::new(0));
