@@ -1132,6 +1132,32 @@ where
     )
 }
 
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub(crate) struct OldReturnSnapshot {
+    pub heap: Arc<ListBackedHeap>,
+    pub partial: Option<Arc<ListBackedHeap>>,
+    pub triggers: crate::state::package::OrderedMap<Exp, Term>,
+    pub in_old: bool,
+}
+#[cfg(test)]
+pub(crate) fn test_old_return_snapshot<P, D, J>(state: &State<P, D, J>) -> OldReturnSnapshot {
+    OldReturnSnapshot {
+        heap: state.h.clone(),
+        partial: state.partially_consumed_heap.clone(),
+        triggers: state.possible_triggers.clone(),
+        in_old: state.is_eval_in_old,
+    }
+}
+#[cfg(test)]
+thread_local! {
+    static OLD_RETURN_SNAPSHOTS: std::cell::RefCell<Option<Vec<OldReturnSnapshot>>> = const { std::cell::RefCell::new(None) };
+}
+#[cfg(test)]
+pub(crate) fn test_capture_old_returns(enabled: bool) -> Vec<OldReturnSnapshot> {
+    OLD_RETURN_SNAPSHOTS.with(|slot| slot.replace(enabled.then(Vec::new)).unwrap_or_default())
+}
+
 /// Resume saved wrappers without losing the remaining stack when evaluating an
 /// addition's right operand invokes its continuation more than once.
 fn resume_owned_return_frames<C, P, D, J: Clone, V>(
@@ -1265,6 +1291,12 @@ where
             }
         }
     }
+    #[cfg(test)]
+    OLD_RETURN_SNAPSHOTS.with(|slot| {
+        if let Some(snapshots) = slot.borrow_mut().as_mut() {
+            snapshots.push(test_old_return_snapshot(&state));
+        }
+    });
     context
         .finish_owned_assignment_value(state, term, debug, receiver)
         .ok_or(EvaluationError::OwnedSchedulerUnavailable)?

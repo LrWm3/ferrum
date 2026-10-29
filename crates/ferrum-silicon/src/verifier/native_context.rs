@@ -27138,6 +27138,146 @@ mod queued_cfg_isolation_tests {
             assert_eq!(source.context.base.decider.options(), &options);
             source.context.cancellation = None;
         }
+        // Compare the owned receiver with the synchronous evaluator at the exact
+        // assignment boundary, while an injected scheduler captures the else branch.
+        {
+            use crate::rules::evaluator::{test_capture_old_returns, test_old_return_snapshot};
+            use crate::state::heap::Heap;
+            let app = Exp::with_extra(
+                ExpKind::DomainFuncApp("f".into(), vec![], Default::default()),
+                Default::default(),
+                ferrum_silver::ast::expression::ExpExtra {
+                    typ: Some(ferrum_silver::ast::r#type::Type::Int),
+                    domain_name: Some("D".into()),
+                    ..Default::default()
+                },
+            );
+            let asserting = Exp::new(
+                ExpKind::Asserting(assertion.clone(), app.clone()),
+                Default::default(),
+            );
+            let inner_old = Exp::new(
+                ExpKind::LabelledOld(asserting, "L".into()),
+                Default::default(),
+            );
+            let trigger_rhs = Exp::new(ExpKind::Old(inner_old), Default::default());
+            let mut trigger_receiver = receiver.clone();
+            trigger_receiver.rhs = trigger_rhs.clone();
+            let seed = Exp::new(ExpKind::IntLit(99.into()), Default::default());
+            for initial_in_old in [false, true] {
+                let mut input = state.clone();
+                input.under_join = false;
+                input.parallelize_branches = true;
+                input.method_cfg = Some(Arc::new(cfg.clone()));
+                input.g = Arc::new(input.g.with_binding(
+                    crate::state::store::AbstractLocalVar::new(local_exp.clone()),
+                    (variable.clone(), None),
+                ));
+                input
+                    .old_heaps
+                    .insert("old".into(), Arc::new(ListBackedHeap::new()));
+                input
+                    .old_heaps
+                    .insert("L".into(), Arc::new(ListBackedHeap::new()));
+                input.partially_consumed_heap = Some(Arc::new(ListBackedHeap::new()));
+                input.is_eval_in_old = initial_in_old;
+                input.record_possible_triggers = true;
+                input
+                    .possible_triggers
+                    .insert(seed.clone(), factory.int_literal(99));
+
+                source.context.joined_branch_scheduler_enabled = false;
+                let mut synchronous = Vec::new();
+                crate::rules::evaluator::evaluate(
+                    &mut source.context,
+                    input.clone(),
+                    &trigger_rhs,
+                    &partial,
+                    &mut |_, state, _, _| {
+                        synchronous.push(test_old_return_snapshot(&state));
+                        Ok(VerificationResult::success())
+                    },
+                )
+                .unwrap();
+                assert_eq!(synchronous.len(), 1);
+                let waited = std::rc::Rc::new(std::cell::Cell::new(0));
+                source.context.joined_branch_scheduler_enabled = true;
+                source.context.joined_branch_scheduler = Some(std::rc::Rc::new(OldProbe {
+                    waited: waited.clone(),
+                    cancellation: None,
+                    kind: 0,
+                    capture: None,
+                }));
+                test_capture_old_returns(true);
+                let result = crate::rules::evaluator::evaluate_owned_nested(
+                    &mut source.context,
+                    input.clone(),
+                    &trigger_rhs,
+                    &partial,
+                    &trigger_receiver,
+                    vec![],
+                );
+                let owned = test_capture_old_returns(false);
+                assert!(
+                    matches!(result, Err(EvaluationError::Context(NativeError::Diagnostic(ref message))) if message == "old worker service failed")
+                );
+                assert_eq!(waited.get(), 1, "injected future must have been drained");
+                assert_eq!(
+                    owned.len(),
+                    1,
+                    "successful local branch reaches assignment exactly once"
+                );
+                let expected = &synchronous[0];
+                let actual = &owned[0];
+                assert_eq!(actual.heap.values(), expected.heap.values());
+                assert!(Arc::ptr_eq(&actual.heap, &input.h));
+                assert!(Arc::ptr_eq(
+                    actual.partial.as_ref().unwrap(),
+                    input.partially_consumed_heap.as_ref().unwrap()
+                ));
+                assert_eq!(
+                    actual.partial.as_ref().unwrap().values(),
+                    expected.partial.as_ref().unwrap().values()
+                );
+                assert_eq!(actual.in_old, initial_in_old);
+                assert_eq!(actual.in_old, expected.in_old);
+                assert_eq!(actual.triggers, expected.triggers);
+                assert_eq!(actual.triggers.get(&seed), Some(&factory.int_literal(99)));
+                assert!(
+                    actual.triggers.get(&app).is_some(),
+                    "heap-independent trigger survives nested old scopes"
+                );
+                let labelled = Exp::new(
+                    ExpKind::LabelledOld(app.clone(), "L".into()),
+                    Default::default(),
+                );
+                let nested = Exp::new(ExpKind::Old(labelled), Default::default());
+                assert!(
+                    actual.triggers.get(&nested).is_some(),
+                    "inner trigger is wrapped through both old scopes"
+                );
+
+                let missing = Exp::new(
+                    ExpKind::LabelledOld(trigger_rhs.clone(), "missing".into()),
+                    Default::default(),
+                );
+                test_capture_old_returns(true);
+                let failure = crate::rules::evaluator::evaluate_owned_nested(
+                    &mut source.context,
+                    input,
+                    &missing,
+                    &partial,
+                    &trigger_receiver,
+                    vec![],
+                )
+                .unwrap();
+                assert!(failure.is_fatal());
+                assert!(
+                    test_capture_old_returns(false).is_empty(),
+                    "missing label must not reach the assignment receiver"
+                );
+            }
+        }
         // Capture a real AssertProbe consumption job using the same source Q.
         let captured_probe = std::rc::Rc::new(std::cell::RefCell::new(None));
         let waited = std::rc::Rc::new(std::cell::Cell::new(0));

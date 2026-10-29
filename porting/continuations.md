@@ -224,8 +224,12 @@ local callbacks. Guarded logging, packaging and extended-exhale cases are unchan
 Actual one/two-worker jobs check mixed and labelled old/current heap values,
 permissions, branching left operands and a captured tail that reports assertion.false.
 A CLI regression checks that an inaccessible left operand fails before a right-side
-assertion. Trigger-map restoration follows the source old-frame rule; a dedicated
-record_possible_triggers integration fixture remains outstanding.
+assertion. A real-Z3 regression with record_possible_triggers enabled compares the local
+owned receiver with synchronous nested old/labelled-old evaluation. It checks
+saved and wrapped triggers, the original old-state flag, current/partial heap
+identity, and missing-label failure before receiver entry. Its scheduler and
+drained sibling future are injected: it does not inspect a transferred worker
+receiver with trigger recording enabled.
 
 The rule-error bridge pass preserves direct Context/Service errors in evaluator,
 producer and consumer adapters, including method/function/predicate and guarded
