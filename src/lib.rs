@@ -165,6 +165,8 @@ type ProverFactory<P> =
         TermFactory,
         SharedWarnings,
         Option<CancellationController>,
+        Option<Arc<dyn silver::reporter::reporter::Reporter>>,
+        Option<silicon::logger::general::GeneralLogger>,
     ) -> Result<(P, silicon::state::identifiers::DefaultIdentifierFactory), FerrumError>;
 
 struct ParallelContext<P>
@@ -195,6 +197,7 @@ where
         cancellation: Option<CancellationController>,
         logging: Option<RunLogAttachment>,
         general_logger: Option<silicon::logger::general::GeneralLogger>,
+        reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
         postcondition_axioms: SharedPostconditionAxioms,
     ) -> Result<Self, FerrumError> {
         let worker_config = config.clone();
@@ -204,6 +207,7 @@ where
         let worker_cancellation = cancellation.clone();
         let worker_logging = logging.clone();
         let worker_general_logger = general_logger.clone();
+        let worker_reporter = reporter.clone();
         let create = move |index| {
             // Counterexample lookup uses raw term identifiers, as in upstream.
             // Keep generated worker names unchanged by SMT symbol sanitization.
@@ -214,6 +218,8 @@ where
                 worker_factory.clone(),
                 worker_warnings.clone(),
                 worker_cancellation.clone(),
+                worker_reporter.clone(),
+                worker_general_logger.clone(),
             )
             .map_err(|error| {
                 silicon::verifier::native_context::NativeError::Execution(error.to_string())
@@ -511,6 +517,8 @@ fn make_stdio_prover(
     factory: TermFactory,
     warning_sink: SharedWarnings,
     cancellation: Option<CancellationController>,
+    reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
+    general_logger: Option<silicon::logger::general::GeneralLogger>,
 ) -> Result<
     (
         ProverStdIo,
@@ -531,7 +539,12 @@ fn make_stdio_prover(
         }
     };
     let warnings = warning_sink;
-    let prover = ProverStdIo::new(id.into(), settings, profile, factory, move |event| {
+    let logger_name = match config.prover.as_str() {
+        "Z3" => "viper.silicon.decider.Z3ProverStdIO",
+        "cvc5" => "viper.silicon.decider.Cvc5ProverStdIO",
+        _ => unreachable!(),
+    };
+    let mut prover = ProverStdIo::new(id.into(), settings, profile, factory, move |event| {
         if let ProverEvent::Warning(warning) = event {
             warnings
                 .lock()
@@ -539,6 +552,25 @@ fn make_stdio_prover(
                 .push(warning);
         }
     });
+    if reporter.is_some() || general_logger.is_some() {
+        prover.set_configuration_observer(move |message| {
+            if let Some(reporter) = &reporter {
+                reporter
+                    .report(silver::reporter::message::Message::Simple {
+                        kind:
+                            silver::reporter::message::SimpleMessageKind::ConfigurationConfirmation,
+                        text: message.into(),
+                    })
+                    .map_err(|error| format!("prover configuration reporter: {error:?}"))?;
+            }
+            if let Some(logger) = &general_logger {
+                logger.emit(logger_name, silicon::logger::general::Level::Debug, || {
+                    message.into()
+                });
+            }
+            Ok(())
+        });
+    }
     if let Some(c) = cancellation {
         c.register_stdio(prover.cancellation_handle());
     }
@@ -553,6 +585,8 @@ fn make_api_prover(
     factory: TermFactory,
     warning_sink: SharedWarnings,
     cancellation: Option<CancellationController>,
+    _reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
+    _general_logger: Option<silicon::logger::general::GeneralLogger>,
 ) -> Result<
     (
         silicon::decider::native_z3::LinkedZ3Prover,
@@ -893,6 +927,8 @@ impl SiliconBackend for NativeBackend {
                     factory.clone(),
                     self.warnings.clone(),
                     self.cancellation.clone(),
+                    self.reporter.clone(),
+                    self.general_logger.clone(),
                 )?;
                 self.context = Some(if count > 1 || config.parallelize_branches {
                     OwnedContext::ParallelApi(Box::new(ParallelContext::start(
@@ -907,6 +943,7 @@ impl SiliconBackend for NativeBackend {
                         self.cancellation.clone(),
                         self.logging.as_ref().map(RunLogOwner::attachment),
                         self.general_logger.clone(),
+                        self.reporter.clone(),
                         self.postcondition_axioms.clone(),
                     )?))
                 } else {
@@ -931,6 +968,8 @@ impl SiliconBackend for NativeBackend {
             factory.clone(),
             self.warnings.clone(),
             self.cancellation.clone(),
+            self.reporter.clone(),
+            self.general_logger.clone(),
         )?;
         self.context = Some(if count > 1 || config.parallelize_branches {
             OwnedContext::ParallelStdio(Box::new(ParallelContext::start(
@@ -945,6 +984,7 @@ impl SiliconBackend for NativeBackend {
                 self.cancellation.clone(),
                 self.logging.as_ref().map(RunLogOwner::attachment),
                 self.general_logger.clone(),
+                self.reporter.clone(),
                 self.postcondition_axioms.clone(),
             )?))
         } else {
@@ -2301,6 +2341,47 @@ mod postcondition_owner_tests {
     use silver::frontend::frontend::FrontendPhases;
 
     #[test]
+    fn startup_configuration_report_failure_stops_before_solver_spawn() {
+        struct Reject;
+        impl silver::reporter::reporter::Reporter for Reject {
+            fn name(&self) -> &str {
+                "reject"
+            }
+            fn report(
+                &self,
+                message: silver::reporter::message::Message,
+            ) -> Result<(), silver::reporter::reporter::ReportError> {
+                if matches!(
+                    message,
+                    silver::reporter::message::Message::Simple {
+                        kind:
+                            silver::reporter::message::SimpleMessageKind::ConfigurationConfirmation,
+                        ..
+                    }
+                ) {
+                    return Err(silver::reporter::reporter::ReportError::Unsupported(
+                        "configuration rejected",
+                    ));
+                }
+                Ok(())
+            }
+        }
+        let config = Config::parse(&[
+            "--ignoreFile".into(),
+            "--z3Exe".into(),
+            "/missing-solver".into(),
+            "test.vpr".into(),
+        ])
+        .unwrap();
+        let mut backend = NativeBackend::new(config);
+        backend.reporter = Some(Arc::new(Reject));
+        let error = silicon::silicon::SiliconBackend::start(&mut backend).unwrap_err();
+        assert!(
+            format!("{error:?}").contains("configuration rejected"),
+            "{error:?}"
+        );
+    }
+    #[test]
     #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
     fn function_postcondition_vector_survives_native_context_reset() {
         std::thread::Builder::new().stack_size(VERIFICATION_STACK_SIZE).spawn(|| {
@@ -2323,6 +2404,7 @@ mod postcondition_owner_tests {
                 let mut backend = NativeBackend::new(config); backend.reporter = Some(sink.clone());
                 let mut named = std::collections::BTreeMap::new();
                 named.insert("viper.silicon.verifier.DefaultMainVerifier-00".into(), "DEBUG".into());
+                named.insert("viper.silicon.decider".into(), "DEBUG".into());
                 if workers == 2 { named.insert("viper.silicon.verifier.WorkerVerifier-01".into(), "DEBUG".into()); named.insert("viper.silicon.verifier.WorkerVerifier-02".into(), "DEBUG".into()); }
                 backend.general_logger = Some(silicon::logger::general::GeneralLogger::new(Some("INFO"), &named, sink.clone()));
                 backend.config.prover_config_args.insert("smt.qi.eager_threshold".into(), "10".into());
@@ -2333,9 +2415,15 @@ mod postcondition_owner_tests {
                 assert_eq!(silicon.backend().postcondition_axioms.borrow().len(), first * 2);
                 let events = sink.0.lock().unwrap();
                 let config_events: Vec<_> = events.iter().filter(|e| e.contains("Additional prover configuration options")).collect();
+                let starts_reported = events.iter().filter(|e| e.starts_with("report: Starting prover at location")).count();
+                let starts_logged = events.iter().filter(|e| e.starts_with("log: Starting prover at location")).count();
+                assert!(starts_reported >= 2 && starts_reported == starts_logged, "{events:?}");
                 assert_eq!(config_events.len(), 4, "report then log once per verification");
                 assert!(config_events[0].starts_with("report: ") && config_events[1].starts_with("log: ") && config_events[2].starts_with("report: ") && config_events[3].starts_with("log: "));
                 assert!(events.iter().any(|e| e.contains("EVAL ")), "recursive evaluation debug event missing: {events:?}");
+                assert!(events.iter().any(|e| e.contains("EXECUTE ")), "statement debug event missing: {events:?}");
+                assert!(events.iter().any(|e| e.contains("PRODUCE ")), "production debug event missing: {events:?}");
+                assert!(events.iter().any(|e| e.contains("CONSUME ")), "consumption debug event missing: {events:?}");
                 assert!(events.iter().any(|e| e.contains("Store: ") && e.contains("Heap: ")), "evaluation state missing: {events:?}");
                 assert!(events.iter().any(|e| e.contains("----- Well-definedness of specifications -----")));
                 assert!(events.iter().any(|e| e.contains("----- Verification of function body and postcondition -----")));

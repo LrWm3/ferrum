@@ -194,6 +194,7 @@ pub struct ProverStdIo {
     factory: TermFactory,
     identifiers: DefaultIdentifierFactory,
     report: Box<dyn FnMut(ProverEvent) + Send>,
+    configuration_observer: Option<Box<dyn FnMut(&str) -> Result<(), String> + Send>>,
     child: Arc<Mutex<Option<Child>>>,
     input: Option<BufReader<std::fs::File>>,
     output: Option<BufWriter<ChildStdin>>,
@@ -210,6 +211,23 @@ impl ProverStdIo {
     /// Obtain a handle which may interrupt a blocking solver read from another thread.
     pub fn cancellation_handle(&self) -> StdioCancellationHandle {
         StdioCancellationHandle(self.child.clone())
+    }
+    /// Observe source configuration messages; errors abort startup before solver creation.
+    pub fn set_configuration_observer(
+        &mut self,
+        observer: impl FnMut(&str) -> Result<(), String> + Send + 'static,
+    ) {
+        self.configuration_observer = Some(Box::new(observer));
+    }
+    fn report_configuration(&mut self, message: String) -> Result<(), ProverError> {
+        if let Some(observer) = &mut self.configuration_observer {
+            observer(&message).map_err(|message| ProverError::Protocol {
+                prover_id: self.unique_id.clone(),
+                message,
+            })?;
+        }
+        (self.report)(ProverEvent::Configuration(message));
+        Ok(())
     }
     /// Share the source verifier's identifier stream with its prover.
     pub fn identifier_factory(&self) -> DefaultIdentifierFactory {
@@ -230,6 +248,7 @@ impl ProverStdIo {
             settings,
             profile,
             report: Box::new(report),
+            configuration_observer: None,
             child: Arc::new(Mutex::new(None)),
             input: None,
             output: None,
@@ -529,24 +548,22 @@ impl Prover for ProverStdIo {
             .as_ref()
             .map(|file| print_writer(file, true, false))
             .transpose()?;
+        self.report_configuration(format!(
+            "Starting prover at location '{}'",
+            self.settings.executable.display()
+        ))?;
         if !self.settings.executable.is_file() {
             return Err(self.protocol(format!(
                 "prover path is not a file: {}",
                 self.settings.executable.display()
             )));
         }
-        (self.report)(ProverEvent::Configuration(format!(
-            "Starting prover at location '{}'",
-            self.settings.executable.display()
-        )));
         let mut command = Command::new(&self.settings.executable);
         command
             .args(&self.profile.startup_args)
             .stdin(Stdio::piped());
         if let Some(args) = user_args {
-            (self.report)(ProverEvent::Configuration(format!(
-                "Additional command-line arguments are {args}"
-            )));
+            self.report_configuration(format!("Additional command-line arguments are {args}"))?;
             // Source splits literal spaces, keeps internal empty fields and trims each argument.
             command.args(args.split_terminator(' ').map(str::trim));
         }
@@ -779,6 +796,28 @@ mod cancellation_tests {
     use crate::state::terms::TermOptions;
     use std::os::unix::fs::PermissionsExt;
 
+    #[test]
+    fn configuration_observer_failure_aborts_before_solver_start() {
+        use crate::interfaces::decider::prover::Prover;
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let mut prover = crate::decider::z3_prover_std_io::new(
+            "test".into(),
+            ProverSettings::new("/missing-solver".into(), 10000),
+            factory,
+            |_| {},
+        );
+        prover.set_configuration_observer(|message| {
+            assert!(message.contains("Starting prover at location"));
+            Err("reporter rejected".into())
+        });
+        let error = prover.start(None).unwrap_err().to_string();
+        assert!(error.contains("reporter rejected"), "{error}");
+        assert!(!prover.cancellation_handle().cancel().unwrap());
+    }
     #[test]
     fn stdio_soft_assertion_reason_remains_absent() {
         use crate::interfaces::decider::prover::Prover;

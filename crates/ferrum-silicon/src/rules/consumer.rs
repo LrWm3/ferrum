@@ -203,6 +203,15 @@ impl<E: Clone, P, D, J> Clone for OwnedConsumptionAction<E, P, D, J> {
 pub trait ConsumptionContext<P, D, J, V>: Sized {
     type Error;
     type PartialError: Clone;
+    /// Source consumeTlc logging, after opening its scope and before dispatch.
+    fn log_consumption(
+        &mut self,
+        _state: &State<P, D, J>,
+        _heap: &Arc<ListBackedHeap>,
+        _assertion: &Exp,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
     fn supports_owned_consumption(&self, _state: &State<P, D, J>) -> bool {
         false
     }
@@ -798,6 +807,9 @@ where
             let scope = context
                 .open_consumption_scope(&state, assertion)
                 .map_err(ConsumptionError::Context)?;
+            context
+                .log_consumption(&state, &heap, assertion)
+                .map_err(ConsumptionError::Context)?;
             let inner = context
                 .open_consumption_conditional_scope(&state, assertion)
                 .map_err(ConsumptionError::Context)?;
@@ -837,6 +849,9 @@ where
     {
         let scope = context
             .open_consumption_scope(&state, assertion)
+            .map_err(ConsumptionError::Context)?;
+        context
+            .log_consumption(&state, &heap, assertion)
             .map_err(ConsumptionError::Context)?;
         if scope.is_some() {
             return Err(ConsumptionError::OwnedSchedulerUnavailable);
@@ -1019,6 +1034,9 @@ where
 {
     let scope = context
         .open_consumption_scope(&state, assertion)
+        .map_err(ConsumptionError::Context)?;
+    context
+        .log_consumption(&state, &heap, assertion)
         .map_err(ConsumptionError::Context)?;
     consume_one(
         context,

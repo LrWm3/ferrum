@@ -362,6 +362,110 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         self.general_logger_name =
             format!("viper.silicon.verifier.WorkerVerifier-{:02}", index + 1);
     }
+    fn log_assertion_state(
+        &self,
+        label: &str,
+        state: &State<PD, FD, JoinMode>,
+        assertion: &Exp,
+        heap: Option<&Arc<ListBackedHeap>>,
+    ) -> Result<(), NativeError<S::Error>> {
+        use crate::logger::general::Level;
+        let Some((logger, _)) = &self.general_logging else {
+            return Ok(());
+        };
+        if !logger.enabled(&self.general_logger_name, Level::Debug) {
+            return Ok(());
+        }
+        let pos = &assertion.metadata().position;
+        let position = pos
+            .line_column()
+            .map(|p| format!("{}:{}", p.line(), p.column()))
+            .unwrap_or_else(|| pos.to_string());
+        let rendered = ferrum_silver::ast::pretty::pretty_printer::expression_to_string(assertion)
+            .map_err(|e| NativeError::Diagnostic(format!("assertion log: {e:?}")))?;
+        logger.emit(&self.general_logger_name, Level::Debug, || {
+            format!("\n{label} {position}: {rendered}")
+        });
+        let formatter = crate::reporting::formatters::native_state_formatter(
+            &self.factory,
+            logger.enabled("SiliconFrontend", Level::Trace),
+        );
+        let text = formatter
+            .format_state(state, &self.base.decider.pcs.recorded())
+            .map_err(|e| NativeError::Diagnostic(format!("assertion state log: {e:?}")))?;
+        logger.emit(&self.general_logger_name, Level::Debug, || text);
+        if let Some(heap) = heap {
+            let text = formatter
+                .format_heap(heap)
+                .map_err(|e| NativeError::Diagnostic(format!("consumption heap log: {e:?}")))?;
+            logger.emit(&self.general_logger_name, Level::Debug, || {
+                format!("h = {text}")
+            });
+            if !state.reserve_heaps.is_empty() {
+                let heaps = state
+                    .reserve_heaps
+                    .iter()
+                    .map(|heap| formatter.format_heap(heap))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| NativeError::Diagnostic(format!("consumption heap log: {e:?}")))?;
+                logger.emit(&self.general_logger_name, Level::Debug, || {
+                    format!("hR = {}", heaps.join(",\n     "))
+                });
+            }
+        }
+        Ok(())
+    }
+    fn log_execution_state(
+        &self,
+        state: &State<PD, FD, JoinMode>,
+        statement: &Stmt,
+    ) -> Result<(), NativeError<S::Error>> {
+        use crate::logger::general::Level;
+        if matches!(
+            statement.kind(),
+            ferrum_silver::ast::statement::StmtKind::Seqn { .. }
+        ) {
+            return Ok(());
+        }
+        let Some((logger, _)) = &self.general_logging else {
+            return Ok(());
+        };
+        if !logger.enabled(&self.general_logger_name, Level::Debug) {
+            return Ok(());
+        }
+        let pos = &statement.metadata().position;
+        let position = pos
+            .line_column()
+            .map(|p| format!("{}:{}", p.line(), p.column()))
+            .unwrap_or_else(|| pos.to_string());
+        let rendered = ferrum_silver::ast::pretty::pretty_printer::pretty_node(
+            &ferrum_silver::ast::utility::nodes::Node::Stmt(statement.clone()),
+        )
+        .map_err(|e| NativeError::Diagnostic(format!("execution log: {e:?}")))?;
+        logger.emit(&self.general_logger_name, Level::Debug, || {
+            format!("\nEXECUTE {position}: {rendered}")
+        });
+        let formatter = crate::reporting::formatters::native_state_formatter(
+            &self.factory,
+            logger.enabled("SiliconFrontend", Level::Trace),
+        );
+        let text = formatter
+            .format_state(state, &self.base.decider.pcs.recorded())
+            .map_err(|e| NativeError::Diagnostic(format!("execution state log: {e:?}")))?;
+        logger.emit(&self.general_logger_name, Level::Debug, || text);
+        if !state.reserve_heaps.is_empty() {
+            let heaps = state
+                .reserve_heaps
+                .iter()
+                .map(|heap| formatter.format_heap(heap))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| NativeError::Diagnostic(format!("execution heap log: {e:?}")))?;
+            logger.emit(&self.general_logger_name, Level::Debug, || {
+                format!("hR = {}", heaps.join(",\n     "))
+            });
+        }
+        Ok(())
+    }
     fn log_evaluation_state(
         &self,
         state: &State<PD, FD, JoinMode>,
@@ -3872,7 +3976,9 @@ where
         assertion: &Exp,
     ) -> Result<Option<i32>, Self::Error> {
         self.checkpoint()?;
-        self.open_logged_scope(state, assertion, LoggedScopeKind::Produce)
+        let scope = self.open_logged_scope(state, assertion, LoggedScopeKind::Produce)?;
+        self.log_assertion_state("PRODUCE", state, assertion, None)?;
+        Ok(scope)
     }
     fn close_produce_scope(&mut self, id: Option<i32>) -> Result<(), Self::Error> {
         self.close_logged_scope(id)
@@ -4989,6 +5095,14 @@ where
                 "owned consumption tail: {other:?}"
             ))),
         })
+    }
+    fn log_consumption(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        heap: &Arc<ListBackedHeap>,
+        assertion: &Exp,
+    ) -> Result<(), Self::Error> {
+        self.log_assertion_state("CONSUME", state, assertion, Some(heap))
     }
     fn open_consumption_scope(
         &mut self,
@@ -8246,6 +8360,13 @@ where
     S::Error: std::fmt::Debug,
 {
     type Error = NativeError<S::Error>;
+    fn log_statement(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        statement: &Stmt,
+    ) -> Result<(), Self::Error> {
+        self.log_execution_state(state, statement)
+    }
     fn open_statement(
         &mut self,
         state: &State<PD, FD, JoinMode>,

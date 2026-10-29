@@ -127,6 +127,14 @@ pub struct MethodCallPreFrame {
 
 pub trait ExecutionContext<P, D, J, V>: Sized {
     type Error;
+    /// Optional source debug logging after switching to the execution heap.
+    fn log_statement(
+        &mut self,
+        _state: &State<P, D, J>,
+        _statement: &Stmt,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
     fn open_statement(
         &mut self,
         state: &State<P, D, J>,
@@ -500,6 +508,9 @@ where
         .map_err(ExecutionError::Context)?;
     let debug_snapshot = context
         .debug_statement_snapshot(&state)
+        .map_err(ExecutionError::Context)?;
+    context
+        .log_statement(&state, statement)
         .map_err(ExecutionError::Context)?;
     let mut finish = |context: &mut C, state| {
         let state = context

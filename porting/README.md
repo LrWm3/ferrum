@@ -1003,3 +1003,9 @@ attachment across resets, configuration confirmation, member phase/results and
 recursive evaluation state events. Public general-log flags remain gated until
 the remaining rule and solver producers are connected. Disabled logs avoid result
 flattening and state rendering.
+
+Recursive production, consumption and statement execution now emit gated general
+state events at their source rule boundaries, including owned consumption paths.
+Stdio prover startup forwards configuration confirmation to the reporter before
+logging; a reporting failure aborts startup before spawning the solver. Public
+general-log activation and remaining solver/version events are still pending.
