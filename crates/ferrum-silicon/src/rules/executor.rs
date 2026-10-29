@@ -392,6 +392,7 @@ pub trait ExecutionContext<P, D, J, V>: Sized {
         field: &ferrum_silver::ast::program::Field,
         receiver: &TermValue,
         original: &LocalVar,
+        statement: &Stmt,
         rewritten: Option<&Exp>,
         snapshot: TermValue,
         continuation: &mut dyn FnMut(
@@ -725,6 +726,7 @@ where
                 state,
                 fields,
                 lhs,
+                statement,
                 &receiver,
                 rewritten.as_ref(),
                 &mut |context, mut state| {
@@ -1162,6 +1164,7 @@ fn produce_new_fields<C, P, D, J: Clone, V>(
     state: State<P, D, J>,
     fields: &[ferrum_silver::ast::program::Field],
     original: &LocalVar,
+    statement: &Stmt,
     receiver: &TermValue,
     rewritten: Option<&Exp>,
     continuation: &mut dyn FnMut(
@@ -1183,6 +1186,7 @@ where
         field,
         receiver,
         original,
+        statement,
         rewritten,
         snapshot,
         &mut |context, state| {
@@ -1191,6 +1195,7 @@ where
                 state,
                 rest,
                 original,
+                statement,
                 receiver,
                 rewritten,
                 continuation,

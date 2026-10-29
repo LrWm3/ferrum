@@ -1195,6 +1195,7 @@ pub trait SummaryEmission: PermissionMapFreshener {
         definitions: &[Term],
         domain: bool,
         instantiated: bool,
+        permission_map: bool,
     ) -> Result<(), Self::Error>;
 }
 #[derive(Debug)]
@@ -1241,12 +1242,12 @@ fn emit_snapshot_summary<S: SummaryEmission>(
     if domain_needed {
         let definitions = instantiate(&definition.domain_definitions)?;
         services
-            .assume_summary_definitions(&definitions, true, instantiations.is_some())
+            .assume_summary_definitions(&definitions, true, instantiations.is_some(), false)
             .map_err(SummaryCacheError::Emit)?;
     }
     let definitions = instantiate(&definition.value_definitions)?;
     services
-        .assume_summary_definitions(&definitions, false, instantiations.is_some())
+        .assume_summary_definitions(&definitions, false, instantiations.is_some(), false)
         .map_err(SummaryCacheError::Emit)
 }
 /// Compute or reuse both maps, re-emitting their definitions and recording them in state.
@@ -1375,7 +1376,7 @@ where
         definition
     };
     services
-        .assume_summary_definitions(&permission.value_definitions, false, false)
+        .assume_summary_definitions(&permission.value_definitions, false, false, true)
         .map_err(SummaryCacheError::Emit)?;
     state.function_recorder = state
         .function_recorder
@@ -2907,6 +2908,7 @@ pub trait GeneralQuantifiedProduction<P, D, J, V>: InverseFunctionServices {
         error: &Self::VerificationError,
         reason: QuantifiedProductionFailure,
         goal: &Term,
+        assertion_exp: Option<&Exp>,
     ) -> Result<crate::interfaces::verification::VerificationResult<V>, Self::Error>;
     fn warn_missing_quantified_triggers(
         &mut self,
@@ -2959,6 +2961,33 @@ pub enum QuantifiedProductionFailure {
     NegativePermission,
     NotInjective,
 }
+fn quantified_negative_debug(input: &GeneralProductionInput, quantified: bool) -> Option<Exp> {
+    use ferrum_silver::ast::expression::ExpKind;
+    let condition = input.condition_exp.as_ref()?;
+    let permission = input.permission_exp.as_ref()?;
+    let comparison = Exp::new(
+        ExpKind::PermGeCmp(
+            permission.clone(),
+            Exp::new(ExpKind::NoPerm, Default::default()),
+        ),
+        Default::default(),
+    );
+    let metadata = if quantified {
+        permission.metadata().clone()
+    } else {
+        condition.metadata().clone()
+    };
+    let implication = Exp::new(ExpKind::Implies(condition.clone(), comparison), metadata);
+    if quantified {
+        Some(Exp::new(
+            ExpKind::Forall(input.qvar_exps.clone()?, vec![], implication),
+            Default::default(),
+        ))
+    } else {
+        Some(implication)
+    }
+}
+
 #[derive(Debug)]
 pub enum GeneralProductionError<E> {
     Inverse(InverseGenerationError<E>),
@@ -3273,6 +3302,7 @@ pub fn produce_general_quantified<
                     error,
                     QuantifiedProductionFailure::NegativePermission,
                     &nonnegative,
+                    quantified_negative_debug(&input, false).as_ref(),
                 )
                 .map_err(GeneralProductionError::Service)?,
         ));
@@ -3306,6 +3336,7 @@ pub fn produce_general_quantified<
                     error,
                     QuantifiedProductionFailure::NotInjective,
                     &injectivity,
+                    None,
                 )
                 .map_err(GeneralProductionError::Service)?,
         ));
@@ -3419,6 +3450,7 @@ pub trait GeneralQuantifiedConsumptionPreparation<P, D, J, V>: InverseFunctionSe
         error: &Self::VerificationError,
         reason: QuantifiedProductionFailure,
         goal: &Term,
+        assertion_exp: Option<&Exp>,
     ) -> Result<crate::interfaces::verification::VerificationResult<V>, Self::Error>;
     fn consume_trigger_summary(
         &mut self,
@@ -3608,6 +3640,7 @@ pub fn prepare_general_quantified_consumption<
                     error,
                     QuantifiedProductionFailure::NegativePermission,
                     &goal,
+                    quantified_negative_debug(&input, true).as_ref(),
                 )
                 .map_err(GeneralProductionError::Service)?,
         ));
@@ -3679,6 +3712,7 @@ pub fn prepare_general_quantified_consumption<
                     error,
                     QuantifiedProductionFailure::NotInjective,
                     &injectivity,
+                    None,
                 )
                 .map_err(GeneralProductionError::Service)?,
         ));

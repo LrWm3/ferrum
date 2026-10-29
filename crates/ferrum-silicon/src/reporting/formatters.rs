@@ -29,7 +29,7 @@ pub trait StateRenderer {
 /// The source spelling is unavailable for this term without collection provenance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UnsupportedTermRendering;
-fn render_resource(
+pub(crate) fn render_resource(
     resource: &crate::state::terms::ResourceKey,
 ) -> Result<String, UnsupportedTermRendering> {
     use crate::state::terms::ResourceKey;

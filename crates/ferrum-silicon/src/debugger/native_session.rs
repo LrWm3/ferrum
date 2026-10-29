@@ -175,6 +175,343 @@ mod tests {
             assert!(!transcript.contains("PASS:"), "{transcript}");
         }).unwrap().join().unwrap();
     }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn captured_quantified_negative_production_session_replays_after_verifier_drop() {
+        std::thread::Builder::new().stack_size(128 * 1024 * 1024).spawn(|| {
+            use crate::{decider::z3_prover_std_io, interfaces::verification::ResultKind, state::terms::TermOptions, verifier::verification_pool_manager::native_method_worker};
+            use ferrum_silver::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
+            use std::{io::Cursor, sync::Arc};
+            let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+            let mut config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "debug.vpr".into()]).unwrap();
+            // Keep the public configuration gate until all failure sites are
+            // connected; this fixture exercises the internal assembled path.
+            let options = NativeOptions::from_config(&config).unwrap();
+            config.enable_debugging = true;
+            let factory = TermFactory::new(TermOptions { use_flyweight: config.use_flyweight(), use_old_axiomatization: config.use_old_axiomatization, mask_heap_mode: false });
+            let mut settings = z3_prover_std_io::settings(z3.into()); settings.debug = true;
+            let prover = z3_prover_std_io::new("session_capture".into(), settings, factory.clone(), |_| {});
+            let identifiers = prover.identifier_factory();
+            let mut worker = native_method_worker("session_capture".into(), prover, identifiers, factory.clone(), options.clone(), &config);
+            let mut phases = SilFrontendPhases::new("debug.vpr".into(), ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+            phases.retain_source_program = true;
+            let parsed = phases.parse("field f: Int method m(p: Perm) requires p < none { inhale forall x: Ref :: x != null ==> acc(x.f, p); }").unwrap();
+            let analyzed = phases.analyze(parsed).unwrap();
+            let program = phases.translate(analyzed).unwrap();
+            worker.context.start(None, &[]).unwrap();
+            worker.context.set_debug_failure_factory(Arc::new(|state, record, owners| Ok(Arc::new(CapturedFailure::capture_native(state, record, owners)?))));
+            let results = worker.context.verify_program(&program, &[]).unwrap();
+            worker.context.stop().unwrap();
+            drop(worker);
+            let failure = results.iter().find_map(|result| result.with_kind(|kind| match kind {
+                ResultKind::Failure(error) => error.failure_contexts.first().cloned(), _ => None,
+            })).expect("captured failure");
+            let captured = (failure.as_ref() as &dyn Any).downcast_ref::<CapturedFailure>().unwrap();
+            let mut output = Vec::new();
+            run_obligation(&config, options, factory, captured, &mut Cursor::new(b"p\nq\n"), &mut output).unwrap();
+            let transcript = String::from_utf8(output).unwrap();
+            assert!(transcript.contains("FAIL: Proving obligation failed."), "{transcript}");
+            assert!(!transcript.contains("Error while"), "{transcript}");
+        }).unwrap().join().unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn captured_quantified_negative_consumption_session_replays_after_verifier_drop() {
+        std::thread::Builder::new().stack_size(128 * 1024 * 1024).spawn(|| {
+            use crate::{decider::z3_prover_std_io, interfaces::verification::ResultKind, state::terms::TermOptions, verifier::verification_pool_manager::native_method_worker};
+            use ferrum_silver::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
+            use std::{io::Cursor, sync::Arc};
+            let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+            let mut config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "debug.vpr".into()]).unwrap();
+            // Keep the public configuration gate until all failure sites are
+            // connected; this fixture exercises the internal assembled path.
+            let options = NativeOptions::from_config(&config).unwrap();
+            config.enable_debugging = true;
+            let factory = TermFactory::new(TermOptions { use_flyweight: config.use_flyweight(), use_old_axiomatization: config.use_old_axiomatization, mask_heap_mode: false });
+            let mut settings = z3_prover_std_io::settings(z3.into()); settings.debug = true;
+            let prover = z3_prover_std_io::new("session_capture".into(), settings, factory.clone(), |_| {});
+            let identifiers = prover.identifier_factory();
+            let mut worker = native_method_worker("session_capture".into(), prover, identifiers, factory.clone(), options.clone(), &config);
+            let mut phases = SilFrontendPhases::new("debug.vpr".into(), ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+            phases.retain_source_program = true;
+            let parsed = phases.parse("field f: Int method m(p: Perm) requires p < none { exhale forall x: Ref :: x != null ==> acc(x.f, p); }").unwrap();
+            let analyzed = phases.analyze(parsed).unwrap();
+            let program = phases.translate(analyzed).unwrap();
+            worker.context.start(None, &[]).unwrap();
+            worker.context.set_debug_failure_factory(Arc::new(|state, record, owners| Ok(Arc::new(CapturedFailure::capture_native(state, record, owners)?))));
+            let results = worker.context.verify_program(&program, &[]).unwrap();
+            worker.context.stop().unwrap();
+            drop(worker);
+            let failure = results.iter().find_map(|result| result.with_kind(|kind| match kind {
+                ResultKind::Failure(error) => error.failure_contexts.first().cloned(), _ => None,
+            })).expect("captured failure");
+            let captured = (failure.as_ref() as &dyn Any).downcast_ref::<CapturedFailure>().unwrap();
+            let mut output = Vec::new();
+            run_obligation(&config, options, factory, captured, &mut Cursor::new(b"p\nq\n"), &mut output).unwrap();
+            let transcript = String::from_utf8(output).unwrap();
+            assert!(transcript.contains("FAIL: Proving obligation failed."), "{transcript}");
+            assert!(!transcript.contains("Error while"), "{transcript}");
+        }).unwrap().join().unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn captured_nonpositive_unfold_session_replays_after_verifier_drop() {
+        std::thread::Builder::new().stack_size(128 * 1024 * 1024).spawn(|| {
+            use crate::{decider::z3_prover_std_io, interfaces::verification::ResultKind, state::terms::TermOptions, verifier::verification_pool_manager::native_method_worker};
+            use ferrum_silver::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
+            use std::{io::Cursor, sync::Arc};
+            let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+            let mut config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "debug.vpr".into()]).unwrap();
+            // Keep the public configuration gate until all failure sites are
+            // connected; this fixture exercises the internal assembled path.
+            let options = NativeOptions::from_config(&config).unwrap();
+            config.enable_debugging = true;
+            let factory = TermFactory::new(TermOptions { use_flyweight: config.use_flyweight(), use_old_axiomatization: config.use_old_axiomatization, mask_heap_mode: false });
+            let mut settings = z3_prover_std_io::settings(z3.into()); settings.debug = true;
+            let prover = z3_prover_std_io::new("session_capture".into(), settings, factory.clone(), |_| {});
+            let identifiers = prover.identifier_factory();
+            let mut worker = native_method_worker("session_capture".into(), prover, identifiers, factory.clone(), options.clone(), &config);
+            let mut phases = SilFrontendPhases::new("debug.vpr".into(), ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+            phases.retain_source_program = true;
+            let parsed = phases.parse("predicate P() { true } method m() { assert unfolding acc(P(), none) in true; }").unwrap();
+            let analyzed = phases.analyze(parsed).unwrap();
+            let program = phases.translate(analyzed).unwrap();
+            worker.context.start(None, &[]).unwrap();
+            worker.context.set_debug_failure_factory(Arc::new(|state, record, owners| Ok(Arc::new(CapturedFailure::capture_native(state, record, owners)?))));
+            let results = worker.context.verify_program(&program, &[]).unwrap();
+            worker.context.stop().unwrap();
+            drop(worker);
+            let failure = results.iter().find_map(|result| result.with_kind(|kind| match kind {
+                ResultKind::Failure(error) => error.failure_contexts.first().cloned(), _ => None,
+            })).expect("captured failure");
+            let captured = (failure.as_ref() as &dyn Any).downcast_ref::<CapturedFailure>().unwrap();
+            let mut output = Vec::new();
+            run_obligation(&config, options, factory, captured, &mut Cursor::new(b"p\nq\n"), &mut output).unwrap();
+            let transcript = String::from_utf8(output).unwrap();
+            assert!(transcript.contains("FAIL: Proving obligation failed."), "{transcript}");
+            assert!(!transcript.contains("Error while"), "{transcript}");
+        }).unwrap().join().unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn captured_quantified_read_session_replays_after_verifier_drop() {
+        std::thread::Builder::new().stack_size(128 * 1024 * 1024).spawn(|| {
+            use crate::{decider::z3_prover_std_io, interfaces::verification::ResultKind, state::terms::TermOptions, verifier::verification_pool_manager::native_method_worker};
+            use ferrum_silver::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
+            use std::{io::Cursor, sync::Arc};
+            let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+            let mut config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "debug.vpr".into()]).unwrap();
+            // Keep the public configuration gate until all failure sites are
+            // connected; this fixture exercises the internal assembled path.
+            let options = NativeOptions::from_config(&config).unwrap();
+            config.enable_debugging = true;
+            let factory = TermFactory::new(TermOptions { use_flyweight: config.use_flyweight(), use_old_axiomatization: config.use_old_axiomatization, mask_heap_mode: false });
+            let mut settings = z3_prover_std_io::settings(z3.into()); settings.debug = true;
+            let prover = z3_prover_std_io::new("session_capture".into(), settings, factory.clone(), |_| {});
+            let identifiers = prover.identifier_factory();
+            let mut worker = native_method_worker("session_capture".into(), prover, identifiers, factory.clone(), options.clone(), &config);
+            let mut phases = SilFrontendPhases::new("debug.vpr".into(), ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+            phases.retain_source_program = true;
+            let parsed = phases.parse("field f: Int method m(r: Ref) requires r != null && (forall x: Ref :: x != null && x != r ==> acc(x.f)) { assert r.f == 0; }").unwrap();
+            let analyzed = phases.analyze(parsed).unwrap();
+            let program = phases.translate(analyzed).unwrap();
+            worker.context.start(None, &[]).unwrap();
+            worker.context.set_debug_failure_factory(Arc::new(|state, record, owners| Ok(Arc::new(CapturedFailure::capture_native(state, record, owners)?))));
+            let results = worker.context.verify_program(&program, &[]).unwrap();
+            worker.context.stop().unwrap();
+            drop(worker);
+            let failure = results.iter().find_map(|result| result.with_kind(|kind| match kind {
+                ResultKind::Failure(error) => error.failure_contexts.first().cloned(), _ => None,
+            })).expect("captured failure");
+            let captured = (failure.as_ref() as &dyn Any).downcast_ref::<CapturedFailure>().unwrap();
+            let mut output = Vec::new();
+            run_obligation(&config, options, factory, captured, &mut Cursor::new(b"p\nq\n"), &mut output).unwrap();
+            let transcript = String::from_utf8(output).unwrap();
+            assert!(transcript.contains("FAIL: Proving obligation failed."), "{transcript}");
+            assert!(!transcript.contains("Error while"), "{transcript}");
+        }).unwrap().join().unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn captured_new_allocation_session_replays_after_verifier_drop() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024 * 1024)
+            .spawn(|| {
+                use crate::{
+                    decider::z3_prover_std_io, interfaces::verification::ResultKind,
+                    state::terms::TermOptions,
+                    verifier::verification_pool_manager::native_method_worker,
+                };
+                use ferrum_silver::frontend::{
+                    frontend::FrontendPhases, sil_frontend::SilFrontendPhases,
+                };
+                use std::{io::Cursor, sync::Arc};
+                let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+                let mut config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3.clone(),
+                    "debug.vpr".into(),
+                ])
+                .unwrap();
+                // Keep the public configuration gate until all failure sites are
+                // connected; this fixture exercises the internal assembled path.
+                let options = NativeOptions::from_config(&config).unwrap();
+                config.enable_debugging = true;
+                let factory = TermFactory::new(TermOptions {
+                    use_flyweight: config.use_flyweight(),
+                    use_old_axiomatization: config.use_old_axiomatization,
+                    mask_heap_mode: false,
+                });
+                let mut settings = z3_prover_std_io::settings(z3.into());
+                settings.debug = true;
+                let prover = z3_prover_std_io::new(
+                    "session_capture".into(),
+                    settings,
+                    factory.clone(),
+                    |_| {},
+                );
+                let identifiers = prover.identifier_factory();
+                let mut worker = native_method_worker(
+                    "session_capture".into(),
+                    prover,
+                    identifiers,
+                    factory.clone(),
+                    options.clone(),
+                    &config,
+                );
+                let mut phases = SilFrontendPhases::new(
+                    "debug.vpr".into(),
+                    ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                phases.retain_source_program = true;
+                let parsed = phases
+                    .parse("field f: Int method m() { var r: Ref := new(f); assert false; }")
+                    .unwrap();
+                let analyzed = phases.analyze(parsed).unwrap();
+                let program = phases.translate(analyzed).unwrap();
+                worker.context.start(None, &[]).unwrap();
+                worker
+                    .context
+                    .set_debug_failure_factory(Arc::new(|state, record, owners| {
+                        Ok(Arc::new(CapturedFailure::capture_native(
+                            state, record, owners,
+                        )?))
+                    }));
+                let results = worker.context.verify_program(&program, &[]).unwrap();
+                worker.context.stop().unwrap();
+                drop(worker);
+                let failure = results
+                    .iter()
+                    .find_map(|result| {
+                        result.with_kind(|kind| match kind {
+                            ResultKind::Failure(error) => error.failure_contexts.first().cloned(),
+                            _ => None,
+                        })
+                    })
+                    .expect("captured failure");
+                let captured = (failure.as_ref() as &dyn Any)
+                    .downcast_ref::<CapturedFailure>()
+                    .unwrap();
+                let mut output = Vec::new();
+                run_obligation(
+                    &config,
+                    options,
+                    factory,
+                    captured,
+                    &mut Cursor::new(b"p\nq\n"),
+                    &mut output,
+                )
+                .unwrap();
+                let transcript = String::from_utf8(output).unwrap();
+                assert!(
+                    transcript.contains("FAIL: Proving obligation failed."),
+                    "{transcript}"
+                );
+                assert!(!transcript.contains("Error while"), "{transcript}");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn captured_quantified_assign_session_replays_after_verifier_drop() {
+        std::thread::Builder::new().stack_size(128 * 1024 * 1024).spawn(|| {
+            use crate::{decider::z3_prover_std_io, interfaces::verification::ResultKind, state::terms::TermOptions, verifier::verification_pool_manager::native_method_worker};
+            use ferrum_silver::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
+            use std::{io::Cursor, sync::Arc};
+            let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+            let mut config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "debug.vpr".into()]).unwrap();
+            // Keep the public configuration gate until all failure sites are
+            // connected; this fixture exercises the internal assembled path.
+            let options = NativeOptions::from_config(&config).unwrap();
+            config.enable_debugging = true;
+            let factory = TermFactory::new(TermOptions { use_flyweight: config.use_flyweight(), use_old_axiomatization: config.use_old_axiomatization, mask_heap_mode: false });
+            let mut settings = z3_prover_std_io::settings(z3.into()); settings.debug = true;
+            let prover = z3_prover_std_io::new("session_capture".into(), settings, factory.clone(), |_| {});
+            let identifiers = prover.identifier_factory();
+            let mut worker = native_method_worker("session_capture".into(), prover, identifiers, factory.clone(), options.clone(), &config);
+            let mut phases = SilFrontendPhases::new("debug.vpr".into(), ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+            phases.retain_source_program = true;
+            let parsed = phases.parse("field f: Int method m(r: Ref) requires r != null && (forall x: Ref :: x != null && x != r ==> acc(x.f)) { r.f := 0; }").unwrap();
+            let analyzed = phases.analyze(parsed).unwrap();
+            let program = phases.translate(analyzed).unwrap();
+            worker.context.start(None, &[]).unwrap();
+            worker.context.set_debug_failure_factory(Arc::new(|state, record, owners| Ok(Arc::new(CapturedFailure::capture_native(state, record, owners)?))));
+            let results = worker.context.verify_program(&program, &[]).unwrap();
+            worker.context.stop().unwrap();
+            drop(worker);
+            let failure = results.iter().find_map(|result| result.with_kind(|kind| match kind {
+                ResultKind::Failure(error) => error.failure_contexts.first().cloned(), _ => None,
+            })).expect("captured failure");
+            let captured = (failure.as_ref() as &dyn Any).downcast_ref::<CapturedFailure>().unwrap();
+            let mut output = Vec::new();
+            run_obligation(&config, options, factory, captured, &mut Cursor::new(b"p\nq\n"), &mut output).unwrap();
+            let transcript = String::from_utf8(output).unwrap();
+            assert!(transcript.contains("FAIL: Proving obligation failed."), "{transcript}");
+            assert!(!transcript.contains("Error while"), "{transcript}");
+        }).unwrap().join().unwrap();
+    }
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn captured_complete_wildcard_session_replays_after_verifier_drop() {
+        std::thread::Builder::new().stack_size(128 * 1024 * 1024).spawn(|| {
+            use crate::{decider::z3_prover_std_io, interfaces::verification::ResultKind, state::terms::TermOptions, verifier::verification_pool_manager::native_method_worker};
+            use ferrum_silver::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
+            use std::{io::Cursor, sync::Arc};
+            let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+            let mut config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "--exhaleMode".into(), "1".into(), "debug.vpr".into()]).unwrap();
+            // Keep the public configuration gate until all failure sites are
+            // connected; this fixture exercises the internal assembled path.
+            let options = NativeOptions::from_config(&config).unwrap();
+            config.enable_debugging = true;
+            let factory = TermFactory::new(TermOptions { use_flyweight: config.use_flyweight(), use_old_axiomatization: config.use_old_axiomatization, mask_heap_mode: false });
+            let mut settings = z3_prover_std_io::settings(z3.into()); settings.debug = true;
+            let prover = z3_prover_std_io::new("session_capture".into(), settings, factory.clone(), |_| {});
+            let identifiers = prover.identifier_factory();
+            let mut worker = native_method_worker("session_capture".into(), prover, identifiers, factory.clone(), options.clone(), &config);
+            let mut phases = SilFrontendPhases::new("debug.vpr".into(), ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+            phases.retain_source_program = true;
+            let parsed = phases.parse("field f: Int method m(r: Ref) requires acc(r.f, 1/2) { exhale acc(r.f, wildcard); assert false; }").unwrap();
+            let analyzed = phases.analyze(parsed).unwrap();
+            let program = phases.translate(analyzed).unwrap();
+            worker.context.start(None, &[]).unwrap();
+            worker.context.set_debug_failure_factory(Arc::new(|state, record, owners| Ok(Arc::new(CapturedFailure::capture_native(state, record, owners)?))));
+            let results = worker.context.verify_program(&program, &[]).unwrap();
+            worker.context.stop().unwrap();
+            drop(worker);
+            let failure = results.iter().find_map(|result| result.with_kind(|kind| match kind {
+                ResultKind::Failure(error) => error.failure_contexts.first().cloned(), _ => None,
+            })).expect("captured failure");
+            let captured = (failure.as_ref() as &dyn Any).downcast_ref::<CapturedFailure>().unwrap();
+            let mut output = Vec::new();
+            run_obligation(&config, options, factory, captured, &mut Cursor::new(b"p\nq\n"), &mut output).unwrap();
+            let transcript = String::from_utf8(output).unwrap();
+            assert!(transcript.contains("FAIL: Proving obligation failed."), "{transcript}");
+            assert!(!transcript.contains("Error while"), "{transcript}");
+        }).unwrap().join().unwrap();
+    }
 }
 
 fn run_obligation<R: BufRead, W: Write>(

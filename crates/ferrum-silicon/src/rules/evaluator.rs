@@ -677,6 +677,7 @@ pub trait EvaluationContext<P, D, J, V>: Sized {
         _expression: &Exp,
         _args: &[Term],
         _amount: &Term,
+        _amount_debug: Option<&Exp>,
         _arps: &crate::common::collections::immutable::insertion_ordered_set::InsertionOrderedSet<
             Term,
         >,
@@ -3935,6 +3936,7 @@ where
                         &wrapper.expression,
                         args,
                         &term,
+                        debug.as_ref(),
                         arps,
                         error,
                         &mut done,

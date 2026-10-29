@@ -3316,3 +3316,107 @@ mod silicon_general_run_tests {
             .unwrap();
     }
 }
+
+#[cfg(test)]
+mod debug_parallel_capture_test {
+    use super::*;
+    use silver::frontend::frontend::FrontendPhases;
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn parallel_branch_capture_replays_after_pool_shutdown() {
+        std::thread::Builder::new()
+            .stack_size(VERIFICATION_STACK_SIZE)
+            .spawn(|| {
+                let z3 = std::env::var("FERRUM_TEST_Z3").unwrap();
+                let mut config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--z3Exe".into(),
+                    z3,
+                    "--numberOfParallelVerifiers".into(),
+                    "2".into(),
+                    "--parallelizeBranches".into(),
+                    "parallel.vpr".into(),
+                ])
+                .unwrap();
+                let options = NativeOptions::from_config(&config).unwrap();
+                config.enable_debugging = true;
+                let factory = TermFactory::new(TermOptions {
+                    use_flyweight: config.use_flyweight(),
+                    use_old_axiomatization: config.use_old_axiomatization,
+                    mask_heap_mode: config.mask_heap_mode,
+                });
+                let warnings: SharedWarnings = Arc::new(Mutex::new(Vec::new()));
+                let (prover, ids) = make_stdio_prover(
+                    "main",
+                    &config,
+                    factory.clone(),
+                    warnings.clone(),
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap();
+                let mut context = ParallelContext::start(
+                    prover,
+                    ids,
+                    &config,
+                    factory.clone(),
+                    options.clone(),
+                    warnings,
+                    2,
+                    make_stdio_prover,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Rc::new(RefCell::new(Vec::new())),
+                    Arc::new(Mutex::new(Default::default())),
+                )
+                .unwrap();
+                let mut phases = SilFrontendPhases::new(
+                    "parallel.vpr".into(),
+                    silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                phases.retain_source_program = true;
+                let parsed = phases
+                    .parse("method m(b: Bool) { if (b) { assert false; } else { assert true; } }")
+                    .unwrap();
+                let checked = phases.analyze(parsed).unwrap();
+                let program = phases.translate(checked).unwrap();
+                let results = context.verify_program(&program, &[], None, None).unwrap();
+                context.stop().unwrap();
+                drop(context);
+                let errors: Vec<_> = results
+                    .iter()
+                    .filter_map(|result| {
+                        result.with_kind(|kind| match kind {
+                            silicon::interfaces::verification::ResultKind::Failure(error) => {
+                                Some(diagnostic(error.clone()).unwrap())
+                            }
+                            _ => None,
+                        })
+                    })
+                    .collect();
+                assert!(!errors.is_empty());
+                let mut output = Vec::new();
+                silicon::debugger::native_session::run_failures(
+                    &config,
+                    options,
+                    factory,
+                    &errors,
+                    &mut std::io::Cursor::new(b"p\nq\n"),
+                    &mut output,
+                )
+                .unwrap();
+                let transcript = String::from_utf8(output).unwrap();
+                assert!(
+                    transcript.contains("FAIL: Proving obligation failed."),
+                    "{transcript}"
+                );
+                assert!(!transcript.contains("Error while"), "{transcript}");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+}
