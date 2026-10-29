@@ -1925,6 +1925,15 @@ pub(crate) static LOOP_PHASE_TEST_SUBMISSIONS: std::sync::atomic::AtomicUsize =
 pub(crate) static LOOP_PHASE_TEST_EXECUTIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+pub(crate) static BOOLEAN_HEAD_CANCEL_HOOKS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static BOOLEAN_HEAD_SUBMISSIONS: [std::sync::atomic::AtomicUsize; 3] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 3];
+#[cfg(test)]
+pub(crate) static BOOLEAN_HEAD_EXECUTIONS: [std::sync::atomic::AtomicUsize; 3] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; 3];
+#[cfg(test)]
 pub(crate) static RETURN_STRICT_LEFT_SUBMISSIONS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
@@ -2350,6 +2359,12 @@ where
                         }) {
                             INDEXED_ARG_SUBMISSIONS[argument].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         }
+                        for head in frame.return_frames.iter().filter_map(|f| match f {
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::ConditionalHead(_) => Some(0),
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::ImpliesHead(_) => Some(1),
+                            crate::rules::evaluator::OwnedEvaluationReturnFrame::ShortCircuitHead { .. } => Some(2),
+                            _ => None,
+                        }) { BOOLEAN_HEAD_SUBMISSIONS[head].fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
                         if frame.return_frames.len() >= 2 {
                             NESTED_RETURN_SUBMISSIONS
                                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -6143,6 +6158,11 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
         cancel_after_owned_receiver_starts(2);
     }
 
+    #[test]
+    fn real_stdio_cancel_after_boolean_head_receiver_starts() {
+        cancel_after_owned_receiver_starts(3);
+    }
+
     fn cancel_after_owned_receiver_starts(kind: u8) {
         let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
             return;
@@ -6161,7 +6181,13 @@ method bad(b: Bool, x: Ref, y: Ref) returns (r: Int)
             sil_front_end_config::SilFrontendConfig,
             sil_frontend::{SilFrontendPhases, standard_plugin_manager},
         };
-        let source = if kind == 2 {
+        let source = if kind == 3 {
+            r#"field f: Int
+method cancel_boolean(b: Bool, x: Ref, y: Ref) returns (r: Int)
+ requires acc(x.f) && acc(y.f)
+{ r := (asserting (b ? acc(x.f) : acc(y.f)) in b) ? 1 : 2; }
+"#
+        } else if kind == 2 {
             r#"field f: Int
 method cancel_let(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r: Int)
  requires acc(x.f) && acc(y.f) && acc(z.f) && acc(w.f)
@@ -6226,7 +6252,9 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
                     );
                     worker.context.joined_branch_scheduler_enabled = true;
                     worker.set_cancellation(worker_cancel.clone());
-                    if kind == 2 {
+                    if kind == 3 {
+                        worker.context.test_cancel_owned_boolean = Some(worker_cancel.clone());
+                    } else if kind == 2 {
                         worker.context.test_cancel_owned_let = Some(worker_cancel.clone());
                     } else if kind == 1 {
                         worker.context.test_cancel_owned_inner = Some(worker_cancel.clone());
@@ -6271,7 +6299,9 @@ method cancel_right(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref) returns (r
             let program = phases.translate(checked).unwrap();
             let program = phases.check_consistency(program).unwrap();
             let program = phases.prepare_verification(program).unwrap();
-            let (submission_counter, hook_counter) = if kind == 2 {
+            let (submission_counter, hook_counter) = if kind == 3 {
+                (&BOOLEAN_HEAD_SUBMISSIONS[0], &BOOLEAN_HEAD_CANCEL_HOOKS)
+            } else if kind == 2 {
                 (&LET_BODY_SUBMISSIONS, &LET_RECEIVER_CANCEL_HOOKS)
             } else if kind == 1 {
                 (&ASSERTING_BODY_SUBMISSIONS, &INNER_RECEIVER_CANCEL_HOOKS)
@@ -7047,6 +7077,69 @@ method bad() { assert false; }
                 before.iter().zip(after).all(|(a, b)| b > *a),
                 "unary jobs did not run: {before:?} -> {after:?}"
             );
+        }
+    }
+
+    #[test]
+    fn real_stdio_owned_boolean_heads() {
+        let Some(z3) = std::env::var_os("FERRUM_TEST_Z3") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(z3);
+        let make = move |name: String, factory: crate::state::terms::TermFactory| {
+            let prover = crate::decider::z3_prover_std_io::new(
+                name,
+                crate::decider::z3_prover_std_io::settings(path.clone()),
+                factory,
+                |_| {},
+            );
+            let identifiers = prover.identifier_factory();
+            (prover, identifiers)
+        };
+        let head = "(asserting (b ? acc(x.f) : acc(y.f)) in b)";
+        let cases = [
+            (format!("{head} ? 1 : 2"), "Int", "b ? 1 : 2", 0),
+            (format!("{head} ==> b"), "Bool", "true", 1),
+            (format!("{head} && b"), "Bool", "b", 2),
+            (format!("{head} || b"), "Bool", "b", 2),
+        ];
+        for (expression, typ, expected, kind) in cases {
+            let source = format!(
+                r#"// owned_return_tail_check
+field f: Int
+method good(b: Bool, x: Ref, y: Ref) returns (r: {typ})
+ requires acc(x.f) && acc(y.f) ensures r == ({expected})
+{{ r := {expression}; }}
+method bad() {{ assert false; }}
+"#
+            );
+            for workers in [1, 2] {
+                let before = [
+                    BOOLEAN_HEAD_SUBMISSIONS[kind].load(std::sync::atomic::Ordering::SeqCst),
+                    BOOLEAN_HEAD_EXECUTIONS[kind].load(std::sync::atomic::Ordering::SeqCst),
+                ];
+                let (fatal, _) = run_parallel_source_with_warnings_impl(
+                    &source,
+                    workers,
+                    make.clone(),
+                    false,
+                    true,
+                    true,
+                );
+                assert_eq!(
+                    fatal.iter().filter(|v| **v).count(),
+                    1,
+                    "{expression}, {workers}: {fatal:?}"
+                );
+                let after = [
+                    BOOLEAN_HEAD_SUBMISSIONS[kind].load(std::sync::atomic::Ordering::SeqCst),
+                    BOOLEAN_HEAD_EXECUTIONS[kind].load(std::sync::atomic::Ordering::SeqCst),
+                ];
+                assert!(
+                    before.iter().zip(after).all(|(a, b)| b > *a),
+                    "head job missing: {expression}, {workers}: {before:?} -> {after:?}"
+                );
+            }
         }
     }
 

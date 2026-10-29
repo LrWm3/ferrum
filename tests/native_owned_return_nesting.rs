@@ -656,3 +656,109 @@ method bad(b: Bool, c: Bool, x: Ref, y: Ref, z: Ref, w: Ref, i: Int) returns (r:
         }
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn boolean_head_failure_precedes_branch_and_tail() {
+    let head = "(asserting (b ? acc(x.f) : acc(y.f)) in b)";
+    let branch_bool = "(asserting (false) in true)";
+    let cases = [
+        (
+            format!("{head} ? (asserting (false) in 1) : (asserting (false) in 2)"),
+            "Int",
+        ),
+        (format!("{head} ==> {branch_bool}"), "Bool"),
+        (format!("{head} && {branch_bool}"), "Bool"),
+        (format!("{head} || {branch_bool}"), "Bool"),
+    ];
+    for (expression, typ) in cases {
+        let source = format!(
+            r#"field f: Int
+method bad(x: Ref, y: Ref, b: Bool) returns (r: {typ}) requires x != y
+{{ r := {expression}; assert false; }}
+"#
+        );
+        for workers in ["1", "2"] {
+            let output = run(&source, workers);
+            assert!(!output.status.success());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("insufficient.permission"),
+                "{expression}: {stderr}"
+            );
+            assert!(
+                !stderr.contains("assertion.false"),
+                "{expression}: {stderr}"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn boolean_short_circuit_skips_unreachable_failure() {
+    let head = |value: &str| format!("(asserting (b ? acc(x.f) : acc(y.f)) in {value})");
+    let cases = [
+        format!("{} ? 1 : (asserting (false) in 2)", head("true")),
+        format!("{} ==> (asserting (false) in true)", head("false")),
+        format!("{} && (asserting (false) in true)", head("false")),
+        format!("{} || (asserting (false) in true)", head("true")),
+    ];
+    for (index, expression) in cases.into_iter().enumerate() {
+        let typ = if index == 0 { "Int" } else { "Bool" };
+        let source = format!(
+            r#"field f: Int
+method good(x: Ref, y: Ref, b: Bool) returns (r: {typ}) requires acc(x.f) && acc(y.f)
+{{ r := {expression}; }}
+"#
+        );
+        for workers in ["1", "2"] {
+            let output = run(&source, workers);
+            assert!(
+                output.status.success(),
+                "{expression}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn boolean_strict_mode_evaluates_right_operand() {
+    for (operator, value) in [("&&", "false"), ("||", "true")] {
+        let source = format!(
+            r#"field f: Int
+method bad(x: Ref, y: Ref, b: Bool) returns (r: Bool) requires acc(x.f) && acc(y.f)
+{{ r := (asserting (b ? acc(x.f) : acc(y.f)) in {value}) {operator} (asserting (false) in true); }}
+"#
+        );
+        let path = std::env::temp_dir().join(format!(
+            "ferrum-boolean-strict-{}-{}.vpr",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&path, source).unwrap();
+        for workers in ["1", "2"] {
+            let output = std::process::Command::new(env!("CARGO_BIN_EXE_ferrum"))
+                .arg("--z3Exe")
+                .arg(std::env::var_os("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3"))
+                .args([
+                    "--parallelizeBranches",
+                    "--numberOfParallelVerifiers",
+                    workers,
+                    "--disableShortCircuitingEvaluations",
+                ])
+                .arg(&path)
+                .output()
+                .unwrap();
+            assert!(!output.status.success());
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("assertion.false"),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+}

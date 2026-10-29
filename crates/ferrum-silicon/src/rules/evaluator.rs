@@ -160,6 +160,13 @@ pub struct OwnedOldValueFrame {
 pub enum OwnedEvaluationReturnFrame {
     Old(OwnedOldValueFrame),
     Asserting(OwnedValueWrapper),
+    ConditionalHead(OwnedValueWrapper),
+    ImpliesHead(OwnedValueWrapper),
+    ShortCircuitHead {
+        wrapper: OwnedValueWrapper,
+        expressions: Vec<Exp>,
+        disjunction: bool,
+    },
     IndexedCollectionArg {
         wrapper: OwnedValueWrapper,
         args: Vec<Exp>,
@@ -1015,6 +1022,9 @@ enum OwnedPathStep {
     Minus,
     PermMinus,
     Not,
+    ConditionalHead,
+    ImpliesHead,
+    ShortCircuitHead,
     FieldReceiver,
     LetValue,
     LetBody,
@@ -1065,6 +1075,19 @@ fn owned_asserting_path(expression: &Exp) -> Option<Vec<OwnedPathStep>> {
                         work.push(Work::Visit(body, Some(OwnedPathStep::PermMinus)))
                     }
                     ExpKind::Not(body) => work.push(Work::Visit(body, Some(OwnedPathStep::Not))),
+                    ExpKind::CondExp(condition, _, _) => {
+                        work.push(Work::Visit(condition, Some(OwnedPathStep::ConditionalHead)))
+                    }
+                    ExpKind::Implies(left, _) => {
+                        work.push(Work::Visit(left, Some(OwnedPathStep::ImpliesHead)))
+                    }
+                    ExpKind::And(..) | ExpKind::Or(..) => {
+                        let disjunction = matches!(exp.kind(), ExpKind::Or(..));
+                        work.push(Work::Visit(
+                            first_boolean_head(exp, disjunction),
+                            Some(OwnedPathStep::ShortCircuitHead),
+                        ));
+                    }
                     ExpKind::FieldAccess(access) => work.push(Work::Visit(
                         &access.receiver,
                         Some(OwnedPathStep::FieldReceiver),
@@ -1142,6 +1165,12 @@ pub(crate) fn has_owned_asserting_path(expression: &Exp) -> bool {
         | ExpKind::Minus(body)
         | ExpKind::PermMinus(body)
         | ExpKind::Not(body) => has_owned_asserting_path(body),
+        ExpKind::CondExp(condition, _, _) => has_owned_asserting_path(condition),
+        ExpKind::Implies(left, _) => has_owned_asserting_path(left),
+        ExpKind::And(..) | ExpKind::Or(..) => has_owned_asserting_path(first_boolean_head(
+            expression,
+            matches!(expression.kind(), ExpKind::Or(..)),
+        )),
         ExpKind::FieldAccess(access) => has_owned_asserting_path(&access.receiver),
         ExpKind::CurrentPerm(access) => match access.kind() {
             ExpKind::FieldAccess(field) => has_owned_asserting_path(&field.receiver),
@@ -1268,6 +1297,17 @@ where
     let Some((step, rest)) = path.split_first() else {
         return evaluate_owned_asserting(context, state, expression, error, receiver, frames);
     };
+    if matches!(step, OwnedPathStep::ShortCircuitHead) && context.disable_short_circuiting() {
+        return evaluate(
+            context,
+            state,
+            expression,
+            error,
+            &mut |context, state, term, debug| {
+                resume_owned_return_frames(context, state, term, debug, &frames, error, receiver)
+            },
+        );
+    }
     let scope = context
         .open_evaluation_scope(&state, expression)
         .map_err(EvaluationError::Context)?;
@@ -1353,6 +1393,86 @@ where
         (ExpKind::Not(body), OwnedPathStep::Not) => {
             frames.push(OwnedEvaluationReturnFrame::Not(wrapper));
             evaluate_owned_planned(context, state, body, error, receiver, rest, frames)
+        }
+        (ExpKind::CondExp(condition, _, _), OwnedPathStep::ConditionalHead) => {
+            let scope = context
+                .open_conditional_scope(&state, expression)
+                .map_err(EvaluationError::Context)?;
+            if scope.is_some() {
+                return evaluate(
+                    context,
+                    state,
+                    condition,
+                    error,
+                    &mut |context, state, term, debug| {
+                        finish_conditional_head(
+                            context,
+                            state,
+                            expression,
+                            term,
+                            debug,
+                            scope,
+                            error,
+                            &mut |context, mut state, term, debug| {
+                                finish_owned_wrapper::<C, P, D, J, V>(
+                                    context, &mut state, &wrapper, &term,
+                                )?;
+                                resume_owned_return_frames(
+                                    context, state, term, debug, &frames, error, receiver,
+                                )
+                            },
+                        )
+                    },
+                );
+            }
+            frames.push(OwnedEvaluationReturnFrame::ConditionalHead(wrapper));
+            evaluate_owned_planned(context, state, condition, error, receiver, rest, frames)
+        }
+        (ExpKind::Implies(left, _), OwnedPathStep::ImpliesHead) => {
+            let scope = context
+                .open_implies_scope(&state, Some(expression), "Implies")
+                .map_err(EvaluationError::Context)?;
+            if scope.is_some() {
+                return evaluate(
+                    context,
+                    state,
+                    left,
+                    error,
+                    &mut |context, state, term, debug| {
+                        finish_implies_head(
+                            context,
+                            state,
+                            expression,
+                            term,
+                            debug,
+                            scope,
+                            error,
+                            &mut |context, mut state, term, debug| {
+                                finish_owned_wrapper::<C, P, D, J, V>(
+                                    context, &mut state, &wrapper, &term,
+                                )?;
+                                resume_owned_return_frames(
+                                    context, state, term, debug, &frames, error, receiver,
+                                )
+                            },
+                        )
+                    },
+                );
+            }
+            frames.push(OwnedEvaluationReturnFrame::ImpliesHead(wrapper));
+            evaluate_owned_planned(context, state, left, error, receiver, rest, frames)
+        }
+        (ExpKind::And(..) | ExpKind::Or(..), OwnedPathStep::ShortCircuitHead) => {
+            let disjunction = matches!(expression.kind(), ExpKind::Or(..));
+            let mut expressions = Vec::new();
+            flatten_boolean(expression, disjunction, &mut expressions);
+            let head = expressions[0].clone();
+            frames.push(OwnedEvaluationReturnFrame::ShortCircuitHead {
+                wrapper,
+                expressions,
+                disjunction,
+            });
+            evaluate_owned_planned(context, state, &head, error, receiver, rest, frames)
         }
         (ExpKind::FieldAccess(access), OwnedPathStep::FieldReceiver) => {
             let record_heap = context.debugging() && state.temporary_heap_record.is_some();
@@ -2454,6 +2574,81 @@ where
                     .close_evaluation_scope(None)
                     .map_err(EvaluationError::Context)?;
             }
+            OwnedEvaluationReturnFrame::ConditionalHead(wrapper) => {
+                return finish_conditional_head(
+                    context,
+                    state,
+                    &wrapper.expression,
+                    term,
+                    debug,
+                    None,
+                    error,
+                    &mut |context, mut state, term, debug| {
+                        finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+                        resume_owned_return_frames(
+                            context,
+                            state,
+                            term,
+                            debug,
+                            &frames[..index],
+                            error,
+                            receiver,
+                        )
+                    },
+                );
+            }
+            OwnedEvaluationReturnFrame::ImpliesHead(wrapper) => {
+                return finish_implies_head(
+                    context,
+                    state,
+                    &wrapper.expression,
+                    term,
+                    debug,
+                    None,
+                    error,
+                    &mut |context, mut state, term, debug| {
+                        finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+                        resume_owned_return_frames(
+                            context,
+                            state,
+                            term,
+                            debug,
+                            &frames[..index],
+                            error,
+                            receiver,
+                        )
+                    },
+                );
+            }
+            OwnedEvaluationReturnFrame::ShortCircuitHead {
+                wrapper,
+                expressions,
+                disjunction,
+            } => {
+                let (head, tail) = expressions.split_first().expect("boolean head");
+                return finish_short_circuit_head(
+                    context,
+                    state,
+                    head,
+                    tail,
+                    *disjunction,
+                    term,
+                    debug,
+                    error,
+                    &mut |context, mut state, term, debug| {
+                        finish_owned_wrapper::<C, P, D, J, V>(context, &mut state, wrapper, &term)?;
+                        resume_owned_return_frames(
+                            context,
+                            state,
+                            term,
+                            debug,
+                            &frames[..index],
+                            error,
+                            receiver,
+                        )
+                    },
+                );
+            }
             OwnedEvaluationReturnFrame::FieldReceiver {
                 wrapper,
                 record_heap,
@@ -3274,22 +3469,9 @@ where
     if !context.disable_short_circuiting()
         && matches!(expression.kind(), ExpKind::And(..) | ExpKind::Or(..))
     {
-        fn flatten(expression: &Exp, disjunction: bool, out: &mut Vec<Exp>) {
-            match expression.kind() {
-                ExpKind::And(a, b) if !disjunction => {
-                    flatten(a, disjunction, out);
-                    flatten(b, disjunction, out);
-                }
-                ExpKind::Or(a, b) if disjunction => {
-                    flatten(a, disjunction, out);
-                    flatten(b, disjunction, out);
-                }
-                _ => out.push(expression.clone()),
-            }
-        }
         let disjunction = matches!(expression.kind(), ExpKind::Or(..));
         let mut expressions = Vec::new();
-        flatten(expression, disjunction, &mut expressions);
+        flatten_boolean(expression, disjunction, &mut expressions);
         return evaluate_short_circuit(
             context,
             state,
@@ -3299,7 +3481,7 @@ where
             continuation,
         );
     }
-    if let ExpKind::CondExp(condition, yes, no) = expression.kind() {
+    if let ExpKind::CondExp(condition, _, _) = expression.kind() {
         let scope = context
             .open_conditional_scope(&state, expression)
             .map_err(EvaluationError::Context)?;
@@ -3309,55 +3491,20 @@ where
             condition,
             error,
             &mut |context, state, cond, cond_exp| {
-                context.branch_join_evaluation(
+                finish_conditional_head(
+                    context,
                     state,
-                    cond.clone(),
-                    condition,
-                    cond_exp.as_ref(),
-                    false,
-                    EvaluationBranchAction::Evaluate {
-                        expression: yes.clone(),
-                        error: error.clone(),
-                    },
-                    EvaluationBranchAction::Evaluate {
-                        expression: no.clone(),
-                        error: error.clone(),
-                    },
-                    &mut |context, entries| {
-                        let mut entries = entries.into_iter();
-                        let (state, a, a_exp) =
-                            entries.next().ok_or(EvaluationError::InvalidJoinEntries)?;
-                        if let Some((other, b, b_exp)) = entries.next() {
-                            if entries.next().is_some() {
-                                return Err(EvaluationError::InvalidJoinEntries);
-                            }
-                            let state = context
-                                .merge_evaluation_states(state, &other)
-                                .map_err(EvaluationError::Context)?;
-                            let debug = match (&cond_exp, a_exp, b_exp) {
-                                (Some(c), Some(a), Some(b)) => Some(Exp::new(
-                                    ExpKind::CondExp(c.clone(), a, b),
-                                    condition.metadata().clone(),
-                                )),
-                                (None, _, _) => None,
-                                _ => return Err(EvaluationError::MissingDebugExpression),
-                            };
-                            Ok((state, factory.ite(cond.clone(), a, b), debug))
-                        } else {
-                            Ok((state, a, a_exp))
-                        }
-                    },
-                    &mut |context, state, term, debug| {
-                        context
-                            .close_expression_scope(scope)
-                            .map_err(EvaluationError::Context)?;
-                        continuation(context, state, term, debug)
-                    },
+                    expression,
+                    cond,
+                    cond_exp,
+                    scope,
+                    error,
+                    continuation,
                 )
             },
         );
     }
-    if let ExpKind::Implies(left, right) = expression.kind() {
+    if let ExpKind::Implies(left, _) = expression.kind() {
         let scope = context
             .open_implies_scope(&state, Some(expression), "Implies")
             .map_err(EvaluationError::Context)?;
@@ -3367,49 +3514,15 @@ where
             left,
             error,
             &mut |context, state, lhs, lhs_exp| {
-                let from_short_circuit = context.is_short_circuit_implies(expression);
-                context.branch_join_evaluation(
+                finish_implies_head(
+                    context,
                     state,
-                    lhs.clone(),
-                    left,
-                    lhs_exp.as_ref(),
-                    from_short_circuit,
-                    EvaluationBranchAction::Evaluate {
-                        expression: right.clone(),
-                        error: error.clone(),
-                    },
-                    EvaluationBranchAction::True,
-                    &mut |context, entries| {
-                        let mut entries = entries.into_iter();
-                        let (mut state, first, first_exp) =
-                            entries.next().ok_or(EvaluationError::InvalidJoinEntries)?;
-                        if let Some((other, _, _)) = entries.next() {
-                            state = context
-                                .merge_evaluation_states(state, &other)
-                                .map_err(EvaluationError::Context)?;
-                        }
-                        if entries.next().is_some() {
-                            return Err(EvaluationError::InvalidJoinEntries);
-                        }
-                        let debug = if let Some(lhs) = &lhs_exp {
-                            let rhs = first_exp.ok_or(EvaluationError::MissingDebugExpression)?;
-                            let inner =
-                                Exp::new(ExpKind::Implies(lhs.clone(), rhs), Default::default());
-                            Some(Exp::new(
-                                ExpKind::Implies(lhs.clone(), inner),
-                                expression.metadata().clone(),
-                            ))
-                        } else {
-                            None
-                        };
-                        Ok((state, factory.implies(lhs.clone(), first), debug))
-                    },
-                    &mut |context, state, term, debug| {
-                        context
-                            .close_expression_scope(scope)
-                            .map_err(EvaluationError::Context)?;
-                        continuation(context, state, term, debug)
-                    },
+                    expression,
+                    lhs,
+                    lhs_exp,
+                    scope,
+                    error,
+                    continuation,
                 )
             },
         );
@@ -3423,6 +3536,260 @@ where
         factory,
         debug,
     )
+}
+
+fn finish_conditional_head<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    cond: Term,
+    cond_exp: Option<Exp>,
+    scope: Option<i32>,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let ExpKind::CondExp(condition, yes, no) = expression.kind() else {
+        unreachable!("conditional head")
+    };
+    let factory = context.factory().clone();
+    context.branch_join_evaluation(
+        state,
+        cond.clone(),
+        condition,
+        cond_exp.as_ref(),
+        false,
+        EvaluationBranchAction::Evaluate {
+            expression: yes.clone(),
+            error: error.clone(),
+        },
+        EvaluationBranchAction::Evaluate {
+            expression: no.clone(),
+            error: error.clone(),
+        },
+        &mut |context, entries| {
+            let mut entries = entries.into_iter();
+            let (state, a, a_exp) = entries.next().ok_or(EvaluationError::InvalidJoinEntries)?;
+            if let Some((other, b, b_exp)) = entries.next() {
+                if entries.next().is_some() {
+                    return Err(EvaluationError::InvalidJoinEntries);
+                }
+                let state = context
+                    .merge_evaluation_states(state, &other)
+                    .map_err(EvaluationError::Context)?;
+                let debug = match (&cond_exp, a_exp, b_exp) {
+                    (Some(c), Some(a), Some(b)) => Some(Exp::new(
+                        ExpKind::CondExp(c.clone(), a, b),
+                        condition.metadata().clone(),
+                    )),
+                    (None, _, _) => None,
+                    _ => return Err(EvaluationError::MissingDebugExpression),
+                };
+                Ok((state, factory.ite(cond.clone(), a, b), debug))
+            } else {
+                Ok((state, a, a_exp))
+            }
+        },
+        &mut |context, state, term, debug| {
+            context
+                .close_expression_scope(scope)
+                .map_err(EvaluationError::Context)?;
+            continuation(context, state, term, debug)
+        },
+    )
+}
+
+fn finish_implies_head<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    expression: &Exp,
+    lhs: Term,
+    lhs_exp: Option<Exp>,
+    scope: Option<i32>,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let ExpKind::Implies(left, right) = expression.kind() else {
+        unreachable!("implies head")
+    };
+    let factory = context.factory().clone();
+    let from_short_circuit = context.is_short_circuit_implies(expression);
+    context.branch_join_evaluation(
+        state,
+        lhs.clone(),
+        left,
+        lhs_exp.as_ref(),
+        from_short_circuit,
+        EvaluationBranchAction::Evaluate {
+            expression: right.clone(),
+            error: error.clone(),
+        },
+        EvaluationBranchAction::True,
+        &mut |context, entries| {
+            let mut entries = entries.into_iter();
+            let (mut state, first, first_exp) =
+                entries.next().ok_or(EvaluationError::InvalidJoinEntries)?;
+            if let Some((other, _, _)) = entries.next() {
+                state = context
+                    .merge_evaluation_states(state, &other)
+                    .map_err(EvaluationError::Context)?;
+            }
+            if entries.next().is_some() {
+                return Err(EvaluationError::InvalidJoinEntries);
+            }
+            let debug = if let Some(lhs) = &lhs_exp {
+                let rhs = first_exp.ok_or(EvaluationError::MissingDebugExpression)?;
+                let inner = Exp::new(ExpKind::Implies(lhs.clone(), rhs), Default::default());
+                Some(Exp::new(
+                    ExpKind::Implies(lhs.clone(), inner),
+                    expression.metadata().clone(),
+                ))
+            } else {
+                None
+            };
+            Ok((state, factory.implies(lhs.clone(), first), debug))
+        },
+        &mut |context, state, term, debug| {
+            context
+                .close_expression_scope(scope)
+                .map_err(EvaluationError::Context)?;
+            continuation(context, state, term, debug)
+        },
+    )
+}
+
+fn finish_short_circuit_head<C, P, D, J: Clone, V>(
+    context: &mut C,
+    state: State<P, D, J>,
+    head: &Exp,
+    tail: &[Exp],
+    disjunction: bool,
+    term: Term,
+    debug: Option<Exp>,
+    error: &C::PartialError,
+    continuation: &mut dyn FnMut(
+        &mut C,
+        State<P, D, J>,
+        Term,
+        Option<Exp>,
+    ) -> Result<VerificationResult<V>, EvaluationError<C::Error>>,
+) -> Result<VerificationResult<V>, EvaluationError<C::Error>>
+where
+    C: EvaluationContext<P, D, J, V>,
+{
+    let factory = context.factory().clone();
+    if tail.is_empty()
+        || matches!(
+            (disjunction, term.kind()),
+            (true, crate::state::terms::TermKind::True)
+                | (false, crate::state::terms::TermKind::False)
+        )
+    {
+        return continuation(context, state, term, debug);
+    }
+    let (condition, original, rewritten) = if disjunction {
+        (term.clone(), head.clone(), debug.clone())
+    } else {
+        (
+            factory.not(term.clone()),
+            Exp::new(ExpKind::Not(head.clone()), Default::default()),
+            debug
+                .clone()
+                .map(|e| Exp::new(ExpKind::Not(e), Default::default())),
+        )
+    };
+    context.branch_join_evaluation(
+        state,
+        condition,
+        &original,
+        rewritten.as_ref(),
+        true,
+        EvaluationBranchAction::Value {
+            term: term.clone(),
+            debug: debug.clone(),
+        },
+        EvaluationBranchAction::ShortCircuit {
+            expressions: tail.to_vec(),
+            disjunction,
+            error: error.clone(),
+        },
+        &mut |context, entries| {
+            let mut entries = entries.into_iter();
+            let (state, a, a_exp) = entries.next().ok_or(EvaluationError::InvalidJoinEntries)?;
+            if let Some((other, b, b_exp)) = entries.next() {
+                if entries.next().is_some() {
+                    return Err(EvaluationError::InvalidJoinEntries);
+                }
+                let state = context
+                    .merge_evaluation_states(state, &other)
+                    .map_err(EvaluationError::Context)?;
+                let result = if disjunction {
+                    factory.or([a, b])
+                } else {
+                    factory.and([a, b])
+                };
+                let debug = if context.debugging() {
+                    let (a, b) = (
+                        a_exp.ok_or(EvaluationError::MissingDebugExpression)?,
+                        b_exp.ok_or(EvaluationError::MissingDebugExpression)?,
+                    );
+                    Some(Exp::new(
+                        if disjunction {
+                            ExpKind::Or(a, b)
+                        } else {
+                            ExpKind::And(a, b)
+                        },
+                        Default::default(),
+                    ))
+                } else {
+                    None
+                };
+                Ok((state, result, debug))
+            } else {
+                Ok((state, a, a_exp))
+            }
+        },
+        continuation,
+    )
+}
+
+fn first_boolean_head(mut expression: &Exp, disjunction: bool) -> &Exp {
+    loop {
+        expression = match expression.kind() {
+            ExpKind::And(left, _) if !disjunction => left,
+            ExpKind::Or(left, _) if disjunction => left,
+            _ => return expression,
+        };
+    }
+}
+
+fn flatten_boolean(expression: &Exp, disjunction: bool, out: &mut Vec<Exp>) {
+    match expression.kind() {
+        ExpKind::And(a, b) if !disjunction => {
+            flatten_boolean(a, disjunction, out);
+            flatten_boolean(b, disjunction, out);
+        }
+        ExpKind::Or(a, b) if disjunction => {
+            flatten_boolean(a, disjunction, out);
+            flatten_boolean(b, disjunction, out);
+        }
+        _ => out.push(expression.clone()),
+    }
 }
 
 /// Finish a field read after its receiver has been evaluated, shared by borrowed
@@ -4523,85 +4890,21 @@ where
     let (head, tail) = expressions
         .split_first()
         .expect("flattened expression is nonempty");
-    let factory = context.factory().clone();
     evaluate(
         context,
         state,
         head,
         error,
         &mut |context, state, term, debug| {
-            if tail.is_empty()
-                || matches!(
-                    (disjunction, term.kind()),
-                    (true, crate::state::terms::TermKind::True)
-                        | (false, crate::state::terms::TermKind::False)
-                )
-            {
-                return continuation(context, state, term, debug);
-            }
-            let (condition, original, rewritten) = if disjunction {
-                (term.clone(), head.clone(), debug.clone())
-            } else {
-                (
-                    factory.not(term.clone()),
-                    Exp::new(ExpKind::Not(head.clone()), Default::default()),
-                    debug
-                        .clone()
-                        .map(|e| Exp::new(ExpKind::Not(e), Default::default())),
-                )
-            };
-            context.branch_join_evaluation(
+            finish_short_circuit_head(
+                context,
                 state,
-                condition,
-                &original,
-                rewritten.as_ref(),
-                true,
-                EvaluationBranchAction::Value {
-                    term: term.clone(),
-                    debug: debug.clone(),
-                },
-                EvaluationBranchAction::ShortCircuit {
-                    expressions: tail.to_vec(),
-                    disjunction,
-                    error: error.clone(),
-                },
-                &mut |context, entries| {
-                    let mut entries = entries.into_iter();
-                    let (state, a, a_exp) =
-                        entries.next().ok_or(EvaluationError::InvalidJoinEntries)?;
-                    if let Some((other, b, b_exp)) = entries.next() {
-                        if entries.next().is_some() {
-                            return Err(EvaluationError::InvalidJoinEntries);
-                        }
-                        let state = context
-                            .merge_evaluation_states(state, &other)
-                            .map_err(EvaluationError::Context)?;
-                        let result = if disjunction {
-                            factory.or([a, b])
-                        } else {
-                            factory.and([a, b])
-                        };
-                        let debug = if context.debugging() {
-                            let (a, b) = (
-                                a_exp.ok_or(EvaluationError::MissingDebugExpression)?,
-                                b_exp.ok_or(EvaluationError::MissingDebugExpression)?,
-                            );
-                            Some(Exp::new(
-                                if disjunction {
-                                    ExpKind::Or(a, b)
-                                } else {
-                                    ExpKind::And(a, b)
-                                },
-                                Default::default(),
-                            ))
-                        } else {
-                            None
-                        };
-                        Ok((state, result, debug))
-                    } else {
-                        Ok((state, a, a_exp))
-                    }
-                },
+                head,
+                tail,
+                disjunction,
+                term,
+                debug,
+                error,
                 continuation,
             )
         },

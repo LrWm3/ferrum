@@ -405,6 +405,9 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     pub(crate) test_cancel_owned_let:
         Option<crate::verifier::verification_pool_manager::CancellationController>,
     #[cfg(test)]
+    pub(crate) test_cancel_owned_boolean:
+        Option<crate::verifier::verification_pool_manager::CancellationController>,
+    #[cfg(test)]
     test_current_permission_heap: Option<(Arc<ListBackedHeap>, Arc<std::sync::atomic::AtomicBool>)>,
     #[cfg(test)]
     executor_debug_for_test: bool,
@@ -777,6 +780,8 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             test_cancel_owned_inner: None,
             #[cfg(test)]
             test_cancel_owned_let: None,
+            #[cfg(test)]
+            test_cancel_owned_boolean: None,
             #[cfg(test)]
             executor_debug_for_test: false,
             #[cfg(test)]
@@ -3520,6 +3525,18 @@ where
         }) {
             if let Some(cancel) = self.test_cancel_owned_let.take() {
                 super::verification_pool_manager::LET_RECEIVER_CANCEL_HOOKS
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                cancel.cancel();
+            }
+        }
+        if frame.return_frames.iter().any(|f| {
+            matches!(
+                f,
+                crate::rules::evaluator::OwnedEvaluationReturnFrame::ConditionalHead(_)
+            )
+        }) {
+            if let Some(cancel) = self.test_cancel_owned_boolean.take() {
+                super::verification_pool_manager::BOOLEAN_HEAD_CANCEL_HOOKS
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 cancel.cancel();
             }
@@ -12959,6 +12976,21 @@ where
                         crate::rules::evaluator::OwnedEvaluationReturnFrame::IndexedCollectionArg { index, .. } => Some(*index), _ => None,
                     }) {
                         super::verification_pool_manager::INDEXED_ARG_EXECUTIONS[argument].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    for head in frame.return_frames.iter().filter_map(|f| match f {
+                        crate::rules::evaluator::OwnedEvaluationReturnFrame::ConditionalHead(_) => {
+                            Some(0)
+                        }
+                        crate::rules::evaluator::OwnedEvaluationReturnFrame::ImpliesHead(_) => {
+                            Some(1)
+                        }
+                        crate::rules::evaluator::OwnedEvaluationReturnFrame::ShortCircuitHead {
+                            ..
+                        } => Some(2),
+                        _ => None,
+                    }) {
+                        super::verification_pool_manager::BOOLEAN_HEAD_EXECUTIONS[head]
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
                     if frame.return_frames.len() >= 2 {
                         super::verification_pool_manager::NESTED_RETURN_EXECUTIONS
