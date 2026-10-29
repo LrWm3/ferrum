@@ -4223,31 +4223,36 @@ impl PExpHandle {
         }
     }
     pub fn type_subs_distinct(&self) -> Option<Vec<PTypeSubstitution>> {
-        let mut unique: Vec<PTypeSubstitution> = Vec::new();
-        for substitution in self.type_substitutions()? {
-            if !unique
-                .iter()
-                .any(|old| old.structurally_equals(&substitution))
-            {
-                unique.push(substitution);
-            }
-        }
-        Some(
-            unique
-                .iter()
-                .enumerate()
-                .filter(|(i, sub)| {
-                    unique.iter().enumerate().all(|(j, sup)| {
-                        i == &j
-                            || !sub.mappings.iter().all(|(name, typ)| {
-                                sup.get(name).is_some_and(|other| is_subtype(other, typ))
-                            })
-                    })
-                })
-                .map(|(_, sub)| sub.clone())
-                .collect(),
-        )
+        Some(distinct_type_substitutions(self.type_substitutions()?))
     }
+}
+
+/// Source `PExp.typeSubsDistinct`: remove duplicate and dominated candidates.
+pub(crate) fn distinct_type_substitutions(
+    substitutions: Vec<PTypeSubstitution>,
+) -> Vec<PTypeSubstitution> {
+    let mut unique: Vec<PTypeSubstitution> = Vec::new();
+    for substitution in substitutions {
+        if !unique
+            .iter()
+            .any(|old| old.structurally_equals(&substitution))
+        {
+            unique.push(substitution);
+        }
+    }
+    unique
+        .iter()
+        .enumerate()
+        .filter(|(i, sub)| {
+            unique.iter().enumerate().all(|(j, sup)| {
+                i == &j
+                    || !sub.mappings.iter().all(|(name, typ)| {
+                        sup.get(name).is_some_and(|other| is_subtype(other, typ))
+                    })
+            })
+        })
+        .map(|(_, sub)| sub.clone())
+        .collect()
 }
 
 impl PExpHandle {

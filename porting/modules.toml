@@ -2730,3 +2730,8 @@ role = "assembly"
 destination = "tests/native_domain_event.rs"
 status = "wired"
 role = "assembly"
+
+[[scaffolding]]
+destination = "tests/native_annotated_bool.rs"
+status = "wired"
+role = "assembly"

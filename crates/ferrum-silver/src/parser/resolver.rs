@@ -1883,12 +1883,11 @@ fn check_operator(
     }
     let substitutions = unify_sequence_with_substitutions(&refreshed, &constraints)
         .map_err(TypeCheckError::Unification)?;
-    let types = substitutions
-        .iter()
-        .map(|s| result_type.substitute(s))
-        .collect::<Vec<_>>();
-    let typ = if types.iter().all(|t| t.structurally_equals(&types[0])) {
-        types[0].clone()
+    // Source selects the result type only after removing dominated overloads.
+    // Keep the full candidate list for the enclosing expression's constraints.
+    let distinct = super::parse_ast::distinct_type_substitutions(substitutions.clone());
+    let typ = if distinct.len() == 1 {
+        result_type.substitute(&distinct[0])
     } else {
         result_type
     };
