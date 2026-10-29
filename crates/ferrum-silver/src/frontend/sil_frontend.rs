@@ -235,7 +235,7 @@ fn standard_plugin_manager_internal(
                 renderer: std::sync::Arc::new(NativeErrorRenderer),
             }),
             SMOKE_PLUGIN => Box::new(SmokeDetectionPlugin),
-            ARP_PLUGIN => Box::new(ArpPlugin),
+            ARP_PLUGIN => Box::new(ArpPlugin::new()),
             "viper.silver.plugin.sif.SIFPlugin" => {
                 Box::new(crate::plugin::sif::sif_plugin::SifPlugin::new(
                     crate::plugin::sif::sif_extended_transformer::NativeSifTransformer,
@@ -1172,7 +1172,7 @@ mod tests {
         let manager = standard_plugin_manager_with_resolver(&config, |name| {
             seen.push(name.to_owned());
             Ok(Some(Box::new(
-                crate::plugin::standard::arp::arp_plugin::ArpPlugin,
+                crate::plugin::standard::arp::arp_plugin::ArpPlugin::new(),
             )))
         })
         .unwrap();
@@ -4033,7 +4033,7 @@ method chainParen2(i1: Int, i2: Int, i3: Int, i4: Int)
     #[test]
     fn arp_program_passes_extension_consistency_before_lowering() {
         let plugins = SilverPluginManager::new(vec![Box::new(
-            crate::plugin::standard::arp::arp_plugin::ArpPlugin,
+            crate::plugin::standard::arp::arp_plugin::ArpPlugin::new(),
         )]);
         let mut phases = SilFrontendPhases::new(PathBuf::from("test.vpr"), plugins);
         let parsed = phases

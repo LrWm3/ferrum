@@ -1135,3 +1135,91 @@ fn sif_plugin_errors_preserve_typechecking_warnings_and_exit_status() {
         "{stderr}"
     );
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn arp_invalid_uses_report_all_source_errors_and_positions() {
+    let options = [
+        "--plugin",
+        "viper.silver.plugin.standard.arp.ARPPlugin",
+        "--disableCaches",
+        "--numberOfParallelVerifiers",
+        "1",
+    ];
+    let output = run(
+        include_str!("fixtures/arp_unsupported_expressions.vpr"),
+        &options,
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    let errors: Vec<_> = stderr
+        .lines()
+        .filter(|line| {
+            line.contains("Consistency error: Unsupported use of abstract read permission rd:")
+        })
+        .collect();
+    assert_eq!(errors.len(), 15, "{stderr}");
+    for (line, position) in errors.iter().zip([
+        "13.27", "15.20", "19.25", "23.18", "31.23", "33.22", "35.18", "37.8", "39.13", "41.34",
+        "43.20", "45.23", "53.31", "59.34", "66.14",
+    ]) {
+        assert!(line.contains(&format!("@{position}--")), "{stderr}");
+    }
+    assert!(errors[13].contains("rd cannot be used inside magic wands."));
+    assert!(errors[14].contains("rd cannot be used inside magic wands."));
+    let output = run(
+        include_str!("fixtures/arp_unsupported_members.vpr"),
+        &options,
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    let errors: Vec<_> = stderr
+        .lines()
+        .filter(|line| {
+            line.contains("Consistency error: Unsupported use of abstract read permission rd:")
+        })
+        .collect();
+    assert_eq!(errors.len(), 4, "{stderr}");
+    for (line, position) in errors.iter().zip(["31.12", "10.21", "18.3", "23.12"]) {
+        assert!(line.contains(&format!("@{position}--")), "{stderr}");
+    }
+    assert!(
+        stderr.contains("Function contains specific permission amount"),
+        "{stderr}"
+    );
+    let output = run(include_str!("fixtures/arp_quantified.vpr"), &options);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert_eq!(
+        stderr
+            .matches("call.precondition:insufficient.permission")
+            .count(),
+        1,
+        "{stderr}"
+    );
+    assert!(stderr.contains("@36.3--36.15)"), "{stderr}");
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn arp_wand_and_indirect_use_emit_independent_source_errors() {
+    let source = "field f: Int\nmethod m(x: Ref) requires acc(x.f) --* acc(x.f, rd * 2)\n";
+    let output = run(
+        source,
+        &["--plugin", "viper.silver.plugin.standard.arp.ARPPlugin"],
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    let lines: Vec<_> = stderr.lines().collect();
+    assert_eq!(lines.len(), 2, "{stderr}");
+    assert!(
+        lines[0].contains("rd cannot be used inside magic wands.")
+            && lines[0].contains("@2.49--2.51)"),
+        "{stderr}"
+    );
+    assert!(
+        lines[1].contains("rd can only be used directly as the permission amount")
+            && lines[1].contains("@2.49--2.51)"),
+        "{stderr}"
+    );
+}

@@ -2732,7 +2732,7 @@ pub fn check_program_core(
                             {
                                 let unsupported = match expression {
                                     PExpressionKind::AccPred { .. } => true,
-                                    PExpressionKind::Extension(extension) => !extension.as_any().is::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>(),
+                                    PExpressionKind::Extension(extension) => !extension.as_any().is::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>() && !extension.as_any().is::<crate::plugin::standard::arp::arppast_extension::PRdPerm>(),
                                     _ => false,
                                 };
                                 if unsupported {

@@ -846,7 +846,104 @@ pub fn encode_arp(program: &Program) -> Result<Program, ArpError> {
     }
     Ok(program.copy_with(|p| p.methods = methods))
 }
-pub struct ArpPlugin;
+#[derive(Default)]
+pub struct ArpPlugin {
+    errors: Vec<crate::verifier::verification_result::AbstractError>,
+}
+impl ArpPlugin {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+/// Mirror ARPPlugin.checkSupported, including the two independent method passes.
+fn arp_supported_errors(
+    program: &Program,
+) -> Result<Vec<crate::verifier::verification_result::AbstractError>, ArpError> {
+    use crate::verifier::verification_result::{AbstractError, FrontendError, FrontendErrorKind};
+    fn rd_in(node: &Node, out: &mut Vec<Exp>) -> Result<(), ArpError> {
+        if let Node::Exp(exp) = node {
+            if is_rd(exp) {
+                out.push(exp.clone());
+            }
+        }
+        for child in subnodes(node).map_err(|_| ArpError::Traversal)? {
+            rd_in(&child, out)?;
+        }
+        Ok(())
+    }
+    fn wand_rd(node: &Node, out: &mut Vec<Exp>) -> Result<(), ArpError> {
+        if matches!(node, Node::Exp(exp) if matches!(exp.kind(), ExpKind::MagicWand(..))) {
+            rd_in(node, out)?;
+        }
+        for child in subnodes(node).map_err(|_| ArpError::Traversal)? {
+            wand_rd(&child, out)?;
+        }
+        Ok(())
+    }
+    fn misplaced(node: &Node, out: &mut Vec<Exp>) -> Result<(), ArpError> {
+        if let Node::Exp(exp) = node {
+            if is_rd(exp) {
+                out.push(exp.clone());
+                return Ok(());
+            }
+            match exp.kind() {
+                ExpKind::FieldAccessPredicate(location, Some(permission)) if is_rd(permission) => {
+                    return misplaced(&Node::FieldAccess(location.clone()), out);
+                }
+                ExpKind::PredicateAccessPredicate(access)
+                    if access.permission.as_ref().is_some_and(is_rd) =>
+                {
+                    return misplaced(&Node::PredicateAccess(access.location.clone()), out);
+                }
+                _ => {}
+            }
+        }
+        if let Node::PredicateAccessPredicate(access) = node {
+            if access.permission.as_ref().is_some_and(is_rd) {
+                return misplaced(&Node::PredicateAccess(access.location.clone()), out);
+            }
+        }
+        for child in subnodes(node).map_err(|_| ArpError::Traversal)? {
+            misplaced(&child, out)?;
+        }
+        Ok(())
+    }
+    let mut errors = Vec::new();
+    let mut report = |items: Vec<Exp>, reason: &str| {
+        for exp in items {
+            errors.push(AbstractError::Frontend(FrontendError::new(
+                FrontendErrorKind::ConsistencyError(format!(
+                    "Unsupported use of abstract read permission rd: {reason}"
+                )),
+                exp.metadata().position.clone(),
+            )));
+        }
+    };
+    for member in program.members() {
+        let method = matches!(member, Member::Method(_));
+        let node = Node::Member(member);
+        if method {
+            let mut items = Vec::new();
+            wand_rd(&node, &mut items)?;
+            report(items, "rd cannot be used inside magic wands.");
+            let mut items = Vec::new();
+            misplaced(&node, &mut items)?;
+            report(
+                items,
+                "rd can only be used directly as the permission amount of an access predicate, e.g., acc(x.f, rd).",
+            );
+        } else {
+            let mut items = Vec::new();
+            rd_in(&node, &mut items)?;
+            report(
+                items,
+                "rd can only be used in methods, not in functions, predicates, or domains.",
+            );
+        }
+    }
+    Ok(errors)
+}
 impl SilverPlugin for ArpPlugin {
     fn shared_entity_mapper(
         &self,
@@ -857,7 +954,21 @@ impl SilverPlugin for ArpPlugin {
     fn parser_features(&self) -> Vec<crate::parser::fast_parser::ParserFeature> {
         vec![crate::parser::fast_parser::ParserFeature::Arp]
     }
+    fn errors(&self) -> &[crate::verifier::verification_result::AbstractError] {
+        &self.errors
+    }
+    fn before_parse(&mut self, input: String, imported: bool) -> String {
+        if !imported {
+            self.errors.clear();
+        }
+        input
+    }
     fn before_verify(&mut self, input: Program) -> Result<Program, PluginHookError> {
+        self.errors = arp_supported_errors(&input)
+            .map_err(|e| PluginHookError(format!("ARP validation: {e:?}")))?;
+        if !self.errors.is_empty() {
+            return Ok(input);
+        }
         encode_arp(&input).map_err(|e| PluginHookError(format!("ARP encoding: {e:?}")))
     }
 }
@@ -870,6 +981,29 @@ mod tests {
         resolver::{NameAnalyser, check_program_core},
         translator::translate_program_core,
     };
+    #[test]
+    fn plugin_errors_clear_before_next_root_parse() {
+        use crate::frontend::{frontend::FrontendPhases, sil_frontend::SilFrontendPhases};
+        use crate::plugin::silver_plugin_manager::SilverPluginManager;
+        let mut phases = SilFrontendPhases::new(
+            "test.vpr".into(),
+            SilverPluginManager::new(vec![Box::new(ArpPlugin::new())]),
+        );
+        let parsed = phases
+            .parse("method invalid() { assert rd == none }")
+            .unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        let errors = phases.prepare_verification(program).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        let parsed = phases.parse("method valid() { assert true }").unwrap();
+        let analyzed = phases.analyze(parsed).unwrap();
+        let program = phases.translate(analyzed).unwrap();
+        let program = phases.check_consistency(program).unwrap();
+        phases.prepare_verification(program).unwrap();
+        assert!(phases.plugins.errors().is_empty());
+    }
     #[test]
     fn source_method_call_reaches_arp_encoding() {
         let source =
