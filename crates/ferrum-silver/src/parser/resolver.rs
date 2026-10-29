@@ -829,6 +829,11 @@ pub enum TypeCheckError {
     Unsupported(&'static str),
     Undeclared(String),
     AmbiguousIdentifier(String),
+    UnresolvedValue {
+        name: String,
+        identifier: PNodeHandle,
+        ambiguous: bool,
+    },
     FunctionPreconditionInDomainAxiom {
         name: String,
         identifier: PNodeHandle,
@@ -919,10 +924,10 @@ pub fn check_expression(
             };
             let candidates = super::parse_ast::PIdnRef::decls(&idnref, |_| true);
             if candidates.is_empty() {
-                return Err(TypeCheckError::Undeclared(name));
+                return Err(TypeCheckError::UnresolvedValue { name, identifier: idnref, ambiguous: false });
             }
             if candidates.len() != 1 {
-                return Err(TypeCheckError::AmbiguousIdentifier(name));
+                return Err(TypeCheckError::UnresolvedValue { name, identifier: idnref, ambiguous: true });
             }
             let declaration = candidates[0].read().expect("poisoned parse node").kind.clone();
             let typ = match declaration {

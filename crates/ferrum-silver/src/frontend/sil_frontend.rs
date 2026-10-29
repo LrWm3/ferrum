@@ -511,7 +511,41 @@ impl FrontendPhases for SilFrontendPhases {
             };
             let mut messages = Vec::new();
             let mut fallback_errors = Vec::new();
+            let mut identifier_messages_added = false;
             for error in errors {
+                if let resolver::TypeCheckError::UnresolvedValue {
+                    name,
+                    identifier,
+                    ambiguous,
+                } = error
+                {
+                    if identifier_messages_added {
+                        continue;
+                    }
+                    let found =
+                        resolver::value_identifier_messages(input.node()).unwrap_or_default();
+                    if !found.is_empty() {
+                        messages.extend(found);
+                        identifier_messages_added = true;
+                    } else {
+                        let label = if *ambiguous {
+                            format!("ambiguous identifier `{name}`")
+                        } else {
+                            format!("undeclared identifier `{name}`")
+                        };
+                        if let Ok(found) = crate::parser::fast_message::message_for_node(
+                            identifier, label, true, true,
+                        ) {
+                            messages.extend(found);
+                        } else {
+                            fallback_errors.extend(Self::failure(
+                                format!("type checking: {error:?}"),
+                                Self::program_position(&input),
+                            ));
+                        }
+                    }
+                    continue;
+                }
                 if matches!(
                     error,
                     resolver::TypeCheckError::Unsupported(
@@ -1987,6 +2021,26 @@ mod tests {
             vec![
                 "forperm quantifier bodies are not allowed to contain `forperm` expressions (test.vpr@3.35--3.76)",
                 "forperm quantifier bodies are not allowed to contain `perm` expressions (test.vpr@3.59--3.68)",
+            ]
+        );
+    }
+    #[test]
+    fn independent_undeclared_values_are_reported_without_duplicates() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("method a() { assert missing == 0 }\nmethod c() { assert other == 0 }\n")
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "undeclared identifier `missing` (test.vpr@1.21--1.28)",
+                "undeclared identifier `other` (test.vpr@2.21--2.26)",
             ]
         );
     }
