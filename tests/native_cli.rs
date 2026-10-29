@@ -930,3 +930,17 @@ fn unresolved_function_warning_uses_source_expression_and_position() {
         "{stderr}"
     );
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn loop_termination_diagnostic_uses_decreases_clause_span() {
+    let source = "import <decreases/int.vpr>\nmethod m(x: Int) {\n  while (x >= 0)\n    decreases x\n  { }\n}\n";
+    let output = run(source, &[]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains("termination.failed:tuple.false"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("@4.15--4.16"), "{stderr}");
+}

@@ -1051,6 +1051,7 @@ impl ExpressionParser<'_> {
                 };
                 self.cursor += "decreases".len();
                 let keyword = decreases_keyword(self.span(at, self.cursor));
+                self.trivia()?;
                 let clause_start = self.position(self.cursor);
                 let kind = if let Some(star) = self.take("*")? {
                     PDecreasesKind::Star {
@@ -1084,6 +1085,7 @@ impl ExpressionParser<'_> {
                         }
                     }
                     let list_end = self.position(self.cursor);
+                    let before_condition = self.cursor;
                     self.trivia()?;
                     let condition = if self.source[self.cursor..].starts_with("if")
                         && self.identifier_end(self.cursor) == self.cursor + 2
@@ -1095,6 +1097,7 @@ impl ExpressionParser<'_> {
                             self.expression(0)?,
                         ))
                     } else {
+                        self.cursor = before_condition;
                         None
                     };
                     match wildcard {
