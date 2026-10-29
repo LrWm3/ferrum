@@ -1467,12 +1467,18 @@ pub fn check_expression(
             // Source `check` is a top-typed check: infer first, then constrain and
             // ground the selected substitution. Passing the expected type into the
             // operator inference directly can widen a pure Bool body to Impure.
-            let body_type = check_top_expression(&q.body, Some(&expected_body), |_, _| {})?;
+            let mut errors = Vec::new();
+            let body_type = match check_top_expression(&q.body, Some(&expected_body), |_, _| {}) {
+                Ok(typ) => Some(typ),
+                Err(error) => { retain_type_mismatches(&mut errors, Err::<(), _>(error))?; None }
+            };
             for trigger in q.triggers {
                 for exp in trigger.expressions().inner().to_seq() {
-                    check_top_expression(exp, None, |_, _| {})?;
+                    retain_type_mismatches(&mut errors, check_top_expression(exp, None, |_, _| {}))?;
                 }
             }
+            if !errors.is_empty() { return Err(TypeCheckError::Mismatches(errors)); }
+            let body_type = body_type.expect("successful quantifier body typecheck");
             let substitutions = q
                 .body
                 .type_subs_distinct()
@@ -2802,12 +2808,16 @@ pub fn check_statement_core(
                         message: "wrong number of targets",
                     });
                 }
+                let mut errors = Vec::new();
                 for (actual, formal) in inputs.into_iter().zip(formals) {
                     let typ = match &formal.node().read().expect("poisoned parse node").kind {
                         PNodeKind::Declaration(d) => d.typ.clone(),
                         _ => return Err(TypeCheckError::Unsupported("method formal")),
                     };
-                    check_program_expression(actual, Some(&typ), &mut *warn)?;
+                    retain_type_mismatches(
+                        &mut errors,
+                        check_program_expression(actual, Some(&typ), &mut *warn),
+                    )?;
                 }
                 for (target, formal) in actual_targets.into_iter().zip(outputs) {
                     let target_kind = match &target.node().read().expect("poisoned parse node").kind
@@ -2826,16 +2836,61 @@ pub fn check_statement_core(
                         reference.assign_use = true;
                     }
                     if local {
+                        let original_count =
+                            super::parse_ast::PIdnRef::decls(&idnref, |_| true).len();
                         let filter = std::sync::Arc::new(
                             |node: &PNodeHandle| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Declaration(d) if matches!(d.kind, PDeclarationKind::LocalVar | PDeclarationKind::FormalReturn)),
                         );
                         super::parse_ast::PIdnRef::filter_decls(&idnref, filter, |_| true);
+                        let count = super::parse_ast::PIdnRef::decls(&idnref, |_| true).len();
+                        if count != 1 {
+                            let name = match &idnref.read().expect("poisoned parse node").kind {
+                                PNodeKind::IdnRef(id) => id.name.clone(),
+                                _ => {
+                                    return Err(TypeCheckError::Unsupported(
+                                        "assignment identifier",
+                                    ));
+                                }
+                            };
+                            let message = if original_count == 0 {
+                                format!(
+                                    "undeclared identifier `{name}`, expected parameter or local variable"
+                                )
+                            } else if count == 0 {
+                                format!("expected an assignable identifier `{name}` as lhs")
+                            } else {
+                                format!(
+                                    "ambiguous identifier `{name}`, expected single parameter or local variable"
+                                )
+                            };
+                            errors.push(TypeCheckError::PositionedMessage {
+                                node: idnref.clone(),
+                                message,
+                            });
+                        }
                     }
                     let typ = match &formal.node().read().expect("poisoned parse node").kind {
                         PNodeKind::Declaration(d) => d.typ.clone(),
                         _ => return Err(TypeCheckError::Unsupported("method return")),
                     };
-                    check_program_expression(target, Some(&typ), &mut *warn)?;
+                    match check_program_expression(target, Some(&typ), &mut *warn) {
+                        Err(TypeCheckError::UnresolvedValue {
+                            name,
+                            identifier,
+                            ambiguous,
+                        }) => errors.push(TypeCheckError::PositionedMessage {
+                            node: identifier,
+                            message: if ambiguous {
+                                format!("ambiguous identifier `{name}`")
+                            } else {
+                                format!("undeclared identifier `{name}`")
+                            },
+                        }),
+                        result => retain_type_mismatches(&mut errors, result)?,
+                    }
+                }
+                if !errors.is_empty() {
+                    return Err(TypeCheckError::Mismatches(errors));
                 }
                 return Ok(());
             }
@@ -3031,7 +3086,7 @@ pub fn check_statement_core(
                                 "ambiguous identifier `{name}`, expected single parameter or local variable"
                             )
                         };
-                        invalid_target = Some((idnref.clone(), message));
+                        invalid_target = Some((idnref.clone(), message, true));
                     }
                 }
                 PExpressionKind::FieldAccess { idnref, .. } => {
@@ -3054,13 +3109,29 @@ pub fn check_statement_core(
                         } else {
                             format!("ambiguous field `{name}`")
                         };
-                        invalid_target = Some((idnref, message));
+                        invalid_target = Some((idnref, message, false));
                     }
                 }
                 _ => return Err(TypeCheckError::Unsupported("assignment target")),
             }
-            if let Some((node, message)) = invalid_target {
-                let mut errors = vec![TypeCheckError::PositionedMessage { node, message }];
+            if let Some((node, message, local)) = invalid_target {
+                let mut errors = vec![TypeCheckError::PositionedMessage {
+                    node: node.clone(),
+                    message,
+                }];
+                if local
+                    && matches!(&rhs.node().read().expect("poisoned parse node").kind, PNodeKind::Expression(e) if matches!(e.kind, PExpressionKind::NewExp { .. }))
+                {
+                    let name = match &node.read().expect("poisoned parse node").kind {
+                        PNodeKind::IdnRef(id) => id.name.clone(),
+                        _ => return Err(TypeCheckError::Unsupported("assignment identifier")),
+                    };
+                    errors.push(TypeCheckError::PositionedMessage {
+                        node,
+                        message: format!("undeclared identifier `{name}`"),
+                    });
+                    return Err(TypeCheckError::Mismatches(errors));
+                }
                 match check_program_expression(&rhs, None, &mut *warn) {
                     Ok(actual) => errors.push(TypeCheckError::Incompatible {
                         expression: rhs.node().clone(),

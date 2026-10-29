@@ -2764,6 +2764,44 @@ mod tests {
         );
     }
     #[test]
+    fn quantifier_body_errors_do_not_hide_trigger_errors() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("method m(vals: Set[Ref]) {\n  assert forall i: Int :: { i in vals } i in vals\n}\n").unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "found incompatible type `Int`, expected `Ref` (test.vpr@2.34--2.38)",
+                "found incompatible type `Int`, expected `Ref` (test.vpr@2.46--2.50)",
+            ]
+        );
+    }
+    #[test]
+    fn call_and_allocation_targets_report_assignability_and_use() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("method f(b: Int) returns (r: Int) {\n  b := f(0)\n}\nmethod g(r: Ref) {\n  r := new(*)\n}\n").unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "expected an assignable identifier `b` as lhs (test.vpr@2.3--2.4)",
+                "undeclared identifier `b` (test.vpr@2.3--2.4)",
+                "expected an assignable identifier `r` as lhs (test.vpr@5.3--5.4)",
+                "undeclared identifier `r` (test.vpr@5.3--5.4)",
+            ]
+        );
+    }
+    #[test]
     fn forbidden_wands_report_each_source_expression() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
