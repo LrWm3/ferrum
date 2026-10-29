@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 420 mapped and assembly modules. `described` files
+The Cargo workspace now has 423 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
@@ -1216,3 +1216,10 @@ at startup or through member annotations, before changing decider option state.
 Both Z3 spellings and the documented cvc5 spelling are covered; linked Z3 options
 are unchanged. Explicit true passes the guard, but runtime solver restrictions
 still apply. Tests cover rejection, allowed startup and recovery on the next run.
+
+At the `afdf24d` code checkpoint, all-target checks including `native-z3` and
+215 library tests pass (nine ignored). Focused CLI continuation, warning and
+configuration regressions, cooperative restoration, and linked mask fixtures are
+recorded above. Ordinary function/collection/conditional receivers and active
+member-log migration still use the documented fallbacks; this does not complete
+the port or establish an end-to-end performance gain.
