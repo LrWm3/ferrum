@@ -797,3 +797,7 @@ Each implementation commit should identify the upstream component, important
 translation differences, and relevant checks. Update the inventory with the code
 so a compiling placeholder is never mistaken for a completed port. Keep broad
 test additions and algorithmic optimizations in their appropriate later phases.
+
+General logging uses the assembly module `crates/ferrum-silicon/src/logger/general.rs`
+for hierarchical Logback-compatible levels and shared sinks. Rule event producers
+stay at their source-equivalent entry points, with owner-local logger identity.

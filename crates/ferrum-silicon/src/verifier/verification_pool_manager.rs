@@ -2536,6 +2536,15 @@ where
         NativeWorkerTarget::Cfg(cfg) => context.verify_worker_cfg(&task.analysis, cfg),
         NativeWorkerTarget::EvaluationBranch(_) | NativeWorkerTarget::Join(_) => unreachable!(),
     };
+    if outcome.is_err() {
+        match &task.target {
+            NativeWorkerTarget::Method(method) => {
+                context.log_entity_exception("method", Some(&method.name))
+            }
+            NativeWorkerTarget::Cfg(_) => context.log_entity_exception("cfg", None),
+            _ => unreachable!(),
+        }
+    }
     let warnings = std::mem::take(&mut context.warnings);
     let delivery = if warnings.is_empty() {
         Ok(())
@@ -2585,14 +2594,22 @@ where
         NativeWorkerTarget::Cfg(_) => None,
         NativeWorkerTarget::EvaluationBranch(_) | NativeWorkerTarget::Join(_) => unreachable!(),
     };
+    let elapsed = start.elapsed();
     if let Some(reporter) = task.reporter {
-        report_member_results(reporter.as_ref(), member.clone(), start.elapsed(), &results)
-            .map_err(|error| {
+        report_member_results(reporter.as_ref(), member.clone(), elapsed, &results).map_err(
+            |error| {
                 super::native_context::NativeError::Diagnostic(format!(
                     "worker result reporter: {error:?}"
                 ))
-            })?;
+            },
+        )?;
     }
+    let name = match member.as_deref() {
+        Some(ferrum_silver::ast::program::Member::Method(method)) => method.name.as_str(),
+        None => "CFG",
+        _ => unreachable!(),
+    };
+    context.log_member_result("method", name, elapsed, &results)?;
     if let Some(member) = member {
         set_verification_scope(&results, member);
     }
@@ -2723,21 +2740,28 @@ where
         let warning_start = context.warnings.len();
         let start = std::time::Instant::now();
         let outcome = context.verify_function_unscoped(&program, &analysis, &function);
+        if outcome.is_err() {
+            context.log_entity_exception("function", Some(&function.name));
+        }
         let delivery = super::native_context::report_single_warnings(
             reporter.as_deref(),
             &context.warnings[warning_start..],
         );
         let function_results = super::native_context::combine_single_delivery(outcome, delivery)
             .map_err(NativeParallelError::Main)?;
+        let elapsed = start.elapsed();
         if let Some(reporter) = &reporter {
             report_member_results(
                 reporter.as_ref(),
                 Some(member.clone()),
-                start.elapsed(),
+                elapsed,
                 &function_results,
             )
             .map_err(NativeParallelError::Reporter)?;
         }
+        context
+            .log_member_result("function", &function.name, elapsed, &function_results)
+            .map_err(NativeParallelError::Main)?;
         set_verification_scope(&function_results, member);
         results.extend(function_results);
     }
@@ -2751,21 +2775,28 @@ where
         let warning_start = context.warnings.len();
         let start = std::time::Instant::now();
         let outcome = context.verify_predicate_unscoped(&program, &analysis, &predicate);
+        if outcome.is_err() {
+            context.log_entity_exception("predicate", Some(&predicate.name));
+        }
         let delivery = super::native_context::report_single_warnings(
             reporter.as_deref(),
             &context.warnings[warning_start..],
         );
         let predicate_results = super::native_context::combine_single_delivery(outcome, delivery)
             .map_err(NativeParallelError::Main)?;
+        let elapsed = start.elapsed();
         if let Some(reporter) = &reporter {
             report_member_results(
                 reporter.as_ref(),
                 Some(member.clone()),
-                start.elapsed(),
+                elapsed,
                 &predicate_results,
             )
             .map_err(NativeParallelError::Reporter)?;
         }
+        context
+            .log_member_result("predicate", &predicate.name, elapsed, &predicate_results)
+            .map_err(NativeParallelError::Main)?;
         set_verification_scope(&predicate_results, member);
         results.extend(predicate_results);
     }

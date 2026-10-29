@@ -203,6 +203,14 @@ impl<P, D, J: Clone> Clone for OwnedFunctionPre<P, D, J> {
 pub trait EvaluationContext<P, D, J, V>: Sized {
     type Error;
     type PartialError: Clone;
+    /// Optional source debug logging before switching to the evaluation heap.
+    fn log_evaluation(
+        &mut self,
+        _state: &State<P, D, J>,
+        _expression: &Exp,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
     fn factory(&self) -> &TermFactory;
     fn debugging(&self) -> bool;
     fn verifier_unique_id(&self) -> &str;
@@ -910,6 +918,9 @@ where
 {
     let scope = context
         .open_evaluation_scope(&state, expression)
+        .map_err(EvaluationError::Context)?;
+    context
+        .log_evaluation(&state, expression)
         .map_err(EvaluationError::Context)?;
     let old_heap = state.h.clone();
     let old_reserve = state.reserve_heaps.clone();

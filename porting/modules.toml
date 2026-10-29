@@ -2624,3 +2624,9 @@ destination = "crates/ferrum-silicon/src/resources/debug_property_interpreter.rs
 status = "skeleton"
 role = "assembly"
 remaining = ["Paired source traversal is connected for internal debug profiles; public debugger and broad source parity remain incomplete."]
+
+[[scaffolding]]
+destination = "crates/ferrum-silicon/src/logger/general.rs"
+status = "skeleton"
+role = "assembly"
+remaining = ["Hierarchical levels, owner attachment, member events and recursive evaluation logs are connected. Other rule/solver events and public flag activation remain incomplete."]

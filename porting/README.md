@@ -1,7 +1,7 @@
 # Port status and checks
 
 The description pass covered all 336 mapped Silver/Silicon source and test files.
-The Cargo workspace now has 412 mapped and assembly modules. `described` files
+The Cargo workspace now has 413 mapped and assembly modules. `described` files
 remain comment-only; `skeleton` files contain partial implementations with explicit
 gaps; `ported` means translated bodies compile, not that compatibility has been
 proved. Reviewed progress and remaining work are recorded per file.
@@ -997,3 +997,9 @@ auxiliary groups and inverse-axiom labels. Singleton quantified wand properties
 carry permission, argument and value expressions. Real-solver debug fixtures reach
 quantified consumption and wildcard removal; public interactive debugging remains
 gated while its remaining services are connected.
+
+General logging now has owner-local sinks and hierarchical source levels, main/worker
+attachment across resets, configuration confirmation, member phase/results and
+recursive evaluation state events. Public general-log flags remain gated until
+the remaining rule and solver producers are connected. Disabled logs avoid result
+flattening and state rendering.

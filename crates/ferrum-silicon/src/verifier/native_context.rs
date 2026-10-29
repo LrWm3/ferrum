@@ -323,6 +323,12 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     cancellation: Option<crate::verifier::verification_pool_manager::CancellationController>,
     havoc_counter: u64,
     config_options: Vec<String>,
+    preamble_config: std::collections::BTreeMap<String, String>,
+    general_logger_name: String,
+    general_logging: Option<(
+        crate::logger::general::GeneralLogger,
+        std::collections::BTreeMap<String, String>,
+    )>,
     predicate_snapshots: crate::supporters::qps::predicate_snap_generator::PredicateSnapGenerator,
     mask_resources: crate::rules::mask_heap_supporter::ResourceSequenceCache,
     mask_frames: crate::supporters::functions::mask_heap_function_encoding::SharedFrameCache<FD>,
@@ -348,6 +354,180 @@ pub struct NativeVerifierContext<S: Prover, PD, FD> {
     _state_types: PhantomData<(PD, FD)>,
 }
 impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
+    /// Supply the source prover settings for configuration confirmation reporting.
+    pub fn set_preamble_config(&mut self, options: std::collections::BTreeMap<String, String>) {
+        self.preamble_config = options;
+    }
+    pub fn set_general_worker_logger_name(&mut self, index: usize) {
+        self.general_logger_name =
+            format!("viper.silicon.verifier.WorkerVerifier-{:02}", index + 1);
+    }
+    fn log_evaluation_state(
+        &self,
+        state: &State<PD, FD, JoinMode>,
+        expression: &Exp,
+    ) -> Result<(), NativeError<S::Error>> {
+        use crate::logger::general::Level;
+        use ferrum_silver::ast::expression::ExpKind;
+        if matches!(
+            expression.kind(),
+            ExpKind::TrueLit
+                | ExpKind::FalseLit
+                | ExpKind::NullLit
+                | ExpKind::IntLit(_)
+                | ExpKind::FullPerm
+                | ExpKind::NoPerm
+                | ExpKind::LocalVar(_)
+                | ExpKind::LocalVarWithVersion(..)
+                | ExpKind::WildcardPerm
+                | ExpKind::FractionalPerm(..)
+                | ExpKind::Result(_)
+                | ExpKind::FieldAccess(_)
+        ) {
+            return Ok(());
+        }
+        let Some((logger, _)) = &self.general_logging else {
+            return Ok(());
+        };
+        if !logger.enabled(&self.general_logger_name, Level::Debug) {
+            return Ok(());
+        }
+        let position = expression
+            .metadata()
+            .position
+            .line_column()
+            .map(|p| format!("{}:{}", p.line(), p.column()))
+            .unwrap_or_else(|| expression.metadata().position.to_string());
+        let rendered = ferrum_silver::ast::pretty::pretty_printer::expression_to_string(expression)
+            .map_err(|e| NativeError::Diagnostic(format!("evaluation log: {e:?}")))?;
+        logger.emit(&self.general_logger_name, Level::Debug, || {
+            format!("\nEVAL {position}: {rendered}")
+        });
+        let formatter = crate::reporting::formatters::native_state_formatter(
+            &self.factory,
+            logger.enabled("SiliconFrontend", Level::Trace),
+        );
+        let text = formatter
+            .format_state(state, &self.base.decider.pcs.recorded())
+            .map_err(|e| NativeError::Diagnostic(format!("evaluation state log: {e:?}")))?;
+        logger.emit(&self.general_logger_name, Level::Debug, || text);
+        if let Some(heap) = &state.partially_consumed_heap {
+            let text = formatter
+                .format_heap(heap)
+                .map_err(|e| NativeError::Diagnostic(format!("evaluation heap log: {e:?}")))?;
+            logger.emit(&self.general_logger_name, Level::Debug, || {
+                format!("pcH = {text}")
+            });
+        }
+        if !state.reserve_heaps.is_empty() {
+            let heaps = state
+                .reserve_heaps
+                .iter()
+                .map(|heap| formatter.format_heap(heap))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| NativeError::Diagnostic(format!("evaluation heap log: {e:?}")))?;
+            logger.emit(&self.general_logger_name, Level::Debug, || {
+                format!("hR = {}", heaps.join(",\n     "))
+            });
+        }
+        if let Some(heap) = state.old_heaps.get(&"lhs".to_owned()) {
+            let text = formatter
+                .format_heap(heap)
+                .map_err(|e| NativeError::Diagnostic(format!("evaluation heap log: {e:?}")))?;
+            logger.emit(&self.general_logger_name, Level::Debug, || {
+                format!("hLhs = {text}")
+            });
+        }
+        Ok(())
+    }
+    fn log_function_phase(&self, text: &'static str) {
+        if let Some((logger, _)) = &self.general_logging {
+            logger.emit(
+                &self.general_logger_name,
+                crate::logger::general::Level::Debug,
+                || format!("\n\n----- {text} -----\n"),
+            );
+        }
+    }
+    fn log_member_start(&self, kind: &str, name: Option<&str>) {
+        if let Some((logger, _)) = &self.general_logging {
+            logger.emit(
+                &self.general_logger_name,
+                crate::logger::general::Level::Debug,
+                || match name {
+                    Some(name) => format!("\n\n---------- {kind} {name}----------\n"),
+                    None => "\n\n---------- CFG ----------\n".into(),
+                },
+            );
+        }
+    }
+    pub(crate) fn log_member_result(
+        &self,
+        kind: &str,
+        name: &str,
+        elapsed: std::time::Duration,
+        results: &[VerificationResult<VerificationError>],
+    ) -> Result<(), NativeError<S::Error>> {
+        use crate::interfaces::verification::ResultKind;
+        use ferrum_silver::verifier::{
+            verification_error::{NativeErrorNodeRenderer, RenderedVerificationError},
+            verification_result::VerificationDiagnostic,
+        };
+        let Some((logger, _)) = &self.general_logging else {
+            return Ok(());
+        };
+        let logger_name = "viper.silicon.verifier.DefaultMainVerifier-00";
+        if !logger.enabled(logger_name, crate::logger::general::Level::Debug) {
+            return Ok(());
+        }
+        let mut errors = Vec::new();
+        for result in results {
+            result.with_kind(|entry| -> Result<(), NativeError<S::Error>> {
+                if let ResultKind::Failure(error) = entry {
+                    let rendered = RenderedVerificationError::new(
+                        error.clone(),
+                        Arc::new(NativeErrorNodeRenderer),
+                    )
+                    .map_err(|e| NativeError::Diagnostic(format!("result log: {e:?}")))?;
+                    let message = rendered
+                        .readable_message()
+                        .map_err(|e| NativeError::Diagnostic(format!("result log: {e:?}")))?;
+                    errors.push(format!("[{}] {message}", rendered.full_id()));
+                }
+                Ok(())
+            })?;
+        }
+        let result = if errors.is_empty() {
+            "Verification successful.".into()
+        } else {
+            format!(
+                "Verification failed with {} errors:\n  {}",
+                errors.len(),
+                errors.join("\n  ")
+            )
+        };
+        let time = ferrum_silver::reporter::format::package::format_millis_readably(
+            i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX),
+        )
+        .map_err(|e| NativeError::Diagnostic(format!("result log time: {e:?}")))?;
+        logger.emit(logger_name, crate::logger::general::Level::Debug, || format!("Silicon finished verification of {kind} `{name}` in {time} seconds with the following result: {result}"));
+        Ok(())
+    }
+    pub(crate) fn log_entity_exception(&self, kind: &str, name: Option<&str>) {
+        if let Some((logger, _)) = &self.general_logging {
+            logger.entity_exception(kind, name);
+        }
+    }
+    /// Attach an explicitly supplied general logger to this owner context. Public
+    /// log-level configuration remains gated until all source events are connected.
+    pub fn set_general_logging(
+        &mut self,
+        logger: crate::logger::general::GeneralLogger,
+        options: std::collections::BTreeMap<String, String>,
+    ) {
+        self.general_logging = Some((logger, options));
+    }
+
     /// Install the backend-owned source postcondition history on the main context.
     pub fn set_postcondition_axioms_store(
         &mut self,
@@ -381,6 +561,9 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
             cancellation: None,
             havoc_counter: 0,
             config_options: Vec::new(),
+            preamble_config: Default::default(),
+            general_logger_name: "viper.silicon.verifier.DefaultMainVerifier-00".into(),
+            general_logging: None,
             predicate_snapshots: Default::default(),
             mask_resources: Default::default(),
             mask_frames: Default::default(),
@@ -1308,6 +1491,13 @@ where
 {
     type Error = NativeError<S::Error>;
     type PartialError = PartialVerificationError;
+    fn log_evaluation(
+        &mut self,
+        state: &State<PD, FD, JoinMode>,
+        expression: &Exp,
+    ) -> Result<(), Self::Error> {
+        self.log_evaluation_state(state, expression)
+    }
     fn factory(&self) -> &TermFactory {
         &self.factory
     }
@@ -12001,6 +12191,7 @@ where
             ferrum_silver::ast::program::Member::Method(method.clone()),
         )?;
         state.parallelize_branches = self.joined_branch_scheduler_enabled;
+        self.log_member_start("METHOD", Some(&method.name));
         let results = crate::supporters::method_supporter::verify_method(self, state, method)
             .map(flatten_results)
             .map_err(|e| match e {
@@ -12040,6 +12231,7 @@ where
             snapshot_formals: analysis.snapshot_formals.clone(),
         };
         let state = self.initial_cfg_state(&analysis.program, &local);
+        self.log_member_start("CFG", None);
         crate::supporters::cfg_supporter::verify_cfg(self, state, Arc::new(cfg.clone()))
             .map(flatten_results)
             .map_err(|e| match e {
@@ -12063,6 +12255,7 @@ where
             analysis,
             ferrum_silver::ast::program::Member::Function(function.clone()),
         )?;
+        self.log_member_start("FUNCTION", Some(&function.name));
         let factory = self.factory.clone();
         analysis
             .functions
@@ -12089,6 +12282,7 @@ where
             analysis,
             ferrum_silver::ast::program::Member::Predicate(predicate.clone()),
         )?;
+        self.log_member_start("PREDICATE", Some(&predicate.name));
         let factory = self.factory.clone();
         crate::supporters::predicate_verification_unit::verify_predicate(
             &factory, self, state, &data,
@@ -12467,6 +12661,15 @@ where
     }
     fn emit_static_preamble(&mut self) -> Result<(), Self::Error> {
         self.checkpoint()?;
+        if let Some(message) = crate::logger::general::configuration_message(&self.preamble_config)
+        {
+            if let Some(reporter) = &self.preprocessing_reporter {
+                reporter.report(ferrum_silver::reporter::message::Message::Simple { kind: ferrum_silver::reporter::message::SimpleMessageKind::ConfigurationConfirmation, text: message }).map_err(|error| NativeError::Diagnostic(format!("configuration reporter: {error:?}")))?;
+            }
+        }
+        if let Some((logger, options)) = &self.general_logging {
+            logger.configuration_options(options);
+        }
         Ok(())
     }
     fn analyze_and_emit_contributions(
@@ -12832,24 +13035,31 @@ where
         let warning_start = self.warnings.len();
         let started = std::time::Instant::now();
         let outcome = self.verify_function_unscoped(program, analysis, &unit);
+        if outcome.is_err() {
+            if let Some((logger, _)) = &self.general_logging {
+                logger.entity_exception("function", Some(&unit.name));
+            }
+        }
         let delivery = report_single_warnings(
             self.preprocessing_reporter.as_deref(),
             &self.warnings[warning_start..],
         );
         let results = combine_single_delivery(outcome, delivery)?;
+        let elapsed = started.elapsed();
         if let Some(reporter) = &self.preprocessing_reporter {
             super::verification_pool_manager::report_member_results(
                 reporter.as_ref(),
                 Some(Arc::new(ferrum_silver::ast::program::Member::Function(
                     unit.clone(),
                 ))),
-                started.elapsed(),
+                elapsed,
                 &results,
             )
             .map_err(|error| {
                 NativeError::Diagnostic(format!("function result reporter: {error:?}"))
             })?;
         }
+        self.log_member_result("function", &unit.name, elapsed, &results)?;
         set_member_scope(
             &results,
             ferrum_silver::ast::program::Member::Function(unit),
@@ -12865,24 +13075,31 @@ where
         let warning_start = self.warnings.len();
         let started = std::time::Instant::now();
         let outcome = self.verify_predicate_unscoped(program, analysis, &unit);
+        if outcome.is_err() {
+            if let Some((logger, _)) = &self.general_logging {
+                logger.entity_exception("predicate", Some(&unit.name));
+            }
+        }
         let delivery = report_single_warnings(
             self.preprocessing_reporter.as_deref(),
             &self.warnings[warning_start..],
         );
         let results = combine_single_delivery(outcome, delivery)?;
+        let elapsed = started.elapsed();
         if let Some(reporter) = &self.preprocessing_reporter {
             super::verification_pool_manager::report_member_results(
                 reporter.as_ref(),
                 Some(Arc::new(ferrum_silver::ast::program::Member::Predicate(
                     unit.clone(),
                 ))),
-                started.elapsed(),
+                elapsed,
                 &results,
             )
             .map_err(|error| {
                 NativeError::Diagnostic(format!("predicate result reporter: {error:?}"))
             })?;
         }
+        self.log_member_result("predicate", &unit.name, elapsed, &results)?;
         set_member_scope(
             &results,
             ferrum_silver::ast::program::Member::Predicate(unit),
@@ -12936,26 +13153,46 @@ where
                 ferrum_silver::ast::program::Member::Method(method.clone()),
             )?;
             started = Some(std::time::Instant::now());
+            self.log_member_start("METHOD", Some(&method.name));
             crate::supporters::method_supporter::verify_method(self, state, method)
                 .map_err(|e| NativeError::Execution(format!("{e:?}")))
         })();
+        if outcome.is_err() {
+            if let Some((logger, _)) = &self.general_logging {
+                logger.entity_exception("method", Some(&method.name));
+            }
+        }
         let delivery = report_single_warnings(
             self.preprocessing_reporter.as_deref(),
             &self.warnings[warning_start..],
         );
         let results = combine_single_delivery(outcome, delivery)?;
+        let elapsed = started.expect("method verification started").elapsed();
         if let Some(reporter) = &self.preprocessing_reporter {
             super::verification_pool_manager::report_member_results(
                 reporter.as_ref(),
                 Some(Arc::new(ferrum_silver::ast::program::Member::Method(
                     method.clone(),
                 ))),
-                started.expect("method verification started").elapsed(),
+                elapsed,
                 &flatten_results(results.clone()),
             )
             .map_err(|error| {
                 NativeError::Diagnostic(format!("method result reporter: {error:?}"))
             })?;
+        }
+        if self.general_logging.as_ref().is_some_and(|(logger, _)| {
+            logger.enabled(
+                "viper.silicon.verifier.DefaultMainVerifier-00",
+                crate::logger::general::Level::Debug,
+            )
+        }) {
+            self.log_member_result(
+                "method",
+                &method.name,
+                elapsed,
+                &flatten_results(results.clone()),
+            )?;
         }
         set_member_scope(
             &results,
@@ -12973,22 +13210,37 @@ where
         let warning_start = self.warnings.len();
         let state = self.initial_cfg_state(program, analysis);
         let started = std::time::Instant::now();
+        self.log_member_start("CFG", None);
         let outcome =
             crate::supporters::cfg_supporter::verify_cfg(self, state, Arc::new(cfg.clone()))
                 .map_err(|e| NativeError::Execution(format!("CFG verification: {e:?}")));
+        if outcome.is_err() {
+            if let Some((logger, _)) = &self.general_logging {
+                logger.entity_exception("cfg", None);
+            }
+        }
         let delivery = report_single_warnings(
             self.preprocessing_reporter.as_deref(),
             &self.warnings[warning_start..],
         );
         let results = combine_single_delivery(outcome, delivery)?;
+        let elapsed = started.elapsed();
         if let Some(reporter) = &self.preprocessing_reporter {
             super::verification_pool_manager::report_member_results(
                 reporter.as_ref(),
                 None,
-                started.elapsed(),
+                elapsed,
                 &flatten_results(results.clone()),
             )
             .map_err(|error| NativeError::Diagnostic(format!("CFG result reporter: {error:?}")))?;
+        }
+        if self.general_logging.as_ref().is_some_and(|(logger, _)| {
+            logger.enabled(
+                "viper.silicon.verifier.DefaultMainVerifier-00",
+                crate::logger::general::Level::Debug,
+            )
+        }) {
+            self.log_member_result("method", "CFG", elapsed, &flatten_results(results.clone()))?;
         }
         Ok(results)
     }
@@ -16918,6 +17170,7 @@ where
         >,
         Self::Error,
     > {
+        self.log_function_phase("Well-definedness of specifications");
         let factory = self.factory.clone();
         crate::supporters::functions::function_verification_unit::check_specification_well_definedness(&factory, self, state, data)
             .map_err(|e| NativeError::Execution(format!("function specification phase: {e:?}")))
@@ -17097,6 +17350,7 @@ where
         >,
         Self::Error,
     > {
+        self.log_function_phase("Verification of function body and postcondition");
         self.active_function_snapshot = Some(data.phase_snapshot());
         crate::supporters::functions::function_verification_unit::check_function_body(
             self, data, paths,
@@ -20752,8 +21006,14 @@ mod worker_analysis_contract_tests {
             let mut phases = SilFrontendPhases::new("post.vpr".into(), ferrum_silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
             let parsed = phases.parse("function f(x: Int): Int ensures result == x { x } method m() { assert f(1) == 1; }").unwrap();
             let analyzed = phases.analyze(parsed).unwrap(); let program = phases.translate(analyzed).unwrap();
+            struct Capture(std::sync::Mutex<Vec<String>>);
+            impl crate::logger::general::Sink for Capture { fn write(&self, message: &str) { self.0.lock().unwrap().push(message.into()); } }
+            let sink = Arc::new(Capture(Default::default()));
+            let logger = crate::logger::general::GeneralLogger::new(Some("INFO"), &Default::default(), sink.clone());
+            worker.context.set_general_logging(logger, std::collections::BTreeMap::from([("test.option".into(), "value".into())]));
             worker.context.start(None, &[]).unwrap();
             assert!(worker.context.verify_program(&program, &[]).unwrap().iter().all(|result| !result.is_fatal()));
+            assert_eq!(sink.0.lock().unwrap().as_slice(), ["Additional prover configuration options are '(test.option,value)'"]);
             let first = worker.context.postcondition_axioms_store.borrow().len(); assert!(first > 0);
             worker.context.reset().unwrap();
             assert!(worker.context.verify_program(&program, &[]).unwrap().iter().all(|result| !result.is_fatal()));
