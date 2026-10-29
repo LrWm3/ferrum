@@ -17444,7 +17444,13 @@ where
         _: Option<&Exp>,
         _: Option<&Exp>,
     ) -> Result<Option<Exp>, Self::Error> {
-        Err(NativeError::Unsupported("quantified removal debugging"))
+        if self.base.decider.debug_mode {
+            Err(NativeError::Unsupported("quantified removal debugging"))
+        } else {
+            // The permission constraint itself is still assumed by the caller.
+            // Only its optional source expression depends on the debug profile.
+            Ok(None)
+        }
     }
 }
 

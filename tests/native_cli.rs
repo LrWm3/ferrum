@@ -393,6 +393,42 @@ fn quantified_permissions_preserve_frames_and_consumption() {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn quantified_wildcard_removal_preserves_permission_constraints() {
+    // Repeated wildcard consumption may choose smaller positive fractions.
+    // An unrelated receiver must not gain permission from those constraints.
+    let prefix = "field value: Int
+        method test(xs: Set[Ref], r: Ref)
+            requires r != null && r in xs
+            requires forall x: Ref :: x in xs ==> acc(x.value, wildcard)
+        { exhale forall x: Ref :: x in xs ==> acc(x.value, wildcard);
+          exhale forall x: Ref :: x in xs ==> acc(x.value, wildcard);";
+    check(&format!("{prefix} assert acc(r.value, wildcard); }}"), 0);
+    check(&format!("{prefix} assert acc(r.value); }}"), 1);
+    check(
+        "field value: Int
+        method test(xs: Set[Ref], r: Ref)
+            requires r != null && !(r in xs)
+            requires forall x: Ref :: x in xs ==> acc(x.value, wildcard)
+        { exhale forall x: Ref :: x in xs ==> acc(x.value, wildcard);
+          assert acc(r.value, wildcard); }",
+        1,
+    );
+    check(
+        "predicate Q(r: Ref)
+        predicate P(xs: Set[Ref]) {
+            forall x: Ref :: x in xs ==> acc(Q(x), wildcard)
+        }
+        method test(xs: Set[Ref]) requires acc(P(xs), wildcard) {
+            unfold acc(P(xs), wildcard);
+            fold acc(P(xs), wildcard);
+            unfold acc(P(xs), wildcard);
+        }",
+        0,
+    );
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn final_report_groups_duplicate_branch_failures() {
     let output = run(
         "method test(b: Bool) { if (b) { } else { } assert false; }",

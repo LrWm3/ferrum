@@ -941,3 +941,9 @@ until the state callback and checks callback-error delivery and solver cleanup.
 These profiles supersede the earlier blanket logging gate; interactive debugging,
 block messages and general logger-level configuration remain incomplete. Active
 logs still disable owned branch dispatch.
+
+Ordinary quantified wildcard removal now skips only the unavailable debug AST
+construction; the solver permission constraint is still asserted. Real-Z3 CLI
+checks cover repeated fractional field consumption, predicate unfold/fold, and
+rejection of full or unrelated receiver permissions. Upstream carbon/0196 and
+silicon/0409 exercise the previously rejected ordinary path.
