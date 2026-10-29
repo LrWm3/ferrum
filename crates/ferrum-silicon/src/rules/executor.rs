@@ -1588,6 +1588,16 @@ pub(crate) fn test_statement_tail(block: SilverBlock) -> CfgStatementTail {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn test_statement_tail_with(
+    block: SilverBlock,
+    statements: &[Stmt],
+) -> CfgStatementTail {
+    let mut tail = test_statement_tail(block);
+    tail.remaining = StatementSequenceFrame::new(statements);
+    tail
+}
+
 fn execute_cfg_successor_frame<C, P, D, J: Clone, V>(
     context: &mut C,
     state: State<P, D, J>,

@@ -145,14 +145,16 @@ order before restoring the outer evaluation heap and assigning. Real jobs check
 historical values, current resources, missing labels and an else-only permission
 failure. Injected service errors and cancellation after submission check
 draining and parent solver restoration. A real worker is also cancelled after
-the old receiver starts, at a nested assertion checkpoint. Consumption retry
-bridges preserve typed context errors; other legacy receiver/tail bridges still
-need the same audit. Nested arbitrary expression callbacks without an explicit
-receiver remain synchronous. Active member logging, packaging and extended
-exhale still disable owned dispatch. Generic borrowed callback entry points
-remain local; parallelism is enabled only where an exact owned terminal or
-collector represents Q. Direct evaluator branches explicitly disable parallelism
-upstream and keep that behavior.
+the old receiver starts, at a nested assertion checkpoint. Evaluation,
+production and consumption adapters preserve direct typed context errors,
+including function-precondition and ordinary assertion-tail checkpoints.
+Execution adapters and saved-callback cleanup combinations remain under review.
+Nested arbitrary expression callbacks without an explicit receiver remain
+synchronous. Active member logging, packaging and extended exhale still disable
+owned dispatch. Generic borrowed callback entry points remain local; parallelism
+is enabled only where an exact owned terminal or collector represents Q. Direct
+evaluator branches explicitly disable parallelism upstream and keep that
+behavior.
 
 Packaging proof scripts and joined consumer branches explicitly disable branch
 parallelism upstream (MagicWandSupporter.scala and Consumer.scala). Their local
@@ -212,3 +214,11 @@ The assignment receiver now carries an immutable vector of typed return frames,
 ordered from inner to outer. The first migration represents the existing old
 frame and keeps dispatch eligibility unchanged. This supplies a compositional
 representation; it does not yet enable additional nested expression shapes.
+
+The rule-error bridge pass preserves direct Context/Service errors in evaluator,
+producer and consumer adapters, including method/function/predicate and guarded
+wand paths. Worker regressions inject cancellation and a distinct Diagnostic at
+function-precondition and ordinary assertion-tail checkpoints. Reverting either
+bridge alone makes its cancellation test fail with a formatted error. The existing
+rule unit suite also passes. This does not claim that every execution adapter or
+saved-callback/cleanup combination has completed its error-identity audit.

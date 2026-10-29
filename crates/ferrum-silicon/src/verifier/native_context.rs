@@ -50,6 +50,13 @@ use ferrum_silver::{
     ast::expression::Exp,
     verifier::verification_error::{ErrorReason, PartialVerificationError, VerificationError},
 };
+#[cfg(test)]
+thread_local! {
+    static FUNCTION_PRE_BRIDGE_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
+    static STATEMENT_CONSUME_BRIDGE_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
+    static TEST_CONSUMER_SERVICE_ERROR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 type TermValue = Term;
 type SilverBlock = ferrum_silver::cfg::silver::silver_cfg::SilverBlock;
 type SilverEdge = ferrum_silver::cfg::silver::silver_cfg::SilverEdge;
@@ -2639,7 +2646,12 @@ where
                 crate::supporters::quantifier_supporter::make_triggers_heap_independent(
                     &factory, self, term,
                 )
-                .map_err(|e| NativeError::Evaluation(format!("{e:?}")))?,
+                .map_err(|e| match e {
+                    crate::supporters::quantifier_supporter::QuantifierSupportError::Service(
+                        error,
+                    ) => error,
+                    other => NativeError::Evaluation(format!("{other:?}")),
+                })?,
             );
         }
         Ok(result)
@@ -3300,6 +3312,12 @@ where
             arguments,
             preconditions,
         )?;
+        #[cfg(test)]
+        let hook = FUNCTION_PRE_BRIDGE_HOOK.with(|slot| slot.borrow_mut().take());
+        #[cfg(test)]
+        if let Some(hook) = hook {
+            hook();
+        }
         let mut callback_error = None;
         let result = crate::rules::consumer::consume_all(
             self,
@@ -3318,7 +3336,10 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| EvaluationError::Context(NativeError::Consumption(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            ConsumptionError::Context(error) => EvaluationError::Context(error),
+            other => EvaluationError::Context(NativeError::Consumption(format!("{other:?}"))),
+        })
     }
     fn function_snapshot_args(
         &mut self,
@@ -3609,10 +3630,11 @@ where
             if let Some(error) = callback_error {
                 return Err(error);
             }
-            return result.map_err(|e| {
-                EvaluationError::Context(NativeError::Consumption(format!(
-                    "asserting expression: {e:?}"
-                )))
+            return result.map_err(|e| match e {
+                ConsumptionError::Context(error) => EvaluationError::Context(error),
+                other => EvaluationError::Context(NativeError::Consumption(format!(
+                    "asserting expression: {other:?}"
+                ))),
             });
         }
         if let ExpKind::Applying(wand, in_expression) = expression.kind() {
@@ -4089,7 +4111,10 @@ where
             if let Some(error) = callback_error {
                 return Err(error);
             }
-            result.map_err(|e| ProductionError::Context(NativeError::Evaluation(format!("{e:?}"))))
+            result.map_err(|e| match e {
+                EvaluationError::Context(error) => ProductionError::Context(error),
+                other => ProductionError::Context(NativeError::Evaluation(format!("{other:?}"))),
+            })
         }
     }
     fn assume(
@@ -4433,7 +4458,10 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| ProductionError::Context(NativeError::Evaluation(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            EvaluationError::Context(error) => ProductionError::Context(error),
+            other => ProductionError::Context(NativeError::Evaluation(format!("{other:?}"))),
+        })
     }
     fn evaluate_quantified_permission(
         &mut self,
@@ -4473,7 +4501,10 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| ProductionError::Context(NativeError::Evaluation(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            EvaluationError::Context(error) => ProductionError::Context(error),
+            other => ProductionError::Context(NativeError::Evaluation(format!("{other:?}"))),
+        })
     }
     fn produce_quantified(
         &mut self,
@@ -4769,6 +4800,12 @@ where
     type Error = NativeError<S::Error>;
     type PartialError = PartialVerificationError;
     fn cancellation_checkpoint(&self) -> Result<(), Self::Error> {
+        #[cfg(test)]
+        if TEST_CONSUMER_SERVICE_ERROR.with(|flag| flag.replace(false)) {
+            return Err(NativeError::Diagnostic(
+                "injected consumer service failure".into(),
+            ));
+        }
         self.checkpoint()
     }
     fn unit_snapshot(&self) -> Term {
@@ -5218,7 +5255,10 @@ where
             if let Some(error) = callback_error {
                 return Err(error);
             }
-            result.map_err(|e| ConsumptionError::Context(NativeError::Evaluation(format!("{e:?}"))))
+            result.map_err(|e| match e {
+                EvaluationError::Context(error) => ConsumptionError::Context(error),
+                other => ConsumptionError::Context(NativeError::Evaluation(format!("{other:?}"))),
+            })
         }
     }
     fn assert_not_negative(
@@ -5705,7 +5745,10 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| ConsumptionError::Context(NativeError::Evaluation(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            EvaluationError::Context(error) => ConsumptionError::Context(error),
+            other => ConsumptionError::Context(NativeError::Evaluation(format!("{other:?}"))),
+        })
     }
     fn evaluate_quantified_permission(
         &mut self,
@@ -5745,7 +5788,10 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| ConsumptionError::Context(NativeError::Evaluation(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            EvaluationError::Context(error) => ConsumptionError::Context(error),
+            other => ConsumptionError::Context(NativeError::Evaluation(format!("{other:?}"))),
+        })
     }
     fn consume_quantified(
         &mut self,
@@ -7895,10 +7941,11 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| {
-            ChunkExecutionError::Context(NativeError::Evaluation(format!(
-                "wand chunk creation: {e:?}"
-            )))
+        result.map_err(|e| match e {
+            EvaluationError::Context(error) => ChunkExecutionError::Context(error),
+            other => ChunkExecutionError::Context(NativeError::Evaluation(format!(
+                "wand chunk creation: {other:?}"
+            ))),
         })
     }
     fn quantified_current_permission(
@@ -8638,7 +8685,10 @@ where
             if let Some(error) = callback_error {
                 return Err(error);
             }
-            result.map_err(|e| ExecutionError::Context(NativeError::Evaluation(format!("{e:?}"))))
+            result.map_err(|e| match e {
+                EvaluationError::Context(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Evaluation(format!("{other:?}"))),
+            })
         }
     }
     fn factory(&self) -> &crate::state::terms::TermFactory {
@@ -8837,7 +8887,10 @@ where
             if let Some(error) = callback_error {
                 return Err(error);
             }
-            result.map_err(|e| ExecutionError::Context(NativeError::Production(format!("{e:?}"))))
+            result.map_err(|e| match e {
+                ProductionError::Context(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Production(format!("{other:?}"))),
+            })
         }
     }
     fn statement_scope_transferable(&self, scope: Option<i32>) -> bool {
@@ -9028,6 +9081,12 @@ where
                 }
             };
             let partial = PartialVerificationError::for_kind(kind);
+            #[cfg(test)]
+            let hook = STATEMENT_CONSUME_BRIDGE_HOOK.with(|slot| slot.borrow_mut().take());
+            #[cfg(test)]
+            if let Some(hook) = hook {
+                hook();
+            }
             let mut callback_error = None;
             let result = crate::rules::consumer::consume_all(
                 self,
@@ -9046,7 +9105,10 @@ where
             if let Some(error) = callback_error {
                 return Err(error);
             }
-            result.map_err(|e| ExecutionError::Context(NativeError::Consumption(format!("{e:?}"))))
+            result.map_err(|e| match e {
+                ConsumptionError::Context(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Consumption(format!("{other:?}"))),
+            })
         }
     }
     fn saturate_after_inhale(&mut self) -> Result<(), Self::Error> {
@@ -9295,7 +9357,10 @@ where
             },
             &mut |_, _, ()| Ok(VerificationResult::success()),
         )
-        .map_err(|e| ExecutionError::Context(NativeError::Consumption(format!("{e:?}"))))
+        .map_err(|e| match e {
+            ConsumptionError::Context(error) => ExecutionError::Context(error),
+            other => ExecutionError::Context(NativeError::Consumption(format!("{other:?}"))),
+        })
     }
     fn disable_havoc_hack_407(&self) -> bool {
         self.options.disable_havoc_hack_407
@@ -9387,7 +9452,10 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| ExecutionError::Context(NativeError::Evaluation(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            EvaluationError::Context(error) => ExecutionError::Context(error),
+            other => ExecutionError::Context(NativeError::Evaluation(format!("{other:?}"))),
+        })
     }
     fn owned_call_scopes_transferable(&self, call: Option<i32>, pre: Option<i32>) -> bool {
         call.is_none() && pre.is_none() && self.member_log.is_none()
@@ -9489,7 +9557,10 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| ExecutionError::Context(NativeError::Consumption(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            ConsumptionError::Context(error) => ExecutionError::Context(error),
+            other => ExecutionError::Context(NativeError::Consumption(format!("{other:?}"))),
+        })
     }
     fn reconstruct_pre_heap(
         &mut self,
@@ -9519,8 +9590,11 @@ where
                 Ok(VerificationResult::success())
             },
         )
-        .map_err(|e| {
-            NativeError::Production(format!("reconstruct call precondition heap: {e:?}"))
+        .map_err(|e| match e {
+            ProductionError::Context(error) => error,
+            other => {
+                NativeError::Production(format!("reconstruct call precondition heap: {other:?}"))
+            }
         })?;
         Ok(reconstructed)
     }
@@ -9558,7 +9632,10 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| ExecutionError::Context(NativeError::Production(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            ProductionError::Context(error) => ExecutionError::Context(error),
+            other => ExecutionError::Context(NativeError::Production(format!("{other:?}"))),
+        })
     }
     fn try_execute_owned_predicate(
         &mut self,
@@ -9779,8 +9856,11 @@ where
             if let Some(error) = callback_error {
                 return Err(error);
             }
-            return result.map_err(|e| {
-                ExecutionError::Context(NativeError::Evaluation(format!("havocall: {e:?}")))
+            return result.map_err(|e| match e {
+                EvaluationError::Context(error) => ExecutionError::Context(error),
+                other => {
+                    ExecutionError::Context(NativeError::Evaluation(format!("havocall: {other:?}")))
+                }
             });
         }
         if let StmtKind::Quasihavoc { guard, resource } = statement.kind() {
@@ -9871,8 +9951,11 @@ where
             if let Some(error) = callback_error {
                 return Err(error);
             }
-            return result.map_err(|e| {
-                ExecutionError::Context(NativeError::Evaluation(format!("havoc: {e:?}")))
+            return result.map_err(|e| match e {
+                EvaluationError::Context(error) => ExecutionError::Context(error),
+                other => {
+                    ExecutionError::Context(NativeError::Evaluation(format!("havoc: {other:?}")))
+                }
             });
         }
         if let StmtKind::Package { wand, proof_script } = statement.kind() {
@@ -10184,7 +10267,10 @@ where
         if let Some(error) = outer_error {
             return Err(error);
         }
-        result.map_err(|e| ExecutionError::Context(NativeError::Evaluation(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            EvaluationError::Context(error) => ExecutionError::Context(error),
+            other => ExecutionError::Context(NativeError::Evaluation(format!("{other:?}"))),
+        })
     }
 }
 
@@ -10418,7 +10504,10 @@ where
             if let Some(error) = callback_error {
                 return Err(error);
             }
-            result.map_err(|e| ExecutionError::Context(NativeError::Evaluation(format!("{e:?}"))))
+            result.map_err(|e| match e {
+                EvaluationError::Context(error) => ExecutionError::Context(error),
+                other => ExecutionError::Context(NativeError::Evaluation(format!("{other:?}"))),
+            })
         }
     }
     fn branch_edge(
@@ -10869,7 +10958,10 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| ExecutionError::Context(NativeError::Production(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            ProductionError::Context(error) => ExecutionError::Context(error),
+            other => ExecutionError::Context(NativeError::Production(format!("{other:?}"))),
+        })
     }
     fn try_consume_owned_loop_establishment(
         &mut self,
@@ -10969,7 +11061,10 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| ExecutionError::Context(NativeError::Consumption(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            ConsumptionError::Context(error) => ExecutionError::Context(error),
+            other => ExecutionError::Context(NativeError::Consumption(format!("{other:?}"))),
+        })
     }
     fn loop_start_debug_heap(
         &mut self,
@@ -11365,8 +11460,11 @@ where
             if let Some(error) = callback_error {
                 return Err(error);
             }
-            result.map_err(|e| {
-                MethodVerificationError::Service(NativeError::Production(format!("{e:?}")))
+            result.map_err(|e| match e {
+                ProductionError::Context(error) => MethodVerificationError::Service(error),
+                other => {
+                    MethodVerificationError::Service(NativeError::Production(format!("{other:?}")))
+                }
             })
         }
     }
@@ -11536,8 +11634,11 @@ where
             if let Some(error) = callback_error {
                 return Err(error);
             }
-            result.map_err(|e| {
-                MethodVerificationError::Service(NativeError::Consumption(format!("{e:?}")))
+            result.map_err(|e| match e {
+                ConsumptionError::Context(error) => MethodVerificationError::Service(error),
+                other => {
+                    MethodVerificationError::Service(NativeError::Consumption(format!("{other:?}")))
+                }
             })
         }
     }
@@ -11666,6 +11767,9 @@ where
             }
             match (result, cleanup) {
                 (Ok(v), Ok(())) => Ok(v),
+                (Err(ProductionError::Context(error)), Ok(())) => {
+                    Err(PredicateVerificationError::Service(error))
+                }
                 (Err(e), Ok(())) => Err(PredicateVerificationError::Service(
                     NativeError::Production(format!("{e:?}")),
                 )),
@@ -11954,13 +12058,16 @@ where
                 (Err(EvaluationError::Context(NativeError::Cancelled)), Ok(())) => {
                     Err(NativeError::Cancelled)
                 }
+                (Err(EvaluationError::Context(error)), Ok(())) => Err(error),
                 (Err(e), Ok(())) => {
                     Err(NativeError::Evaluation(format!("branch evaluation: {e:?}")))
                 }
-                (Err(e), Err(cleanup)) => Err(NativeError::Evaluation(format!(
-                    "branch evaluation: {:?}",
-                    coalesce_evaluation_cleanup(e, cleanup)
-                ))),
+                (Err(e), Err(cleanup)) => match coalesce_evaluation_cleanup(e, cleanup) {
+                    EvaluationError::Context(error) => Err(error),
+                    other => Err(NativeError::Evaluation(format!(
+                        "branch evaluation: {other:?}"
+                    ))),
+                },
                 (Ok(_), Err(cleanup)) => Err(cleanup),
             }
         })();
@@ -13894,7 +14001,10 @@ where
         if let Some(e) = callback_error {
             return Err(e);
         }
-        result.map_err(|e| PE::Service(NativeError::Consumption(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            ConsumptionError::Context(error) => PE::Service(error),
+            other => PE::Service(NativeError::Consumption(format!("{other:?}"))),
+        })
     }
     fn produce_predicate_chunk(
         &mut self,
@@ -14266,7 +14376,10 @@ where
         if let Some(e) = callback_error {
             return Err(e);
         }
-        result.map_err(|e| PE::Service(NativeError::Production(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            ProductionError::Context(error) => PE::Service(error),
+            other => PE::Service(NativeError::Production(format!("{other:?}"))),
+        })
     }
     fn saturate_after_unfold(&mut self) -> Result<(), Self::Error> {
         if let Some(ms) = self.options.after_unfold_timeout {
@@ -14458,8 +14571,8 @@ where
                         });
                         crate::rules::predicate_supporter::produce_predicate_contents_with_owned_finish(
                             &factory, ctx, bound, &tree, &replacements, true, None, owned_frame.as_ref(),
-                            &mut |ctx, state| finish(ctx, state).map_err(|e| crate::rules::predicate_supporter::PredicateExecutionError::Service(NativeError::Production(format!("{e:?}")))),
-                        ).map_err(|e| match e { crate::rules::predicate_supporter::PredicateExecutionError::Service(error) if owned_frame.is_some() => ProductionError::Context(error), other => ProductionError::Context(NativeError::Production(format!("{other:?}"))) })
+                            &mut |ctx, state| finish(ctx, state).map_err(|e| match e { ProductionError::Context(error) => crate::rules::predicate_supporter::PredicateExecutionError::Service(error), other => crate::rules::predicate_supporter::PredicateExecutionError::Service(NativeError::Production(format!("{other:?}"))) }),
+                        ).map_err(|e| match e { crate::rules::predicate_supporter::PredicateExecutionError::Service(error) => ProductionError::Context(error), other => ProductionError::Context(NativeError::Production(format!("{other:?}"))) })
                     } else {
                         let body_snapshot = if ctx.options.mask_heap_mode {
                             let eval_heap =
@@ -14538,8 +14651,11 @@ where
                     if let Some(e) = production_callback_error {
                         return Err(e);
                     }
-                    result.map_err(|e| {
-                        EvaluationError::Context(NativeError::Production(format!("{e:?}")))
+                    result.map_err(|e| match e {
+                        ProductionError::Context(error) => EvaluationError::Context(error),
+                        other => {
+                            EvaluationError::Context(NativeError::Production(format!("{other:?}")))
+                        }
                     })
                 })();
                 match next {
@@ -14554,7 +14670,10 @@ where
         if let Some(e) = callback_error {
             return Err(e);
         }
-        result.map_err(|e| EvaluationError::Context(NativeError::Consumption(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            ConsumptionError::Context(error) => EvaluationError::Context(error),
+            other => EvaluationError::Context(NativeError::Consumption(format!("{other:?}"))),
+        })
     }
 }
 impl<S: Prover, PD, FD: Clone> NativeVerifierContext<S, PD, FD>
@@ -15408,7 +15527,10 @@ where
                     Ok(VerificationResult::success())
                 },
             )
-            .map_err(|e| NativeError::Evaluation(format!("mask trigger arguments: {e:?}")))?;
+            .map_err(|e| match e {
+                EvaluationError::Context(error) => error,
+                other => NativeError::Evaluation(format!("mask trigger arguments: {other:?}")),
+            })?;
             // Source ignores the verification result here: absent a reached callback,
             // the single empty trigger variant remains in place.
             let _ = result;
@@ -15445,7 +15567,10 @@ where
                 Ok(VerificationResult::success())
             },
         )
-        .map_err(|e| NativeError::Evaluation(format!("heap trigger arguments: {e:?}")))?;
+        .map_err(|e| match e {
+            EvaluationError::Context(error) => error,
+            other => NativeError::Evaluation(format!("heap trigger arguments: {other:?}")),
+        })?;
         if result.is_fatal() {
             return Err(NativeError::Unsupported(
                 "heap trigger argument verification failure",
@@ -17247,7 +17372,10 @@ where
         if let Some(e) = callback_error {
             return Err(e);
         }
-        result.map_err(|e| FE::Service(NativeError::Production(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            ProductionError::Context(error) => FE::Service(error),
+            other => FE::Service(NativeError::Production(format!("{other:?}"))),
+        })
     }
     fn restore_function_preconditions(
         &mut self,
@@ -17362,7 +17490,10 @@ where
         if let Some(e) = callback_error {
             return Err(e);
         }
-        result.map_err(|e| FE::Service(NativeError::Evaluation(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            EvaluationError::Context(error) => FE::Service(error),
+            other => FE::Service(NativeError::Evaluation(format!("{other:?}"))),
+        })
     }
     fn assume_function_result(
         &mut self,
@@ -17460,7 +17591,10 @@ where
         if let Some(e) = callback_error {
             return Err(e);
         }
-        result.map_err(|e| FE::Service(NativeError::Consumption(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            ConsumptionError::Context(error) => FE::Service(error),
+            other => FE::Service(NativeError::Consumption(format!("{other:?}"))),
+        })
     }
 }
 
@@ -20239,8 +20373,12 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result
-            .map_err(|e| WE::Service(NativeError::Consumption(format!("wand application: {e:?}"))))
+        result.map_err(|e| match e {
+            ConsumptionError::Context(error) => WE::Service(error),
+            other => WE::Service(NativeError::Consumption(format!(
+                "wand application: {other:?}"
+            ))),
+        })
     }
     fn wand_evaluation_heap(
         &mut self,
@@ -20300,10 +20438,11 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| {
-            WE::Service(NativeError::Production(format!(
-                "wand application RHS: {e:?}"
-            )))
+        result.map_err(|e| match e {
+            ProductionError::Context(error) => WE::Service(error),
+            other => WE::Service(NativeError::Production(format!(
+                "wand application RHS: {other:?}"
+            ))),
         })
     }
     fn consolidate_wand_state(
@@ -20385,18 +20524,31 @@ where
             state,
             &mut |ctx, state, done| {
                 action(ctx, state, &mut |ctx, state, heaps, chunks| {
-                    done(ctx, state, (heaps, chunks))
-                        .map_err(|e| WE::Service(NativeError::Consumption(format!("{e:?}"))))
+                    done(ctx, state, (heaps, chunks)).map_err(|e| match e {
+                        ConsumptionError::Context(error) => WE::Service(error),
+                        other => WE::Service(NativeError::Consumption(format!("{other:?}"))),
+                    })
                 })
-                .map_err(|e| ConsumptionError::Context(NativeError::Execution(format!("{e:?}"))))
+                .map_err(|e| match e {
+                    WE::Service(error) => ConsumptionError::Context(error),
+                    other => {
+                        ConsumptionError::Context(NativeError::Execution(format!("{other:?}")))
+                    }
+                })
             },
             &mut |ctx, state, (heaps, chunks)| {
-                continuation(ctx, state, heaps, chunks).map_err(|e| {
-                    ConsumptionError::Context(NativeError::Execution(format!("{e:?}")))
+                continuation(ctx, state, heaps, chunks).map_err(|e| match e {
+                    WE::Service(error) => ConsumptionError::Context(error),
+                    other => {
+                        ConsumptionError::Context(NativeError::Execution(format!("{other:?}")))
+                    }
                 })
             },
         )
-        .map_err(|e| WE::Service(NativeError::Consumption(format!("{e:?}"))))
+        .map_err(|e| match e {
+            ConsumptionError::Context(error) => WE::Service(error),
+            other => WE::Service(NativeError::Consumption(format!("{other:?}"))),
+        })
     }
     fn merge_transferred_chunks(
         &mut self,
@@ -20624,10 +20776,11 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| {
-            PE::Service(NativeError::Evaluation(format!(
-                "wand package arguments: {e:?}"
-            )))
+        result.map_err(|e| match e {
+            EvaluationError::Context(error) => PE::Service(error),
+            other => PE::Service(NativeError::Evaluation(format!(
+                "wand package arguments: {other:?}"
+            ))),
         })
     }
     fn locally_package(
@@ -20694,7 +20847,12 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| PE::Service(NativeError::Production(format!("wand package LHS: {e:?}"))))
+        result.map_err(|e| match e {
+            ProductionError::Context(error) => PE::Service(error),
+            other => PE::Service(NativeError::Production(format!(
+                "wand package LHS: {other:?}"
+            ))),
+        })
     }
     fn package_proof_cfg(&mut self, proof: &Stmt) -> Result<Arc<SilverCfg>, Self::Error> {
         ferrum_silver::cfg::silver::cfg_generator::statement_to_cfg(proof, false, true)
@@ -20758,8 +20916,12 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result
-            .map_err(|e| PE::Service(NativeError::Consumption(format!("wand package RHS: {e:?}"))))
+        result.map_err(|e| match e {
+            ConsumptionError::Context(error) => PE::Service(error),
+            other => PE::Service(NativeError::Consumption(format!(
+                "wand package RHS: {other:?}"
+            ))),
+        })
     }
     fn assume_package_snapshot_definition(&mut self, definition: &Term) -> Result<(), Self::Error> {
         self.assume_term(definition)
@@ -22696,8 +22858,10 @@ where
                     state,
                     &left,
                     &mut |ctx, state| {
-                        done(ctx, state)
-                            .map_err(|e| PE::Service(NativeError::Production(format!("{e:?}"))))
+                        done(ctx, state).map_err(|e| match e {
+                            ProductionError::Context(error) => PE::Service(error),
+                            other => PE::Service(NativeError::Production(format!("{other:?}"))),
+                        })
                     },
                 ) {
                     Ok(v) => Ok(v),
@@ -22715,8 +22879,10 @@ where
                     state,
                     &right,
                     &mut |ctx, state| {
-                        done(ctx, state)
-                            .map_err(|e| PE::Service(NativeError::Production(format!("{e:?}"))))
+                        done(ctx, state).map_err(|e| match e {
+                            ProductionError::Context(error) => PE::Service(error),
+                            other => PE::Service(NativeError::Production(format!("{other:?}"))),
+                        })
                     },
                 ) {
                     Ok(v) => Ok(v),
@@ -22741,7 +22907,10 @@ where
         if let Some(e) = error.into_inner() {
             return Err(e);
         }
-        result.map_err(|e| PE::Service(NativeError::Production(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            ProductionError::Context(error) => PE::Service(error),
+            other => PE::Service(NativeError::Production(format!("{other:?}"))),
+        })
     }
 }
 
@@ -24960,6 +25129,11 @@ mod queued_cfg_isolation_tests {
                                 NativeError::Cancelled,
                             ),
                         ) => Err(NativeError::Cancelled),
+                        Err(
+                            crate::verifier::verification_pool_manager::ThreadPoolError::Worker(
+                                NativeError::Diagnostic(message),
+                            ),
+                        ) => Err(NativeError::Diagnostic(message)),
                         Err(e) => Err(NativeError::Diagnostic(format!(
                             "unexpected wait failure: {e:?}"
                         ))),
@@ -25081,7 +25255,7 @@ mod queued_cfg_isolation_tests {
             standard_plugin_manager(&SilFrontendConfig::new("test")).unwrap(),
         );
         let parsed = phases
-            .parse("domain D { function f(): Int } predicate P() { true } method unrelated() { assert f() == 0; }")
+            .parse("domain D { function f(): Int } predicate P() { true } function g(): Int requires true { 1 } method unrelated() { assert f() == 0; }")
             .unwrap();
         let analyzed = phases.analyze(parsed).unwrap();
         let program = phases.translate(analyzed).unwrap();
@@ -26398,12 +26572,92 @@ mod queued_cfg_isolation_tests {
         assert!(capture_result.is_err());
         assert_eq!(waited.get(), 1);
 
+        // Also exercise a function-precondition bridge and an ordinary assert
+        // statement tail reached from the same old receiver.
+        let captured_function = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let captured_tail = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let captured_function_service = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let captured_tail_service = std::rc::Rc::new(std::cell::RefCell::new(None));
+        for (slot, function_body) in [
+            (captured_function.clone(), true),
+            (captured_tail.clone(), false),
+            (captured_function_service.clone(), true),
+            (captured_tail_service.clone(), false),
+        ] {
+            let waited = std::rc::Rc::new(std::cell::Cell::new(0));
+            source.context.joined_branch_scheduler = Some(std::rc::Rc::new(OldProbe {
+                waited: waited.clone(),
+                cancellation: None,
+                kind: 0,
+                capture: Some(slot),
+            }));
+            let impure = match assertion.kind() {
+                ExpKind::CondExp(_, _, no) => no.clone(),
+                _ => unreachable!(),
+            };
+            let condition = Exp::new(
+                ExpKind::CondExp(
+                    local_exp.clone(),
+                    impure,
+                    Exp::new(ExpKind::TrueLit, Default::default()),
+                ),
+                Default::default(),
+            );
+            let body = if function_body {
+                Exp::new(ExpKind::FuncApp("g".into(), vec![]), Default::default())
+            } else {
+                Exp::new(ExpKind::IntLit(1.into()), Default::default())
+            };
+            let rhs = Exp::new(
+                ExpKind::Old(Exp::new(
+                    ExpKind::Asserting(condition, body),
+                    Default::default(),
+                )),
+                Default::default(),
+            );
+            let mut receiver = receiver.clone();
+            receiver.rhs = rhs.clone();
+            if !function_body {
+                let stmt = Stmt::new(
+                    ferrum_silver::ast::statement::StmtKind::Assert(Exp::new(
+                        ExpKind::TrueLit,
+                        Default::default(),
+                    )),
+                    Default::default(),
+                );
+                receiver.tail =
+                    crate::rules::executor::test_statement_tail_with(join.clone(), &[stmt]);
+            }
+            let mut state = state.clone();
+            state.under_join = false;
+            state.parallelize_branches = true;
+            state.method_cfg = Some(Arc::new(cfg.clone()));
+            state.old_heaps.insert("old".into(), state.h.clone());
+            state.g = Arc::new(state.g.with_binding(
+                crate::state::store::AbstractLocalVar::new(local_exp.clone()),
+                (variable.clone(), None),
+            ));
+            let result = crate::rules::evaluator::evaluate_owned_old_asserting(
+                &mut source.context,
+                state,
+                &rhs,
+                &partial,
+                &receiver,
+            );
+            assert!(result.is_err());
+            assert_eq!(waited.get(), 1);
+        }
+
         // Run each captured consumption action on a real worker and cancel after
         // its transferred solver context has been installed.
-        for (captured, after_receiver) in [
-            (captured_old, false),
-            (captured_probe, false),
-            (captured_resume, true),
+        for (captured, hook_point, service) in [
+            (captured_old, 0, false),
+            (captured_probe, 0, false),
+            (captured_resume, 1, false),
+            (captured_function, 2, false),
+            (captured_tail, 3, false),
+            (captured_function_service, 2, true),
+            (captured_tail_service, 3, true),
         ] {
             let mut branch = captured
                 .borrow_mut()
@@ -26420,16 +26674,26 @@ mod queued_cfg_isolation_tests {
             let (resume_tx, resume_rx) = std::sync::mpsc::channel();
             let resume_rx = Arc::new(Mutex::new(resume_rx));
             branch.after_start = Some(Arc::new(move || {
-                if after_receiver {
-                    let entered = entered_tx.clone();
-                    let resume = resume_rx.clone();
-                    crate::rules::evaluator::set_owned_asserting_resume_hook(move || {
-                        entered.send(()).unwrap();
-                        resume.lock().unwrap().recv().unwrap();
-                    });
-                } else {
+                if hook_point == 0 {
                     entered_tx.send(()).unwrap();
                     resume_rx.lock().unwrap().recv().unwrap();
+                } else {
+                    let entered = entered_tx.clone();
+                    let resume = resume_rx.clone();
+                    let hook = move || {
+                        entered.send(()).unwrap();
+                        resume.lock().unwrap().recv().unwrap();
+                        if service {
+                            TEST_CONSUMER_SERVICE_ERROR.with(|flag| flag.set(true));
+                        }
+                    };
+                    match hook_point {
+                        1 => crate::rules::evaluator::set_owned_asserting_resume_hook(hook),
+                        2 => FUNCTION_PRE_BRIDGE_HOOK
+                            .with(|slot| *slot.borrow_mut() = Some(Box::new(hook))),
+                        _ => STATEMENT_CONSUME_BRIDGE_HOOK
+                            .with(|slot| *slot.borrow_mut() = Some(Box::new(hook))),
+                    }
                 }
             }));
             let task = NativeWorkerTask {
@@ -26493,20 +26757,29 @@ mod queued_cfg_isolation_tests {
                 cancellation.cancel();
                 panic!("worker did not reach cancellation rendezvous: {error:?}");
             }
-            cancellation.cancel();
+            if !service {
+                cancellation.cancel();
+            }
             resume_tx.send(()).unwrap();
             let outcome = parent.wait();
-            assert!(
-                matches!(
-                    outcome,
-                    Err(
-                        crate::verifier::verification_pool_manager::ThreadPoolError::Worker(
-                            NativeError::Cancelled
+            if service {
+                assert!(
+                    matches!(outcome, Err(crate::verifier::verification_pool_manager::ThreadPoolError::Worker(NativeError::Diagnostic(ref message))) if message == "injected consumer service failure"),
+                    "{outcome:?}"
+                );
+            } else {
+                assert!(
+                    matches!(
+                        outcome,
+                        Err(
+                            crate::verifier::verification_pool_manager::ThreadPoolError::Worker(
+                                NativeError::Cancelled
+                            )
                         )
-                    )
-                ),
-                "{outcome:?}"
-            );
+                    ),
+                    "{outcome:?}"
+                );
+            }
             assert!(pool.cancel_and_join().is_empty());
         }
         source.context.cancellation = None;
