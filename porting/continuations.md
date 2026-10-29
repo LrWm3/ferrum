@@ -136,20 +136,23 @@ retains trigger rewriting, error substitution, caller-store transformation and
 function-recorder restoration before returning the term to its identified join.
 Actual Z3 tests exercise conditional precondition jobs and the expected bad
 application while checking returned values. A direct local assignment with an
-Asserting RHS also owns its state/value receiver: it restores the assertion heap,
-evaluates the body, restores the outer evaluation heap/reserves and performs SSA
-assignment before resuming the statement tail. A direct old or labelled-old wrapper around that Asserting RHS retains an owned
-old-state frame. Its return restores the partial heap, trigger map and old-state
-flag in source order before restoring the outer evaluation heap and assigning.
-Real jobs check historical values, current resources, missing labels and an
-else-only permission failure. Injected service errors and cancellation after
-submission check draining and parent solver restoration. Cancellation inside
-these particular running frames still needs a targeted regression. Nested
-arbitrary expression callbacks without an explicit receiver remain synchronous. Active member logging,
-packaging and extended exhale still disable owned dispatch. Generic borrowed callback entry
-points remain local; parallelism is enabled only where an exact owned terminal
-or collector represents Q. Direct evaluator branches explicitly disable
-parallelism upstream and keep that behavior.
+Asserting RHS also owns its state/value receiver: it restores the assertion
+heap, evaluates the body, restores the outer evaluation heap/reserves and
+performs SSA assignment before resuming the statement tail. A direct old or
+labelled-old wrapper around that Asserting RHS retains an owned old-state frame.
+Its return restores the partial heap, trigger map and old-state flag in source
+order before restoring the outer evaluation heap and assigning. Real jobs check
+historical values, current resources, missing labels and an else-only permission
+failure. Injected service errors and cancellation after submission check
+draining and parent solver restoration. A real worker is also cancelled after
+the old receiver starts, at a nested assertion checkpoint. Consumption retry
+bridges preserve typed context errors; other legacy receiver/tail bridges still
+need the same audit. Nested arbitrary expression callbacks without an explicit
+receiver remain synchronous. Active member logging, packaging and extended
+exhale still disable owned dispatch. Generic borrowed callback entry points
+remain local; parallelism is enabled only where an exact owned terminal or
+collector represents Q. Direct evaluator branches explicitly disable parallelism
+upstream and keep that behavior.
 
 Packaging proof scripts and joined consumer branches explicitly disable branch
 parallelism upstream (MagicWandSupporter.scala and Consumer.scala). Their local
@@ -188,3 +191,19 @@ linked Z3, including invalid programs, reuse and stop. Internal real-Z3 fixtures
 assert actual submissions/executions; deterministic tests force foreign and
 same-worker interleaving and cancellation. This establishes the tested ownership
 boundaries, not complete Viper compatibility or a measured speedup.
+
+## Cancellation regression boundaries
+
+Real worker probes cancel owned assertion/old jobs after transfer installation,
+and an old assignment receiver after its entry hook reaches a nested assertion.
+They check typed cancellation, draining, normalized solver depth, path layers,
+options and error counts. Queue cancellation is registered; the ordinary probe
+uses a cooperative latch to keep the solver available for restoration checks.
+The test releases rendezvous and interrupts solvers on its failure path. Run the
+regression under an external process watchdog to bound noncooperative CPU stalls.
+
+Deterministic scheduler tests exercise both branch combiners: simultaneous
+cancellation remains typed only when restoration and reporting succeed, while a
+distinct child or cleanup error remains visible. They also cover a stopped queue
+at submission with and without a latched cancellation. These do not establish
+real simultaneous parent/child execution at every cancellation boundary.

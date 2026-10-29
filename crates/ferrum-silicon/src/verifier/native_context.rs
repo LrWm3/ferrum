@@ -2384,7 +2384,10 @@ where
         if let Some(error) = callback_error {
             return Err(error);
         }
-        result.map_err(|e| EvaluationError::Context(NativeError::Consumption(format!("{e:?}"))))
+        result.map_err(|e| match e {
+            ConsumptionError::Context(error) => EvaluationError::Context(error),
+            other => EvaluationError::Context(NativeError::Consumption(format!("{other:?}"))),
+        })
     }
     fn eval_field_access(
         &mut self,
@@ -6395,7 +6398,10 @@ where
         (self.action)(context, state, &mut |context, state, data| {
             continuation(context, state, data).map_err(ConsumptionError::Context)
         })
-        .map_err(|e| NativeError::Consumption(format!("{e:?}")))
+        .map_err(|e| match e {
+            ConsumptionError::Context(error) => error,
+            other => NativeError::Consumption(format!("{other:?}")),
+        })
     }
 }
 struct NativeFrameTranslator<'a, S: Prover, PD, FD> {
@@ -6767,8 +6773,10 @@ where
             state,
             &mut bridge,
             &mut |ctx, state, data| {
-                continuation(ctx, state, data)
-                    .map_err(|e| NativeError::Consumption(format!("{e:?}")))
+                continuation(ctx, state, data).map_err(|e| match e {
+                    ConsumptionError::Context(error) => error,
+                    other => NativeError::Consumption(format!("{other:?}")),
+                })
             },
         )
         .map_err(ConsumptionError::Context)
@@ -16082,9 +16090,21 @@ where
                     })?
                     .submit(job)
                     .map_err(|e| {
-                        ExecutionError::Context(NativeError::Diagnostic(format!(
-                            "continuation submission: {e:?}"
-                        )))
+                        let cancelled = matches!(
+                            e,
+                            super::verification_pool_manager::ThreadPoolError::Cancelled
+                        ) || (matches!(
+                            e,
+                            super::verification_pool_manager::ThreadPoolError::Stopped
+                        ) && self
+                            .cancellation
+                            .as_ref()
+                            .is_some_and(|c| c.is_cancelled()));
+                        ExecutionError::Context(if cancelled {
+                            NativeError::Cancelled
+                        } else {
+                            NativeError::Diagnostic(format!("continuation submission: {e:?}"))
+                        })
                     })?,
             )
         } else {
@@ -16280,6 +16300,12 @@ where
                     }
                     Ok(then.combine(|| other, true))
                 }
+                (
+                    Err(ExecutionError::Context(NativeError::Cancelled)),
+                    Err(NativeError::Cancelled),
+                    None,
+                    None,
+                ) => Err(ExecutionError::Context(NativeError::Cancelled)),
                 (Err(error), Ok(_), None, None) => Err(error),
                 (Ok(_), Err(error), None, None) => Err(ExecutionError::Context(error)),
                 (Ok(_), Ok(_), Some(error), None) | (Ok(_), Ok(_), None, Some(error)) => {
@@ -16391,9 +16417,21 @@ where
                         .expect("scheduler")
                         .submit(job)
                         .map_err(|e| {
-                            ExecutionError::Context(NativeError::Diagnostic(format!(
-                                "joined branch submission: {e:?}"
-                            )))
+                            let cancelled = matches!(
+                                e,
+                                super::verification_pool_manager::ThreadPoolError::Cancelled
+                            ) || (matches!(
+                                e,
+                                super::verification_pool_manager::ThreadPoolError::Stopped
+                            ) && self
+                                .cancellation
+                                .as_ref()
+                                .is_some_and(|c| c.is_cancelled()));
+                            ExecutionError::Context(if cancelled {
+                                NativeError::Cancelled
+                            } else {
+                                NativeError::Diagnostic(format!("joined branch submission: {e:?}"))
+                            })
                         })?,
                 )
             } else {
@@ -16546,6 +16584,12 @@ where
                         entries.extend(other.entries);
                         Ok((entries, result.combine(|| other.result, true)))
                     }
+                    (
+                        Err(ExecutionError::Context(NativeError::Cancelled)),
+                        Err(NativeError::Cancelled),
+                        None,
+                        None,
+                    ) => Err(ExecutionError::Context(NativeError::Cancelled)),
                     (Err(error), Ok(_), None, None) => Err(error),
                     (Ok(_), Err(error), None, None) => Err(ExecutionError::Context(error)),
                     (Ok(_), Ok(_), Some(error), None) | (Ok(_), Ok(_), None, Some(error)) => {
@@ -24925,7 +24969,54 @@ mod queued_cfg_isolation_tests {
                     *lock.lock().unwrap() = true;
                     wake.notify_all();
                     self.release_rx.lock().unwrap().recv().unwrap();
-                    let output = execute_native_worker_task(&mut self.native.context, task)?;
+                    let paths = self.native.context.base.decider.pcs.clone();
+                    self.native
+                        .context
+                        .base
+                        .decider
+                        .set_path_conditions(paths)
+                        .map_err(NativeError::Decider)?;
+                    let depth = self
+                        .native
+                        .context
+                        .base
+                        .decider
+                        .prover
+                        .push_pop_scope_depth();
+                    let options = self.native.context.base.decider.options().clone();
+                    let path_layers = self.native.context.base.decider.pcs.replay_layers();
+                    let errors = self
+                        .native
+                        .context
+                        .base
+                        .errors_reported
+                        .load(std::sync::atomic::Ordering::SeqCst);
+                    let result = execute_native_worker_task(&mut self.native.context, task);
+                    if result.is_err() {
+                        assert_eq!(
+                            self.native
+                                .context
+                                .base
+                                .decider
+                                .prover
+                                .push_pop_scope_depth(),
+                            depth
+                        );
+                        assert_eq!(self.native.context.base.decider.options(), &options);
+                        assert_eq!(
+                            self.native.context.base.decider.pcs.replay_layers(),
+                            path_layers
+                        );
+                        assert_eq!(
+                            self.native
+                                .context
+                                .base
+                                .errors_reported
+                                .load(std::sync::atomic::Ordering::SeqCst),
+                            errors
+                        );
+                    }
+                    let output = result?;
                     let NativeWorkerOutput::Join(output) = output else {
                         return Err(NativeError::Unsupported("unexpected CFG branch output"));
                     };
@@ -25664,8 +25755,9 @@ mod queued_cfg_isolation_tests {
             std::rc::Rc<std::cell::Cell<usize>>,
             bool,
             Option<crate::verifier::verification_pool_manager::CancellationController>,
+            u8,
         );
-        struct ProbeFuture(std::rc::Rc<std::cell::Cell<usize>>);
+        struct ProbeFuture(std::rc::Rc<std::cell::Cell<usize>>, u8);
         impl
             crate::verifier::verification_pool_manager::NativeJoinFuture<
                 ProverStdIo,
@@ -25688,16 +25780,30 @@ mod queued_cfg_isolation_tests {
             > {
                 self.0.set(self.0.get() + 1);
                 crate::verifier::verification_pool_manager::CooperativeWait {
-                    result: Ok(
-                        crate::verifier::verification_pool_manager::NativeJoinOutput {
-                            result: VerificationResult::success(),
-                            entries: vec![],
-                            declarations: Default::default(),
-                            phases: None,
-                            evaluation_entries: None,
-                            warnings: vec![],
-                        },
-                    ),
+                    result: if self.1 == 1 {
+                        Err(
+                            crate::verifier::verification_pool_manager::ThreadPoolError::Worker(
+                                NativeError::Cancelled,
+                            ),
+                        )
+                    } else if self.1 == 2 {
+                        Err(
+                            crate::verifier::verification_pool_manager::ThreadPoolError::Worker(
+                                NativeError::Diagnostic("injected child failure".into()),
+                            ),
+                        )
+                    } else {
+                        Ok(
+                            crate::verifier::verification_pool_manager::NativeJoinOutput {
+                                result: VerificationResult::success(),
+                                entries: vec![],
+                                declarations: Default::default(),
+                                phases: None,
+                                evaluation_entries: None,
+                                warnings: vec![],
+                            },
+                        )
+                    },
                     executed_other_task: false,
                     awaited_executed_on_current_worker: true,
                 }
@@ -25746,7 +25852,12 @@ mod queued_cfg_isolation_tests {
                 if let Some(cancel) = &self.2 {
                     cancel.cancel();
                 }
-                Ok(Box::new(ProbeFuture(self.0.clone())))
+                if self.3 == 3 || self.3 == 4 {
+                    return Err(
+                        crate::verifier::verification_pool_manager::ThreadPoolError::Stopped,
+                    );
+                }
+                Ok(Box::new(ProbeFuture(self.0.clone(), self.3)))
             }
         }
         for reporter_error in [false, true] {
@@ -25755,6 +25866,7 @@ mod queued_cfg_isolation_tests {
                 waited.clone(),
                 reporter_error,
                 None,
+                0,
             )));
             let mut branch_state = state.clone();
             branch_state.under_join = false;
@@ -25783,6 +25895,7 @@ mod queued_cfg_isolation_tests {
             waited.clone(),
             false,
             Some(cancellation),
+            0,
         )));
         let mut branch_state = state.clone();
         branch_state.under_join = false;
@@ -25813,6 +25926,144 @@ mod queued_cfg_isolation_tests {
             "cancelled then must still drain submitted else"
         );
         source.context.cancellation = None;
+        // Both sides may observe the same cancellation; keep its type while
+        // retaining an independently failing child as a cleanup error.
+        for (joined, child_result) in [(false, 1), (false, 2), (true, 1), (true, 2)] {
+            let waited = std::rc::Rc::new(std::cell::Cell::new(0));
+            let cancellation =
+                crate::verifier::verification_pool_manager::CancellationController::default();
+            source.context.set_cancellation(cancellation.clone());
+            source.context.joined_branch_scheduler = Some(std::rc::Rc::new(Probe(
+                waited.clone(),
+                false,
+                Some(cancellation),
+                child_result,
+            )));
+            let mut branch_state = state.clone();
+            branch_state.under_join = false;
+            branch_state.method_cfg = Some(Arc::new(cfg.clone()));
+            let depth = source.context.base.decider.prover.push_pop_scope_depth();
+            let options = source.context.base.decider.options().clone();
+            let result = if joined {
+                let action =
+                    crate::verifier::verification_pool_manager::NativeJoinAction::Consumption(
+                        crate::rules::consumer::OwnedConsumptionAction {
+                            body: Some(Exp::new(ExpKind::TrueLit, Default::default())),
+                            heap: branch_state.h.clone(),
+                            error: PartialVerificationError::for_kind(
+                                VerificationErrorKind::Internal(None),
+                            ),
+                            return_snapshot: false,
+                            frames: vec![crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                                partial: branch_state.partially_consumed_heap.clone(),
+                                original_heap: branch_state.h.clone(),
+                                assertions: vec![],
+                                terminal:
+                                    crate::rules::consumer::OwnedConsumptionTerminal::AssertProbe,
+                            }],
+                        },
+                    );
+                source.context.join_owned_branches_parallel(
+                    branch_state,
+                    requirement.clone(),
+                    &original,
+                    None,
+                    action.clone(),
+                    action,
+                    false,
+                    &mut |_, _| Ok(VerificationResult::success()),
+                )
+            } else {
+                source.context.branch_owned_cfg_continuations(
+                    branch_state,
+                    requirement.clone(),
+                    &original,
+                    None,
+                    terminal_action.clone(),
+                    terminal_action.clone(),
+                )
+            };
+            if child_result == 1 {
+                assert!(
+                    matches!(result, Err(ExecutionError::Context(NativeError::Cancelled))),
+                    "{result:?}"
+                );
+            } else {
+                assert!(
+                    matches!(result, Err(ExecutionError::Context(NativeError::Cleanup(ref detail))) if detail.contains("injected child failure")),
+                    "{result:?}"
+                );
+            }
+            assert_eq!(waited.get(), 1);
+            assert_eq!(
+                source.context.base.decider.prover.push_pop_scope_depth(),
+                depth
+            );
+            assert_eq!(source.context.base.decider.options(), &options);
+            source.context.cancellation = None;
+        }
+
+        // The registered pool may stop between branch selection and submit.
+        for (joined, cancelled) in [(false, false), (false, true), (true, false), (true, true)] {
+            let waited = std::rc::Rc::new(std::cell::Cell::new(0));
+            let controller =
+                crate::verifier::verification_pool_manager::CancellationController::default();
+            source.context.set_cancellation(controller.clone());
+            source.context.joined_branch_scheduler = Some(std::rc::Rc::new(Probe(
+                waited.clone(),
+                false,
+                cancelled.then(|| controller.clone()),
+                if cancelled { 3 } else { 4 },
+            )));
+            let mut branch_state = state.clone();
+            branch_state.under_join = false;
+            branch_state.method_cfg = Some(Arc::new(cfg.clone()));
+            let depth = source.context.base.decider.prover.push_pop_scope_depth();
+            let result = if joined {
+                let action = crate::verifier::verification_pool_manager::NativeJoinAction::Cfg(
+                    action.clone(),
+                );
+                source.context.join_owned_branches_parallel(
+                    branch_state,
+                    requirement.clone(),
+                    &original,
+                    None,
+                    action.clone(),
+                    action,
+                    false,
+                    &mut |_, _| Ok(VerificationResult::success()),
+                )
+            } else {
+                source.context.branch_owned_cfg_continuations(
+                    branch_state,
+                    requirement.clone(),
+                    &original,
+                    None,
+                    terminal_action.clone(),
+                    terminal_action.clone(),
+                )
+            };
+            if cancelled {
+                assert!(
+                    matches!(result, Err(ExecutionError::Context(NativeError::Cancelled))),
+                    "{result:?}"
+                );
+            } else {
+                assert!(
+                    matches!(
+                        result,
+                        Err(ExecutionError::Context(NativeError::Diagnostic(_)))
+                    ),
+                    "{result:?}"
+                );
+            }
+            assert_eq!(waited.get(), 0);
+            assert_eq!(
+                source.context.base.decider.prover.push_pop_scope_depth(),
+                depth
+            );
+            source.context.cancellation = None;
+        }
 
         // An old-wrapped asserting assignment owns the exact continuation captured
         // by the scheduler. Inject cancellation or a service error after capture.
@@ -25820,6 +26071,8 @@ mod queued_cfg_isolation_tests {
             waited: std::rc::Rc<std::cell::Cell<usize>>,
             cancellation:
                 Option<crate::verifier::verification_pool_manager::CancellationController>,
+            kind: u8,
+            capture: Option<std::rc::Rc<std::cell::RefCell<Option<NativeJoinJob>>>>,
         }
         struct OldFuture {
             waited: std::rc::Rc<std::cell::Cell<usize>>,
@@ -25912,7 +26165,26 @@ mod queued_cfg_isolation_tests {
                 else {
                     panic!("expected old assertion consumption")
                 };
-                assert!(action.frames.iter().any(|frame| matches!(frame, crate::rules::consumer::OwnedConsumptionFrame::Finish { terminal: crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame), .. } if frame.old_frame.is_some())));
+                assert!(
+                    action.frames.iter().any(|frame| match frame {
+                        crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                            terminal:
+                                crate::rules::consumer::OwnedConsumptionTerminal::Asserting(frame),
+                            ..
+                        } => match self.kind {
+                            0 => frame.old_frame.is_some(),
+                            _ => false,
+                        },
+                        crate::rules::consumer::OwnedConsumptionFrame::Finish {
+                            terminal: crate::rules::consumer::OwnedConsumptionTerminal::AssertProbe,
+                            ..
+                        } => self.kind == 4,
+                        _ => false,
+                    })
+                );
+                if let Some(capture) = &self.capture {
+                    *capture.borrow_mut() = Some(job);
+                }
                 if let Some(cancel) = &self.cancellation {
                     cancel.cancel();
                 }
@@ -25940,7 +26212,7 @@ mod queued_cfg_isolation_tests {
             .context
             .base
             .decider
-            .declare_fresh_functions([declaration])
+            .declare_fresh_functions([declaration.clone()])
             .unwrap();
         let yes = Exp::new(ExpKind::TrueLit, Default::default());
         let predicate = ferrum_silver::ast::expression::PredicateAccess::new(
@@ -25962,7 +26234,10 @@ mod queued_cfg_isolation_tests {
             Default::default(),
         );
         let body = Exp::new(ExpKind::IntLit(1.into()), Default::default());
-        let inner = Exp::new(ExpKind::Asserting(assertion, body), Default::default());
+        let inner = Exp::new(
+            ExpKind::Asserting(assertion.clone(), body),
+            Default::default(),
+        );
         let rhs = Exp::new(ExpKind::Old(inner), Default::default());
         let lhs = ferrum_silver::ast::expression::LocalVar::new(
             "r".into(),
@@ -25975,7 +26250,8 @@ mod queued_cfg_isolation_tests {
             tail: crate::rules::executor::test_statement_tail(join.clone()),
         };
         let partial = PartialVerificationError::for_kind(VerificationErrorKind::Internal(None));
-        for cancel in [false, true] {
+        let captured_old = std::rc::Rc::new(std::cell::RefCell::new(None));
+        for (kind, cancel) in [(0, false), (0, true)] {
             let controller =
                 crate::verifier::verification_pool_manager::CancellationController::default();
             let waited = std::rc::Rc::new(std::cell::Cell::new(0));
@@ -25983,6 +26259,8 @@ mod queued_cfg_isolation_tests {
             source.context.joined_branch_scheduler = Some(std::rc::Rc::new(OldProbe {
                 waited: waited.clone(),
                 cancellation: cancel.then(|| controller.clone()),
+                kind,
+                capture: (kind == 0 && !cancel).then(|| captured_old.clone()),
             }));
             if cancel {
                 source.context.set_cancellation(controller);
@@ -26027,6 +26305,206 @@ mod queued_cfg_isolation_tests {
             assert_eq!(source.context.base.decider.options(), &options);
             source.context.cancellation = None;
         }
+        // Capture a real AssertProbe consumption job using the same source Q.
+        let captured_probe = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let waited = std::rc::Rc::new(std::cell::Cell::new(0));
+        source.context.joined_branch_scheduler = Some(std::rc::Rc::new(OldProbe {
+            waited: waited.clone(),
+            cancellation: None,
+            kind: 4,
+            capture: Some(captured_probe.clone()),
+        }));
+        let mut probe_state = state.clone();
+        probe_state.under_join = false;
+        probe_state.parallelize_branches = true;
+        probe_state.g = Arc::new(probe_state.g.with_binding(
+            crate::state::store::AbstractLocalVar::new(local_exp.clone()),
+            (variable.clone(), None),
+        ));
+        let probe_result = crate::rules::consumer::consume_many_owned(
+            &mut source.context,
+            probe_state,
+            std::slice::from_ref(&assertion),
+            false,
+            &|_| partial.clone(),
+            crate::rules::consumer::OwnedConsumptionTerminal::AssertProbe,
+        );
+        assert!(
+            matches!(probe_result, Err(ConsumptionError::Context(NativeError::Diagnostic(ref message))) if message == "old worker service failed")
+        );
+        assert_eq!(waited.get(), 1);
+
+        // Capture an old receiver whose transferred else branch succeeds, then
+        // enters another asserting expression, which has a cancellation checkpoint.
+        let captured_resume = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let waited = std::rc::Rc::new(std::cell::Cell::new(0));
+        source.context.joined_branch_scheduler = Some(std::rc::Rc::new(OldProbe {
+            waited: waited.clone(),
+            cancellation: None,
+            kind: 0,
+            capture: Some(captured_resume.clone()),
+        }));
+        let impure = match assertion.kind() {
+            ExpKind::CondExp(_, _, no) => no.clone(),
+            _ => unreachable!(),
+        };
+        let condition = Exp::new(
+            ExpKind::CondExp(
+                local_exp.clone(),
+                impure,
+                Exp::new(ExpKind::TrueLit, Default::default()),
+            ),
+            Default::default(),
+        );
+        let nested = Exp::new(
+            ExpKind::Asserting(
+                Exp::new(ExpKind::TrueLit, Default::default()),
+                Exp::new(ExpKind::IntLit(1.into()), Default::default()),
+            ),
+            Default::default(),
+        );
+        let resume_rhs = Exp::new(
+            ExpKind::Old(Exp::new(
+                ExpKind::Asserting(condition, nested),
+                Default::default(),
+            )),
+            Default::default(),
+        );
+        let mut resume_receiver = receiver.clone();
+        resume_receiver.rhs = resume_rhs.clone();
+        let mut resume_state = state.clone();
+        resume_state.under_join = false;
+        resume_state.parallelize_branches = true;
+        resume_state.method_cfg = Some(Arc::new(cfg.clone()));
+        resume_state
+            .old_heaps
+            .insert("old".into(), resume_state.h.clone());
+        resume_state.g = Arc::new(resume_state.g.with_binding(
+            crate::state::store::AbstractLocalVar::new(local_exp.clone()),
+            (variable.clone(), None),
+        ));
+        let capture_result = crate::rules::evaluator::evaluate_owned_old_asserting(
+            &mut source.context,
+            resume_state,
+            &resume_rhs,
+            &partial,
+            &resume_receiver,
+        );
+        assert!(capture_result.is_err());
+        assert_eq!(waited.get(), 1);
+
+        // Run each captured consumption action on a real worker and cancel after
+        // its transferred solver context has been installed.
+        for (captured, after_receiver) in [
+            (captured_old, false),
+            (captured_probe, false),
+            (captured_resume, true),
+        ] {
+            let mut branch = captured
+                .borrow_mut()
+                .take()
+                .expect("captured consumption job");
+            let cancellation =
+                crate::verifier::verification_pool_manager::CancellationController::default();
+            let worker_cancellation = cancellation.clone();
+            let timeout_handles: Arc<
+                Mutex<Vec<crate::decider::prover_std_io::StdioCancellationHandle>>,
+            > = Arc::new(Mutex::new(Vec::new()));
+            let worker_timeout_handles = timeout_handles.clone();
+            let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+            let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+            let resume_rx = Arc::new(Mutex::new(resume_rx));
+            branch.after_start = Some(Arc::new(move || {
+                if after_receiver {
+                    let entered = entered_tx.clone();
+                    let resume = resume_rx.clone();
+                    crate::rules::evaluator::set_owned_asserting_resume_hook(move || {
+                        entered.send(()).unwrap();
+                        resume.lock().unwrap().recv().unwrap();
+                    });
+                } else {
+                    entered_tx.send(()).unwrap();
+                    resume_rx.lock().unwrap().recv().unwrap();
+                }
+            }));
+            let task = NativeWorkerTask {
+                analysis: analysis.clone(),
+                target: NativeWorkerTarget::Join(Box::new(branch)),
+                reporter: None,
+                warning_sink: None,
+            };
+            let started = Arc::new((Mutex::new(false), Condvar::new()));
+            let (ready_tx, _ready_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let release_rx = Arc::new(Mutex::new(release_rx));
+            let worker_requirement = requirement.clone();
+            let worker_factory = factory.clone();
+            let worker_options = options.clone();
+            let worker_config = config.clone();
+            let path = std::path::PathBuf::from(&z3);
+            let mut pool = ThreadVerificationPool::start_with_cancellation(
+                2,
+                ThreadVerificationPool::<TestWorker>::DEFAULT_STACK_SIZE,
+                cancellation.clone(),
+                move |id| {
+                    let name = format!("cancel-consumption-{id}");
+                    let prover = z3_prover_std_io::new(
+                        name.clone(),
+                        z3_prover_std_io::settings(path.clone()),
+                        worker_factory.clone(),
+                        |_| {},
+                    );
+                    worker_timeout_handles
+                        .lock()
+                        .unwrap()
+                        .push(prover.cancellation_handle());
+                    let identifiers = prover.identifier_factory();
+                    let mut native = native_method_worker(
+                        name,
+                        prover,
+                        identifiers,
+                        worker_factory.clone(),
+                        worker_options.clone(),
+                        &worker_config,
+                    );
+                    native.set_cancellation(worker_cancellation.clone());
+                    Ok(TestWorker {
+                        native,
+                        started: started.clone(),
+                        parent_ready: ready_tx.clone(),
+                        release_tx: release_tx.clone(),
+                        release_rx: release_rx.clone(),
+                        requirement: worker_requirement.clone(),
+                    })
+                },
+            )
+            .unwrap();
+            let parent = pool.submit(Job::CancelParent(task)).unwrap();
+            if let Err(error) = entered_rx.recv_timeout(std::time::Duration::from_secs(30)) {
+                let _ = resume_tx.send(());
+                for handle in timeout_handles.lock().unwrap().drain(..) {
+                    cancellation.register_stdio(handle);
+                }
+                cancellation.cancel();
+                panic!("worker did not reach cancellation rendezvous: {error:?}");
+            }
+            cancellation.cancel();
+            resume_tx.send(()).unwrap();
+            let outcome = parent.wait();
+            assert!(
+                matches!(
+                    outcome,
+                    Err(
+                        crate::verifier::verification_pool_manager::ThreadPoolError::Worker(
+                            NativeError::Cancelled
+                        )
+                    )
+                ),
+                "{outcome:?}"
+            );
+            assert!(pool.cancel_and_join().is_empty());
+        }
+        source.context.cancellation = None;
         source.stop().unwrap();
     }
 }

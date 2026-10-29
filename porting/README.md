@@ -1069,3 +1069,9 @@ ADT operations after plugin classification. Their receivers and generic argument
 still undergo contextual type inference. Heap field accesses, access predicates
 and unsupported extension expressions remain rejected there. Positive, false-
 assertion and invalid-type fixtures pass with the ADT trigger hooks connected.
+
+Consumption retry bridges now retain typed context errors. Both branch combiners
+preserve simultaneous cancellation when cleanup succeeds and recognize stopped
+submission only when cancellation is latched. Real-worker receiver-entry probes
+and deterministic scheduler fault checks cover these changes under an external
+watchdog; further legacy error-conversion bridges remain under review.

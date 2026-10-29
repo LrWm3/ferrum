@@ -969,6 +969,15 @@ where
         .map_err(EvaluationError::Context)?;
     evaluate_owned_asserting(context, state, body, error, receiver, Some(frame))
 }
+#[cfg(test)]
+thread_local! {
+    static OWNED_ASSERTING_RESUME_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
+}
+#[cfg(test)]
+pub(crate) fn set_owned_asserting_resume_hook(hook: impl FnOnce() + 'static) {
+    OWNED_ASSERTING_RESUME_HOOK.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+}
+
 /// Resume an asserting RHS after consuming its assertion.
 pub(crate) fn complete_owned_asserting<C, P, D, J: Clone, V>(
     context: &mut C,
@@ -978,6 +987,12 @@ pub(crate) fn complete_owned_asserting<C, P, D, J: Clone, V>(
 where
     C: EvaluationContext<P, D, J, V>,
 {
+    #[cfg(test)]
+    let hook = OWNED_ASSERTING_RESUME_HOOK.with(|slot| slot.borrow_mut().take());
+    #[cfg(test)]
+    if let Some(hook) = hook {
+        hook();
+    }
     state.g = frame.original_store.clone();
     state.h = frame.evaluation_heap.clone();
     evaluate(
