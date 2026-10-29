@@ -2526,6 +2526,25 @@ mod tests {
         );
     }
     #[test]
+    fn predicate_arity_and_argument_type_errors_are_independent() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("predicate p(x: Ref, q: Perm) { true }\nmethod m(x: Ref)\n  requires acc(p())\n  requires acc(p(x))\n  requires acc(p(x, x))\n{}\n").unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "wrong number of arguments (test.vpr@3.16--3.19)",
+                "wrong number of arguments (test.vpr@4.16--4.20)",
+                "found incompatible type `Ref`, expected `Perm` (test.vpr@5.21--5.22)",
+            ]
+        );
+    }
+    #[test]
     fn forbidden_wands_report_each_source_expression() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));

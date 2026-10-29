@@ -1248,9 +1248,7 @@ pub fn check_expression(
                 .cloned()
                 .collect::<Vec<_>>();
             if formal_types.len() != args.len() {
-                return Err(TypeCheckError::Unsupported(
-                    "wrong number of call arguments",
-                ));
+                return Err(TypeCheckError::Positioned { node: input.node().clone(), message: "wrong number of arguments" });
             }
             let mut bindings = HashMap::new();
             for (index, typ) in formal_types.into_iter().enumerate() {
@@ -1682,7 +1680,8 @@ fn check_operator(
                 continue;
             }
             Err(error @ TypeCheckError::UnresolvedValue { .. })
-            | Err(error @ TypeCheckError::PositionedMessage { .. }) => {
+            | Err(error @ TypeCheckError::PositionedMessage { .. })
+            | Err(error @ TypeCheckError::Positioned { .. }) => {
                 mismatches.push(error);
                 continue;
             }
