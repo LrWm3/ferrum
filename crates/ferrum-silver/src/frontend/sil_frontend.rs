@@ -2605,6 +2605,47 @@ mod tests {
         );
     }
     #[test]
+    fn undeclared_signature_types_are_positioned_and_collected() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases
+            .parse("method a(x: Missing) {}\nfunction f(x: Nope): Int { 1 }\n")
+            .unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "undeclared type `Missing` (test.vpr@1.13--1.20)",
+                "undeclared type `Nope` (test.vpr@2.15--2.19)",
+            ]
+        );
+    }
+    #[test]
+    fn undeclared_argument_and_return_types_are_collected() {
+        let mut phases =
+            SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("function f(x: Nope, y: Other): Unknown\nmethod a(x: Missing) returns (y: None) {}\n").unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        let messages: Vec<_> = errors
+            .iter()
+            .map(|e| e.readable_message().unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "undeclared type `Nope` (test.vpr@1.15--1.19)",
+                "undeclared type `Other` (test.vpr@1.24--1.29)",
+                "undeclared type `Unknown` (test.vpr@1.32--1.39)",
+                "undeclared type `Missing` (test.vpr@2.13--2.20)",
+                "undeclared type `None` (test.vpr@2.34--2.38)",
+            ]
+        );
+    }
+    #[test]
     fn forbidden_wands_report_each_source_expression() {
         let mut phases =
             SilFrontendPhases::new(PathBuf::from("test.vpr"), SilverPluginManager::new(vec![]));
