@@ -1,5 +1,9 @@
 # Nested iterator SMT comparison
 
+The subsequent [related-code review](performance-code-review.md) narrows the
+follow-up hypotheses to saturation defaults, one-worker solver ownership and
+preamble order, and checks structural equality at the late permission query.
+
 Ferrum's captured SMT stream makes Z3 do more work on
 `mut_element_nested_pass`, even though it issues fewer checks. Two solver-only
 replays reproduced all original responses and the same work counters: compared

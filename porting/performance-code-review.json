@@ -1,0 +1,836 @@
+{
+  "kind": "nested-code-review-v1",
+  "sources": {
+    "silicon_revision": "6b540aa45e5af214f4727b7be463ce84b328fabd",
+    "silver_tree": "160000 commit f02e7010639f314447d74732146644565aa8d135\tsilver",
+    "newer_reference": "ff386aec4664231dc6f2cb56d8d35f1623088363",
+    "native_runtime": "afdf10cf59106c38d09df32939f1aa9c77d0b989"
+  },
+  "files": [
+    {
+      "repository": "/home/will/wk/exp/ferrum",
+      "revision": "afdf10cf59106c38d09df32939f1aa9c77d0b989",
+      "path": "src/lib.rs",
+      "git_blob": "624be8168c3e87593ca2356d128a23a3fb1c3420",
+      "sha256": "3c8d0f870a9f66a893ea9b7c89a1807c3797b9b9a8961263fad624e116a64ba0"
+    },
+    {
+      "repository": "/home/will/wk/exp/ferrum",
+      "revision": "afdf10cf59106c38d09df32939f1aa9c77d0b989",
+      "path": "crates/ferrum-silicon/src/config.rs",
+      "git_blob": "6b9f8ca89d0f9e3c2ed201ba57552df7887a402d",
+      "sha256": "a2691bc2d8fb86bc04448ddece08577f21cab90ccd0007690ceefa02ae95f6d7"
+    },
+    {
+      "repository": "/home/will/wk/exp/ferrum",
+      "revision": "afdf10cf59106c38d09df32939f1aa9c77d0b989",
+      "path": "crates/ferrum-silicon/src/verifier/default_main_verifier.rs",
+      "git_blob": "20590dcf5f389ed24040a331ff066c38fa2ac466",
+      "sha256": "78a00755bfd09f08cc6e11d553a1c909d3f03da4f249dfe81b534fb5d289324f"
+    },
+    {
+      "repository": "/home/will/wk/exp/ferrum",
+      "revision": "afdf10cf59106c38d09df32939f1aa9c77d0b989",
+      "path": "crates/ferrum-silicon/src/verifier/native_context.rs",
+      "git_blob": "dd2494e431a623fd97a242449c42014bb030f0e6",
+      "sha256": "43d3161c6afd6901837ec83ce9c2e1469777ea38f9150f945f0bcbbea6efe742"
+    },
+    {
+      "repository": "/home/will/wk/exp/ferrum",
+      "revision": "afdf10cf59106c38d09df32939f1aa9c77d0b989",
+      "path": "crates/ferrum-silicon/src/rules/quantified_chunk_support.rs",
+      "git_blob": "112184436ec2e82488c44ae900be3987d3f54d53",
+      "sha256": "f67221bb1528f77111dd6d227dc553c35264ce89e59fe9c5e78ec7dcd1c4e54f"
+    },
+    {
+      "repository": "/home/will/wk/exp/ferrum",
+      "revision": "afdf10cf59106c38d09df32939f1aa9c77d0b989",
+      "path": "crates/ferrum-silicon/src/decider/decider.rs",
+      "git_blob": "798d93b9389457fe23a7daa88d9303d718690d0c",
+      "sha256": "c29627da9be64628da1ee27584e476085c28d38e69d80a32a2615eb409d8053e"
+    },
+    {
+      "repository": "/home/will/wk/exp/ferrum",
+      "revision": "afdf10cf59106c38d09df32939f1aa9c77d0b989",
+      "path": "crates/ferrum-silicon/src/decider/prover_std_io.rs",
+      "git_blob": "8e723e4e78356b2610025fadf6cb6d17164ec4a9",
+      "sha256": "af0b4ba999d95665a41a541e507374f0022b292f1a86b49ec21f14ad91c2622d"
+    },
+    {
+      "repository": "/home/will/wk/exp/ferrum",
+      "revision": "afdf10cf59106c38d09df32939f1aa9c77d0b989",
+      "path": "crates/ferrum-silicon/src/decider/term_to_smt_lib2_converter.rs",
+      "git_blob": "0f5af84ea3f1a1491755abb58e78df3673686f04",
+      "sha256": "f1c8769308dbf86e4da0ebfb41fb402bd8302f2bdf4cb8b194c03dafb0132be6"
+    },
+    {
+      "repository": "/home/will/wk/exp/ferrum",
+      "revision": "afdf10cf59106c38d09df32939f1aa9c77d0b989",
+      "path": "crates/ferrum-silicon/src/state/terms.rs",
+      "git_blob": "3d6d5b780490d3e51232b5ef1fe7abc828b4c988",
+      "sha256": "982b76faebfdaa58ac688000c37c1991eb5eeace64ef59ab8ae8f3238da19264"
+    },
+    {
+      "repository": "/home/will/wk/exp/ferrum",
+      "revision": "afdf10cf59106c38d09df32939f1aa9c77d0b989",
+      "path": "crates/ferrum-silicon/src/supporters/functions/function_verification_unit.rs",
+      "git_blob": "087974fae991f4d94bdff59c9457ad1af03b5d0d",
+      "sha256": "5c7f30c8891898d6cd5d429a0a104d8e4f92fd8507a5a6db6e63640483376c29"
+    },
+    {
+      "repository": "/home/will/wk/exp/silicon",
+      "revision": "6b540aa45e5af214f4727b7be463ce84b328fabd",
+      "path": "src/main/scala/Config.scala",
+      "git_blob": "175e8e850b4d7ef913a744058a38195ad7772f09",
+      "sha256": "e1e097a7c85b282ef0451e56da3570d79a15b40e57fc9e85200001b877385bd5"
+    },
+    {
+      "repository": "/home/will/wk/exp/silicon",
+      "revision": "6b540aa45e5af214f4727b7be463ce84b328fabd",
+      "path": "src/main/scala/verifier/DefaultMainVerifier.scala",
+      "git_blob": "267f0110543ff9c5573c318660670e11bb5396dc",
+      "sha256": "746c4f217aa274619c2b05bfd4bac4a6721305bf97973e6bb17cd53326f1a3ee"
+    },
+    {
+      "repository": "/home/will/wk/exp/silicon",
+      "revision": "6b540aa45e5af214f4727b7be463ce84b328fabd",
+      "path": "src/main/scala/verifier/VerificationPoolManager.scala",
+      "git_blob": "6f99b2f036b4809c1d7ad9775700b5c4298748d7",
+      "sha256": "be43eb7fa51bcfede5692d54a330447c8c4226d1894a59498f411d0df2cd8771"
+    },
+    {
+      "repository": "/home/will/wk/exp/silicon",
+      "revision": "6b540aa45e5af214f4727b7be463ce84b328fabd",
+      "path": "src/main/scala/rules/QuantifiedChunkSupport.scala",
+      "git_blob": "d1d1d4f64d2501e3ed88817738b0644149d181b1",
+      "sha256": "bbc801594123adc82b471901bfde3dc94f719f12ed37bae20d700668398d0006"
+    },
+    {
+      "repository": "/home/will/wk/exp/silicon",
+      "revision": "6b540aa45e5af214f4727b7be463ce84b328fabd",
+      "path": "src/main/scala/decider/Decider.scala",
+      "git_blob": "d4a22b5a693d61240703c4c22fdd82ac1015c739",
+      "sha256": "17e78bbcf8108d3316958636a2373a351399504fd24841a4d0de3ceb837b1979"
+    },
+    {
+      "repository": "/home/will/wk/exp/silicon",
+      "revision": "6b540aa45e5af214f4727b7be463ce84b328fabd",
+      "path": "src/main/scala/decider/ProverStdIO.scala",
+      "git_blob": "d64fbddd7ad783af8a633717e8d7c24c9c9c858e",
+      "sha256": "a52826fa9cf1551ecc9aaf422a21ba6df2a1f1469badd3899d5fa60e5ed40904"
+    },
+    {
+      "repository": "/home/will/wk/exp/silicon",
+      "revision": "6b540aa45e5af214f4727b7be463ce84b328fabd",
+      "path": "src/main/scala/decider/Z3ProverStdIO.scala",
+      "git_blob": "dffa32d56bf295d4b160240e2857c6e97b1eb091",
+      "sha256": "6cdf81771424507eba50eb4a68806846dac6a1eee1c6221d6bca13696a573698"
+    },
+    {
+      "repository": "/home/will/wk/exp/silicon",
+      "revision": "6b540aa45e5af214f4727b7be463ce84b328fabd",
+      "path": "src/main/scala/decider/TermToSMTLib2Converter.scala",
+      "git_blob": "97071bfc1405f2dac439ad26ff3e0be42f90eca4",
+      "sha256": "336bf51e58a897b3f40509e9e5dfb473c21b184143e99a73cf4e4e377d28ad02"
+    },
+    {
+      "repository": "/home/will/wk/exp/silicon",
+      "revision": "6b540aa45e5af214f4727b7be463ce84b328fabd",
+      "path": "src/main/scala/state/Terms.scala",
+      "git_blob": "e83ed8d48190706f1668c668d550a14b1f0b557e",
+      "sha256": "d570b4b1ef61c6e46dde8de810bdd0ef016f755ee7a6599196096366781428af"
+    },
+    {
+      "repository": "/home/will/wk/exp/silicon",
+      "revision": "6b540aa45e5af214f4727b7be463ce84b328fabd",
+      "path": "src/main/scala/supporters/functions/FunctionVerificationUnit.scala",
+      "git_blob": "0f18c5806984c1c2155a3ff5c1da04031fbc4d01",
+      "sha256": "5f5a8cbaf376922406783ef7624b6e4625fa72edb0faeccd2060b1dc1e6df481"
+    },
+    {
+      "repository": "/home/will/wk/exp/ferrum",
+      "revision": "afdf10cf59106c38d09df32939f1aa9c77d0b989",
+      "path": "crates/ferrum-silicon/src/verifier/native_preamble.rs",
+      "git_blob": "256c514cd8d119c63153c697c7f07e4e081d8e86",
+      "sha256": "d62b8d8e2ec8b26aaf8eb5bc534abf51e4711788f3253c899b2d230ee7699d01"
+    },
+    {
+      "repository": "/home/will/wk/exp/silicon",
+      "revision": "6b540aa45e5af214f4727b7be463ce84b328fabd",
+      "path": "src/main/scala/supporters/Domains.scala",
+      "git_blob": "bb8916f77d5b48d206f43d34f16a4cf6eedecc37",
+      "sha256": "9f9ecaae76be514ff216cc6562e0e01195b408d242e0b01bc62f029c7374d5b0"
+    },
+    {
+      "repository": "/home/will/wk/exp/silicon",
+      "revision": "6b540aa45e5af214f4727b7be463ce84b328fabd",
+      "path": "src/main/scala/supporters/BuiltinDomainsContributor.scala",
+      "git_blob": "b6ef014d272422543c554fa364a8722125dafccc",
+      "sha256": "be9859ba00b374c417211a73223c471a7f6f93c06b64b9787abbaee2d4ebe972"
+    }
+  ],
+  "local_query": {
+    "scope": "Local textual structure under six explicit free-symbol renamings; no assertion of equivalent definitions, assumptions or solver histories.",
+    "mapping": {
+      "snapshot@137@main": "$t@8@01",
+      "_1p@134@main": "_1p@5@01",
+      "img@141@main": "img@12@01",
+      "inv@140@main": "inv@11@01",
+      "_resource_index0@549@main": "_resource_index0@420@01",
+      "pTaken@550@main": "pTaken@421@01"
+    },
+    "references": {
+      "ferrum": {
+        "folder": "/tmp/ferrum-nested-smt-comparison/ferrum/traces/1237186-313040034049221",
+        "query": {
+          "index": 13171,
+          "name": "check-sat",
+          "start": 4083977,
+          "end": 4083988,
+          "bytes": 11,
+          "sha256": "6f88caa47c10ce10786be06169194c03789188d3969eed4e8ed98187f767d41b",
+          "canonical_sha256": "d31d38a376072e41a81e76818e63b1fd60a691b4703ef0a07de7e3e3c0f67b62",
+          "forwarded_ns": 313090559991417,
+          "received_ns": 313090559985435,
+          "preview": "( check-sat )",
+          "response_index": 13171,
+          "response": "unknown",
+          "response_received_ns": 313091030659005,
+          "response_wait_s": 0.47067357
+        }
+      },
+      "silicon-default-branches": {
+        "folder": "/tmp/ferrum-nested-smt-comparison/silicon-default-branches/traces/1261242-313164612161458",
+        "query": {
+          "index": 12918,
+          "name": "check-sat",
+          "start": 4095287,
+          "end": 4095298,
+          "bytes": 11,
+          "sha256": "6f88caa47c10ce10786be06169194c03789188d3969eed4e8ed98187f767d41b",
+          "canonical_sha256": "d31d38a376072e41a81e76818e63b1fd60a691b4703ef0a07de7e3e3c0f67b62",
+          "forwarded_ns": 313213975890675,
+          "received_ns": 313213975886335,
+          "preview": "( check-sat )",
+          "response_index": 12918,
+          "response": "unknown",
+          "response_received_ns": 313214008052092,
+          "response_wait_s": 0.032165757
+        }
+      }
+    },
+    "comparisons": {
+      "macro": {
+        "token_equal_after_renaming": true,
+        "native_bytes": 1807,
+        "source_bytes": 1924,
+        "native_tokens": 261,
+        "source_tokens": 261,
+        "native_sha256": "ea7c97a0faf7259f6a09b4e898bddc4d2c0ff8d4edf5d610367f9bbcae9b4823",
+        "source_sha256": "4e4df6f928cd9894771f03b3f0142528a52c3293ecb396792e941392ab7b7cb3",
+        "renamed_canonical_sha256": "b5936826d4b203bdbd0a7ddc761a98f30b4790eba34a64cb7d7c9883ae6ec1c3",
+        "source_canonical_sha256": "b5936826d4b203bdbd0a7ddc761a98f30b4790eba34a64cb7d7c9883ae6ec1c3"
+      },
+      "goal": {
+        "token_equal_after_renaming": true,
+        "native_bytes": 654,
+        "source_bytes": 751,
+        "native_tokens": 120,
+        "source_tokens": 120,
+        "native_sha256": "5ba0b6f3765200f3b04d9732b1f47f36cbe3098cd5feb35057c7b81bb4cdd331",
+        "source_sha256": "52712bd942c1786849fc07a3ff8f031d8b6b8b4e09e8b785f8401acd1ea5cbc8",
+        "renamed_canonical_sha256": "06e929cb23c5bcf9302369ab7e7a94a342a8327386feadfbc4a364340a05540b",
+        "source_canonical_sha256": "06e929cb23c5bcf9302369ab7e7a94a342a8327386feadfbc4a364340a05540b"
+      }
+    }
+  },
+  "contexts": {
+    "ferrum": {
+      "query_command": 13171,
+      "folder": "/tmp/ferrum-nested-smt-comparison/ferrum/traces/1237186-313040034049221",
+      "scope_assertion_counts": [
+        621,
+        60,
+        71,
+        18,
+        74,
+        22,
+        80,
+        19,
+        82,
+        26,
+        82,
+        20,
+        69,
+        26,
+        82,
+        20,
+        79,
+        26,
+        17,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        11,
+        1,
+        13,
+        2,
+        0,
+        1
+      ],
+      "active_assertions": 1528,
+      "active_forall_occurrences": 753,
+      "active_patterns": 911,
+      "declaration_counts": {
+        "declare-datatypes": 1,
+        "declare-sort": 48,
+        "declare-const": 439,
+        "declare-fun": 504,
+        "define-sort": 1,
+        "define-const": 2,
+        "define-fun": 57
+      }
+    },
+    "silicon-default-branches": {
+      "query_command": 12918,
+      "folder": "/tmp/ferrum-nested-smt-comparison/silicon-default-branches/traces/1261242-313164612161458",
+      "scope_assertion_counts": [
+        621,
+        60,
+        71,
+        18,
+        74,
+        22,
+        80,
+        19,
+        82,
+        26,
+        82,
+        20,
+        69,
+        26,
+        82,
+        20,
+        79,
+        26,
+        17,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        11,
+        1,
+        13,
+        2,
+        0,
+        1
+      ],
+      "active_assertions": 1528,
+      "active_forall_occurrences": 753,
+      "active_patterns": 911,
+      "declaration_counts": {
+        "declare-datatypes": 1,
+        "declare-sort": 48,
+        "declare-const": 386,
+        "declare-fun": 428,
+        "define-sort": 1,
+        "define-const": 2,
+        "define-fun": 57
+      }
+    }
+  },
+  "scoped_alignment": {
+    "scope": "Positionwise active assertions with local first-occurrence fresh-symbol shape normalization. Aggregate matches are structural evidence only. Mapping conflicts prevent claims of global alpha equivalence.",
+    "active_assertions": 1528,
+    "positionwise_same_shape": 967,
+    "fresh_symbol_map_size": 278,
+    "fresh_symbol_mapping": {
+      "self@5@main": "self@5@00",
+      "T$0@6@main": "T$0@6@00",
+      "result@7@main": "result@7@00",
+      "r@8@main": "r@8@00",
+      "metadata@9@main": "metadata@9@00",
+      "U$1@10@main": "U$1@10@00",
+      "result@11@main": "result@11@00",
+      "_1s@12@main": "_1s@12@00",
+      "T$0@13@main": "T$0@13@00",
+      "result@14@main": "result@14@00",
+      "snapshot@137@main": "$t@8@01",
+      "_1p@134@main": "_1p@5@01",
+      "_resource_index0@138@main": "_resource_index0@9@01",
+      "_resource_index0@139@main": "_resource_index0@10@01",
+      "inv@140@main": "inv@11@01",
+      "img@141@main": "img@12@01",
+      "_resource_index0@142@main": "_resource_index0@13@01",
+      "_resource_index0@143@main": "_resource_index0@14@01",
+      "sm@145@main": "sm@16@01",
+      "inv@147@main": "inv@18@01",
+      "img@148@main": "img@19@01",
+      "letvar@149@main": "letvar@20@01",
+      "_3p@136@main": "_3p@7@01",
+      "_2p@135@main": "_2p@6@01",
+      "letvar@150@main": "letvar@21@01",
+      "_tmp0@259@main": "_tmp0@130@01",
+      "snapshot@260@main": "$t@131@01",
+      "_5p@162@main": "_5p@33@01",
+      "snapshot@261@main": "$t@132@01",
+      "snapshot@262@main": "$t@133@01",
+      "_6p@163@main": "_6p@34@01",
+      "snapshot@263@main": "$t@134@01",
+      "_tmp1@264@main": "_tmp1@135@01",
+      "snapshot@265@main": "$t@136@01",
+      "_7p@164@main": "_7p@35@01",
+      "_tmp2@266@main": "_tmp2@137@01",
+      "_tmp3@267@main": "_tmp3@138@01",
+      "snapshot@268@main": "$t@139@01",
+      "_8p@165@main": "_8p@36@01",
+      "_tmp4@269@main": "_tmp4@140@01",
+      "snapshot@270@main": "$t@141@01",
+      "snapshot@271@main": "$t@142@01",
+      "snapshot@272@main": "$t@143@01",
+      "_tmp5@273@main": "_tmp5@144@01",
+      "_tmp6@274@main": "_tmp6@145@01",
+      "_tmp9@275@main": "_tmp9@146@01",
+      "_tmp10@276@main": "_tmp10@147@01",
+      "s@278@main": "s@149@01",
+      "sm@277@main": "sm@148@01",
+      "pm@279@main": "pm@150@01",
+      "_tmp11@281@main": "_tmp11@152@01",
+      "_tmp12@282@main": "_tmp12@153@01",
+      "_tmp14@283@main": "_tmp14@154@01",
+      "_tmp15@284@main": "_tmp15@155@01",
+      "_tmp16@285@main": "_tmp16@156@01",
+      "s@287@main": "s@158@01",
+      "sm@286@main": "sm@157@01",
+      "pTaken@280@main": "pTaken@151@01",
+      "pm@288@main": "pm@159@01",
+      "sm@290@main": "sm@161@01",
+      "snapshot@293@main": "$t@164@01",
+      "snapshot@295@main": "$t@166@01",
+      "_tmp17@296@main": "_tmp17@167@01",
+      "snapshot@297@main": "$t@168@01",
+      "_4p@161@main": "_4p@32@01",
+      "snapshot@298@main": "$t@169@01",
+      "snapshot@299@main": "$t@170@01",
+      "snapshot@300@main": "$t@171@01",
+      "snapshot@301@main": "$t@172@01",
+      "idx@302@main": "idx@173@01",
+      "s@304@main": "s@175@01",
+      "sm@303@main": "sm@174@01",
+      "pTaken@289@main": "pTaken@160@01",
+      "pm@305@main": "pm@176@01",
+      "s@307@main": "s@178@01",
+      "sm@306@main": "sm@177@01",
+      "pm@308@main": "pm@179@01",
+      "sm@310@main": "sm@181@01",
+      "sm@312@main": "sm@183@01",
+      "s@315@main": "s@186@01",
+      "sm@314@main": "sm@185@01",
+      "pm@316@main": "pm@187@01",
+      "sm@318@main": "sm@189@01",
+      "s@321@main": "s@192@01",
+      "sm@320@main": "sm@191@01",
+      "pm@322@main": "pm@193@01",
+      "sm@325@main": "sm@196@01",
+      "snapshot@326@main": "$t@197@01",
+      "_tmp18@327@main": "_tmp18@198@01",
+      "snapshot@328@main": "$t@199@01",
+      "_9p@166@main": "_9p@37@01",
+      "snapshot@329@main": "$t@200@01",
+      "snapshot@330@main": "$t@201@01",
+      "_10p@167@main": "_10p@38@01",
+      "snapshot@331@main": "$t@202@01",
+      "_tmp19@332@main": "_tmp19@203@01",
+      "snapshot@333@main": "$t@204@01",
+      "_11p@168@main": "_11p@39@01",
+      "_tmp20@334@main": "_tmp20@205@01",
+      "_tmp21@335@main": "_tmp21@206@01",
+      "snapshot@336@main": "$t@207@01",
+      "_12p@169@main": "_12p@40@01",
+      "_tmp22@337@main": "_tmp22@208@01",
+      "snapshot@338@main": "$t@209@01",
+      "snapshot@339@main": "$t@210@01",
+      "snapshot@340@main": "$t@211@01",
+      "_tmp23@341@main": "_tmp23@212@01",
+      "_tmp24@342@main": "_tmp24@213@01",
+      "_tmp27@343@main": "_tmp27@214@01",
+      "_tmp28@344@main": "_tmp28@215@01",
+      "s@346@main": "s@217@01",
+      "sm@345@main": "sm@216@01",
+      "pm@347@main": "pm@218@01",
+      "sm@349@main": "sm@220@01",
+      "_tmp29@351@main": "_tmp29@222@01",
+      "_tmp30@352@main": "_tmp30@223@01",
+      "_tmp32@353@main": "_tmp32@224@01",
+      "_tmp33@354@main": "_tmp33@225@01",
+      "_tmp34@355@main": "_tmp34@226@01",
+      "s@357@main": "s@228@01",
+      "sm@356@main": "sm@227@01",
+      "pTaken@348@main": "pTaken@219@01",
+      "pm@358@main": "pm@229@01",
+      "sm@360@main": "sm@231@01",
+      "snapshot@363@main": "$t@234@01",
+      "snapshot@365@main": "$t@236@01",
+      "snapshot@366@main": "$t@237@01",
+      "snapshot@367@main": "$t@238@01",
+      "snapshot@368@main": "$t@239@01",
+      "snapshot@369@main": "$t@240@01",
+      "snapshot@370@main": "$t@241@01",
+      "idx@371@main": "idx@242@01",
+      "s@373@main": "s@244@01",
+      "sm@372@main": "sm@243@01",
+      "pTaken@359@main": "pTaken@230@01",
+      "pm@374@main": "pm@245@01",
+      "s@376@main": "s@247@01",
+      "sm@375@main": "sm@246@01",
+      "pm@377@main": "pm@248@01",
+      "sm@379@main": "sm@250@01",
+      "sm@381@main": "sm@252@01",
+      "s@384@main": "s@255@01",
+      "sm@383@main": "sm@254@01",
+      "pm@385@main": "pm@256@01",
+      "sm@387@main": "sm@258@01",
+      "s@390@main": "s@261@01",
+      "sm@389@main": "sm@260@01",
+      "pm@391@main": "pm@262@01",
+      "sm@394@main": "sm@265@01",
+      "snapshot@395@main": "$t@266@01",
+      "_tmp35@396@main": "_tmp35@267@01",
+      "snapshot@397@main": "$t@268@01",
+      "_14p@171@main": "_14p@42@01",
+      "snapshot@398@main": "$t@269@01",
+      "snapshot@399@main": "$t@270@01",
+      "_15p@172@main": "_15p@43@01",
+      "snapshot@400@main": "$t@271@01",
+      "_tmp36@401@main": "_tmp36@272@01",
+      "snapshot@402@main": "$t@273@01",
+      "_16p@173@main": "_16p@44@01",
+      "_tmp37@403@main": "_tmp37@274@01",
+      "_tmp38@404@main": "_tmp38@275@01",
+      "snapshot@405@main": "$t@276@01",
+      "_17p@174@main": "_17p@45@01",
+      "_tmp39@406@main": "_tmp39@277@01",
+      "snapshot@407@main": "$t@278@01",
+      "snapshot@408@main": "$t@279@01",
+      "snapshot@409@main": "$t@280@01",
+      "_tmp40@410@main": "_tmp40@281@01",
+      "_tmp41@411@main": "_tmp41@282@01",
+      "_tmp44@412@main": "_tmp44@283@01",
+      "_tmp45@413@main": "_tmp45@284@01",
+      "s@415@main": "s@286@01",
+      "sm@414@main": "sm@285@01",
+      "pm@416@main": "pm@287@01",
+      "_tmp46@418@main": "_tmp46@289@01",
+      "_tmp47@419@main": "_tmp47@290@01",
+      "_tmp49@420@main": "_tmp49@291@01",
+      "_tmp50@421@main": "_tmp50@292@01",
+      "_tmp51@422@main": "_tmp51@293@01",
+      "s@424@main": "s@295@01",
+      "sm@423@main": "sm@294@01",
+      "pm@425@main": "pm@296@01",
+      "sm@427@main": "sm@298@01",
+      "snapshot@430@main": "$t@301@01",
+      "snapshot@432@main": "$t@303@01",
+      "_tmp52@433@main": "_tmp52@304@01",
+      "snapshot@434@main": "$t@305@01",
+      "_13p@170@main": "_13p@41@01",
+      "snapshot@435@main": "$t@306@01",
+      "snapshot@436@main": "$t@307@01",
+      "snapshot@437@main": "$t@308@01",
+      "snapshot@438@main": "$t@309@01",
+      "idx@439@main": "idx@310@01",
+      "sm@441@main": "sm@312@01",
+      "sm@443@main": "sm@314@01",
+      "s@446@main": "s@317@01",
+      "sm@445@main": "sm@316@01",
+      "pm@447@main": "pm@318@01",
+      "sm@449@main": "sm@320@01",
+      "s@452@main": "s@323@01",
+      "sm@451@main": "sm@322@01",
+      "pm@453@main": "pm@324@01",
+      "sm@456@main": "sm@327@01",
+      "snapshot@457@main": "$t@328@01",
+      "_tmp53@458@main": "_tmp53@329@01",
+      "snapshot@459@main": "$t@330@01",
+      "_19p@176@main": "_19p@47@01",
+      "snapshot@460@main": "$t@331@01",
+      "snapshot@461@main": "$t@332@01",
+      "_20p@177@main": "_20p@48@01",
+      "snapshot@462@main": "$t@333@01",
+      "_tmp54@463@main": "_tmp54@334@01",
+      "snapshot@464@main": "$t@335@01",
+      "_21p@178@main": "_21p@49@01",
+      "_tmp55@465@main": "_tmp55@336@01",
+      "_tmp56@466@main": "_tmp56@337@01",
+      "snapshot@467@main": "$t@338@01",
+      "_22p@179@main": "_22p@50@01",
+      "_tmp57@468@main": "_tmp57@339@01",
+      "snapshot@469@main": "$t@340@01",
+      "snapshot@470@main": "$t@341@01",
+      "snapshot@471@main": "$t@342@01",
+      "_tmp58@472@main": "_tmp58@343@01",
+      "_tmp59@473@main": "_tmp59@344@01",
+      "_tmp62@474@main": "_tmp62@345@01",
+      "_tmp63@475@main": "_tmp63@346@01",
+      "s@477@main": "s@348@01",
+      "sm@476@main": "sm@347@01",
+      "pm@478@main": "pm@349@01",
+      "_tmp64@480@main": "_tmp64@351@01",
+      "_tmp65@481@main": "_tmp65@352@01",
+      "_tmp67@482@main": "_tmp67@353@01",
+      "_tmp68@483@main": "_tmp68@354@01",
+      "_tmp69@484@main": "_tmp69@355@01",
+      "s@486@main": "s@357@01",
+      "sm@485@main": "sm@356@01",
+      "pm@487@main": "pm@358@01",
+      "sm@489@main": "sm@360@01",
+      "snapshot@492@main": "$t@363@01",
+      "snapshot@494@main": "$t@365@01",
+      "_tmp70@495@main": "_tmp70@366@01",
+      "snapshot@496@main": "$t@367@01",
+      "_18p@175@main": "_18p@46@01",
+      "snapshot@497@main": "$t@368@01",
+      "snapshot@498@main": "$t@369@01",
+      "snapshot@499@main": "$t@370@01",
+      "snapshot@500@main": "$t@371@01",
+      "idx@501@main": "idx@372@01",
+      "s@503@main": "s@374@01",
+      "sm@502@main": "sm@373@01",
+      "pm@504@main": "pm@375@01",
+      "s@506@main": "s@377@01",
+      "sm@505@main": "sm@376@01",
+      "pm@507@main": "pm@378@01",
+      "sm@509@main": "sm@380@01",
+      "sm@511@main": "sm@382@01",
+      "s@514@main": "s@385@01",
+      "sm@513@main": "sm@384@01",
+      "pm@515@main": "pm@386@01",
+      "sm@517@main": "sm@388@01",
+      "s@520@main": "s@391@01",
+      "sm@519@main": "sm@390@01",
+      "pm@521@main": "pm@392@01",
+      "sm@524@main": "sm@395@01",
+      "snapshot@525@main": "$t@396@01",
+      "s@527@main": "s@398@01",
+      "sm@526@main": "sm@397@01",
+      "pm@528@main": "pm@399@01",
+      "snapshot@536@main": "$t@407@01",
+      "_0p@133@main": "_0p@4@01",
+      "_resource_index0@539@main": "_resource_index0@410@01",
+      "_resource_index0@540@main": "_resource_index0@411@01",
+      "inv@541@main": "inv@412@01",
+      "img@542@main": "img@413@01",
+      "_resource_index0@548@main": "_resource_index0@419@01",
+      "_resource_index0@549@main": "_resource_index0@420@01",
+      "pTaken@550@main": "pTaken@421@01"
+    },
+    "scoped_assertions_equal_under_consistent_map": true,
+    "scoped_assertion_count": 907,
+    "scoped_assertion_list_sha256_after_renaming": "0e26d3daa14ea4b77d9cf7f7ee85782a1573001a7b729ccb644f23c5bb9f00af",
+    "scope_assertion_counts_equal": true,
+    "root_assertions_not_in_this_equality_proof": 621,
+    "declarations_and_histories_not_compared_for_equivalence": true
+  },
+  "root_alignment": {
+    "root_assertion_count": 621,
+    "root_per_assertion_shape_multiset_equal": false,
+    "native_unmatched_count": 123,
+    "source_unmatched_count": 123,
+    "scope": "Fresh symbols normalized separately per formula. Equality here does not establish a globally consistent name substitution or equivalent declarations.",
+    "qid_ignored_per_assertion_shape_multiset_equal": true,
+    "qid_ignored_native_unmatched": 0,
+    "qid_ignored_source_unmatched": 0,
+    "qid_normalization_note": "Only annotation tokens :qid and their next token were dropped for this structural comparison. This does not show identical runtime quantifier behavior or a globally consistent variable mapping."
+  },
+  "review_note_sha256": {
+    "solver-review.md": "29c8df741eb8837062640b30b442bf74c8ea0337bede63eed9ef6da9163ecf60",
+    "quantified-review.md": "9d8b271efe0a361f61e8f7725494b0bf152a047e27a63137b8cef8406e023671",
+    "terms-review.md": "7977fab743a494b6e24332710fbca81cea247c222890a209d74ccbb7daea8529"
+  },
+  "hypotheses": [
+    {
+      "id": "saturation",
+      "evidence": "Bundled beforeRepetition default is 0.02; newer target and native default are zero. The source has 34 before-repetition saturation checks and native has zero. One precedes the aligned macro and goal.",
+      "status": "Concrete upstream-version default difference; causal effect untested.",
+      "next_test": "Explicitly toggle only before-repetition weight, holding after-inhale and all other weights fixed; compare proof outcomes, emitted call sequences and solver work counters."
+    },
+    {
+      "id": "solver_history",
+      "evidence": "Native one-worker branch-off execution retains its owner solver. Source stops the owner and queues methods on a worker. At the aligned query native has 53 more declared constants and 76 more declared functions, with the same active assertion counts and scope vector.",
+      "status": "Concrete native topology difference; causal contribution untested.",
+      "next_test": "Use a genuinely separate method solver with complete preamble replay; compare results, diagnostics, contexts, work counters and response paths."
+    },
+    {
+      "id": "preamble_order",
+      "evidence": "All 907 scoped assertions match positionwise under one consistent 278-symbol map. The 621 root assertion shape multisets match only with per-formula fresh-name normalization and qids omitted. Source lists collection contributors before domains; native lists domains first and sorts collection sorts by nesting depth.",
+      "status": "Concrete trace and contributor-order differences; whole-context equivalence and causal effect unproved.",
+      "next_test": "Preserve dependencies and symbol identity while changing only wrapper contribution order; compare solver work and responses before testing function-axiom ordering separately."
+    }
+  ],
+  "limits": [
+    "Read-only review; no new profiling, verifier runs, runtime changes or performance optimization.",
+    "Localgoal and macro equality is structural under six explicit renamings; it does not establish equivalent meanings for symbols in differing contexts.",
+    "Scoped assertions equality uses one consistent name map; root shape comparison uses per-formula renaming and ignoresqid annotations, so does not establish whole-context semantic equivalence.",
+    "Existing fixed-trace history control does not simulate a fresh worker; timing remains variable."
+  ],
+  "prover_log_evidence": [
+    {
+      "file": "porting/evidence/nested-code-review/native-prover.smt2.gz",
+      "original": "/tmp/ferrum-nested-smt-comparison/ferrum/prover-main.smt2",
+      "sha256": "fef19c3144e9f9a6528b0297aae97ad5884c2fe3da23e2762500ed9e48551b03",
+      "uncompressed_sha256": "99b9ddada91e84c6d18753ee7c96b0cef0cca8768b8d35965b057a79e43aeb74",
+      "uncompressed_bytes": 7660171,
+      "before_repetition_comments": []
+    },
+    {
+      "file": "porting/evidence/nested-code-review/source-worker-prover.smt2.gz",
+      "original": "/tmp/ferrum-nested-smt-comparison/silicon-default-branches/prover-01.smt2",
+      "sha256": "258f74da8e1df22446546fec5f078b2e9c77cd8fd4aa3a35ec990036172e61ad",
+      "uncompressed_sha256": "1d377ac64a42800c6a94930c1fbdaf58f3a010d2703f5760224315b8809a200b",
+      "uncompressed_bytes": 7897104,
+      "before_repetition_comments": [
+        {
+          "line": 4986,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 7163,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 9691,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 10532,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 15654,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 17762,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 20155,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 22634,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 23636,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 29890,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 32354,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 35103,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 38089,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 39180,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 45335,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 48083,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 51116,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 54322,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 55469,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 62547,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 65557,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 68852,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 70444,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 70672,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 70865,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 71024,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 71205,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 71421,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 71623,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 72021,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 72215,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 72846,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 73764,
+          "text": "; State saturation: before repetition"
+        },
+        {
+          "line": 74682,
+          "text": "; State saturation: before repetition"
+        }
+      ]
+    }
+  ]
+}
