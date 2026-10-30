@@ -243,6 +243,9 @@ pub struct ProverStdIo {
         >,
     >,
     configuration_observer: Option<Box<dyn FnMut(&str) -> Result<(), String> + Send>>,
+    warning_observer: Option<
+        Box<dyn FnMut(&str) -> Result<(), ferrum_silver::reporter::reporter::ReportError> + Send>,
+    >,
     child: Arc<Mutex<Option<Child>>>,
     input: Option<BufReader<std::fs::File>>,
     output: Option<BufWriter<ChildStdin>>,
@@ -286,6 +289,22 @@ impl ProverStdIo {
     ) {
         self.quantifier_observer = Some(Box::new(observer));
     }
+    /// Report solver warnings through the structured reporter, propagating failures.
+    pub fn set_warning_observer(
+        &mut self,
+        observer: impl FnMut(&str) -> Result<(), ferrum_silver::reporter::reporter::ReportError>
+        + Send
+        + 'static,
+    ) {
+        self.warning_observer = Some(Box::new(observer));
+    }
+    fn report_warning(&mut self, warning: String) -> Result<(), ProverError> {
+        (self.report)(ProverEvent::Warning(warning.clone()));
+        if let Some(observer) = &mut self.warning_observer {
+            observer(&warning).map_err(ProverError::Report)?;
+        }
+        Ok(())
+    }
     /// Share the source verifier's identifier stream with its prover.
     pub fn identifier_factory(&self) -> DefaultIdentifierFactory {
         self.identifiers.clone()
@@ -307,6 +326,7 @@ impl ProverStdIo {
             report: Box::new(report),
             quantifier_observer: None,
             configuration_observer: None,
+            warning_observer: None,
             child: Arc::new(Mutex::new(None)),
             input: None,
             output: None,
@@ -377,15 +397,15 @@ impl ProverStdIo {
                 self.log_comment(&line)?;
             }
             if line.starts_with("WARNING") {
-                (self.report)(ProverEvent::Warning(format!("Prover warning: {line}")));
+                self.report_warning(format!("Prover warning: {line}"))?;
                 continue;
             }
             if let Some(body) = line.strip_prefix("[quantifier_instances]") {
                 let parts: Vec<_> = body.split(':').map(str::trim).collect();
                 if parts.len() != 4 {
-                    (self.report)(ProverEvent::Warning(format!(
+                    self.report_warning(format!(
                         "Invalid quantifier instances line from prover: {line}"
-                    )));
+                    ))?;
                 } else {
                     let parse = |s: &str| {
                         s.parse::<i32>()
@@ -934,6 +954,60 @@ mod cancellation_tests {
     use super::*;
     use crate::state::terms::TermOptions;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn warning_observer_reports_and_propagates_failure_without_losing_sink() {
+        use ferrum_silver::reporter::{
+            message::{Message, SimpleMessageKind},
+            reporter::{NoopReporter, PollingReporter, ReportError, Reporter},
+        };
+        use std::sync::{Arc, Mutex};
+        let path =
+            std::env::temp_dir().join(format!("ferrum-warning-observer-{}", std::process::id()));
+        std::fs::write(&path, "WARNING synthetic pattern\nsuccess\n").unwrap();
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        let saved = sink.clone();
+        let mut prover = crate::decider::z3_prover_std_io::new(
+            "test".into(),
+            ProverSettings::new("/unused".into(), 10000),
+            factory,
+            move |event| {
+                if let ProverEvent::Warning(text) = event {
+                    saved.lock().unwrap().push(text);
+                }
+            },
+        );
+        let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+        let target = reporter.clone();
+        prover.set_warning_observer(move |warning| {
+            target.report(Message::Simple {
+                kind: SimpleMessageKind::InternalWarning,
+                text: warning.into(),
+            })
+        });
+        prover.input = Some(BufReader::new(std::fs::File::open(&path).unwrap()));
+        assert_eq!(prover.read_line().unwrap(), "success");
+        let expected = "Prover warning: WARNING synthetic pattern";
+        assert_eq!(sink.lock().unwrap().as_slice(), [expected]);
+        assert!(
+            matches!(reporter.get_new_message().unwrap(), Message::Simple { kind: SimpleMessageKind::InternalWarning, text } if text == expected)
+        );
+        prover.set_warning_observer(|_| Err(ReportError::Unsupported("test reporter failure")));
+        prover.input = Some(BufReader::new(std::fs::File::open(&path).unwrap()));
+        assert!(matches!(
+            prover.read_line(),
+            Err(ProverError::Report(ReportError::Unsupported(
+                "test reporter failure"
+            )))
+        ));
+        assert_eq!(sink.lock().unwrap().as_slice(), [expected, expected]);
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn configuration_observer_failure_aborts_before_solver_start() {

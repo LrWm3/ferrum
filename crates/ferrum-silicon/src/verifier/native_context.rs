@@ -1582,6 +1582,19 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         crate::common::io::package::to_file(&dot, directory.join(filename))
             .map_err(|error| NativeError::Diagnostic(format!("CFG output: {error}")))
     }
+    fn report_annotation_warning(&mut self, text: String) -> Result<(), NativeError<S::Error>> {
+        use ferrum_silver::reporter::message::{Message, SimpleMessageKind};
+        self.reported_source_warnings.push(text.clone());
+        if let Some(reporter) = &self.preprocessing_reporter {
+            reporter
+                .report(Message::Simple {
+                    kind: SimpleMessageKind::AnnotationWarning,
+                    text,
+                })
+                .map_err(NativeError::Reporter)?;
+        }
+        Ok(())
+    }
     /// Set the reporter used for source-ordered quantifier preprocessing events.
     pub fn set_preprocessing_reporter(
         &mut self,
@@ -1777,12 +1790,14 @@ impl<S: Prover, PD, FD> NativeVerifierContext<S, PD, FD> {
         let choice = crate::supporters::annotation_supporter::consolidation_mode(
             member.name(),
             info,
-            |warning| {
-                self.warnings.push(warning);
-                Ok::<_, ()>(())
-            },
+            |warning| self.report_annotation_warning(warning),
         )
-        .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+        .map_err(|e| match e {
+            crate::supporters::annotation_supporter::AnnotationError::Reporter(error) => error,
+            crate::supporters::annotation_supporter::AnnotationError::InvalidJoinId(id) => {
+                NativeError::Diagnostic(format!("InvalidJoinId({id})"))
+            },
+        })?;
         Ok(self.base.consolidator(choice))
     }
     fn call_partial(
@@ -3715,10 +3730,7 @@ where
         continuation(self, state, amount)
     }
     fn annotation_warning(&mut self, message: String) -> Result<(), Self::Error> {
-        {
-            self.warnings.push(message);
-            Ok(())
-        }
+        self.report_annotation_warning(message)
     }
     fn evaluate_quantifier(
         &mut self,
@@ -9002,22 +9014,21 @@ where
                     return Err(NativeError::Unsupported("extension member annotations"));
                 }
             };
-            let get = |quantified, warnings: &mut Vec<String>| {
+            let mut get = |quantified| {
                 crate::supporters::annotation_supporter::exhale_mode(
                     member.name(),
                     info,
                     quantified,
-                    |message| {
-                        warnings.push(message);
-                        Ok::<_, ()>(())
-                    },
+                    |message| self.report_annotation_warning(message),
                 )
-                .map_err(|_| NativeError::Unsupported("exhale annotation"))
+                .map_err(|e| match e {
+                    crate::supporters::annotation_supporter::AnnotationError::Reporter(error) => {
+                        error
+                    }
+                    other => NativeError::Diagnostic(format!("{other:?}")),
+                })
             };
-            (
-                get(false, &mut self.warnings)?,
-                get(true, &mut self.warnings)?,
-            )
+            (get(false)?, get(true)?)
         } else {
             (None, None)
         };
@@ -15463,10 +15474,7 @@ where
 {
     type Error = NativeError<S::Error>;
     fn warn_method_annotation(&mut self, warning: String) -> Result<(), Self::Error> {
-        {
-            self.warnings.push(warning);
-            Ok(())
-        }
+        self.report_annotation_warning(warning)
     }
     fn set_method_prover_options(
         &mut self,
@@ -17677,12 +17685,12 @@ where
             Member::Method(method) => crate::supporters::annotation_supporter::join_mode(
                 &method.name,
                 &method.meta.info,
-                |warning| {
-                    self.warnings.push(warning);
-                    Ok::<_, ()>(())
-                },
+                |warning| self.report_annotation_warning(warning),
             )
-            .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?
+            .map_err(|e| match e {
+                crate::supporters::annotation_supporter::AnnotationError::Reporter(error) => error,
+                other => NativeError::Diagnostic(format!("{other:?}")),
+            })?
             .unwrap_or(self.options.join_mode),
             _ => JoinMode::Off,
         };
@@ -17756,16 +17764,18 @@ where
                 member.name(),
                 info,
                 quantified,
-                |message| {
-                    self.warnings.push(message);
-                    Ok::<_, ()>(())
-                },
+                |message| self.report_annotation_warning(message),
             )
-            .map_err(|_| NativeError::Unsupported("exhale annotation"))
+            .map_err(|e| match e {
+                crate::supporters::annotation_supporter::AnnotationError::Reporter(error) => error,
+                other => NativeError::Diagnostic(format!("{other:?}")),
+            })
         };
-        state.more_complete_exhale = mode(false)?.unwrap_or(self.options.exhale_mode)
+        let exhale_mode = mode(false)?;
+        let exhale_mode_qp = mode(true)?;
+        state.more_complete_exhale = exhale_mode.unwrap_or(self.options.exhale_mode)
             == crate::config::ExhaleMode::MoreComplete;
-        state.more_complete_exhale_qp = mode(true)?.unwrap_or(self.options.exhale_mode_qp)
+        state.more_complete_exhale_qp = exhale_mode_qp.unwrap_or(self.options.exhale_mode_qp)
             == crate::config::ExhaleMode::MoreComplete;
         state.current_member = Some(member);
         state.predicate_snap_map = analysis.snapshot_sorts.clone();
@@ -23361,12 +23371,12 @@ where
         let options = crate::supporters::annotation_supporter::prover_config_args(
             &function.name,
             &function.meta.info,
-            |warning| {
-                self.warnings.push(warning);
-                Ok::<_, ()>(())
-            },
+            |warning| self.report_annotation_warning(warning),
         )
-        .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
+        .map_err(|e| match e {
+            crate::supporters::annotation_supporter::AnnotationError::Reporter(error) => error,
+            other => NativeError::Diagnostic(format!("{other:?}")),
+        })?;
         validate_member_prover_options(self.base.decider.prover.name(), &options)?;
         self.base
             .decider

@@ -990,6 +990,14 @@ fn make_stdio_prover(
         }
     });
     if let Some(reporter) = reporter.clone() {
+        prover.set_warning_observer(move |warning| {
+            reporter.report(silver::reporter::message::Message::Simple {
+                kind: silver::reporter::message::SimpleMessageKind::InternalWarning,
+                text: warning.into(),
+            })
+        });
+    }
+    if let Some(reporter) = reporter.clone() {
         prover.set_quantifier_observer(move |event| {
             if let ProverEvent::QuantifierInstances {
                 id,
@@ -1044,7 +1052,7 @@ fn make_api_prover(
     factory: TermFactory,
     warning_sink: SharedWarnings,
     cancellation: Option<CancellationController>,
-    _reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
+    reporter: Option<Arc<dyn silver::reporter::reporter::Reporter>>,
     _general_logger: Option<silicon::logger::general::GeneralLogger>,
 ) -> Result<
     (
@@ -1096,6 +1104,14 @@ fn make_api_prover(
             .expect("poisoned warning buffer")
             .push(warning.to_owned());
     });
+    if let Some(reporter) = reporter {
+        prover.set_warning_observer(move |warning| {
+            reporter.report(silver::reporter::message::Message::Simple {
+                kind: silver::reporter::message::SimpleMessageKind::InternalWarning,
+                text: warning.into(),
+            })
+        });
+    }
     if let Some(c) = cancellation {
         c.register_linked(prover.cancellation_handle());
     }
@@ -3406,6 +3422,40 @@ mod public_logging_tests {
                     assert!(delivered.iter().any(|w| w.starts_with("Verifier warning: No triggers provided") && w.contains("warnings.vpr@")), "{delivered:?}");
                     assert!(delivered.iter().any(|w| w.starts_with("Verifier warning: Label dummy declares") && w.contains("warnings.vpr@")), "{delivered:?}");
                     assert!(delivered.iter().any(|w| w.starts_with("Verifier warning: Might not be able to use trigger") && w.contains("warnings.vpr@")), "{delivered:?}");
+                }
+                session.stop().unwrap();
+            }
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn annotation_warning_category_and_text_survive_session_reuse() {
+        use silver::reporter::message::SimpleMessageKind;
+        std::thread::Builder::new().stack_size(VERIFICATION_STACK_SIZE).spawn(|| {
+            let z3 = std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+            let mut phases = SilFrontendPhases::new("annotationMCE.vpr".into(), silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+            let parsed = phases.parse(include_str!("../tests/fixtures/annotation_mce_source.vpr")).unwrap();
+            let analyzed = phases.analyze(parsed).unwrap();
+            let program = phases.translate(analyzed).unwrap();
+            let expected = "Member disjAlias2 has invalid exhaleMode annotation value List(invalid). Annotation will be ignored.";
+            for workers in [1, 2] {
+                let config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "--numberOfParallelVerifiers".into(), workers.to_string(), "annotationMCE.vpr".into()]).unwrap();
+                let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+                let mut session = Session::new_with_reporter(config, reporter.clone()).unwrap();
+                for _ in 0..2 {
+                    let _ = session.verify(&program, &[]).unwrap();
+                    let warnings = session.take_warnings();
+                    assert_eq!(warnings.iter().filter(|w| w.contains("disjAlias2 has invalid exhaleMode")).map(String::as_str).collect::<Vec<_>>(), vec![expected, expected]);
+                    let mut typed = Vec::new();
+                    while reporter.has_new_message() {
+                        match reporter.get_new_message().unwrap() {
+                            Message::Simple { kind: SimpleMessageKind::AnnotationWarning, text } if text.contains("disjAlias2 has invalid exhaleMode") => typed.push(text),
+                            Message::WarningsDuringVerification { warnings } => assert!(!warnings.iter().any(|w| w.readable_message().unwrap().contains("disjAlias2 has invalid exhaleMode"))),
+                            _ => {}
+                        }
+                    }
+                    assert_eq!(typed, vec![expected, expected]);
                 }
                 session.stop().unwrap();
             }

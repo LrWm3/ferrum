@@ -1511,6 +1511,7 @@ pub enum LinkedProverError {
         stack_trace: Vec<String>,
     },
     Native(NativeZ3Error),
+    Report(ferrum_silver::reporter::reporter::ReportError),
     Session(super::z3_prover_api::ApiProverError<NativeZ3Error>),
     Inactive,
     AlreadyStarted,
@@ -1570,6 +1571,8 @@ pub struct LinkedZ3Prover {
     debug_preamble: Vec<crate::debugger::debug_exp::DebugAxiom>,
     warnings: Vec<String>,
     warning_reporter: Option<Box<dyn FnMut(&str)>>,
+    warning_observer:
+        Option<Box<dyn FnMut(&str) -> Result<(), ferrum_silver::reporter::reporter::ReportError>>>,
     interrupt: LinkedZ3CancellationHandle,
 }
 impl LinkedZ3Prover {
@@ -1593,6 +1596,7 @@ impl LinkedZ3Prover {
             debug_preamble: Vec::new(),
             warnings: Vec::new(),
             warning_reporter: None,
+            warning_observer: None,
             interrupt: LinkedZ3CancellationHandle::default(),
         }
     }
@@ -1604,15 +1608,27 @@ impl LinkedZ3Prover {
     pub fn set_warning_reporter(&mut self, reporter: impl FnMut(&str) + 'static) {
         self.warning_reporter = Some(Box::new(reporter));
     }
+    /// Observe warnings with a fallible reporter on the calling thread.
+    pub fn set_warning_observer(
+        &mut self,
+        observer: impl FnMut(&str) -> Result<(), ferrum_silver::reporter::reporter::ReportError>
+        + 'static,
+    ) {
+        self.warning_observer = Some(Box::new(observer));
+    }
     /// Drain warnings even when no reporter was installed at the time they occurred.
     pub fn take_warnings(&mut self) -> Vec<String> {
         std::mem::take(&mut self.warnings)
     }
-    fn report_warning(&mut self, message: String) {
+    fn report_warning(&mut self, message: String) -> Result<(), LinkedProverError> {
         if let Some(reporter) = &mut self.warning_reporter {
             reporter(&message);
         }
-        self.warnings.push(message);
+        self.warnings.push(message.clone());
+        if let Some(observer) = &mut self.warning_observer {
+            observer(&message).map_err(LinkedProverError::Report)?;
+        }
+        Ok(())
     }
     /// Share the source fresh-name counter with the verifier's decider.
     pub fn identifier_factory(&self) -> crate::state::identifiers::DefaultIdentifierFactory {
@@ -1736,7 +1752,7 @@ impl LinkedZ3Prover {
                 self.report_warning(format!(
                     "Z3 error: {}",
                     error.z3_message().unwrap_or("unknown solver error")
-                ));
+                ))?;
                 Ok(())
             }
             Err(error) => Err(error),
@@ -1871,7 +1887,7 @@ impl crate::interfaces::decider::prover::Prover for LinkedZ3Prover {
             self.options.debug,
         )?;
         for warning in warnings {
-            self.report_warning(warning);
+            self.report_warning(warning)?;
         }
         let converter = super::term_to_z3_api_converter::TermToZ3ApiConverter::new(
             driver,
@@ -2675,16 +2691,42 @@ mod tests {
             custom_options: vec![("smt.ferrum_unknown_option".into(), "true".into())],
             disable_nonlinear: false,
         };
-        let mut p = LinkedZ3Prover::new("unknown", factory, options);
+        use ferrum_silver::reporter::{
+            message::{Message, SimpleMessageKind},
+            reporter::{NoopReporter, PollingReporter, ReportError, Reporter},
+        };
+        let mut p = LinkedZ3Prover::new("unknown", factory.clone(), options.clone());
         let received = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let sink = received.clone();
         p.set_warning_reporter(move |message| sink.borrow_mut().push(message.to_owned()));
+        let reporter = std::sync::Arc::new(PollingReporter::new(std::sync::Arc::new(NoopReporter)));
+        let target = reporter.clone();
+        p.set_warning_observer(move |message| {
+            target.report(Message::Simple {
+                kind: SimpleMessageKind::InternalWarning,
+                text: message.into(),
+            })
+        });
         p.start(None).unwrap();
-        assert_eq!(
-            p.take_warnings(),
-            vec!["Z3 error: unknown parameterferrum_unknown_option"]
+        let expected = "Z3 error: unknown parameterferrum_unknown_option";
+        assert_eq!(p.take_warnings(), vec![expected]);
+        assert_eq!(received.borrow().as_slice(), [expected]);
+        assert!(
+            matches!(reporter.get_new_message().unwrap(), Message::Simple { kind: SimpleMessageKind::InternalWarning, text } if text == expected)
         );
-        assert_eq!(received.borrow().len(), 1);
+        let mut rejected = LinkedZ3Prover::new("rejected", factory, options);
+        let rejected_sink = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let target = rejected_sink.clone();
+        rejected.set_warning_reporter(move |message| target.borrow_mut().push(message.to_owned()));
+        rejected.set_warning_observer(|_| Err(ReportError::Unsupported("test reporter failure")));
+        assert!(matches!(
+            rejected.start(None),
+            Err(LinkedProverError::Report(ReportError::Unsupported(
+                "test reporter failure"
+            )))
+        ));
+        assert_eq!(rejected.take_warnings(), vec![expected]);
+        assert_eq!(rejected_sink.borrow().as_slice(), [expected]);
     }
     #[test]
     fn linked_z3_custom_solver_options_validate_types() {
