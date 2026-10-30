@@ -1,0 +1,179 @@
+{
+  "kind": "matched-saturation-experiment-v1",
+  "seed": 20261030,
+  "repetitions": 3,
+  "cpu_affinity": "0,1,2,3",
+  "offline_timeout": 180,
+  "outer_timeout": 300,
+  "z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+  "proxy": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+  "supervisor": "/home/will/wk/exp/ferrum/tools/performance/prusti/session_supervisor.py",
+  "profiles": {
+    "modern": {
+      "weights": "[1,0.5,0.4,0,0]",
+      "description": "Newer upstream/native defaults."
+    },
+    "repeat_only": {
+      "weights": "[1,0.5,0.4,0,0.02]",
+      "description": "Before-repetition enabled; other weights equal modern."
+    },
+    "legacy": {
+      "weights": "[1,0.5,0.4,0.2,0.02]",
+      "description": "Full older bundled defaults."
+    },
+    "common_off": {
+      "weights": "[1,0,0.4,0,0]",
+      "description": "Altered matched policy: both moved contract/inhale slots disabled; repetition off."
+    },
+    "common_on": {
+      "weights": "[1,0,0.4,0,0.02]",
+      "description": "Altered matched policy: both moved contract/inhale slots disabled; repetition on."
+    }
+  },
+  "cases": [
+    {
+      "name": "mut_element_array_wrong",
+      "path": "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_wrong.vpr",
+      "control": true,
+      "profiles": [
+        "modern",
+        "repeat_only",
+        "legacy",
+        "common_off",
+        "common_on"
+      ],
+      "expect": {
+        "outcome": "failure",
+        "errors": [
+          {
+            "id": "exhale.failed:assertion.false",
+            "position": "mut_element_array_wrong.vpr@1786.10--1786.82"
+          }
+        ]
+      }
+    },
+    {
+      "name": "mut_element_nested_pass",
+      "path": "/tmp/ferrum-saturation-experiment/inputs/mut_element_nested_pass.vpr",
+      "control": false,
+      "profiles": [
+        "modern",
+        "repeat_only",
+        "legacy",
+        "common_off",
+        "common_on"
+      ],
+      "expect": {
+        "outcome": "verified",
+        "errors": []
+      }
+    },
+    {
+      "name": "mut_element_array_pass",
+      "path": "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_pass.vpr",
+      "control": false,
+      "profiles": [
+        "modern",
+        "repeat_only",
+        "legacy"
+      ],
+      "expect": {
+        "outcome": "verified",
+        "errors": []
+      }
+    }
+  ],
+  "options": [
+    "--timeout",
+    "180",
+    "--numberOfParallelVerifiers",
+    "1",
+    "--numberOfErrorsToReport=1",
+    "--enableMoreCompleteExhale",
+    "--disableTerminationPlugin",
+    "--assertTimeout",
+    "10000",
+    "--proverConfigArgs",
+    "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+    "--logLevel",
+    "ERROR"
+  ],
+  "commands": {
+    "ferrum": [
+      "/tmp/ferrum-stage5-phase-target/debug/ferrum-bench-session"
+    ],
+    "silicon": [
+      "/tmp/ferrum-jdk17/bin/java",
+      "-Xss128m",
+      "-cp",
+      "/tmp/ferrum-nested-smt-java/classes:/home/will/wk/exp/prusti-stdlib/viper_tools/backends/viperserver.jar",
+      "SourceSession"
+    ]
+  },
+  "host": {
+    "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.39",
+    "cpu_model": "13th Gen Intel(R) Core(TM) i5-1345U",
+    "allowed_affinity": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    "governors": {
+      "/sys/devices/system/cpu/cpu11/cpufreq/scaling_governor": "powersave",
+      "/sys/devices/system/cpu/cpu9/cpufreq/scaling_governor": "powersave",
+      "/sys/devices/system/cpu/cpu7/cpufreq/scaling_governor": "powersave",
+      "/sys/devices/system/cpu/cpu5/cpufreq/scaling_governor": "powersave",
+      "/sys/devices/system/cpu/cpu3/cpufreq/scaling_governor": "powersave",
+      "/sys/devices/system/cpu/cpu1/cpufreq/scaling_governor": "powersave",
+      "/sys/devices/system/cpu/cpu10/cpufreq/scaling_governor": "powersave",
+      "/sys/devices/system/cpu/cpu8/cpufreq/scaling_governor": "powersave",
+      "/sys/devices/system/cpu/cpu6/cpufreq/scaling_governor": "powersave",
+      "/sys/devices/system/cpu/cpu4/cpufreq/scaling_governor": "powersave",
+      "/sys/devices/system/cpu/cpu2/cpufreq/scaling_governor": "powersave",
+      "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor": "powersave"
+    },
+    "load": "3.18 3.94 2.99 2/3649 2738797"
+  },
+  "limits": [
+    "Parsed-Viper diagnostic experiment, not direct Prusti end-to-end timing.",
+    "Same explicit weight vectors do not fully match older/newer call-site policy; common_off/common_on controls suppress both moved slots.",
+    "All verifier and offline solver processes pinned to the two physical performance cores (logical CPUs0-3), no exclusive CPU reservation or fixed frequency.",
+    "Proof outcomes and failure IDs/spans are required; no favorable-result retries.",
+    "SMT instrumentation and bounded fixed-path replays are retained separately from primary plain measurements."
+  ],
+  "artifact_sha256": {
+    "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+    "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3.py": "2661bb1f78aa2665ca81e9c5d49e1f0d34e2b03a460276c1fd8ee4478e8e77ad",
+    "/home/will/wk/exp/ferrum/tools/performance/prusti/session_supervisor.py": "c889e2117e9130552986bac4db49230436a1f961e5e9c3735bbee34c39a97500",
+    "/tmp/ferrum-stage5-phase-target/debug/ferrum-bench-session": "34c7c1a378bbd0138ca27e190346d1898c41c0b2d94948e64c55b78fc89742d7",
+    "/tmp/ferrum-jdk17/bin/java": "a2195ae9f8a91b82f53df7e1d1b9a650937ebbabbf67d0240c6378b4fbd9990b",
+    "/home/will/wk/exp/prusti-stdlib/viper_tools/backends/viperserver.jar": "6d11d2b73efe97b97026050f13d966c5ec599cf70d43022346382e065a49cf7c",
+    "/tmp/ferrum-nested-smt-java/classes/SourceSession.class": "f5d5d740826dc8ed7f0fbb526b708d8b7880c0bdfcd850b58d4625fc4d3d9b45",
+    "/tmp/ferrum-nested-smt-java/classes/SourceSession$CaptureReporter.class": "5d19f77eb95eb9402d417b9d281a2d873651ab972af3525a33d85b44ada11077",
+    "/tmp/ferrum-saturation-experiment/inputs/mut_element_nested_pass.vpr": "9fbeab0cc9dc824772c9c5bfa06765a62998ca1141a56151b15f25068e38b3e7",
+    "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_pass.vpr": "0708553587693a4f23c8d928a6359dd15fec34b6bbd9fef1bc5c2c054524efe7",
+    "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_wrong.vpr": "132ab8ca4e53de55d95fc50b0f60a2dbad04647f9f4a4e08115030b3a72b45e8",
+    "/home/will/wk/exp/ferrum/tools/performance/smt/run_saturation.py": "c4677dc67a9d06dd41c158de0a49c274ea61f8f6e9762dbdb959ff99bc2e5f76",
+    "/home/will/wk/exp/ferrum/tools/performance/smt/test_trace.py": "74100a5e3ec2714be2e9c450ee838e99d5d7356d1540c4e764524cb640dc6dae",
+    "/home/will/wk/exp/ferrum/tools/performance/smt/analyze_trace.py": "bb151f43a095a87aa0f4d49733dd7d839bbf86c9a754dfc740461cff0370336b",
+    "/home/will/wk/exp/ferrum/tools/performance/smt/test_saturation.py": "794f574eb7eb0058fedd2c4ab40c413f3e675d23961e8dac52836fdd439dec58",
+    "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py": "81bafd46d1d7a77bdc3b8ad96fbbde1c4461c4a15caf26e955f7ea3977d1b82d",
+    "/home/will/wk/exp/ferrum/tools/performance/smt/test_trace_v2.py": "3cee7f7dc784307c4fad3207b26f30e69c0fe2db7a0c14c0f241addc93539809"
+  },
+  "capture_format": "persist-before-forward-v2",
+  "prior_readiness_attempt": {
+    "directory": "/tmp/ferrum-saturation-results",
+    "recorded_controls": 6,
+    "primary_trials": 0,
+    "reason": "All six expected proof outcomes met; sixth source owner trace lost final input command after forwarding before persistence. Readiness gate stopped run. Retained and excluded from new matrix."
+  }
+}

@@ -1,5 +1,9 @@
 # Code review of the nested iterator solver-work difference
 
+The [comparable saturation experiment](performance-saturation.md) now tests
+explicit weights and altered common-policy controls on two generated workloads.
+It retains variability and does not promote a global default change.
+
 The review produced three concrete hypotheses:
 before-repetition saturation, one-worker solver ownership, and preamble ordering.
 The first is an intentional upstream-version default change; the second is a

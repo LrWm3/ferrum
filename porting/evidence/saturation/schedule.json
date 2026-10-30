@@ -1,0 +1,466 @@
+[
+  {
+    "case": "mut_element_array_wrong",
+    "profile": "legacy",
+    "backend": "ferrum",
+    "repetition": 0,
+    "control": true,
+    "index": 0
+  },
+  {
+    "case": "mut_element_array_wrong",
+    "profile": "modern",
+    "backend": "silicon",
+    "repetition": 0,
+    "control": true,
+    "index": 1
+  },
+  {
+    "case": "mut_element_array_wrong",
+    "profile": "common_off",
+    "backend": "silicon",
+    "repetition": 0,
+    "control": true,
+    "index": 2
+  },
+  {
+    "case": "mut_element_array_wrong",
+    "profile": "repeat_only",
+    "backend": "ferrum",
+    "repetition": 0,
+    "control": true,
+    "index": 3
+  },
+  {
+    "case": "mut_element_array_wrong",
+    "profile": "modern",
+    "backend": "ferrum",
+    "repetition": 0,
+    "control": true,
+    "index": 4
+  },
+  {
+    "case": "mut_element_array_wrong",
+    "profile": "common_on",
+    "backend": "silicon",
+    "repetition": 0,
+    "control": true,
+    "index": 5
+  },
+  {
+    "case": "mut_element_array_wrong",
+    "profile": "common_off",
+    "backend": "ferrum",
+    "repetition": 0,
+    "control": true,
+    "index": 6
+  },
+  {
+    "case": "mut_element_array_wrong",
+    "profile": "legacy",
+    "backend": "silicon",
+    "repetition": 0,
+    "control": true,
+    "index": 7
+  },
+  {
+    "case": "mut_element_array_wrong",
+    "profile": "repeat_only",
+    "backend": "silicon",
+    "repetition": 0,
+    "control": true,
+    "index": 8
+  },
+  {
+    "case": "mut_element_array_wrong",
+    "profile": "common_on",
+    "backend": "ferrum",
+    "repetition": 0,
+    "control": true,
+    "index": 9
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "common_on",
+    "backend": "silicon",
+    "repetition": 2,
+    "control": false,
+    "index": 10
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "repeat_only",
+    "backend": "ferrum",
+    "repetition": 2,
+    "control": false,
+    "index": 11
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "common_on",
+    "backend": "ferrum",
+    "repetition": 2,
+    "control": false,
+    "index": 12
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "legacy",
+    "backend": "ferrum",
+    "repetition": 2,
+    "control": false,
+    "index": 13
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "modern",
+    "backend": "silicon",
+    "repetition": 2,
+    "control": false,
+    "index": 14
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "common_off",
+    "backend": "ferrum",
+    "repetition": 2,
+    "control": false,
+    "index": 15
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "repeat_only",
+    "backend": "silicon",
+    "repetition": 2,
+    "control": false,
+    "index": 16
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "legacy",
+    "backend": "silicon",
+    "repetition": 2,
+    "control": false,
+    "index": 17
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "common_off",
+    "backend": "silicon",
+    "repetition": 2,
+    "control": false,
+    "index": 18
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "modern",
+    "backend": "ferrum",
+    "repetition": 2,
+    "control": false,
+    "index": 19
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "repeat_only",
+    "backend": "silicon",
+    "repetition": 0,
+    "control": false,
+    "index": 20
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "modern",
+    "backend": "ferrum",
+    "repetition": 0,
+    "control": false,
+    "index": 21
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "repeat_only",
+    "backend": "ferrum",
+    "repetition": 0,
+    "control": false,
+    "index": 22
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "modern",
+    "backend": "silicon",
+    "repetition": 0,
+    "control": false,
+    "index": 23
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "legacy",
+    "backend": "silicon",
+    "repetition": 0,
+    "control": false,
+    "index": 24
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "legacy",
+    "backend": "ferrum",
+    "repetition": 0,
+    "control": false,
+    "index": 25
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "common_on",
+    "backend": "ferrum",
+    "repetition": 1,
+    "control": false,
+    "index": 26
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "modern",
+    "backend": "ferrum",
+    "repetition": 1,
+    "control": false,
+    "index": 27
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "modern",
+    "backend": "silicon",
+    "repetition": 1,
+    "control": false,
+    "index": 28
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "common_off",
+    "backend": "ferrum",
+    "repetition": 1,
+    "control": false,
+    "index": 29
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "common_on",
+    "backend": "silicon",
+    "repetition": 1,
+    "control": false,
+    "index": 30
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "repeat_only",
+    "backend": "silicon",
+    "repetition": 1,
+    "control": false,
+    "index": 31
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "common_off",
+    "backend": "silicon",
+    "repetition": 1,
+    "control": false,
+    "index": 32
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "legacy",
+    "backend": "silicon",
+    "repetition": 1,
+    "control": false,
+    "index": 33
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "repeat_only",
+    "backend": "ferrum",
+    "repetition": 1,
+    "control": false,
+    "index": 34
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "legacy",
+    "backend": "ferrum",
+    "repetition": 1,
+    "control": false,
+    "index": 35
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "legacy",
+    "backend": "silicon",
+    "repetition": 2,
+    "control": false,
+    "index": 36
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "modern",
+    "backend": "ferrum",
+    "repetition": 2,
+    "control": false,
+    "index": 37
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "repeat_only",
+    "backend": "ferrum",
+    "repetition": 2,
+    "control": false,
+    "index": 38
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "modern",
+    "backend": "silicon",
+    "repetition": 2,
+    "control": false,
+    "index": 39
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "legacy",
+    "backend": "ferrum",
+    "repetition": 2,
+    "control": false,
+    "index": 40
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "repeat_only",
+    "backend": "silicon",
+    "repetition": 2,
+    "control": false,
+    "index": 41
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "common_off",
+    "backend": "ferrum",
+    "repetition": 0,
+    "control": false,
+    "index": 42
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "repeat_only",
+    "backend": "ferrum",
+    "repetition": 0,
+    "control": false,
+    "index": 43
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "modern",
+    "backend": "ferrum",
+    "repetition": 0,
+    "control": false,
+    "index": 44
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "common_off",
+    "backend": "silicon",
+    "repetition": 0,
+    "control": false,
+    "index": 45
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "common_on",
+    "backend": "ferrum",
+    "repetition": 0,
+    "control": false,
+    "index": 46
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "common_on",
+    "backend": "silicon",
+    "repetition": 0,
+    "control": false,
+    "index": 47
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "repeat_only",
+    "backend": "silicon",
+    "repetition": 0,
+    "control": false,
+    "index": 48
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "legacy",
+    "backend": "ferrum",
+    "repetition": 0,
+    "control": false,
+    "index": 49
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "legacy",
+    "backend": "silicon",
+    "repetition": 0,
+    "control": false,
+    "index": 50
+  },
+  {
+    "case": "mut_element_nested_pass",
+    "profile": "modern",
+    "backend": "silicon",
+    "repetition": 0,
+    "control": false,
+    "index": 51
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "repeat_only",
+    "backend": "ferrum",
+    "repetition": 1,
+    "control": false,
+    "index": 52
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "modern",
+    "backend": "silicon",
+    "repetition": 1,
+    "control": false,
+    "index": 53
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "legacy",
+    "backend": "ferrum",
+    "repetition": 1,
+    "control": false,
+    "index": 54
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "legacy",
+    "backend": "silicon",
+    "repetition": 1,
+    "control": false,
+    "index": 55
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "repeat_only",
+    "backend": "silicon",
+    "repetition": 1,
+    "control": false,
+    "index": 56
+  },
+  {
+    "case": "mut_element_array_pass",
+    "profile": "modern",
+    "backend": "ferrum",
+    "repetition": 1,
+    "control": false,
+    "index": 57
+  }
+]

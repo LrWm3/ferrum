@@ -1,0 +1,13 @@
+{
+  "argv": [
+    "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+    "-smt2",
+    "-in"
+  ],
+  "proxy_pid": 3066784,
+  "solver_pid": 3066786,
+  "started_monotonic_ns": 322201399424901,
+  "started_wall_ns": 1793383282837547205,
+  "capture_format": "persist-before-forward-v2",
+  "forwarded_ns_boundary": "forwarding start, recorded before write"
+}
