@@ -151,14 +151,16 @@ source-version differences separately from incremental corrections.
   source/API limitations. Report unresolved port defects as unresolved rather
   than declaring this stage complete.
 
-The frozen `5cbb29b` backend and `808efa6` tooling are running 1,512 selected
-fixture/configuration pairs against pinned Silicon. The 26-pair linked and
-two-worker profiles each have nine shared proofs and 17 matching error-ID/span
-multisets, all in completed reused sessions. Timeout followed by a valid input
-has been exercised successfully for both implementations in stdio, two-worker
-and linked profiles; native uses a harder supplemental fixture because the
-initial control finishes before its deadline. The full corpus and reporting
-triage remain in progress, including newly observed warning category/span gaps.
+The initial `5cbb29b` backend and `808efa6` tooling have completed all
+1,512 selected fixture/configuration comparisons. There are 650 shared proofs,
+836 matching error-ID/span multisets, ten diagnostic mismatches and 16
+inconclusive pairs after timeout/infrastructure classification. Source prover
+faults following timeouts are preserved; isolated successes do not establish
+reuse compatibility. The [baseline evidence](compatibility-baseline.md) records
+the interrupted run and its separate continuation, representative linked and
+two-worker profiles, controls and observed reporting differences. Confirmed
+ADT, havoc, conditional-position and warning gaps are being corrected before
+a full successor run. Stage 4 remains in progress.
 
 ## 5. Performance measurement — deferred
 
