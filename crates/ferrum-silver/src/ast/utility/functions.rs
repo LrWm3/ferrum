@@ -1,7 +1,7 @@
 //! Function call graphs and recursion analyses.
 //! Upstream: https://github.com/viperproject/silver/blob/c4f54b84703a04434b03e97bfea87dbd09870fd2/src/main/scala/viper/silver/ast/utility/Functions.scala
 //! Status: partial; unfolding-aware expressions, call graphs, SCC heights and cycle queries are
-//! implemented; extensions rely on their traversal hooks. Call-graph tie ordering can vary.
+//! implemented; extensions rely on their traversal hooks. Call-graph ties follow call order.
 
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -14,7 +14,7 @@ use crate::ast::{
     expression::{Exp, ExpKind},
     program::{Function, Program},
 };
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -175,7 +175,7 @@ impl CallGraph {
             .filter(|other| other == name || self.reachable(other).contains(name))
             .collect()
     }
-    /// SCC numbering follows one valid source topological order; ties are not promised by JGraphT.
+    /// SCC numbering follows a valid source topological order, with stable call-order ties.
     pub fn heights(&self) -> HashMap<String, usize> {
         let mut components: Vec<Vec<String>> = Vec::new();
         for name in &self.vertices {
@@ -200,7 +200,10 @@ impl CallGraph {
                 .position(|c| c.contains(n))
                 .expect("edge vertex")
         };
-        let mut successors = vec![HashSet::new(); components.len()];
+        // Several callees may become ready when the same component is removed.
+        // Preserve edge discovery order when queuing them: randomized hash order
+        // would change their heights, verification order and SMT declarations.
+        let mut successors = vec![IndexSet::new(); components.len()];
         let mut indegree = vec![0usize; components.len()];
         for edge in &self.edges {
             let a = index(&edge.source);
@@ -355,6 +358,43 @@ pub fn recursive_calls_and_surrounding_unfoldings(
 mod tests {
     use super::*;
     use crate::ast::{ast::Metadata, program::LocalVarDecl, r#type::Type};
+
+    #[test]
+    fn heights_keep_call_order_when_multiple_components_become_ready() {
+        let graph = CallGraph {
+            vertices: ["root", "left", "right", "join", "peer"]
+                .map(str::to_owned)
+                .to_vec(),
+            edges: [
+                ("root", "right"),
+                ("root", "left"),
+                ("root", "right"), // Duplicate edges must not inflate indegrees.
+                ("right", "join"),
+                ("left", "join"),
+                ("left", "peer"),
+                ("peer", "left"), // Members of an SCC retain the same height.
+            ]
+            .map(|(source, target)| Edge {
+                source: source.into(),
+                target: target.into(),
+            })
+            .to_vec(),
+        };
+        let expected = [
+            ("root", 0),
+            ("right", 1),
+            ("left", 2),
+            ("peer", 2),
+            ("join", 3),
+        ]
+        .map(|(name, height)| (name.into(), height))
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+        for _ in 0..128 {
+            assert_eq!(graph.heights(), expected);
+        }
+    }
+
     #[test]
     fn let_walk_matches_source_root_replacement_and_prepends_calls() {
         let m = Metadata::default();

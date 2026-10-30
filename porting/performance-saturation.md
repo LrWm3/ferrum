@@ -129,6 +129,10 @@ Raw renderer/category distinctions and actual per-query budgets remain in JSON.
 
 ## Fresh native captures are not deterministic
 
+Follow-up: the declaration-order bug is now fixed; see the
+[preamble determinism regression and fresh-process validation](preamble-determinism.md).
+The observations below describe the original, unchanged measurements.
+
 Every native positive profile has three distinct raw and canonical command
 stream signatures; each source positive profile has one signature repeated
 across its three captures. The canonical signature removes token spacing only.
