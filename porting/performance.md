@@ -1,6 +1,11 @@
 # Prusti and backend performance results
 
-The latest [solver/saturation interaction test](performance-method-saturation.md)
+The latest [saturation-slot isolation](performance-saturation-slots.md) shows
+that each extra slot increases work with the separate solver; repetition is the
+larger individual regression. Both isolated settings verify, while matching
+command prefixes tie the severe combined slowdown to solver search history.
+
+The preceding [solver/saturation interaction test](performance-method-saturation.md)
 found that combining the two promising settings timed out on the nested case.
 A bounded SMT-only prefix comparison reproduced substantially more solver work;
 the full comparison stopped at its declared outcome gate.

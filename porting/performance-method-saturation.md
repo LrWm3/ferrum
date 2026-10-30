@@ -1,5 +1,10 @@
 # Solver lifecycle and saturation interaction
 
+The follow-up [slot-isolation screen](performance-saturation-slots.md) is now
+complete. Each slot alone verifies with more solver work, and the severe timeout
+remains specific to their observed combined behavior. It also compares complete
+filtered command streams and the corresponding prefixes of this timeout run.
+
 The two individually promising settings **did not combine successfully on the
 nested case**. Older saturation with a separate method solver hit the 60-second
 verification limit. A bounded SMT-only diagnosis reproduced much more solver
