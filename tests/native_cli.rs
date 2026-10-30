@@ -677,7 +677,12 @@ fn domain_axioms_can_call_precondition_free_functions() {
     let invalid = source.replace("Int { i + 1 }", "Int requires i >= 0 { i + 1 }");
     let output = run(&invalid, &[]);
     assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("FunctionPreconditionInDomainAxiom"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Cannot use function interp, which has preconditions, inside axiom"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("@4.61--4.67"), "{stderr}");
 }
 
 #[test]
