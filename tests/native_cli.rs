@@ -1355,3 +1355,15 @@ fn adt_access_errors_report_receiver_and_access_positions() {
         assert!(stderr.contains(pos), "{stderr}");
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn adt_quantifier_checks_report_default_type_warnings() {
+    let output = run(include_str!("fixtures/adt_example_5.vpr"), &["--plugin", "viper.silver.plugin.standard.adt.AdtPlugin"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert_eq!(stderr.matches("unconstrained type parameter, substituting default type Int").count(), 3, "{stderr}");
+    for pos in ["@47.37--47.48", "@47.50--47.122", "@51.31--51.41"] {
+        assert!(stderr.contains(pos), "{stderr}");
+    }
+}

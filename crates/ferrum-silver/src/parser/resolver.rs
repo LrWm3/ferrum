@@ -1009,13 +1009,21 @@ pub fn check_expression(
     input: &PExpHandle,
     expected: Option<&PTypeHandle>,
 ) -> Result<PTypeHandle, TypeCheckError> {
+    check_expression_with_warnings(input, expected, &mut |_, _| {})
+}
+
+fn check_expression_with_warnings(
+    input: &PExpHandle,
+    expected: Option<&PTypeHandle>,
+    warn: &mut dyn FnMut(&PNodeHandle, &str),
+) -> Result<PTypeHandle, TypeCheckError> {
     let expression = match &input.node().read().expect("poisoned parse node").kind {
         PNodeKind::Expression(expression) => expression.clone(),
         _ => return Err(TypeCheckError::Unsupported("not an expression")),
     };
     let (typ, substitutions) = match expression.kind {
         PExpressionKind::AnnotatedExp { expression, .. } => {
-            let typ = check_expression(&expression, expected)?;
+            let typ = check_expression_with_warnings(&expression, expected, warn)?;
             let substitutions = expression.type_subs_distinct().ok_or(TypeCheckError::Unsupported("annotated expression substitutions"))?;
             (typ, substitutions)
         }
@@ -1064,9 +1072,9 @@ pub fn check_expression(
             (typ, vec![PTypeSubstitution::default()])
         }
         PExpressionKind::Let { exp, nested_scope, .. } => {
-            check_expression(exp.inner(), None)?;
+            check_expression_with_warnings(exp.inner(), None, warn)?;
             let body = match &nested_scope.read().expect("poisoned parse node").kind { PNodeKind::LetNestedScope { body } => body.clone(), _ => return Err(TypeCheckError::Unsupported("let body")) };
-            let typ = check_expression(&body, None)?;
+            let typ = check_expression_with_warnings(&body, None, warn)?;
             let substitutions = input.type_subs_distinct().ok_or(TypeCheckError::Unsupported("let substitutions"))?;
             (typ, substitutions)
         }
@@ -1078,7 +1086,7 @@ pub fn check_expression(
                 .iter()
                 .map(substitution_from_signature)
                 .collect();
-            check_operator(input, Some(signatures), vec![exp], expected, false)?
+            check_operator(input, Some(signatures), vec![exp], expected, false, warn)?
         }
         PExpressionKind::BinExp { left, op, right } => {
             let signatures = op
@@ -1091,8 +1099,7 @@ pub fn check_expression(
                 Some(signatures),
                 vec![left, right],
                 expected,
-                require_pure,
-            )?
+                require_pure, warn)?
         }
         PExpressionKind::Call {
             idnref,
@@ -1275,8 +1282,7 @@ pub fn check_expression(
                 Some(vec![PTypeSubstitution::new(bindings, false)]),
                 args.clone(),
                 annotation.or(expected),
-                false,
-            ).map_err(|error| match error {
+                false, warn).map_err(|error| match error {
                 TypeCheckError::Unification(UnificationError::Mismatch { expression, .. }) if is_adt_constructor && args.iter().any(|arg| std::sync::Arc::ptr_eq(arg.node(), &expression)) => TypeCheckError::Positioned { node: input.node().clone(), message: "type error" },
                 other => other,
             })?
@@ -1286,25 +1292,25 @@ pub fn check_expression(
             let args = std::iter::once(location.clone())
                 .chain(amount.inner().second().map(|(_, e)| e.clone()))
                 .collect();
-            let result = check_operator(input, None, args, expected, false)?;
+            let result = check_operator(input, None, args, expected, false, warn)?;
             ensure_location_access(&location, false)?;
             result
         }
         PExpressionKind::CurrentPerm { resource, .. } => {
             let location = resource.inner().clone();
-            let result = check_operator(input, None, vec![location.clone()], expected, false)?;
+            let result = check_operator(input, None, vec![location.clone()], expected, false, warn)?;
             ensure_location_access(&location, true)?;
             result
         }
         PExpressionKind::Unfolding { acc, exp, .. } => {
-            let result = check_operator(input, None, vec![acc.clone(), exp], expected, false)?;
+            let result = check_operator(input, None, vec![acc.clone(), exp], expected, false, warn)?;
             ensure_nonabstract_predicate_access(&acc, false)?;
             result
         }
         PExpressionKind::Applying { wand, exp, .. } => {
             let is_wand = matches!(&wand.node().read().expect("poisoned parse node").kind, PNodeKind::Expression(e) if matches!(e.kind, PExpressionKind::MagicWandExp { .. }));
             let mut errors = Vec::new();
-            let result = match check_operator(input, None, vec![wand.clone(), exp], expected, false) {
+            let result = match check_operator(input, None, vec![wand.clone(), exp], expected, false, warn) {
                 Ok(result) => Some(result),
                 Err(error) => { retain_type_mismatches(&mut errors, Err::<(), _>(error))?; None },
             };
@@ -1315,23 +1321,23 @@ pub fn check_expression(
             result.expect("successful applying expression typecheck")
         }
         PExpressionKind::Asserting { assertion, exp, .. } => {
-            check_operator(input, None, vec![assertion, exp], expected, false)?
+            check_operator(input, None, vec![assertion, exp], expected, false, warn)?
         }
         PExpressionKind::CondExp { cond, thn, els, .. } => {
-            check_operator(input, None, vec![cond, thn, els], expected, false)?
+            check_operator(input, None, vec![cond, thn, els], expected, false, warn)?
         }
         PExpressionKind::MagicWandExp { left, right, .. } => {
-            check_operator(input, None, vec![left, right], expected, false)?
+            check_operator(input, None, vec![left, right], expected, false, warn)?
         }
         PExpressionKind::InhaleExhale { inhale, exhale, .. } => {
-            check_operator(input, None, vec![inhale, exhale], expected, false)?
+            check_operator(input, None, vec![inhale, exhale], expected, false, warn)?
         }
         PExpressionKind::FieldAccess { receiver, idnref, .. } => {
             use super::parse_ast::{PDeclarationClass, PDomainTypeKind, PTypeKind};
             let class = match &idnref.read().expect("poisoned parse node").kind { PNodeKind::IdnRef(id) => id.declaration_class, _ => return Err(TypeCheckError::Unsupported("field identifier")) };
             if matches!(class, PDeclarationClass::AdtField | PDeclarationClass::AdtConstructor) {
                 let mut receiver_errors = Vec::new();
-                let receiver_type = match check_expression(&receiver, None) {
+                let receiver_type = match check_expression_with_warnings(&receiver, None, warn) {
                     Ok(typ) => typ,
                     Err(error) => {
                         retain_type_mismatches(&mut receiver_errors, Err::<(), _>(error))?;
@@ -1377,7 +1383,7 @@ pub fn check_expression(
                     match &declaration.read().expect("poisoned parse node").kind { PNodeKind::Declaration(d) => d.typ.substitute(&substitution), _ => return Err(TypeCheckError::Unsupported("ADT field declaration")) }
                 };
                 let bindings = [("#T0".into(), receiver_signature.substitute(&substitution)), ("#R".into(), result_type)].into_iter().collect();
-                check_operator(input, Some(vec![PTypeSubstitution::new(bindings, false)]), vec![receiver.clone()], expected, false).map_err(|error| match error {
+                check_operator(input, Some(vec![PTypeSubstitution::new(bindings, false)]), vec![receiver.clone()], expected, false, warn).map_err(|error| match error {
                     TypeCheckError::Unification(UnificationError::Mismatch { expression, .. }) if std::sync::Arc::ptr_eq(&expression, receiver.node()) => TypeCheckError::Positioned { node: input.node().clone(), message: "type error" },
                     other => other,
                 })?
@@ -1386,43 +1392,43 @@ pub fn check_expression(
                 if fields.len() != 1 {
                     // Silver skips the field-specific check when its receiver
                     // already has an invalid type.
-                    check_expression(&receiver, None)?;
+                    check_expression_with_warnings(&receiver, None, warn)?;
                     let name = match &idnref.read().expect("poisoned parse node").kind { PNodeKind::IdnRef(id) => id.name.clone(), _ => return Err(TypeCheckError::Unsupported("field identifier")) };
                     let message = if fields.is_empty() { format!("undeclared field `{name}`") } else { format!("ambiguous field `{name}`") };
                     return Err(TypeCheckError::PositionedMessage { node: idnref, message });
                 }
-                check_operator(input, None, vec![receiver], expected, false)?
+                check_operator(input, None, vec![receiver], expected, false, warn)?
             }
         }
         PExpressionKind::DebugLabelledOldExp { exp, .. } => {
-            check_operator(input, None, vec![exp], expected, false)?
+            check_operator(input, None, vec![exp], expected, false, warn)?
         }
         PExpressionKind::OldExp { exp, .. } => {
-            check_operator(input, None, vec![exp.inner().clone()], expected, true)?
+            check_operator(input, None, vec![exp.inner().clone()], expected, true, warn)?
         }
         PExpressionKind::EmptySeq(collection) | PExpressionKind::EmptySet(collection) | PExpressionKind::EmptyMultiset(collection) => {
             if let Some(typ) = &collection.annotated_type { check_supported_type(typ.inner())?; }
-            check_operator(input, None, vec![], expected, false)?
+            check_operator(input, None, vec![], expected, false, warn)?
         }
         PExpressionKind::ExplicitSeq(collection) | PExpressionKind::ExplicitSet(collection) | PExpressionKind::ExplicitMultiset(collection) => {
             let args = collection.call_args().inner().to_seq().into_iter().cloned().collect();
-            check_operator(input, None, args, expected, false)?
+            check_operator(input, None, args, expected, false, warn)?
         }
-        PExpressionKind::MapDomain { base, .. } | PExpressionKind::MapRange { base, .. } => check_operator(input, None, vec![base.inner().clone()], expected, false)?,
+        PExpressionKind::MapDomain { base, .. } | PExpressionKind::MapRange { base, .. } => check_operator(input, None, vec![base.inner().clone()], expected, false, warn)?,
         PExpressionKind::EmptyMap { annotated_type, .. } => {
             if let Some(types) = &annotated_type { check_supported_type(types.inner().first())?; check_supported_type(types.inner().second())?; }
-            check_operator(input, None, vec![], expected, false)?
+            check_operator(input, None, vec![], expected, false, warn)?
         }
         PExpressionKind::ExplicitMap(collection) => {
             let args = collection.call_args.inner().to_seq().into_iter().cloned().collect();
-            check_operator(input, None, args, expected, false)?
+            check_operator(input, None, args, expected, false, warn)?
         }
-        PExpressionKind::Maplet { key, value, .. } => check_operator(input, None, vec![key, value], expected, false)?,
+        PExpressionKind::Maplet { key, value, .. } => check_operator(input, None, vec![key, value], expected, false, warn)?,
         PExpressionKind::RangeSeq { low, high, .. } => {
-            check_operator(input, None, vec![low, high], expected, false)?
+            check_operator(input, None, vec![low, high], expected, false, warn)?
         }
         PExpressionKind::Lookup { base, index, .. } => {
-            check_operator(input, None, vec![base, index], expected, false)?
+            check_operator(input, None, vec![base, index], expected, false, warn)?
         }
         PExpressionKind::SeqSlice {
             seq, start, end, ..
@@ -1431,13 +1437,12 @@ pub fn check_expression(
             None,
             std::iter::once(seq).chain(start).chain(end).collect(),
             expected,
-            false,
-        )?,
+            false, warn)?,
         PExpressionKind::Update {
             base, key, value, ..
-        } => check_operator(input, None, vec![base, key, value], expected, false)?,
+        } => check_operator(input, None, vec![base, key, value], expected, false, warn)?,
         PExpressionKind::Size { seq, .. } => {
-            check_operator(input, None, vec![seq], expected, false)?
+            check_operator(input, None, vec![seq], expected, false, warn)?
         }
         PExpressionKind::Extension(extension)
             if extension
@@ -1455,7 +1460,7 @@ pub fn check_expression(
                 .as_any()
                 .downcast_ref::<crate::plugin::sif::sifp_ast_extensions::PSifExpression>()
                 .expect("checked SIF type");
-            check_sif_extension(input, sif, None, &mut |_, _| {})?;
+            check_sif_extension(input, sif, None, &mut *warn)?;
             let state = input.node().read().expect("poisoned parse node");
             let PNodeKind::Expression(expression) = &state.kind else {
                 unreachable!()
@@ -1468,7 +1473,7 @@ pub fn check_expression(
         }
         PExpressionKind::Extension(extension) if extension.as_any().is::<crate::plugin::standard::termination::termination_past_extension::PDecreasesClause>() => {
             let clause = extension.as_any().downcast_ref::<crate::plugin::standard::termination::termination_past_extension::PDecreasesClause>().expect("checked clause");
-            clause.typecheck(|exp, expected| check_top_expression(exp, expected, |_, _| {}).map(|_| ()))?;
+            clause.typecheck(|exp, expected| check_top_expression(exp, expected, &mut *warn).map(|_| ()))?;
             (type_from_signature(&super::parse_ast_keyword::SignatureType::Bool), vec![PTypeSubstitution::default()])
         }
         PExpressionKind::Extension(extension) => {
@@ -1480,7 +1485,7 @@ pub fn check_expression(
                 let PNodeKind::Expression(expression) = &state.kind else { unreachable!() };
                 (expression.typ.clone(), expression.type_substitutions.clone().ok_or(TypeCheckError::Unsupported("predicate instance substitutions"))?)
             } else {
-                extension.typecheck_expression(input, expected, &mut |child, expected| check_expression(child, expected))?
+                extension.typecheck_expression(input, expected, &mut |child, expected| check_expression_with_warnings(child, expected, warn))?
             }
         }
         PExpressionKind::ForPerm { vars, trigger, body, .. } => {
@@ -1490,9 +1495,9 @@ pub fn check_expression(
             }
             let boolean = type_from_signature(&super::parse_ast_keyword::SignatureType::Bool);
             check_expression_context(&body, false, true, false)?;
-            check_top_expression(&body, Some(&boolean), |_, _| {})?;
+            check_top_expression(&body, Some(&boolean), &mut *warn)?;
             let access = trigger.access().inner();
-            check_top_expression(access, None, |_, _| {})?;
+            check_top_expression(access, None, &mut *warn)?;
             ensure_location_access(access, true)?;
             let substitutions = body.type_subs_distinct().ok_or(TypeCheckError::Unsupported("forperm substitutions"))?;
             (boolean, substitutions)
@@ -1516,13 +1521,13 @@ pub fn check_expression(
             // ground the selected substitution. Passing the expected type into the
             // operator inference directly can widen a pure Bool body to Impure.
             let mut errors = Vec::new();
-            let body_type = match check_top_expression(&q.body, Some(&expected_body), |_, _| {}) {
+            let body_type = match check_top_expression(&q.body, Some(&expected_body), &mut *warn) {
                 Ok(typ) => Some(typ),
                 Err(error) => { retain_type_mismatches(&mut errors, Err::<(), _>(error))?; None }
             };
             for trigger in q.triggers {
                 for exp in trigger.expressions().inner().to_seq() {
-                    retain_type_mismatches(&mut errors, check_top_expression(exp, None, |_, _| {}))?;
+                    retain_type_mismatches(&mut errors, check_top_expression(exp, None, &mut *warn))?;
                 }
             }
             if !errors.is_empty() { return Err(TypeCheckError::Mismatches(errors)); }
@@ -1755,11 +1760,12 @@ fn check_operator(
     arguments: Vec<PExpHandle>,
     expected: Option<&PTypeHandle>,
     require_pure: bool,
+    warn: &mut dyn FnMut(&PNodeHandle, &str),
 ) -> Result<(PTypeHandle, Vec<PTypeSubstitution>), TypeCheckError> {
     let mut argument_types = Vec::new();
     let mut mismatches = Vec::new();
     for argument in &arguments {
-        let typ = match check_expression(argument, None) {
+        let typ = match check_expression_with_warnings(argument, None, warn) {
             Ok(typ) => typ,
             Err(TypeCheckError::Unification(error @ UnificationError::Mismatch { .. })) => {
                 mismatches.push(TypeCheckError::Unification(error));
@@ -2035,7 +2041,7 @@ pub fn check_top_expression(
             return check_sif_extension(input, sif, expected, &mut warn);
         }
     }
-    let actual = check_expression(input, None)?;
+    let actual = check_expression_with_warnings(input, None, &mut warn)?;
     let candidates = input
         .type_subs_distinct()
         .ok_or(TypeCheckError::Unsupported("expression substitutions"))?;
