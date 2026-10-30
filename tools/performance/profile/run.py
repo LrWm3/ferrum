@@ -110,8 +110,8 @@ def main():
     if variant=='timed_accounting' and session.exists():
      try:
       accounting=json.loads(subprocess.check_output([sys.executable,spec['assessor'],str(account_dir),str(session)],text=True))
-      if not accounting['complete']:raise ValueError('incomplete identity accounting')
-      fg=sum(decimal.Decimal(timer_fields[k]) for k in ('user_s','system_s'));adopt=sum(decimal.Decimal(str(x[k])) for x in d['adopted_wait4'] for k in ('user_s','system_s'));solver=sum(decimal.Decimal(str(x['cpu'][k])) for x in accounting['processes'] for k in ('user_s','system_s'));cpu={'foreground_s':str(fg),'adopted_all_s':str(adopt),'total_s':str(fg+adopt),'identified_solver_s':str(solver),'frontend_runtime_wrapper_other_residual_s':str(fg+adopt-solver)}
+      if not accounting['complete'] or any(x.get('kind') not in ('solver','version_probe') for x in accounting['processes']):raise ValueError('incomplete or unclassified identity accounting')
+      fg=sum(decimal.Decimal(timer_fields[k]) for k in ('user_s','system_s'));adopt=sum(decimal.Decimal(str(x[k])) for x in d['adopted_wait4'] for k in ('user_s','system_s'));solver=sum(decimal.Decimal(str(x['cpu'][k])) for x in accounting['processes'] if x['kind']=='solver' for k in ('user_s','system_s'));probe=sum(decimal.Decimal(str(x['cpu'][k])) for x in accounting['processes'] if x['kind']=='version_probe' for k in ('user_s','system_s'));cpu={'foreground_s':str(fg),'adopted_all_s':str(adopt),'total_s':str(fg+adopt),'identified_solver_s':str(solver),'identified_probe_s':str(probe),'frontend_runtime_wrapper_other_residual_s':str(fg+adopt-solver-probe)}
      except (ValueError,KeyError,TypeError,decimal.InvalidOperation,subprocess.CalledProcessError):
       if valid=='valid':valid='invalid_accounting'
     bad=checks()
