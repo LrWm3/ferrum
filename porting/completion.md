@@ -178,8 +178,10 @@ measurements must distinguish that option from Prusti result caching.
 
 The compatibility review and the first performance experiment are complete.
 The [parsed-Viper backend run](performance-backend.md) passed all 480 trials and
-its independent audit, with no censored or invalid observations. Direct Rust/service
-measurements and separate phase/solver profiling remain in progress. The fixed
+its independent audit, with no censored or invalid observations. The
+[direct Rust/service run](performance-prusti.md) also passed all 576 requests and
+144 service audits, with no exclusions. Separate phase/solver profiling remains
+in progress. The fixed
 [protocol](performance-protocol.md) and [readiness checks](performance-validation.md)
 record the workload, artifact, cache and measurement constraints.
 
