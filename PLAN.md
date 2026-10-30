@@ -24,7 +24,21 @@ implementation should retain its rules, representations, and control flow rather
 than introduce a smaller verification algorithm. Difficult features remain on the
 porting list even when their implementations arrive later in the sequence.
 
-The current continuation checkpoint connects owned CFG, rule and expression
+The requested diagnostics, hardening, Prusti verification, broader comparison
+and performance stages are complete within their documented scope. Runtime
+`afdf10c` has 1,512 final stdio comparison pairs (15 inconclusive timeouts), with
+no conclusive proof/ID/span mismatch in the selected corpus. Performance testing
+completed 480 backend sessions, 576 direct Rust requests and 144 profiling sessions.
+See [the completion record](porting/completion.md),
+[final comparison](porting/compatibility-final.md) and
+[performance report](porting/performance.md) for evidence and remaining limits.
+The full 602-client Rust matrix predates the final runtime pin; the new four-case
+performance study does not replace it. Next optimization work should use the
+measured native verification/setup costs to guide focused CPU/allocation profiling.
+
+The following implementation summary records the earlier pre-diagnostics
+checkpoint; the completed-stage reports above supersede its open-work statements.
+That continuation checkpoint connects owned CFG, rule and expression
 receivers to exact terminals and identified collectors, with owner-thread solver
 restoration and synchronous fallback at source and API boundaries. Public advanced
 logging or state reporting with parallel branches is rejected by the source
@@ -87,13 +101,8 @@ verification order is connected; debugger and remaining reporting profiles are
 still incomplete.
 The current continuation coverage, synchronous fallbacks and cleanup behavior are
 recorded in [porting/continuations.md](porting/continuations.md).
-Full compatibility and comparative performance remain unmeasured.
-
-The next work follows the user's requested order: diagnostics/reporting,
-advanced features and hardening, fresh Prusti verification, then broader
-compatibility testing. Performance measurement is deferred until that sequence
-finishes. The active checklist and completion evidence are recorded in
-[porting/completion.md](porting/completion.md).
+Broader compatibility and comparative performance were unmeasured at that
+checkpoint. They are now recorded in the completed-stage reports linked above.
 
 ## Upstream baseline and scope
 

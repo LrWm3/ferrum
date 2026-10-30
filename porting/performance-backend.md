@@ -4,7 +4,7 @@ The independent audit passed all 240 paired blocks and 480 trials: 480 valid, ze
 
 The one-worker, branch-off paired median speedups range from 1.79–5.38× for fresh processes and 1.78–3.04× for three-request sessions. Worker and branch changes do not consistently reduce elapsed time across these cases.
 
-The reference is Silicon `ff386aec4664231dc6f2cb56d8d35f1623088363` with Silver `c4f54b84703a04434b03e97bfea87dbd09870fd2`, Java 17 and the same pinned stdio Z3 4.16 executable. This is separate from the forthcoming direct-Prusti experiment using its bundled JVM backend.
+The reference is Silicon `ff386aec4664231dc6f2cb56d8d35f1623088363` with Silver `c4f54b84703a04434b03e97bfea87dbd09870fd2`, Java 17 and the same pinned stdio Z3 4.16 executable. This is separate from the completed [direct-Prusti experiment](performance-prusti.md) using its bundled JVM backend.
 
 Runs used Ferrum runtime `afdf10cf59106c38d09df32939f1aa9c77d0b989`, Silicon internal caches on, and plain drivers. Rust 1.89 dev profile used opt-level 1 for Ferrum and driver; it is not a release build. The host was an Intel i5-1345U with 12 logical CPUs, Linux x86-64, and all reported CPU governors set to powersave. Wall time includes verifier process startup, parsing, verification and shutdown; previous trials and artifact checks warm the OS file cache. GNU time records decimal seconds, typically at 0.01-second resolution.
 

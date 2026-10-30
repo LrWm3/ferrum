@@ -1,6 +1,8 @@
 # Backend result audit and analysis
 
-Prepared before the primary run; no real performance results are analyzed here. After the run finishes, invoke:
+The completed primary run passed all 480 trials and 240 paired-block audits;
+see the [backend report](../../../porting/performance-backend.md). To audit a
+completed run, choose a new output path and invoke:
 
 ```sh
 python3 tools/performance/analysis/analyze.py /tmp/ferrum-stage5-backend-results --output /tmp/ferrum-stage5-analysis/backend-report.json

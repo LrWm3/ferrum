@@ -1,6 +1,9 @@
-# Direct Prusti analysis — prepared, not executed
+# Direct Prusti analysis
 
-`analyze.py` is a prepared read-only consumer for a completed primary run; its in-memory synthetic checks passed without reading primary data or invoking verifiers. After the predeclared primary run completes, create a new output directory with:
+`analyze.py` independently audited the completed primary run: all 576 requests
+and 144 service cleanup audits passed. The [direct Prusti report](../../../../porting/performance-prusti.md)
+records results and limits. To audit another completed run, create a new output
+directory with:
 
 ```sh
 python3 tools/performance/prusti/analysis/analyze.py \

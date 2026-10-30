@@ -174,31 +174,38 @@ and [corrective regression checks](compatibility-corrections.md) preserve earlie
 evidence. Both comparison drivers disabled Silicon internal caches. Performance
 measurements must distinguish that option from Prusti result caching.
 
-## 5. Performance measurement — in progress
+## 5. Performance measurement — complete
 
-The compatibility review and the first performance experiment are complete.
+The compatibility review and all three performance experiments are complete.
 The [parsed-Viper backend run](performance-backend.md) passed all 480 trials and
 its independent audit, with no censored or invalid observations. The
 [direct Rust/service run](performance-prusti.md) also passed all 576 requests and
-144 service audits, with no exclusions. Separate phase/solver profiling remains
-in progress. The fixed
+144 service audits, with no exclusions. The separate
+[phase/solver profile](performance-profile.md) passed all 144 sessions and 48
+matched-block audits, with no invalid or censored observations. The
+[consolidated report](performance.md) records the measured advantages and mixed
+parallelism results, the phase/CPU boundaries and the next profiling targets.
+Production runtime remains `afdf10c`; this stage changed measurement tools and
+documentation. The fixed
 [protocol](performance-protocol.md) and [readiness checks](performance-validation.md)
 record the workload, artifact, cache and measurement constraints.
 
-Benchmark representative actual Prusti stdlib workloads with
-branch parallelism disabled/enabled and different worker counts. Freeze the
-validated Ferrum/Prusti revisions, build profiles, dependency binaries, fixtures,
-cache settings and timeout budgets. Retain generated Viper inputs so backend
-comparisons use the same obligations. Check proof outcomes in every trial;
-timeouts remain censored observations rather than successful timings.
+The completed scope covers four actual Prusti stdlib workloads with branch
+parallelism disabled/enabled and 1/2/4 workers. Source revisions, build profiles,
+dependency binaries, fixtures, cache settings and timeout budgets were frozen.
+Generated Viper inputs preserve identical obligations for backend comparisons;
+every trial checks its expected proof outcome and diagnostic.
 
-Measure fresh-process startup and repeated-session behavior separately, with
-repeated trials and recorded execution order. Separate startup, Rust encoding,
-frontend preparation, native symbolic execution and Z3 time where instrumentation
-supports that distinction. For multiple workers, report elapsed wall time and
-aggregate worker/solver time separately: overlapping durations must not be added
-or subtracted as if they were sequential phases. Document any unmeasured portion.
+Fresh-process and repeated-session behavior were measured separately, with
+repetitions and recorded randomized order. Existing Prusti encoding/backend spans,
+parsed frontend phases and identified Z3 process CPU were recorded at their actual
+boundaries. Overlapping worker/solver wall spans were not added or subtracted to
+infer an exclusive symbolic-execution time. The separate instrumentation study
+records variable overhead rather than assuming it is negligible.
 
-Report the measurements, variability and practical limits before recommending
-further optimizations. Runtime durations gathered to enforce compatibility-test
-watchdogs are not comparative performance evidence.
+The reports retain variability and practical limits before recommending
+further optimizations. Exclusive symbolic-execution CPU remains unmeasured;
+identified Z3 process CPU is separate from the broader frontend/runtime residual.
+The four selected workloads and development builds do not establish performance
+for the whole stdlib matrix or release builds. Runtime durations gathered to
+enforce compatibility-test watchdogs are not comparative performance evidence.

@@ -1,0 +1,13 @@
+{
+  "input": "performance-prusti.json",
+  "input_sha256": "7e440b3867f35d9d636ac0e8d02f766b81477b1ef4d11139f651b4e2317c4c66",
+  "script_sha256": "b049f2d92bf70a0da6f6437f774b469067e7b03ed7596de6bd18bf25ff8c312c",
+  "python": "3.12.13",
+  "matplotlib": "3.9.4",
+  "numpy": "2.1.3",
+  "output_sha256": {
+    "prusti-client-wall.png": "2cbb3af1be79c5290bf70260c3ae281a81be0050dc7ef55741e006f0120b323a",
+    "prusti-client-wall.svg": "d4f28048fe5b93c0674e7e0b4c71e709c5c21b88593224244ff1c164ab9d28ea"
+  },
+  "scope": "One worker, branch off; median and min-max of three paired blocks; later service values are means of two requests within each block."
+}

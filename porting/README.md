@@ -5,20 +5,22 @@ The workspace inventory now covers 438 destinations, including 102 assembly
 files. Inventory stages describe implementation progress, not proof of complete
 source compatibility.
 
-The current code checkpoint is `f686fde`. Public debugger/reporting integration
-and the hardening fixes are documented in [debugger-validation.md](debugger-validation.md)
-and [hardening-validation.md](hardening-validation.md). Completed member loggers
-are detached from reused workers, cancellation captures remain replayable after
-cleanup, and the demonstrated recursive execution, rewrite, rendering and
-expression-destruction overflows have focused regressions. Public source-invalid
-logging/parallelism combinations remain rejected. Production optimization
-settings are unchanged; no performance improvement is claimed.
+The measured runtime checkpoint is `afdf10c`. All five requested stages are
+complete within the scope recorded in [completion.md](completion.md): diagnostics,
+hardening, fresh Prusti validation, broader compatibility and performance testing.
+The [final comparison](compatibility-final.md) records 1,512 stdio pairs with no
+conclusive proof/ID/span mismatch and 15 inconclusive timeout pairs, plus linked,
+branch and lifecycle controls. Rendering differences and source limitations remain
+explicit. The 602-client Rust matrix is the historical stage-3 run, not a complete
+rerun at this final runtime pin; current builds and incremental checks are separate.
 
-[completion.md](completion.md) tracks the requested sequence through fresh Prusti
-verification and broader pinned-source compatibility testing. Historical Rust
-matrix results must not be treated as runs of this code checkpoint.
-The [fresh Prusti checkpoint](prusti-validation.md) records the current builds,
-matrix settings and individually reproduced findings; the full run is pending.
+The [performance report](performance.md) records 480 parsed-backend sessions,
+576 direct Rust requests and 144 profiling sessions, all independently audited.
+Four selected stdlib cases show median paired native advantages of 2.90–5.05×
+for fresh Prusti and 1.52–2.53× for later service requests at one worker with
+branch parallelism off. Development builds, small samples and the recorded host
+limit generalization. Parallelism results are mixed; no runtime optimization or
+default worker-count change was made in the measurement stage.
 
 The entries below are historical checkpoints; later work may supersede their
 statements about remaining work.
@@ -1097,7 +1099,7 @@ Parser position queries use a per-source line/UTF-16-column index instead of
 rescanning source prefixes. Unicode and CRLF diagnostic parity is retained. A
 489,459-byte Prusti-generated Viper input now parses in 0.923 seconds in a loaded-
 host sample; the earlier parse-only run timed out after 90 seconds. Full native
-verification of that exact input also succeeded. See performance.md for hashes,
+verification of that exact input also succeeded. See [performance-earlier.md](performance-earlier.md) for hashes,
 measurement scope and the temporary index memory cost.
 
 Owned assignment returns now compose old/labelled-old, integer negation and addition

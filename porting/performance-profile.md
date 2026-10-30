@@ -1,6 +1,6 @@
 # Separate instrumentation profile
 
-The separate profiling run completed 144/144 sessions, with 144 valid, zero invalid or censored, and 48/48 eligible matched blocks. Each block contains plain, phase-timed and phase-timed plus solver-accounting variants for three serial requests. The independent audit found no integrity, proof, raw diagnostic, phase, timer or accounting issues. This is a three-repetition instrumentation study, distinct from the uninstrumented primary measurements.
+The separate profiling run completed 144/144 sessions, with 144 valid, zero invalid or censored, and 48/48 eligible matched blocks. Each block contains plain, phase-timed and phase-timed plus solver-accounting variants for three serial requests. The independent audit found no integrity, proof, raw diagnostic, phase, timer or accounting issues. This is a three-repetition instrumentation study, distinct from the primary plain-driver backend measurements.
 
 All numbers below are median (minimum–maximum) across three independent matched blocks. Timing ratios compare command wall within the same block; GNU time rounds to hundredths of a second. Values near the timer resolution and the small sample size limit interpretation.
 

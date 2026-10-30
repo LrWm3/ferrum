@@ -1,5 +1,11 @@
 # Performance tools
 
+All three experiments and independent audits are complete. The
+[consolidated report](../../porting/performance.md) links the parsed-backend,
+direct-Prusti and separate profiling evidence. These tools reproduce their
+protocols with new immutable inputs and output directories; local raw artifacts
+are identified by hash, not bundled into this directory.
+
 These drivers and the serial measurement harness are separate from production
 code. They retain the compatibility driver's verification flow. Plain drivers
 add explicit cache policy; instrumented drivers additionally emit `@@PERF@@`
