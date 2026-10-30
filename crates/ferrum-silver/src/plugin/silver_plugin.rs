@@ -68,6 +68,10 @@ pub trait SilverPlugin: Send {
     fn before_resolve(&mut self, input: PProgramHandle) -> PProgramHandle {
         input
     }
+    /// Drain nonfatal warnings emitted by phase hooks, preserving their order and duplicates.
+    fn take_warnings(&mut self) -> Vec<Vec<crate::verifier::verification_result::FrontendError>> {
+        Vec::new()
+    }
     fn before_translate(&mut self, input: PProgramHandle) -> PProgramHandle {
         input
     }

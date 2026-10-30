@@ -726,6 +726,18 @@ impl FrontendPhases for SilFrontendPhases {
             .plugins
             .before_translate(input)
             .ok_or_else(|| self.plugins.errors().to_vec())?;
+        let plugin_warnings = self.plugins.take_warnings();
+        for plugin_warnings in plugin_warnings {
+            self.typechecking_warnings
+                .extend(plugin_warnings.iter().cloned());
+            if !self.report_phase(
+                crate::reporter::message::Message::WarningsDuringTypechecking {
+                    warnings: plugin_warnings.clone(),
+                },
+            ) {
+                return Err(vec![]);
+            }
+        }
         let imports = self
             .plugins
             .additional_standard_imports(&input)

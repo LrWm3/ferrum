@@ -312,6 +312,7 @@ pub struct TerminationPlugin {
     pub respect_function_permissions: bool,
     pub transformer: Option<Box<dyn TerminationTransformer>>,
     errors: PluginErrors,
+    warnings: Vec<Vec<FrontendError>>,
 }
 impl TerminationPlugin {
     pub fn new(
@@ -324,6 +325,7 @@ impl TerminationPlugin {
             respect_function_permissions,
             transformer,
             errors: PluginErrors::default(),
+            warnings: Vec::new(),
         }
     }
     fn issue(&mut self, text: &str, exp: &Exp) {
@@ -575,7 +577,153 @@ fn map_termination_result(
     }
     Ok(VerificationResult::Failure(mapped))
 }
+fn well_founded_domain_warnings(
+    input: &crate::parser::parse_ast::PProgramHandle,
+) -> Result<Vec<Vec<FrontendError>>, PluginHookError> {
+    use crate::parser::parse_ast::{
+        PDomainMember, PExpressionKind, PMember, PMemberKind, PNodeHandle, PNodeKind, PTypeHandle,
+        PTypeKind, get_ancestor, subnodes,
+    };
+    use crate::parser::reformat_pretty_printer::{LeafReformatAdapter, show_node};
+    fn type_names(typ: &PTypeHandle) -> Vec<String> {
+        match typ.kind() {
+            PTypeKind::Primitive { name } if name.display() == "Perm" => {
+                vec!["Rational".into(), "Perm".into()]
+            }
+            PTypeKind::Primitive { name } => vec![name.display().into()],
+            PTypeKind::Seq { .. } => vec!["Seq".into()],
+            PTypeKind::Set { .. } => vec!["Set".into()],
+            PTypeKind::Multiset { .. } => vec!["Multiset".into()],
+            PTypeKind::Map { .. } => vec!["Map".into()],
+            PTypeKind::Domain { domain, .. } => {
+                match &domain.read().expect("poisoned type identifier").kind {
+                    PNodeKind::IdnRef(id) if id.name == "PredicateInstance" => {
+                        vec!["PredicateInstances".into()]
+                    }
+                    PNodeKind::IdnRef(id) => vec![id.name.clone()],
+                    _ => vec![],
+                }
+            }
+            _ => vec![],
+        }
+    }
+    fn visit(
+        node: &PNodeHandle,
+        expected: Option<&str>,
+        found: &mut Vec<String>,
+    ) -> Result<(), PluginHookError> {
+        let mut pending = vec![node.clone()];
+        while let Some(node) = pending.pop() {
+            let kind = node.read().expect("poisoned parse node").kind.clone();
+            if let PNodeKind::Expression(expression) = kind {
+                if let PExpressionKind::Call {
+                    idnref,
+                    domain_substitution: Some(substitution),
+                    ..
+                } = expression.kind
+                {
+                    let (name, declarations) =
+                        match &idnref.read().expect("poisoned reference").kind {
+                            PNodeKind::IdnRef(id) => (id.name.clone(), id.declarations.clone()),
+                            _ => (String::new(), vec![]),
+                        };
+                    let is_wf = (name == "decreases" || name == "bounded") && declarations.first().is_some_and(|decl| {
+                    if !matches!(&decl.read().expect("poisoned declaration").kind, PNodeKind::DomainMember(PDomainMember::Function { .. })) { return false; }
+                    get_ancestor(decl, |parent| matches!(&parent.read().expect("poisoned ancestor").kind, PNodeKind::Member(PMember { kind: PMemberKind::Domain { .. }, .. })))
+                        .is_some_and(|domain| match &domain.read().expect("poisoned domain").kind {
+                            PNodeKind::Member(PMember { kind: PMemberKind::Domain { idndef, .. }, .. }) => matches!(&idndef.read().expect("poisoned identifier").kind, PNodeKind::IdnDef(id) if id.name == WELL_FOUNDED_ORDER_DOMAIN_NAME),
+                            _ => false,
+                        })
+                });
+                    if is_wf {
+                        if let Some(typ) =
+                            substitution.get("T").filter(|t| t.is_valid_or_undeclared())
+                        {
+                            if !expected
+                                .is_some_and(|name| type_names(typ).iter().any(|n| n == name))
+                            {
+                                let text =
+                                    show_node(typ.node(), &LeafReformatAdapter).map_err(|e| {
+                                        PluginHookError(format!(
+                                            "termination type rendering: {e:?}"
+                                        ))
+                                    })?;
+                                found.push(text);
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+            let children = subnodes(&node)
+                .map_err(|e| PluginHookError(format!("termination warning traversal: {e:?}")))?;
+            pending.extend(children.into_iter().rev());
+        }
+        Ok(())
+    }
+    let mut batches = Vec::new();
+    for member in input.all_members() {
+        let (kind, position) = {
+            let node = member.node().read().expect("poisoned domain");
+            (node.kind.clone(), node.pos.0.clone())
+        };
+        let PNodeKind::Member(PMember {
+            kind: PMemberKind::Domain {
+                idndef, members, ..
+            },
+            ..
+        }) = kind
+        else {
+            continue;
+        };
+        let name = match &idndef.read().expect("poisoned identifier").kind {
+            PNodeKind::IdnDef(id) => id.name.clone(),
+            _ => continue,
+        };
+        let expected = name.strip_suffix(WELL_FOUNDED_ORDER_DOMAIN_NAME);
+        let mut types = Vec::new();
+        for member in members.inner().to_seq() {
+            let kind = member
+                .node()
+                .read()
+                .expect("poisoned domain member")
+                .kind
+                .clone();
+            if let PNodeKind::DomainMember(PDomainMember::Axiom { exp, .. }) = kind {
+                visit(exp.exp.inner().node(), expected, &mut types)?;
+            }
+        }
+        batches.push(types.into_iter().map(|typ| FrontendError::new(FrontendErrorKind::TypecheckerWarning(format!("Domain {name} constrains well-foundedness functions for type {typ} and should be named <Type>{WELL_FOUNDED_ORDER_DOMAIN_NAME} instead.")), position.clone())).collect());
+    }
+    Ok(batches)
+}
+
 impl SilverPlugin for TerminationPlugin {
+    fn take_warnings(&mut self) -> Vec<Vec<FrontendError>> {
+        std::mem::take(&mut self.warnings)
+    }
+    fn before_translate(
+        &mut self,
+        input: crate::parser::parse_ast::PProgramHandle,
+    ) -> crate::parser::parse_ast::PProgramHandle {
+        self.warnings.clear();
+        if !self.disabled {
+            match well_founded_domain_warnings(&input) {
+                Ok(warnings) => self.warnings = warnings,
+                Err(error) => {
+                    let position = input.node().read().expect("poisoned program").pos.0.clone();
+                    let _ = self
+                        .errors
+                        .report(AbstractError::Frontend(FrontendError::new(
+                            FrontendErrorKind::TypecheckerError(error.0),
+                            position,
+                        )));
+                }
+            }
+        }
+        input
+    }
+
     fn shared_entity_mapper(
         &self,
     ) -> Option<std::sync::Arc<dyn crate::reporter::reporter::EntityResultMapper>> {

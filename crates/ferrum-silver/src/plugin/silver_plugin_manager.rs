@@ -116,6 +116,14 @@ impl SilverPluginManager {
     pub fn before_resolve(&mut self, input: PProgramHandle) -> Option<PProgramHandle> {
         self.fold_with_error(input, |p, input| p.before_resolve(input))
     }
+    pub fn take_warnings(
+        &mut self,
+    ) -> Vec<Vec<crate::verifier::verification_result::FrontendError>> {
+        self.plugins
+            .iter_mut()
+            .flat_map(|plugin| plugin.take_warnings())
+            .collect()
+    }
     pub fn before_translate(&mut self, input: PProgramHandle) -> Option<PProgramHandle> {
         self.fold_with_error(input, |p, input| p.before_translate(input))
     }

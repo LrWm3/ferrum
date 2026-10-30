@@ -1309,6 +1309,28 @@ fn adt_discriminator_shadow_reports_constructor_and_shadow_positions() {
 
 #[test]
 #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn termination_import_warns_for_each_misnamed_order_axiom() {
+    let source = "import <decreases/all.vpr>\nmethod m() {}\n";
+    let output = run(source, &[]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "{stderr}");
+    let expected = "Domain MultiSetWellFoundedOrder constrains well-foundedness functions for type Multiset[S] and should be named <Type>WellFoundedOrder instead.";
+    assert_eq!(stderr.matches(expected).count(), 2, "{stderr}");
+    assert!(
+        stderr
+            .lines()
+            .filter(|line| line.contains(expected))
+            .all(|line| line.contains("multiset.vpr@6.1")),
+        "{stderr}"
+    );
+    let disabled = run(source, &["--disableTerminationPlugin"]);
+    let stderr = String::from_utf8_lossy(&disabled.stderr);
+    assert_eq!(disabled.status.code(), Some(0), "{stderr}");
+    assert!(!stderr.contains(expected), "{stderr}");
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
 fn adt_access_errors_report_receiver_and_access_positions() {
     let options = ["--plugin", "viper.silver.plugin.standard.adt.AdtPlugin"];
     let output = run(include_str!("fixtures/constructors_3.vpr"), &options);
