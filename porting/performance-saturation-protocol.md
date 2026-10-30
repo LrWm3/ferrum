@@ -52,9 +52,18 @@ Native is the existing afdf10c dev-profile plain backend driver; source is the
 existing plain Java driver compiled against the actual Prusti bundled Silicon
 6b540aa4 jar. Input bytes are the committed generated Viper fixtures. All drivers,
 classes, jar, Z3, scripts and inputs have before/after hashes in the frozen spec.
-The spec and complete schedule were prepared under
-`/tmp/ferrum-saturation-experiment` before execution. New output is
-`/tmp/ferrum-saturation-results`.
+The initial spec and schedule were prepared under
+`/tmp/ferrum-saturation-experiment`. Its readiness gate stopped after six
+controls: all expected proof outcomes were met, but one source-owner trace lost
+the final command because the relay forwarded it before recording it. No primary
+positive trial started. That failed attempt remains under
+`/tmp/ferrum-saturation-results` and is excluded from the new matrix.
+
+The V2 relay persists both directions before forwarding, with real byte-equality,
+protocol and 20 immediate-kill-after-acknowledgment controls passing. The revised
+frozen spec/schedule is under `/tmp/ferrum-saturation-experiment-v2`, with new
+output `/tmp/ferrum-saturation-results-v2`. Inputs, profiles, seed, schedule and
+all verifier settings are unchanged. Earlier relay/tools remain immutable.
 
 Both use the same Z3 4.16 executable, one worker, branch parallelism off, internal
 caches on, 180-second program and 300-second outer limits, one error, complete

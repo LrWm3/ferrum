@@ -9,6 +9,15 @@ inject options, queries or statistics requests. Verifier shutdown may kill the
 relay before its final metadata update; keep that distinction from audited byte
 completeness and outer-supervisor process cleanup.
 
+New saturation trials use `trace_z3_v2.py`. It persists each stream chunk and
+offset index before forwarding bytes, so a verifier that immediately kills its
+solver after the final acknowledgment cannot outrun recording. V1 is retained
+unchanged for its frozen earlier experiments. V2 metadata explicitly identifies
+`forwarded_ns` as the forwarding-start boundary; query waits still use the
+stream-receive boundaries described below. Check V2 with
+`Z3_EXE=/absolute/z3 python3 tools/performance/smt/test_trace_v2.py`, including
+20 real immediate-kill-after-acknowledgment controls.
+
 `analyze_trace.py CAPTURE_DIRECTORY --output NEW_REPORT.json` checks contiguous
 chunk offsets and byte counts, parses quoted SMT expressions/comments and pairs
 commands with responses while tracking `print-success`. It retains command byte
