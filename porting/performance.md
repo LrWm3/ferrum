@@ -1,5 +1,10 @@
 # Prusti and backend performance results
 
+The later [live stdlib profiling follow-up](performance-live-stdlib.md) investigates
+harder iterator cases in the adoption run. It finds substantial Z3 quantifier
+matching in two short observed windows. Its workload, partial sampling and
+concurrent regression-run timings remain separate from the experiment below.
+
 Ferrum reduced client wall time on all four selected stdlib cases at the
 one-worker, branch-parallelism-off baseline. Median paired JVM/native ratios
 were **2.90–5.05× for fresh Prusti processes** and **1.52–2.53× for later service
