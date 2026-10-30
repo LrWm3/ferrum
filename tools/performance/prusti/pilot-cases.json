@@ -1,0 +1,27 @@
+{
+  "cases": [
+    {
+      "name": "observation_pass",
+      "suite": "sequence",
+      "package": "stdlib_sequence_spec",
+      "source_sha256": "daf967a7df0c1f86993538b6fb909ca28747baf687c4128007a15321da9f8f30",
+      "expect": {
+        "exit": 0,
+        "errors": []
+      }
+    },
+    {
+      "name": "mut_element_array_wrong",
+      "suite": "iterator",
+      "package": "stdlib_iterator_spec",
+      "source_sha256": "e5f50a76c80ee2f33d504dafa4eb35612c519e789565685ce542251058cfca79",
+      "expect": {
+        "exit": 101,
+        "errors": [
+          "[Prusti: verification error] assertion might not hold"
+        ],
+        "location": "mut_element_array_wrong.rs:8:"
+      }
+    }
+  ]
+}

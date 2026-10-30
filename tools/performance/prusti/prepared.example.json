@@ -1,0 +1,107 @@
+{
+  "source_snapshot": "/tmp/ferrum-stage5-prusti-inputs/source",
+  "source_manifest": "/tmp/prusti-afdf-validation/source-manifest.json",
+  "dump_parity_evidence": "/tmp/ferrum-stage5-prusti-inputs/calibration/dump-parity.json",
+  "fixture_locks": {
+    "sequence": "8c95c5a3544474107ef8321f64697e3770103ce7dd8d549146cc427d698c56cb",
+    "iterator": "16e56d8e58977dd2af66d4277eb6f686285a6e7ebbe95faa4972bac0823422dd"
+  },
+  "environment": {
+    "JAVA_HOME": "/tmp/ferrum-jdk17",
+    "VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+    "Z3_EXE": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+    "LD_LIBRARY_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/lib:/tmp/ferrum-jdk17/lib/server"
+  },
+  "artifacts": {
+    "z3": {
+      "path": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+      "sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765"
+    },
+    "java": {
+      "path": "/tmp/ferrum-jdk17/bin/java",
+      "sha256": "a2195ae9f8a91b82f53df7e1d1b9a650937ebbabbf67d0240c6378b4fbd9990b"
+    },
+    "jvm_bundle": {
+      "path": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends/viperserver.jar",
+      "sha256": "6d11d2b73efe97b97026050f13d966c5ec599cf70d43022346382e065a49cf7c"
+    },
+    "cargo": {
+      "path": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+      "sha256": "0a7af02087e49355522e9bd5a3a48540cfac287eb30fdd4b5fd5a3f81d4a3031"
+    },
+    "rustc": {
+      "path": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/rustc",
+      "sha256": "7f3a3bcb8d2a2e6c92144ae7fd9ae316977de6d00292019de530e2ccfebeb547"
+    },
+    "native_cargo_prusti": {
+      "path": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+      "sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd"
+    },
+    "native_prusti_driver": {
+      "path": "/tmp/prusti-final-compatibility-native-target/debug/prusti-driver",
+      "sha256": "502df7c2b2b6e100cceae31e79cb782e1cac1d313235575372121f4c250d1fdd"
+    },
+    "native_prusti_rustc": {
+      "path": "/tmp/prusti-final-compatibility-native-target/debug/prusti-rustc",
+      "sha256": "1a2f5114e73a4e70d1f69afa1a1889fb4740e17f802592d4255146cbde92522b"
+    },
+    "native_server_driver": {
+      "path": "/tmp/prusti-final-compatibility-native-target/debug/prusti-server-driver",
+      "sha256": "b862c44d83c47f1ad3be63eaac952f4d243297413b6631f7f5790600b02ab984"
+    },
+    "jvm_cargo_prusti": {
+      "path": "/tmp/prusti-final-compatibility-dual-target/debug/cargo-prusti",
+      "sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd"
+    },
+    "jvm_prusti_driver": {
+      "path": "/tmp/prusti-final-compatibility-dual-target/debug/prusti-driver",
+      "sha256": "f305a0a61963ba6573058e409c5a1e17d3b1f15b51a92cb71f4e713aff8f99aa"
+    },
+    "jvm_prusti_rustc": {
+      "path": "/tmp/prusti-final-compatibility-dual-target/debug/prusti-rustc",
+      "sha256": "1a2f5114e73a4e70d1f69afa1a1889fb4740e17f802592d4255146cbde92522b"
+    },
+    "jvm_server_driver": {
+      "path": "/tmp/prusti-final-compatibility-dual-target/debug/prusti-server-driver",
+      "sha256": "aa4d1be8436851cc97971a673510a146ae8b0b03d8fe4de2d10f50976770f645"
+    }
+  },
+  "backends": {
+    "native": {
+      "cargo_prusti": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+      "prusti_driver": "/tmp/prusti-final-compatibility-native-target/debug/prusti-driver",
+      "prusti_rustc": "/tmp/prusti-final-compatibility-native-target/debug/prusti-rustc",
+      "server_driver": "/tmp/prusti-final-compatibility-native-target/debug/prusti-server-driver",
+      "target_seeds": {
+        "sequence": {
+          "path": "/tmp/ferrum-stage5-prusti-inputs/seeds/native-sequence",
+          "tree_sha256": "b19a318cb93bb2b94ca0394d6114739431d45f25f98837a1f1032fb8367ce503"
+        },
+        "iterator": {
+          "path": "/tmp/ferrum-stage5-prusti-inputs/seeds/native-iterator",
+          "tree_sha256": "24837f073090fdec8802e57aa85d7bfa1e479c559888803f3e90554a481bac77"
+        }
+      }
+    },
+    "jvm": {
+      "cargo_prusti": "/tmp/prusti-final-compatibility-dual-target/debug/cargo-prusti",
+      "prusti_driver": "/tmp/prusti-final-compatibility-dual-target/debug/prusti-driver",
+      "prusti_rustc": "/tmp/prusti-final-compatibility-dual-target/debug/prusti-rustc",
+      "server_driver": "/tmp/prusti-final-compatibility-dual-target/debug/prusti-server-driver",
+      "target_seeds": {
+        "sequence": {
+          "path": "/tmp/ferrum-stage5-prusti-inputs/seeds/jvm-sequence",
+          "tree_sha256": "5652ab01e7a31f645b61cb5e3f687b3253f1384aadea8544ad29bd1f5307e872"
+        },
+        "iterator": {
+          "path": "/tmp/ferrum-stage5-prusti-inputs/seeds/jvm-iterator",
+          "tree_sha256": "2e6facc291a7934d4697ef8b8d80a19a34e175c46cc8c43c843b2a56a6962bc1"
+        }
+      }
+    }
+  },
+  "cache_policy": {
+    "outer_result_cache": "off",
+    "silicon_internal_caches": "production_default_on"
+  }
+}
