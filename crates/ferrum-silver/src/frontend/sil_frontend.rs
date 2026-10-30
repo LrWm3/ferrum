@@ -499,7 +499,7 @@ impl FrontendPhases for SilFrontendPhases {
             }
         }
         let checking = resolver::check_program_core(&input, &mut |node, text| {
-            let position = node.read().expect("poisoned parse node").pos.0.clone();
+            let position = node.read().expect("poisoned parse node").error_position();
             self.typechecking_warnings.push(FrontendError::new(
                 FrontendErrorKind::TypecheckerWarning(text.into()),
                 position,
@@ -3356,6 +3356,11 @@ method chainParen2(i1: Int, i2: Int, i3: Int, i4: Int)
         let parsed = phases.parse("domain D[T] { function make(): D[T] function tag(x: D[T]): Int axiom { tag(make()) == 0 } } method m() { assert tag(make()) == 0 }").unwrap();
         let analyzed = phases.analyze(parsed).unwrap();
         assert_eq!(phases.typechecking_warnings.iter().filter(|w| matches!(&w.kind, FrontendErrorKind::TypecheckerWarning(message) if message == "unconstrained type parameter, substituting default type Int")).count(), 1);
+        let warning = phases.typechecking_warnings.iter().find(|w| matches!(&w.kind, FrontendErrorKind::TypecheckerWarning(message) if message == "unconstrained type parameter, substituting default type Int")).unwrap();
+        assert!(
+            matches!(&warning.position, Position::LineColumn(LineColumn::Source(span)) if span.end.is_some()),
+            "warning must preserve the complete expression span"
+        );
         let program = phases.translate(analyzed).unwrap();
         fn collect(node: &Node, values: &mut Vec<Type>) {
             if let Node::Exp(exp) = node {

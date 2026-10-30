@@ -15523,11 +15523,30 @@ where
         labels: &[ferrum_silver::ast::program::LabelDeclaration],
     ) -> Result<(), Self::Error> {
         {
+            use ferrum_silver::{
+                reporter::message::Message,
+                verifier::verification_result::{FrontendError, FrontendErrorKind},
+            };
             for label in labels {
-                self.warnings.push(format!(
-                    "Loop invariants on label {} are ignored",
-                    label.name
-                ));
+                let warning = FrontendError::new(
+                    FrontendErrorKind::VerifierWarning(format!(
+                        "Label {} declares an invariant, but is not the head of a loop. The invariant will be ignored.",
+                        label.name
+                    )),
+                    label.meta.position.clone(),
+                );
+                self.reported_source_warnings.push(
+                    warning.readable_message().map_err(|e| {
+                        NativeError::Diagnostic(format!("loop-label warning: {e:?}"))
+                    })?,
+                );
+                if let Some(reporter) = &self.preprocessing_reporter {
+                    reporter
+                        .report(Message::WarningsDuringVerification {
+                            warnings: vec![warning],
+                        })
+                        .map_err(NativeError::Reporter)?;
+                }
             }
             Ok(())
         }
@@ -17785,24 +17804,32 @@ where
         self.quantifier_trigger_events.clear();
         let triggered = crate::utils::ast::auto_trigger_program_with_callback(program, |event| {
             use ferrum_silver::reporter::message::Message;
-            if let Some(reporter) = &self.preprocessing_reporter {
-                if event.triggers.is_empty() {
-                    use ferrum_silver::verifier::verification_result::{
-                        FrontendError, FrontendErrorKind,
-                    };
+            if event.triggers.is_empty() {
+                use ferrum_silver::verifier::verification_result::{
+                    FrontendError, FrontendErrorKind,
+                };
+                let warning = FrontendError::new(
+                    FrontendErrorKind::VerifierWarning(
+                        "No triggers provided or inferred for quantifier.".into(),
+                    ),
+                    event.rewritten.metadata().position.clone(),
+                );
+                self.reported_source_warnings.push(
+                    warning.readable_message().map_err(|e| {
+                        NativeError::Diagnostic(format!("quantifier warning: {e:?}"))
+                    })?,
+                );
+                if let Some(reporter) = &self.preprocessing_reporter {
                     reporter
                         .report(Message::WarningsDuringVerification {
-                            warnings: vec![FrontendError::new(
-                                FrontendErrorKind::VerifierWarning(
-                                    "No triggers provided or inferred for quantifier.".into(),
-                                ),
-                                event.rewritten.metadata().position.clone(),
-                            )],
+                            warnings: vec![warning],
                         })
                         .map_err(|e| {
                             NativeError::Diagnostic(format!("quantifier warning reporter: {e:?}"))
                         })?;
                 }
+            }
+            if let Some(reporter) = &self.preprocessing_reporter {
                 reporter
                     .report(Message::QuantifierChosenTriggers {
                         quantifier: event.rewritten.clone(),
@@ -17812,9 +17839,6 @@ where
                     .map_err(|e| {
                         NativeError::Diagnostic(format!("quantifier trigger reporter: {e:?}"))
                     })?;
-            } else if event.triggers.is_empty() {
-                self.warnings
-                    .push("No triggers provided or inferred for quantifier.".into());
             }
             self.quantifier_trigger_events.push(event.clone());
             Ok::<_, NativeError<S::Error>>(())
@@ -20961,18 +20985,23 @@ where
         let message = format!(
             "Might not be able to use trigger {rendered}, since it is not evaluated while evaluating the body of the quantifier"
         );
-        self.reported_source_warnings.push(message.clone());
+        use ferrum_silver::{
+            reporter::message::Message,
+            verifier::verification_result::{FrontendError, FrontendErrorKind},
+        };
+        let warning = FrontendError::new(
+            FrontendErrorKind::VerifierWarning(message),
+            expression.metadata().position.clone(),
+        );
+        self.reported_source_warnings.push(
+            warning
+                .readable_message()
+                .map_err(|e| NativeError::Diagnostic(format!("trigger warning: {e:?}")))?,
+        );
         if let Some(reporter) = &self.preprocessing_reporter {
-            use ferrum_silver::{
-                reporter::message::Message,
-                verifier::verification_result::{FrontendError, FrontendErrorKind},
-            };
             reporter
                 .report(Message::WarningsDuringVerification {
-                    warnings: vec![FrontendError::new(
-                        FrontendErrorKind::VerifierWarning(message),
-                        expression.metadata().position.clone(),
-                    )],
+                    warnings: vec![warning],
                 })
                 .map_err(NativeError::Reporter)?;
         }

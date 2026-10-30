@@ -3380,6 +3380,40 @@ mod public_logging_tests {
 
     #[test]
     #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn positioned_verifier_warnings_survive_reporting_and_session_reuse() {
+        std::thread::Builder::new().stack_size(VERIFICATION_STACK_SIZE).spawn(|| {
+            let z3 = std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+            let mut phases = SilFrontendPhases::new("warnings.vpr".into(), silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+            let parsed = phases.parse("domain P { axiom a { forall x: Int :: x == x } } function g(x: Ref): Bool requires false function h(x: Ref): Bool method m() { label dummy invariant true assume forall y: Ref :: {g(y)} h(y) assert true }").unwrap();
+            let analyzed = phases.analyze(parsed).unwrap();
+            let program = phases.translate(analyzed).unwrap();
+            for workers in [1, 2] {
+                let config = Config::parse(&["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "--numberOfParallelVerifiers".into(), workers.to_string(), "warnings.vpr".into()]).unwrap();
+                let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+                let mut session = Session::new_with_reporter(config, reporter.clone()).unwrap();
+                for _ in 0..2 {
+                    let _ = session.verify(&program, &[]).unwrap();
+                    let warnings = session.take_warnings();
+                    assert!(warnings.iter().any(|w| w.starts_with("Verifier warning: No triggers provided or inferred for quantifier.") && w.contains("warnings.vpr@")), "{warnings:?}");
+                    assert!(warnings.iter().any(|w| w.starts_with("Verifier warning: Label dummy declares an invariant") && w.contains("warnings.vpr@")), "{warnings:?}");
+                    assert!(warnings.iter().any(|w| w.starts_with("Verifier warning: Might not be able to use trigger") && w.contains("warnings.vpr@")), "{warnings:?}");
+                    let mut delivered = Vec::new();
+                    while reporter.has_new_message() {
+                        if let Message::WarningsDuringVerification { warnings } = reporter.get_new_message().unwrap() {
+                            delivered.extend(warnings.into_iter().map(|w| w.readable_message().unwrap()));
+                        }
+                    }
+                    assert!(delivered.iter().any(|w| w.starts_with("Verifier warning: No triggers provided") && w.contains("warnings.vpr@")), "{delivered:?}");
+                    assert!(delivered.iter().any(|w| w.starts_with("Verifier warning: Label dummy declares") && w.contains("warnings.vpr@")), "{delivered:?}");
+                    assert!(delivered.iter().any(|w| w.starts_with("Verifier warning: Might not be able to use trigger") && w.contains("warnings.vpr@")), "{delivered:?}");
+                }
+                session.stop().unwrap();
+            }
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
     fn public_trace_preserves_postcondition_axioms_across_resets_and_phase_two_failure() {
         std::thread::Builder::new()
             .stack_size(VERIFICATION_STACK_SIZE)
