@@ -1134,6 +1134,7 @@ pub fn check_expression(
                 .expect("poisoned parse node")
                 .kind
                 .clone();
+            let is_adt_constructor = matches!(&declaration, PNodeKind::Extension(extension) if extension.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>());
             let (formal_types, result_type, predicate_call) = match declaration {
                 PNodeKind::Member(member) => match member.kind {
                     PMemberKind::Function {
@@ -1272,10 +1273,13 @@ pub fn check_expression(
             check_operator(
                 input,
                 Some(vec![PTypeSubstitution::new(bindings, false)]),
-                args,
+                args.clone(),
                 annotation.or(expected),
                 false,
-            )?
+            ).map_err(|error| match error {
+                TypeCheckError::Unification(UnificationError::Mismatch { expression, .. }) if is_adt_constructor && args.iter().any(|arg| std::sync::Arc::ptr_eq(arg.node(), &expression)) => TypeCheckError::Positioned { node: input.node().clone(), message: "type error" },
+                other => other,
+            })?
         }
         PExpressionKind::AccPred { amount, .. } => {
             let location = amount.inner().first().clone();
@@ -1326,8 +1330,27 @@ pub fn check_expression(
             use super::parse_ast::{PDeclarationClass, PDomainTypeKind, PTypeKind};
             let class = match &idnref.read().expect("poisoned parse node").kind { PNodeKind::IdnRef(id) => id.declaration_class, _ => return Err(TypeCheckError::Unsupported("field identifier")) };
             if matches!(class, PDeclarationClass::AdtField | PDeclarationClass::AdtConstructor) {
-                let receiver_type = check_expression(&receiver, None)?;
-                let receiver_name = match receiver_type.kind() { PTypeKind::Domain { domain, kind: PDomainTypeKind::Adt, .. } => match &domain.read().expect("poisoned parse node").kind { PNodeKind::IdnRef(id) => id.name.clone(), _ => return Err(TypeCheckError::Unsupported("ADT receiver")) }, _ => return Err(TypeCheckError::Unsupported("ADT receiver type")) };
+                let mut receiver_errors = Vec::new();
+                let receiver_type = match check_expression(&receiver, None) {
+                    Ok(typ) => typ,
+                    Err(error) => {
+                        retain_type_mismatches(&mut receiver_errors, Err::<(), _>(error))?;
+                        PTypeHandle::new(PTypeKind::Unknown, (crate::ast::position::Position::NoPosition, crate::ast::position::Position::NoPosition))
+                    }
+                };
+                let receiver_name = match receiver_type.kind() {
+                    PTypeKind::Domain { domain, kind: PDomainTypeKind::Adt, .. } => match &domain.read().expect("poisoned parse node").kind { PNodeKind::IdnRef(id) => id.name.clone(), _ => return Err(TypeCheckError::Unsupported("ADT receiver")) },
+                    _ if class == PDeclarationClass::AdtField => {
+                        let name = match &idnref.read().expect("poisoned parse node").kind { PNodeKind::IdnRef(id) => id.name.clone(), _ => return Err(TypeCheckError::Unsupported("ADT field identifier")) };
+                        let actual = crate::parser::translator::translate_type(&receiver_type).ok().and_then(|typ| crate::ast::pretty::pretty_printer::show_type(&typ).ok()).unwrap_or_else(|| "<error>".into());
+                        receiver_errors.push(TypeCheckError::PositionedMessage { node: input.node().clone(), message: format!("found incompatible receiver type `{actual}` when destructing adt field `{name}`, expected an adt") });
+                        return Err(TypeCheckError::Mismatches(receiver_errors));
+                    }
+                    _ => {
+                        if !receiver_errors.is_empty() { return Err(TypeCheckError::Mismatches(receiver_errors)); }
+                        String::new()
+                    },
+                };
                 let candidates = super::parse_ast::PIdnRef::decls(&idnref, |_| true);
                 let mut matching = Vec::new();
                 for candidate in candidates {
@@ -1337,7 +1360,12 @@ pub fn check_expression(
                         if class == PDeclarationClass::AdtConstructor || name == receiver_name { matching.push((candidate, owner)); }
                     }
                 }
-                if matching.len() != 1 { return Err(TypeCheckError::Unsupported("undefined or ambiguous ADT member")); }
+                if matching.len() != 1 {
+                    let name = match &idnref.read().expect("poisoned parse node").kind { PNodeKind::IdnRef(id) => id.name.clone(), _ => return Err(TypeCheckError::Unsupported("ADT member identifier")) };
+                    let qualifier = if matching.is_empty() { "undefined" } else { "ambiguous" };
+                    let message = if class == PDeclarationClass::AdtField { format!("{qualifier} adt field `{name}` when destructing, in adt `{receiver_name}`") } else { format!("{qualifier} adt constructor `{name}` when checking `is{name}`") };
+                    return Err(TypeCheckError::PositionedMessage { node: input.node().clone(), message });
+                }
                 let (declaration, owner) = matching.pop().expect("one ADT member");
                 let selected = declaration.clone();
                 super::parse_ast::PIdnRef::filter_decls(&idnref, std::sync::Arc::new(move |node| std::sync::Arc::ptr_eq(node, &selected)), |_| true);
@@ -1349,7 +1377,10 @@ pub fn check_expression(
                     match &declaration.read().expect("poisoned parse node").kind { PNodeKind::Declaration(d) => d.typ.substitute(&substitution), _ => return Err(TypeCheckError::Unsupported("ADT field declaration")) }
                 };
                 let bindings = [("#T0".into(), receiver_signature.substitute(&substitution)), ("#R".into(), result_type)].into_iter().collect();
-                check_operator(input, Some(vec![PTypeSubstitution::new(bindings, false)]), vec![receiver], expected, false)?
+                check_operator(input, Some(vec![PTypeSubstitution::new(bindings, false)]), vec![receiver.clone()], expected, false).map_err(|error| match error {
+                    TypeCheckError::Unification(UnificationError::Mismatch { expression, .. }) if std::sync::Arc::ptr_eq(&expression, receiver.node()) => TypeCheckError::Positioned { node: input.node().clone(), message: "type error" },
+                    other => other,
+                })?
             } else {
                 let fields = super::parse_ast::PIdnRef::decls(&idnref, |node| matches!(&node.read().expect("poisoned parse node").kind, PNodeKind::Declaration(d) if matches!(d.kind, PDeclarationKind::Field { .. })));
                 if fields.len() != 1 {

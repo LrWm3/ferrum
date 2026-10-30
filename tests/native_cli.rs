@@ -1301,3 +1301,30 @@ fn adt_discriminator_shadow_reports_constructor_and_shadow_positions() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn adt_access_errors_report_receiver_and_access_positions() {
+    let options = ["--plugin", "viper.silver.plugin.standard.adt.AdtPlugin"];
+    let output = run(include_str!("fixtures/constructors_3.vpr"), &options);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("type error (") && stderr.contains("@15.14--15.29"), "{stderr}");
+    let output = run(include_str!("fixtures/destructors_3.vpr"), &options);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("undefined adt field `right` when destructing, in adt `List`"), "{stderr}");
+    assert!(stderr.contains("when destructing adt field `value`, expected an adt"), "{stderr}");
+    assert_eq!(stderr.lines().filter(|line| line.contains(".vpr@")).count(), 7, "{stderr}");
+    let output = run(include_str!("fixtures/destructors_4.vpr"), &options);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("found incompatible receiver type `Int` when destructing adt field `right`, expected an adt"), "{stderr}");
+    let output = run(include_str!("fixtures/discriminators_2.vpr"), &options);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert_eq!(stderr.matches("type error (").count(), 3, "{stderr}");
+    for pos in ["@19.12--19.23", "@22.12--22.23", "@25.12--25.38"] {
+        assert!(stderr.contains(pos), "{stderr}");
+    }
+}
