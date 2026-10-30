@@ -1,6 +1,6 @@
 # Selected stdlib Viper inputs
 
-These are byte-preserved copies of fresh, matching native/JVM Prusti dumps at
+The original four fixtures listed in `oracles.json` are byte-preserved copies of fresh, matching native/JVM Prusti dumps at
 integration build pin `a59ed917c` and Ferrum runtime `afdf10c`. `oracles.json`
 records the exact outcomes, diagnostic positions, hashes and original paths.
 Generated trailing spaces are preserved; the local Git attributes prevent text
@@ -16,3 +16,10 @@ preserved copies passed both parsed backend oracles and all 96 worker/branch/
 session configuration gates. Their checked hashes must remain fixed during any
 comparison. Existing build artifacts and configurations still need independent
 provenance; these inputs alone do not establish a fair performance experiment.
+
+`mut_element_nested_pass.vpr` is a separate later adoption-run fixture, preserved
+for the [SMT comparison](../../../porting/performance-nested-smt.md). Its paired
+dumps are identical (461,392 bytes, SHA-256
+`9fbeab0cc9dc824772c9c5bfa06765a62998ca1141a56151b15f25068e38b3e7`),
+from native adapter `474b7ae1d` and the `c108c1c36` Silicon build. It is not part
+of the original four-workload timing matrix or its `oracles.json` inventory.

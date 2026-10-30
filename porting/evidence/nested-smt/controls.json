@@ -1,0 +1,14 @@
+[
+  {
+    "name": "version",
+    "exit_code": 0,
+    "stdout": "Z3 version 4.16.0 - 64 bit\n",
+    "stderr": ""
+  },
+  {
+    "name": "protocol",
+    "exit_code": 0,
+    "stdout": "success\nsuccess\nsuccess\nsuccess\nsat\nsuccess\nsuccess\nunsat\ncontrol-marker\nsuccess\n",
+    "stderr": ""
+  }
+]

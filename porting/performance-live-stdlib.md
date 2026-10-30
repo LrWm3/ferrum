@@ -1,5 +1,9 @@
 # Live profiling of the stdlib adoption run
 
+The subsequent [nested iterator SMT comparison](performance-nested-smt.md)
+replays a preserved slow case, retains both command streams, and compares
+solver work counters with repeated fixed-trace runs.
+
 On 2026-10-30, two short CPU profiles were collected from the already-running
 Ferrum iterator suite after the user reported slow progress. The sampled windows
 show substantial Z3 work, particularly quantifier matching. This is a different
