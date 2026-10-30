@@ -162,6 +162,15 @@ two-worker profiles, controls and observed reporting differences. Confirmed
 ADT, havoc, conditional-position and warning gaps are being corrected before
 a full successor run. Stage 4 remains in progress.
 
+The full `dc20a0f` successor run covers all 1,512 selected pairs: 649 shared
+proofs, 846 matching error-ID/span multisets and 17 inconclusive timeout pairs.
+There are no conclusive outcome or ID/span differences. Four failed source
+sessions remain separately recorded from their 32 selected isolated retries.
+The [intermediate successor evidence](compatibility-dc20.md) records the complete
+coverage audit, linked/two-worker profiles and timeout controls. Eight warning
+differences exposed additional reporter, nested typechecking and mask-frame
+construction-order gaps. These require fixes and validation before completion.
+
 ## 5. Performance measurement — deferred
 
 After the requested stopping point, benchmark representative stdlib workloads
