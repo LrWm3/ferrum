@@ -1,7 +1,8 @@
 # Completion sequence after owned continuations
 
 The user requested autonomous work through the first four stages below, in this
-order. Performance measurement is a later stage and is not part of this run.
+order, and subsequently authorized performance testing once comparison is done.
+Stage 5 follows completion of the compatibility comparison.
 The starting Ferrum checkpoint is `d17ef02`; Prusti integration is `1b994e389`.
 Source semantics remain pinned to the revisions in `sources.toml`.
 
@@ -171,10 +172,22 @@ coverage audit, linked/two-worker profiles and timeout controls. Eight warning
 differences exposed additional reporter, nested typechecking and mask-frame
 construction-order gaps. These require fixes and validation before completion.
 
-## 5. Performance measurement — deferred
+## 5. Performance measurement — authorized after comparison
 
-After the requested stopping point, benchmark representative stdlib workloads
-with branch parallelism disabled/enabled and different worker counts. Separate
-startup, Rust encoding, native symbolic execution and solver time before choosing
-further optimizations. Runtime durations gathered to enforce test watchdogs are
-not comparative performance evidence.
+After stage 4, benchmark representative actual Prusti stdlib workloads with
+branch parallelism disabled/enabled and different worker counts. Freeze the
+validated Ferrum/Prusti revisions, build profiles, dependency binaries, fixtures,
+cache settings and timeout budgets. Retain generated Viper inputs so backend
+comparisons use the same obligations. Check proof outcomes in every trial;
+timeouts remain censored observations rather than successful timings.
+
+Measure fresh-process startup and repeated-session behavior separately, with
+repeated trials and recorded execution order. Separate startup, Rust encoding,
+frontend preparation, native symbolic execution and Z3 time where instrumentation
+supports that distinction. For multiple workers, report elapsed wall time and
+aggregate worker/solver time separately: overlapping durations must not be added
+or subtracted as if they were sequential phases. Document any unmeasured portion.
+
+Report the measurements, variability and practical limits before recommending
+further optimizations. Runtime durations gathered to enforce compatibility-test
+watchdogs are not comparative performance evidence.
