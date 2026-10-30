@@ -1367,3 +1367,12 @@ fn adt_quantifier_checks_report_default_type_warnings() {
         assert!(stderr.contains(pos), "{stderr}");
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn repeated_quantified_access_preserves_guarded_snapshot_warning() {
+    let output = run(include_str!("fixtures/quantified_trigger_0648.vpr"), &[]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(stderr.contains("'and' cannot be used in patterns") && stderr.contains("'if' cannot be used in patterns"), "{stderr}");
+}

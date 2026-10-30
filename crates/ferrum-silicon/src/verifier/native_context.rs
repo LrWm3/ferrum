@@ -7926,7 +7926,7 @@ where
         let formals = state
             .formal_arg_vars(&source, &self.base.symbol_converter, &self.factory)
             .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
-        let chunks = native_quantified_chunks(&state.h, &resource);
+        let chunks = native_quantified_split_chunks(&state.h, &resource);
         let (definition, cache) = crate::rules::quantified_chunk_support::GeneralConsumptionExecution::summarise_general_consumed(self, &state, &resource, &formals, &chunks, None)?;
         let trigger = self.factory.resource_trigger(
             &resource,
@@ -11276,7 +11276,7 @@ where
         let formals = state
             .formal_arg_vars(&source, &self.base.symbol_converter, &self.factory)
             .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
-        let chunks = native_quantified_chunks(heap, resource);
+        let chunks = native_quantified_split_chunks(heap, resource);
         let factory = self.factory.clone();
         let trigger = state.heap_dependent_triggers.contains(resource);
         let cache_options = self.options.clone();
@@ -11418,7 +11418,7 @@ where
             )));
         };
         let factory = self.factory.clone();
-        let chunks = native_quantified_chunks(&state.h, resource);
+        let chunks = native_quantified_split_chunks(&state.h, resource);
         let key = CacheKey {
             resource: native_quantified_source(resource),
             relevant_chunks: chunks
@@ -21139,7 +21139,7 @@ where
         let formals = state
             .formal_arg_vars(&source, &self.base.symbol_converter, &factory)
             .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
-        let chunks = native_quantified_chunks(&state.h, &resource);
+        let chunks = native_quantified_split_chunks(&state.h, &resource);
         if state.sm_domain_needed {
             if let Some((logger, _)) = &self.general_logging {
                 logger.emit(
@@ -25452,7 +25452,7 @@ where
         let formals = state
             .formal_arg_vars(&source, &self.base.symbol_converter, &self.factory)
             .map_err(|e| NativeError::Diagnostic(format!("{e:?}")))?;
-        let chunks = native_quantified_chunks(heap, resource);
+        let chunks = native_quantified_split_chunks(heap, resource);
         let (definition, cache) = crate::rules::quantified_chunk_support::GeneralConsumptionExecution::summarise_general_consumed(self, state, resource, &formals, &chunks, None)?;
         self.assume_native_inverse_trigger(resource, &formals, condition, inverse, &definition)?;
         Ok(Some((definition, cache)))
@@ -25573,7 +25573,7 @@ where
         if !state.heap_dependent_triggers.contains(resource) {
             return Ok(None);
         }
-        let chunks = native_quantified_chunks(heap, resource);
+        let chunks = native_quantified_split_chunks(heap, resource);
         let summary = crate::rules::quantified_chunk_support::GeneralConsumptionExecution::summarise_general_consumed(self, state, resource, formals, &chunks, None)?;
         Ok(Some(summary))
     }
@@ -26133,6 +26133,14 @@ fn native_quantified_chunks(heap: &ListBackedHeap, resource: &ResourceKey) -> Ve
         })
         .cloned()
         .collect()
+}
+
+// HeapSupporter uses QuantifiedChunkSupporter.splitHeap, which prepends matches.
+// Keep its order in cache keys and emitted summaries.
+fn native_quantified_split_chunks(heap: &ListBackedHeap, resource: &ResourceKey) -> Vec<Chunk> {
+    let mut chunks = native_quantified_chunks(heap, resource);
+    chunks.reverse();
+    chunks
 }
 
 impl<S: Prover, PD, FD: Clone>
@@ -35147,5 +35155,35 @@ mod cancellation_cleanup_render_tests {
             "child was not reaped"
         );
         std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod quantified_field_chunk_order_tests {
+    use super::*;
+    use crate::state::chunks::{BasicChunkIdentifier, QuantifiedFieldChunk};
+    use crate::state::identifiers::Identifier;
+    use crate::state::terms::{Sort, TermOptions};
+    use ferrum_silver::ast::{ast::Metadata, program::{Field, FieldData}, r#type::Type};
+    use std::sync::Arc;
+
+    #[test]
+    fn field_access_cache_key_uses_source_split_heap_order() {
+        let f = TermFactory::new(TermOptions { use_flyweight: false, use_old_axiomatization: false, mask_heap_mode: false });
+        let make = |name: &str| {
+            let fvf = f.var(Identifier::new(name), Sort::FieldValueFunction { codomain: Box::new(Sort::Int), field_name: "f".into() }, false);
+            Chunk::QuantifiedField(QuantifiedFieldChunk::new(&f, BasicChunkIdentifier("f".into()), fvf, f.boolean(true), f.boolean(true), None, f.full_perm(), None, vec![], None, None, None, vec![], false))
+        };
+        let first = make("first");
+        let second = make("second");
+        let heap = ListBackedHeap::from_chunks([first.clone(), second.clone()]);
+        let field = Arc::new(Field::new(FieldData { name: "f".into(), typ: Type::Int, meta: Metadata::default() }));
+        let resource = ResourceKey::Field(field);
+        let actual = native_quantified_split_chunks(&heap, &resource);
+        let expected = crate::rules::quantified_chunk_support::split_quantified_heap(&heap, &crate::state::chunks::ChunkIdentifier::Basic(BasicChunkIdentifier("f".into()))).unwrap().0;
+        assert_eq!(actual, vec![second.clone(), first.clone()]);
+        assert_eq!(actual, expected);
+        // collectForPermConditions uses heap.values.collect instead of splitHeap.
+        assert_eq!(native_quantified_chunks(&heap, &resource), vec![first, second]);
     }
 }
