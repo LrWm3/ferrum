@@ -1,8 +1,10 @@
 # Fresh Prusti validation checkpoint
 
-The full matrix is **in progress**. This records the frozen inputs, completed
-builds and individually reproduced findings; it is not a completed matrix or a
-performance comparison. Historical eight-case results are not reused.
+The initial full matrix is **complete**: all 602 clients ran on each backend,
+with exact fixture coverage and hashes checked. Original-budget serial retries
+on the corrected integration are in progress. This records initial and
+incremental evidence separately; it is not a performance comparison. Historical
+eight-case results are not reused.
 
 ## Source and builds
 
@@ -85,8 +87,8 @@ failures are recorded separately. Negative cases require their expected message,
 location and notes and reject internal errors. Full coverage requires all 602
 client names on both backends, independently of the suite exit codes.
 
-The local manifest, incremental results, commands and logs are retained under
-`/tmp/ferrum-prusti-stage3`. Four suite/backend harnesses run concurrently.
+The local manifest, results, commands and logs are retained under
+`/tmp/ferrum-prusti-stage3`. Four suite/backend harnesses ran concurrently.
 Durations include host contention and are used for watchdogs, not benchmarks.
 
 ## Reproduced source-version difference
@@ -168,9 +170,9 @@ It is not a general soundness argument. The fixture was not edited to make the
 original matrix pass. Sources, settings, commands and log hashes are retained in
 `/tmp/ferrum-prusti-borrow-shift-probe/results.json`.
 
-## Completed suites while iterator verification continues
+## Completed initial matrix
 
-Seven suites have completed on both original backends. The table counts client
+All eight suites have completed on both original backends. The table counts client
 fixtures that satisfy their annotated expectation; compilation, runtime and
 specification-library controls are separate. These are Rust fixture outcomes,
 not a claim that independently produced Viper encodings are identical.
@@ -184,11 +186,23 @@ not a claim that independently produced Viper encodings are identical.
 | vec | 14 | 14 | 14 |
 | resources | 14 | 14 | 14 |
 | borrow | 109 | 88 | 90 |
+| iterator | 310 | 269 | 275 |
+| Total | 602 | 516 | 545 |
 
 The corrected native hash run satisfies all 40 client expectations and all 11
-controls, as recorded above. All controls pass in the other completed small
-suites. The borrow specification library fails on both backends in Prusti's
-encoder; the other 52 borrow controls pass on each side.
+controls, as recorded above. Each original backend ran 229 separate controls:
+209 runtime checks, eight Rust checks, two core-only checks, two trigger checks
+and eight specification-library checks. Native passed 226 and JVM passed 228.
+The original native hash library fails because of the adapter defect fixed above; the native
+iterator library times out. The borrow specification library fails on both
+backends in Prusti's encoder. Every other control passes.
+
+The original 602 pairs comprise 511 satisfying both annotations, 35 shared
+failures, one controlled stale unsupported expectation, 32 pairs with at least
+one timeout, two reproduced source-version differences, and 21 client differences
+closed by the native map correction. These categories preserve the initial
+observations. They do not replace them with later successful retries. Result
+hashes and the checked coverage are in [prusti-initial-matrix.json](prusti-initial-matrix.json).
 
 Both extern failures (`pass` and `cross_crate_pass`) report unpositioned
 `postcondition.violated:insufficient.permission` on generated indirect resources,
@@ -205,21 +219,32 @@ queued for sequential retries with the same bounds after the initial matrix.
 Per-case logs, source hashes and decisions are in `small-suite-triage.json` and
 `borrow-triage.json` under the retained matrix directory.
 
-## Findings awaiting the full matrix
+## Iterator review and pending retries
 
 The borrow spec library and several borrow clients fail in the Prusti encoder on
 both backends. Some also carry a generated verification failure without a Rust
 source position. Shared encoder failures are separate from Ferrum port defects.
 Several generic-array clients hit the verifier deadline on both backends;
 other deadline outcomes differ. Equal timeouts are not compatible proof results.
-Quiet repeats and remaining paired-case review follow the complete initial run.
-
-The final matrix counts and any confirmed port defects remain to be recorded.
+The completed iterator run contains no unexpected acceptance. Alongside the
+two source-version differences described above, reviewed shared failures include
+unsupported expiry selectors and mismatched negative diagnostics. For example,
+`mut_take_slice_some_wrong` reports both the expected assertion failure at
+`13:24` and an extra precondition failure at `4:5` on both backends. The harness
+correctly rejects the extra diagnostic. `native_for_nested_pass` produces
+byte-identical native/JVM Viper input and the same unfold permission failure;
+the pinned standalone source also rejects that exact input. The retained
+`iterator-triage.json` and `iterator-summary.json` record per-case observations,
+overlapping encoder/timeout causes and exact-input replay evidence.
 
 Investigation of the native outer-watchdog cases exposed exponential expansion
 of nested cleanup diagnostics. The [cancellation follow-up](cancellation-cleanup.md)
 records the controlled AST stack, correction and library checks. Integration
 `3f623122a` now passes both updated production builds and all 17 adapter tests.
 Its uninstrumented short-budget cancellation control returns the verifier-timeout
-diagnostic without the outer watchdog. Original-budget serial retries remain
+diagnostic without the outer watchdog. The original-budget retry coordinator
+first checked all 602 client names and source hashes per backend. It now runs
+28 iterator client attempts (16 native, 12 JVM), the native iterator library,
+and 12 borrow attempts sequentially. These use the original 180-second verifier
+and 300-second command limits, with fresh verification targets. Results remain
 pending; the initial matrix keeps its original binaries and evidence.

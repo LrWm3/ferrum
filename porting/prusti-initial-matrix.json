@@ -1,0 +1,186 @@
+{
+  "scope": "Initial matrix only; corrected suite and serial retries remain separate",
+  "stdlib_revision": "708b0063c1ebc76521e89291d4fab16e3b63bcc3",
+  "integration_revision": "13674e5e2e46eff8f6140bece1a988e0db22893e",
+  "ferrum_revision": "f686fde563e0e971d20a46eb8dd14e083a11e801",
+  "artifact_root": "/tmp/ferrum-prusti-stage3",
+  "fixture_manifest_sha256": "fad2cb83220272fff1e5d008b0949368ba226929871ae566ed958b7fb5a25b15",
+  "matrix_summary_sha256": "786c1e60e2777e43c70466976cdfbb20a6f6b9c0808d72efbe414ee2ec944512",
+  "coverage": {
+    "native": {
+      "clients": 602,
+      "suites": {
+        "extern": {
+          "clients": 78,
+          "results_sha256": "81ff2a48a8bb2b888dd2ef33335a656c37d58d7c1d2f3ec0d9e7d3df9580eda5"
+        },
+        "sequence": {
+          "clients": 15,
+          "results_sha256": "1f9e640a8c10a53f08633a2d3a71c14ec5565d94e3183f3e07bba76c94aa9862"
+        },
+        "vec": {
+          "clients": 14,
+          "results_sha256": "66bff6daa6562c5822359c0b9b7726bc484b2805e02bd8852632dc5e81987d91"
+        },
+        "collections": {
+          "clients": 22,
+          "results_sha256": "11746a63660f8d20f9c01dff164d0cdc480b29244532ea02185927b619472c08"
+        },
+        "borrow": {
+          "clients": 109,
+          "results_sha256": "4fbe230c775d025226eb96673973794015eadbdff6515d8359812285b327701c"
+        },
+        "iterator": {
+          "clients": 310,
+          "results_sha256": "99dfa91caff0142bdec9b130aff33a4d07306e393811de0cb2a1e0af25c4f7df"
+        },
+        "hash": {
+          "clients": 40,
+          "results_sha256": "dfeb974d12793cea46af3bc6fac2f4b01680d0a9587829bb3815fcf8ef7b9dcf"
+        },
+        "resources": {
+          "clients": 14,
+          "results_sha256": "c9303c5cf4c7b23aff08578f772a69deb5728ca2f50dac64b78c9e2d7954c000"
+        }
+      }
+    },
+    "jvm": {
+      "clients": 602,
+      "suites": {
+        "extern": {
+          "clients": 78,
+          "results_sha256": "274c99073294226fa9b57b369f738f03204567981df89014c92edfebed90c232"
+        },
+        "sequence": {
+          "clients": 15,
+          "results_sha256": "6c211a5fa5573b2f66fa8b715b69442113a2fa0887d88321def499a070f8ae25"
+        },
+        "vec": {
+          "clients": 14,
+          "results_sha256": "41c5260654db458459834a6e0feaa36dc671f68db0326e316fc0b3973e85bf8f"
+        },
+        "collections": {
+          "clients": 22,
+          "results_sha256": "98d3a9d712b169fa2b684cd67801cc1c967bcdc2611ca27a82ee477598a7a6c2"
+        },
+        "borrow": {
+          "clients": 109,
+          "results_sha256": "e4882c61fcebe78008d0706c98a22d4a03a0774fdbfc08ec48b535b7be5ce74f"
+        },
+        "iterator": {
+          "clients": 310,
+          "results_sha256": "fcd2d0af7aa499327b8084cdd4121d3c93b6bb9c9e8be9cf26a47f6e321effba"
+        },
+        "hash": {
+          "clients": 40,
+          "results_sha256": "e104a7b85f056c45e388066c44901db6208a88f8927a3297cff07d39030f1c4d"
+        },
+        "resources": {
+          "clients": 14,
+          "results_sha256": "2237740ecd97b77747307628e5d8e23aff9014229ac16f5b8fcefd1ccebbb0cc"
+        }
+      }
+    }
+  },
+  "initial_pair_categories": {
+    "both_expectations_satisfied": 511,
+    "shared_failure_review": 35,
+    "shared_unexpected_success_review": 1,
+    "timeout_inconclusive": 32,
+    "confirmed_source_version_difference": 2,
+    "different_fixture_outcome_review": 21
+  },
+  "client_outcomes": {
+    "native": {
+      "expectation_satisfied": 516,
+      "internal_error": 30,
+      "diagnostic_or_process_difference": 3,
+      "unexpected_success": 1,
+      "verifier_timeout": 20,
+      "unsupported_feature": 29,
+      "harness_timeout": 3
+    },
+    "jvm": {
+      "expectation_satisfied": 545,
+      "internal_error": 7,
+      "diagnostic_or_process_difference": 4,
+      "unexpected_success": 1,
+      "verifier_timeout": 17,
+      "unsupported_feature": 28
+    }
+  },
+  "controls": {
+    "native/extern": {
+      "completed": 19,
+      "failed": []
+    },
+    "jvm/extern": {
+      "completed": 19,
+      "failed": []
+    },
+    "native/sequence": {
+      "completed": 7,
+      "failed": []
+    },
+    "jvm/sequence": {
+      "completed": 7,
+      "failed": []
+    },
+    "native/vec": {
+      "completed": 7,
+      "failed": []
+    },
+    "jvm/vec": {
+      "completed": 7,
+      "failed": []
+    },
+    "native/collections": {
+      "completed": 5,
+      "failed": []
+    },
+    "jvm/collections": {
+      "completed": 5,
+      "failed": []
+    },
+    "native/borrow": {
+      "completed": 53,
+      "failed": [
+        "spec-library"
+      ]
+    },
+    "jvm/borrow": {
+      "completed": 53,
+      "failed": [
+        "spec-library"
+      ]
+    },
+    "native/iterator": {
+      "completed": 118,
+      "failed": [
+        "spec-library"
+      ]
+    },
+    "jvm/iterator": {
+      "completed": 118,
+      "failed": []
+    },
+    "native/hash": {
+      "completed": 11,
+      "failed": [
+        "spec-library"
+      ]
+    },
+    "jvm/hash": {
+      "completed": 11,
+      "failed": []
+    },
+    "native/resources": {
+      "completed": 9,
+      "failed": []
+    },
+    "jvm/resources": {
+      "completed": 9,
+      "failed": []
+    }
+  }
+}

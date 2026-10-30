@@ -123,10 +123,14 @@ Both locked nightly-2026-08-15 native-only and dual native/JVM builds pass.
 The current matrix contains 602 client binaries across eight stdlib suites,
 plus spec-library, Rust/runtime and trigger controls. Explicit harness backend
 selection is required because inherited `PRUSTI_*` variables are cleared.
-Verification results remain pending; the earlier eight-case matrix is not reused.
+The complete initial matrix has 602 clients on each backend, with fixture hashes
+and coverage checked: 516 native and 545 JVM annotations match. A corrected map
+adapter rerun closes 21 native client differences. Original-budget sequential
+timeout retries on the updated cleanup integration remain in progress; stage 3
+is not yet complete. The earlier eight-case matrix is not reused.
 The [fresh Prusti validation record](prusti-validation.md) documents the frozen
-builds, 602-client inventory, effective settings and reproduced source-version
-differences while the full matrix runs.
+builds, 602-client inventory, initial results, effective settings and reproduced
+source-version differences separately from incremental corrections.
 
 ## 4. Broader compatibility testing — pending
 
