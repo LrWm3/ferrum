@@ -41,6 +41,118 @@ pub struct CollectionAxiomatizationSources {
     pub maps: Option<std::path::PathBuf>,
 }
 
+// Ground-type closure uses hash sets for membership. Never let their iteration
+// order choose the order of SMT declarations or axioms: that changes Z3's search.
+// Keep this key structural (including sorted substitutions), rather than using
+// Debug on types containing hash maps or a possibly ambiguous printed sort name.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum PreambleTypeKey {
+    Atomic(&'static str),
+    Variable(String),
+    Collection(&'static str, Vec<PreambleTypeKey>),
+    Domain(String, Vec<(String, PreambleTypeKey)>),
+    Backend(String, Vec<(String, String)>),
+    Snap,
+}
+
+fn preamble_type_key(typ: &Type) -> Result<PreambleTypeKey, SymbolConversionError> {
+    use PreambleTypeKey::*;
+    Ok(match typ {
+        Type::Int => Atomic("Int"),
+        Type::Bool => Atomic("Bool"),
+        Type::Ref => Atomic("Ref"),
+        Type::Perm => Atomic("Perm"),
+        Type::InternalType => Atomic("InternalType"),
+        Type::Wand => Atomic("Wand"),
+        Type::Var(var) => Variable(var.name.clone()),
+        Type::Seq(t) => Collection("Seq", vec![preamble_type_key(t)?]),
+        Type::Set(t) => Collection("Set", vec![preamble_type_key(t)?]),
+        Type::Multiset(t) => Collection("Multiset", vec![preamble_type_key(t)?]),
+        Type::Map(pair) => Collection(
+            "Map",
+            vec![preamble_type_key(&pair.0)?, preamble_type_key(&pair.1)?],
+        ),
+        Type::Domain(domain) => {
+            let mut arguments = domain
+                .partial_type_vars
+                .iter()
+                .map(|(var, typ)| Ok((var.name.clone(), preamble_type_key(typ)?)))
+                .collect::<Result<Vec<_>, SymbolConversionError>>()?;
+            arguments.sort();
+            Domain(domain.domain_name.clone(), arguments)
+        }
+        Type::Backend(backend) => {
+            let mut interpretations = backend
+                .interpretations
+                .iter()
+                .map(|(name, value)| (name.clone(), value.clone()))
+                .collect::<Vec<_>>();
+            interpretations.sort();
+            Backend(backend.viper_name.clone(), interpretations)
+        }
+        Type::Extension(t) if t.as_any().is::<SnapEmbedding>() => Snap,
+        _ => return Err(SymbolConversionError::UnexpectedType),
+    })
+}
+
+fn collection_depth(typ: &Type) -> usize {
+    match typ {
+        Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => 1 + collection_depth(t),
+        Type::Map(pair) => 1 + collection_depth(&pair.0).max(collection_depth(&pair.1)),
+        _ => 0,
+    }
+}
+
+fn ordered_preamble_types(
+    types: impl IntoIterator<Item = Type>,
+) -> Result<Vec<Type>, NativePreambleError<std::convert::Infallible>> {
+    let mut keyed = types
+        .into_iter()
+        .map(|typ| {
+            let key = preamble_type_key(&typ).map_err(NativePreambleError::Symbol)?;
+            Ok(((collection_depth(&typ), key), typ))
+        })
+        .collect::<Result<Vec<_>, NativePreambleError<std::convert::Infallible>>>()?;
+    keyed.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(keyed.into_iter().map(|(_, typ)| typ).collect())
+}
+
+fn ordered_domain_instances(
+    program: &Program,
+    ground: &std::collections::HashSet<Type>,
+) -> Result<
+    Vec<ferrum_silver::ast::r#type::DomainType>,
+    NativePreambleError<std::convert::Infallible>,
+> {
+    let instances = ordered_preamble_types(
+        ground
+            .iter()
+            .filter(|typ| matches!(typ, Type::Domain(_)))
+            .cloned(),
+    )?;
+    let mut instances = instances
+        .into_iter()
+        .map(|typ| match typ {
+            Type::Domain(domain) => domain,
+            _ => unreachable!("filtered domain instances"),
+        })
+        .collect::<Vec<_>>();
+    // Preserve declaration order across domains, with a structural tie-breaker
+    // for the concrete instantiations of each generic domain.
+    let declaration_order = program
+        .domains
+        .iter()
+        .enumerate()
+        .map(|(index, domain)| (domain.name.as_str(), index))
+        .collect::<std::collections::HashMap<_, _>>();
+    instances.sort_by_key(|instance| {
+        declaration_order
+            .get(instance.domain_name.as_str())
+            .copied()
+    });
+    Ok(instances)
+}
+
 fn parse_collection_source(
     bundled: &'static str,
     custom: Option<&std::path::Path>,
@@ -487,15 +599,9 @@ fn analyze_domain_slice(
         }
     }
     let mut result = NativePreambleData::default();
+    let instances = ordered_domain_instances(program, &ground)?;
     for domain in &program.domains {
-        let instances = ground
-            .iter()
-            .filter_map(|t| match t {
-                Type::Domain(d) if d.domain_name == domain.name => Some(d),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        for instance in instances {
+        for instance in instances.iter().filter(|d| d.domain_name == domain.name) {
             let substitution = instance.type_vars_map();
             if substitution
                 .values()
@@ -619,6 +725,113 @@ mod tests {
         },
         r#type::DomainType,
     };
+
+    #[test]
+    fn fresh_analyses_emit_identical_domain_and_collection_preambles() {
+        // Multiple instances at each nesting depth exercise hash-order ties in
+        // every contributor; two parameters also exercise substitution maps.
+        let source = r#"
+domain Z[T, U] {
+  function z(x: T, y: U): T
+  axiom { forall x: T, y: U :: { z(x, y) } z(x, y) == x }
+}
+domain A {
+  unique function a(): A
+  unique function b(): A
+}
+method m(z1: Z[Int, Bool], z2: Z[Bool, Int], argA: A,
+         sq1: Seq[Int], sq2: Seq[Bool], sq3: Seq[Seq[Int]],
+         st1: Set[Int], st2: Set[Bool], st3: Set[Set[Int]],
+         ms1: Multiset[Int], ms2: Multiset[Bool], ms3: Multiset[Multiset[Int]],
+         mp1: Map[Int, Bool], mp2: Map[Bool, Int], mp3: Map[Int, Map[Bool, Int]],
+         mixed: Seq[Map[Int, Set[Bool]]]) {}
+"#;
+        let mut expected = None;
+        for _ in 0..16 {
+            let parsed =
+                ferrum_silver::parser::fast_parser::parse_program(source, "order.vpr").unwrap();
+            ferrum_silver::parser::parse_ast::init_properties(parsed.node()).unwrap();
+            assert!(
+                ferrum_silver::parser::resolver::NameAnalyser::default()
+                    .run(parsed.node())
+                    .unwrap()
+            );
+            ferrum_silver::parser::resolver::check_program_core(&parsed, &mut |_, _| {}).unwrap();
+            let program =
+                ferrum_silver::parser::translator::translate_program_core(&parsed).unwrap();
+            let factory = TermFactory::new(TermOptions {
+                use_flyweight: false,
+                use_old_axiomatization: false,
+                mask_heap_mode: false,
+            });
+            let converter = DefaultSymbolConverter::new(factory.clone(), false);
+            let preamble = analyze_general(&program, &converter, &factory, false, 1).unwrap();
+            let domain_sorts = preamble
+                .domains
+                .sorts()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>();
+            assert_eq!(domain_sorts, ["Z[Bool, Int]", "Z[Int, Bool]", "A"]);
+
+            let restricted = program.copy_with(|data| {
+                data.domains.truncate(1);
+                data.methods[0] =
+                    data.methods[0].copy_with(|method| method.formal_args.truncate(2));
+            });
+            let restricted = analyze_generic_axioms(&restricted, &converter, &factory).unwrap();
+            assert_eq!(
+                restricted
+                    .sorts()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                domain_sorts[..2]
+            );
+
+            let mut smt = crate::decider::term_to_smt_lib2_converter::TermToSmtLib2Converter::new(
+                factory.clone(),
+            );
+            let mut commands = Vec::new();
+            for sort in preamble.sorts() {
+                commands.push(
+                    smt.convert_declaration(&factory.sort_decl(sort.clone()))
+                        .unwrap(),
+                );
+            }
+            let collections = &preamble.collections;
+            for functions in [
+                &collections.sets.contributor.functions,
+                &collections.multisets.contributor.functions,
+                &collections.sequences.contributor.functions,
+                &collections.maps.contributor.functions,
+                &preamble.domains.domains.functions,
+            ] {
+                for function in functions {
+                    commands.push(
+                        smt.convert_declaration(&factory.function_decl(function.clone()))
+                            .unwrap(),
+                    );
+                }
+            }
+            for axioms in [
+                &preamble.domains.domains.uniqueness_assumptions(&factory),
+                &collections.sequences.contributor.axioms,
+                &collections.sets.contributor.axioms,
+                &collections.multisets.contributor.axioms,
+                &collections.maps.contributor.axioms,
+                &preamble.domains.domains.axioms,
+            ] {
+                for axiom in axioms {
+                    commands.push(smt.convert_term(axiom).unwrap());
+                }
+            }
+            if let Some(expected) = &expected {
+                assert_eq!(&commands, expected, "fresh hash seeds changed SMT emission");
+            } else {
+                expected = Some(commands);
+            }
+        }
+    }
+
     #[test]
     fn domain_axiom_function_call_uses_precondition_symbol_and_rejects_preconditions() {
         use ferrum_silver::ast::expression::{Exp, ExpKind};
@@ -1085,15 +1298,7 @@ fn analyze_sequences_inner(
     let builtin_converter = converter
         .clone()
         .with_builtin_domain(sequences::SOURCE_DOMAIN_NAME, BuiltinDomainSort::Sequence);
-    let mut instances = instances.into_iter().collect::<Vec<_>>();
-    fn nesting(typ: &Type) -> usize {
-        match typ {
-            Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => 1 + nesting(t),
-            _ => 0,
-        }
-    }
-    instances.sort_by_key(nesting);
-    for element in instances {
+    for element in ordered_preamble_types(instances)? {
         let substitution = [(source_domain.type_vars[0].clone(), element.clone())]
             .into_iter()
             .collect();
@@ -1451,15 +1656,7 @@ fn analyze_sets_inner(
                 .then_some(crate::state::terms::Sort::Snap)
         }))
         .with_builtin_domain(sets::SOURCE_DOMAIN_NAME, BuiltinDomainSort::Set);
-    let mut instances = instances.into_iter().collect::<Vec<_>>();
-    fn nesting(typ: &Type) -> usize {
-        match typ {
-            Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => 1 + nesting(t),
-            _ => 0,
-        }
-    }
-    instances.sort_by_key(nesting);
-    for element in instances {
+    for element in ordered_preamble_types(instances)? {
         let substitution = [(source_domain.type_vars[0].clone(), element.clone())]
             .into_iter()
             .collect();
@@ -1683,7 +1880,16 @@ fn analyze_maps_inner(
     let builtin_converter = converter
         .clone()
         .with_builtin_domain(maps::SOURCE_DOMAIN_NAME, BuiltinDomainSort::Map);
-    for (key, value) in instances {
+    let instances = ordered_preamble_types(
+        instances
+            .into_iter()
+            .map(|pair| Type::Map(std::sync::Arc::new(pair))),
+    )?;
+    for instance in instances {
+        let Type::Map(pair) = instance else {
+            unreachable!("map instances")
+        };
+        let (key, value) = (&pair.0, &pair.1);
         let substitution = [
             (source_domain.type_vars[0].clone(), key.clone()),
             (source_domain.type_vars[1].clone(), value.clone()),
@@ -2152,19 +2358,13 @@ pub fn analyze_general_with_sources(
         )?,
     };
     let mut domains = NativePreambleData::default();
-    for instance in ground.iter().filter_map(|t| {
-        if let Type::Domain(d) = t {
-            Some(d)
-        } else {
-            None
-        }
-    }) {
+    for instance in ordered_domain_instances(program, &ground)? {
         domains.domains.sorts = domains.domains.sorts.incl(
             converter
                 .to_sort(&Type::Domain(instance.clone()))
                 .map_err(NativePreambleError::Symbol)?,
         );
-        let (functions, axioms) = get_instance_members(program, instance, &ground)
+        let (functions, axioms) = get_instance_members(program, &instance, &ground)
             .map_err(NativePreambleError::GroundTypes)?;
         for function in functions {
             if function.interpretation.is_some() {
@@ -2327,15 +2527,7 @@ fn analyze_multisets_inner(
     let builtin_converter = converter
         .clone()
         .with_builtin_domain(multisets::SOURCE_DOMAIN_NAME, BuiltinDomainSort::Multiset);
-    let mut instances = instances.into_iter().collect::<Vec<_>>();
-    fn nesting(typ: &Type) -> usize {
-        match typ {
-            Type::Seq(t) | Type::Set(t) | Type::Multiset(t) => 1 + nesting(t),
-            _ => 0,
-        }
-    }
-    instances.sort_by_key(nesting);
-    for element in instances {
+    for element in ordered_preamble_types(instances)? {
         let substitution = [(source_domain.type_vars[0].clone(), element.clone())]
             .into_iter()
             .collect();
