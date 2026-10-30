@@ -3227,9 +3227,10 @@ pub fn check_statement_core(
                     check_program_expression(&exp, Some(&wand), &mut *warn)?;
                 }
                 _ => {
-                    return Err(TypeCheckError::Unsupported(
-                        "havoc statement must take a field access, predicate, or wand",
-                    ));
+                    return Err(TypeCheckError::Positioned {
+                        node: statement.node().clone(),
+                        message: "Havoc statement must take a field access, predicate, or wand",
+                    });
                 }
             }
         }

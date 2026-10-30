@@ -1253,6 +1253,18 @@ mod tests {
         phases.prepare_verification(program).unwrap();
     }
     #[test]
+    fn invalid_quasihavoc_target_reports_source_type_error_at_statement() {
+        let mut phases = SilFrontendPhases::new(
+            PathBuf::from("havoc_impl4.vpr"), SilverPluginManager::new(vec![]));
+        let parsed = phases.parse("field f: Int\n\n// Not allowed to chain implications. The parser\n// will mis-interpret this.\n\nmethod foo(x: Ref, b1: Bool, b2: Bool, b3: Bool)\n{\n    //:: ExpectedOutput(typechecker.error)\n    quasihavoc b1 ==> b2 ==> b3 ==> x.f\n}\n").unwrap();
+        let errors = phases.analyze(parsed).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].full_id(), "typechecker.error");
+        assert!(errors[0].readable_message().unwrap().contains(
+            "Havoc statement must take a field access, predicate, or wand"));
+        assert!(errors[0].position().to_string().contains("@9.5--9.40"), "{}", errors[0].position());
+    }
+    #[test]
     fn quasihavoc_resource_reaches_typed_ast() {
         let config = crate::frontend::sil_front_end_config::SilFrontendConfig::new("test");
         let mut phases = SilFrontendPhases::new(
