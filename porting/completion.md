@@ -176,8 +176,12 @@ measurements must distinguish that option from Prusti result caching.
 
 ## 5. Performance measurement — in progress
 
-The compatibility review is complete. Measurement tools are being validated;
-no performance trial or speed claim has been made at this checkpoint.
+The compatibility review and the first performance experiment are complete.
+The [parsed-Viper backend run](performance-backend.md) passed all 480 trials and
+its independent audit, with no censored or invalid observations. Direct Rust/service
+measurements and separate phase/solver profiling remain in progress. The fixed
+[protocol](performance-protocol.md) and [readiness checks](performance-validation.md)
+record the workload, artifact, cache and measurement constraints.
 
 Benchmark representative actual Prusti stdlib workloads with
 branch parallelism disabled/enabled and different worker counts. Freeze the
