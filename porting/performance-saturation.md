@@ -1,5 +1,8 @@
 # Comparable saturation settings on Prusti-generated workloads
 
+The [short follow-up](performance-saturation-short.md) retests current versus
+older weights after deterministic emission was fixed, using four native runs.
+
 The full older weights are a promising candidate on the nested native case,
 but this experiment does not establish a broadly faster default. Its median
 paired native capture-wall ratio was **0.910** versus the newer weights: about
