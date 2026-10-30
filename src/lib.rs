@@ -3513,6 +3513,61 @@ mod public_logging_tests {
         }).unwrap().join().unwrap();
     }
 
+    #[cfg(feature = "native-z3")]
+    #[test]
+    fn linked_invalid_patterns_in_quantified_predicate_recover() {
+        std::thread::Builder::new()
+            .stack_size(VERIFICATION_STACK_SIZE)
+            .spawn(|| {
+                let mut phases = SilFrontendPhases::new(
+                    "array_exhale.vpr".into(),
+                    silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]),
+                );
+                let parsed = phases
+                    .parse(include_str!("../tests/fixtures/linked_array_exhale.vpr"))
+                    .unwrap();
+                let analyzed = phases.analyze(parsed).unwrap();
+                let program = phases.translate(analyzed).unwrap();
+                let config = Config::parse(&[
+                    "--ignoreFile".into(),
+                    "--prover".into(),
+                    "Z3-API".into(),
+                    "--numberOfParallelVerifiers".into(),
+                    "1".into(),
+                    "array_exhale.vpr".into(),
+                ])
+                .unwrap();
+                let mut session = Session::new(config).unwrap();
+                let result = session
+                    .verify(&program, &[])
+                    .expect("source cleans invalid patterns and continues verification");
+                let VerificationResult::Failure(errors) = result else {
+                    panic!("expected two postcondition failures")
+                };
+                let ids: Vec<_> = errors
+                    .iter()
+                    .map(|e| (e.full_id().to_string(), e.position().to_string()))
+                    .collect();
+                assert_eq!(
+                    ids,
+                    vec![
+                        (
+                            "postcondition.violated:insufficient.permission".into(),
+                            "array_exhale.vpr@50.12--50.24".into()
+                        ),
+                        (
+                            "postcondition.violated:insufficient.permission".into(),
+                            "array_exhale.vpr@65.12--65.59".into()
+                        )
+                    ]
+                );
+                session.stop().unwrap();
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
     #[test]
     #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
     fn public_trace_preserves_postcondition_axioms_across_resets_and_phase_two_failure() {

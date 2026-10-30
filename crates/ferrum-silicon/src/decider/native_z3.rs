@@ -1398,93 +1398,35 @@ impl NativeZ3Solver for LinkedZ3 {
     }
 }
 
-/// Source API retry removes entire trigger groups containing a bare variable or
-/// forbidden operator. Plus and minus are explicitly allowed by the advanced rule.
+/// Match the pinned API's retry cleaner, including its total partial function.
+///
+/// Upstream calls `pattern.shallowCollect { case t => isForbiddenInTrigger(t) }`
+/// and tests `nonEmpty`. The case matches every pattern root, even when the
+/// collected Boolean is false, so every nonempty trigger group is removed.
+/// Empty groups survive the `exists` test. This is intentionally the observed
+/// source behavior, not a judgment about which patterns are valid.
 fn clean_invalid_triggers(
     factory: &crate::state::terms::TermFactory,
     term: &crate::state::terms::Term,
 ) -> Result<crate::state::terms::Term, LinkedProverError> {
     use crate::state::terms::TermKind;
-    fn forbidden(t: &crate::state::terms::Term) -> Result<bool, LinkedProverError> {
-        if matches!(
-            t.kind(),
-            TermKind::Times(..)
-                | TermKind::Div(..)
-                | TermKind::Mod(..)
-                | TermKind::Not(..)
-                | TermKind::Or(..)
-                | TermKind::And(..)
-                | TermKind::Implies(..)
-                | TermKind::Iff(..)
-                | TermKind::Ite(..)
-                | TermKind::BuiltinEquals(..)
-                | TermKind::Less(..)
-                | TermKind::AtMost(..)
-                | TermKind::Greater(..)
-                | TermKind::AtLeast(..)
-                | TermKind::PermTimes(..)
-                | TermKind::IntPermTimes(..)
-                | TermKind::PermIntDiv(..)
-                | TermKind::PermPermDiv(..)
-                | TermKind::PermPlus(..)
-                | TermKind::PermMinus(..)
-                | TermKind::PermLess(..)
-                | TermKind::PermAtMost(..)
-                | TermKind::Distinct(..)
-        ) {
-            return Ok(true);
-        }
-        for child in t
-            .subterms()
-            .map_err(|_| LinkedProverError::Unsupported("trigger subterm traversal"))?
-        {
-            if forbidden(&child)? {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-    let failure = std::cell::RefCell::new(None);
-    let result = factory
+    factory
         .transform_preorder_descending(term, &|current| {
             let TermKind::Quantification { triggers, .. } = current.kind() else {
                 return None;
             };
-            let mut kept = Vec::new();
-            for trigger in triggers {
-                let mut bad = false;
-                for pattern in &trigger.terms {
-                    if matches!(pattern.kind(), TermKind::Var(_)) {
-                        bad = true;
-                        break;
-                    }
-                    match forbidden(pattern) {
-                        Ok(true) => {
-                            bad = true;
-                            break;
-                        }
-                        Ok(false) => {}
-                        Err(e) => {
-                            *failure.borrow_mut() = Some(e);
-                            return None;
-                        }
-                    }
-                }
-                if !bad {
-                    kept.push(trigger.clone());
-                }
-            }
+            let kept: Vec<_> = triggers
+                .iter()
+                .filter(|trigger| trigger.terms.is_empty())
+                .cloned()
+                .collect();
             if kept.len() == triggers.len() {
                 None
             } else {
                 factory.quantification_with_raw_triggers(current, kept)
             }
         })
-        .map_err(|_| LinkedProverError::Unsupported("trigger term reconstruction"))?;
-    if let Some(error) = failure.into_inner() {
-        return Err(error);
-    }
-    Ok(result)
+        .map_err(|_| LinkedProverError::Unsupported("trigger term reconstruction"))
 }
 
 /// Configuration for the source-shaped linked prover adapter. Unsupported source
@@ -2502,6 +2444,52 @@ mod tests {
             ValueEntry::Application { .. } | ValueEntry::Constant(_)
         ));
     }
+    #[test]
+    fn source_retry_cleaner_removes_valid_and_invalid_nonempty_groups() {
+        use crate::state::{
+            identifiers::Identifier,
+            terms::{
+                ApplicableData, ApplicableKind, Quantifier, Sort, TermFactory, TermKind,
+                TermOptions, Trigger,
+            },
+        };
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let x = factory.var(Identifier::new("x"), Sort::Int, false);
+        let fun = factory.applicable(ApplicableData {
+            kind: ApplicableKind::Fun,
+            id: Identifier::new("f"),
+            arg_sorts: vec![Sort::Int],
+            result_sort: Sort::Int,
+        });
+        let valid = factory.app(fun, vec![x.clone()]);
+        let q = factory.quantification_without_triggers(
+            Quantifier::Forall,
+            vec![x.clone()],
+            factory.greater(x.clone(), factory.int_literal(0)),
+            "source-clean".into(),
+            false,
+            None,
+        );
+        let q = factory
+            .quantification_with_raw_triggers(
+                &q,
+                vec![
+                    Trigger { terms: vec![valid] },
+                    Trigger { terms: vec![x] },
+                    Trigger { terms: vec![] },
+                ],
+            )
+            .unwrap();
+        let cleaned = clean_invalid_triggers(&factory, &q).unwrap();
+        assert!(
+            matches!(cleaned.kind(), TermKind::Quantification { triggers, .. } if triggers.len() == 1 && triggers[0].terms.is_empty())
+        );
+    }
+
     #[test]
     fn linked_prover_retries_invalid_bare_variable_trigger_without_losing_assumption() {
         use crate::interfaces::decider::prover::{Prover, ProverLike};
