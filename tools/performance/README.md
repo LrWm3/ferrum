@@ -38,6 +38,15 @@ Set `FERRUM_BENCH_INTERNAL_CACHES=on` for the primary experiment. `off` inserts
 compatibility. Other values and caller-supplied cache flags are rejected.
 Prusti's `PRUSTI_ENABLE_CACHE=false` disables its outer result cache only.
 
+For solver-lifecycle experiments, Ferrum accepts `--separateMethodSolver`.
+With `--numberOfParallelVerifiers=1 --parallelizeBranches=false`, this selects
+the existing worker-pool path: functions and predicates use the owner solver,
+and methods share one separate worker solver within each verification request.
+It does not start a new solver for each method. The default is false, preserving
+the single-context path; multiple workers or branch parallelism already select
+the pool regardless of this switch. This is a Ferrum-only experimental option,
+so do not pass it to the JVM comparison driver.
+
 ## Run paired backend measurements
 
 ```sh

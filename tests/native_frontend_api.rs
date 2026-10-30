@@ -344,3 +344,50 @@ fn public_parallel_branches_session_reuses_worker_pool() {
         }
     }).unwrap().join().unwrap();
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3 or FERRUM_TEST_PROVER=Z3-API"]
+fn separate_method_solver_preserves_function_axioms_and_session_reuse() {
+    std::thread::Builder::new()
+        .stack_size(VERIFICATION_STACK_SIZE)
+        .spawn(|| {
+            let prover = std::env::var("FERRUM_TEST_PROVER").unwrap_or_else(|_| "Z3".into());
+            let programs = [
+                ("function f(x: Int): Int ensures result == x + 1 { x + 1 } method m(x: Int) { assert f(x) > x; }", true),
+                ("function f(x: Int): Int ensures result == x + 1 { x + 1 } method m(x: Int) { assert f(x) == x; }", false),
+                ("function f(x: Int): Int ensures result == x + 2 { x + 1 } method m() { assert true; }", false),
+                ("function f(x: Int): Int ensures result == x + 2 { x + 2 } method m(x: Int) { assert f(x) == x + 2; }", true),
+                ("method m() { assert false; }", false),
+                ("method m() { assert true; }", true),
+            ].map(|(source, success)| (parsed_program(source), success));
+            let mut outcomes = Vec::new();
+            for separate in [false, true] {
+                let mut args = vec![
+                    "--prover".into(), prover.clone(), "--disableDefaultPlugins".into(),
+                    "--numberOfParallelVerifiers=1".into(), "--parallelizeBranches=false".into(),
+                    format!("--separateMethodSolver={separate}"),
+                ];
+                if prover == "Z3" {
+                    args.extend(["--z3Exe".into(), std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3")]);
+                }
+                let mut api = NativeFrontendApi::new(&args, Arc::new(NoopReporter), false).unwrap();
+                let mut errors = Vec::new();
+                for (program, success) in &programs {
+                    let result = api.verify(program).unwrap();
+                    assert_eq!(matches!(result, VerificationResult::Success), *success);
+                    errors.push(match result {
+                        VerificationResult::Success => Vec::new(),
+                        VerificationResult::Failure(errors) => errors.iter().map(|error| (error.full_id(), error.position().to_string())).collect(),
+                    });
+                }
+                api.stop().unwrap();
+                api.stop().unwrap();
+                assert!(api.verify(&programs[0].0).is_err());
+                outcomes.push(errors);
+            }
+            assert_eq!(outcomes[0], outcomes[1]);
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}

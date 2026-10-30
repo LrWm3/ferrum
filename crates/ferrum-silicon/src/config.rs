@@ -153,6 +153,9 @@ pub struct Config {
     pub simplify_on_consume: bool,
     pub unsafe_wildcard_optimization: bool,
     pub parallelize_branches: bool,
+    /// Ferrum experiment: use the method-worker solver even with one worker and
+    /// branch parallelism disabled. Methods share that worker within a request.
+    pub separate_method_solver: bool,
     pub generate_block_messages: bool,
     pub print_translated_program: bool,
     pub print_method_cf_gs: bool,
@@ -222,6 +225,7 @@ impl Default for Config {
             simplify_on_consume: false,
             unsafe_wildcard_optimization: false,
             parallelize_branches: false,
+            separate_method_solver: false,
             generate_block_messages: false,
             print_translated_program: false,
             print_method_cf_gs: false,
@@ -358,6 +362,7 @@ impl Config {
                     config.unsafe_wildcard_optimization = parse_flag(inline, name)?
                 }
                 "parallelizeBranches" => config.parallelize_branches = parse_flag(inline, name)?,
+                "separateMethodSolver" => config.separate_method_solver = parse_flag(inline, name)?,
                 "generateBlockMessages" => {
                     config.generate_block_messages = parse_flag(inline, name)?
                 }
@@ -835,6 +840,21 @@ mod tests {
                 .map(|s| (*s).to_owned())
                 .collect::<Vec<_>>(),
         )
+    }
+    #[test]
+    fn separate_method_solver_is_opt_in_and_independent_of_branch_parallelism() {
+        assert!(!parse(&[]).unwrap().separate_method_solver);
+        let config =
+            parse(&["--separateMethodSolver", "--numberOfParallelVerifiers", "1"]).unwrap();
+        assert!(config.separate_method_solver);
+        assert!(!config.parallelize_branches);
+        assert_eq!(config.number_of_parallel_verifiers, 1);
+        assert!(
+            !parse(&["--separateMethodSolver=false"])
+                .unwrap()
+                .separate_method_solver
+        );
+        assert!(parse(&["--separateMethodSolver=invalid"]).is_err());
     }
     #[test]
     fn global_declaration_guard_only_rejects_disabling_the_active_stdio_option() {

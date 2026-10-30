@@ -1396,6 +1396,10 @@ impl SiliconBackend for NativeBackend {
         } else {
             1
         };
+        // The opt-in path keeps methods out of the function-phase solver without
+        // requiring additional method workers or parallel branch execution.
+        let use_worker_pool =
+            count > 1 || config.parallelize_branches || config.separate_method_solver;
         if config.prover == "Z3-API" {
             #[cfg(not(feature = "native-z3"))]
             return Err(FerrumError::Configuration(
@@ -1412,7 +1416,7 @@ impl SiliconBackend for NativeBackend {
                     self.reporter.clone(),
                     self.general_logger.clone(),
                 )?;
-                self.context = Some(if count > 1 || config.parallelize_branches {
+                self.context = Some(if use_worker_pool {
                     OwnedContext::ParallelApi(Box::new(ParallelContext::start(
                         prover,
                         identifiers,
@@ -1457,7 +1461,7 @@ impl SiliconBackend for NativeBackend {
             self.reporter.clone(),
             self.general_logger.clone(),
         )?;
-        self.context = Some(if count > 1 || config.parallelize_branches {
+        self.context = Some(if use_worker_pool {
             OwnedContext::ParallelStdio(Box::new(ParallelContext::start(
                 prover,
                 identifiers,
