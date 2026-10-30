@@ -1246,3 +1246,58 @@ fn deep_statement_execution_keeps_success_and_failure_obligations() {
         assert!(stderr.contains("x == 1201"), "{stderr}");
     }
 }
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn adt_signature_errors_collect_positions_across_members() {
+    let options = ["--plugin", "viper.silver.plugin.standard.adt.AdtPlugin"];
+    let output = run(include_str!("fixtures/adt_declarations_7.vpr"), &options);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("undeclared adt field `Leaf3`, expected field in containing adt"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("@8.22--8.27"), "{stderr}");
+    assert!(
+        stderr.contains("undeclared adt field `hello`, expected field in containing adt"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("@16.37--16.42"), "{stderr}");
+    let output = run(
+        include_str!("fixtures/adt_variable_declarations_2.vpr"),
+        &options,
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert_eq!(
+        stderr.matches("wrong number of type arguments").count(),
+        3,
+        "{stderr}"
+    );
+    for pos in ["@9.16--9.30", "@12.16--12.20", "@25.75--25.92"] {
+        assert!(stderr.contains(pos), "{stderr}");
+    }
+}
+
+#[test]
+#[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+fn adt_discriminator_shadow_reports_constructor_and_shadow_positions() {
+    let options = ["--plugin", "viper.silver.plugin.standard.adt.AdtPlugin"];
+    for (source, shadow) in [
+        (include_str!("fixtures/adt_discriminators_5.vpr"), "@8.7"),
+        (include_str!("fixtures/adt_discriminators_6.vpr"), "@7.10"),
+    ] {
+        let output = run(source, &options);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{stderr}");
+        assert!(
+            stderr.contains("corresponding adt discriminator identifier `isNil`"),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("@3.5--3.8") && stderr.contains(shadow),
+            "{stderr}"
+        );
+    }
+}

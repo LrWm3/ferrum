@@ -2208,16 +2208,20 @@ fn check_supported_type(typ: &PTypeHandle) -> Result<(), TypeCheckError> {
                 });
                 return Err(TypeCheckError::Mismatches(errors));
             }
+            let mut parameter_presence_mismatch = false;
             let (resolved, arity) = match &declarations[0].read().expect("poisoned parse node").kind
             {
                 PNodeKind::TypeVarDecl { .. } => (PDomainTypeKind::TypeVar, 0),
                 PNodeKind::Member(PMember {
                     kind: PMemberKind::Domain { type_vars, .. },
                     ..
-                }) => (
-                    PDomainTypeKind::Domain,
-                    type_vars.as_ref().map_or(0, |v| v.inner().len()),
-                ),
+                }) => {
+                    parameter_presence_mismatch = type_vars.is_some() != args.is_some();
+                    (
+                        PDomainTypeKind::Domain,
+                        type_vars.as_ref().map_or(0, |v| v.inner().len()),
+                    )
+                }
                 PNodeKind::Member(PMember {
                     kind: PMemberKind::Extension(extension),
                     ..
@@ -2226,15 +2230,16 @@ fn check_supported_type(typ: &PTypeHandle) -> Result<(), TypeCheckError> {
                         .as_any()
                         .downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdt>()
                         .ok_or(TypeCheckError::Unsupported("ADT declaration"))?;
-                    if adt.type_vars_present != args.is_some() {
-                        return Err(TypeCheckError::Unsupported("ADT type argument list"));
-                    }
+                    parameter_presence_mismatch = adt.type_vars_present != args.is_some();
                     (PDomainTypeKind::Adt, adt.type_vars.len())
                 }
                 _ => unreachable!(),
             };
-            if arity != arguments.len() {
-                return Err(TypeCheckError::Unsupported("domain type argument count"));
+            if parameter_presence_mismatch || arity != arguments.len() {
+                errors.push(TypeCheckError::Positioned {
+                    node: typ.node().clone(),
+                    message: "wrong number of type arguments",
+                });
             }
             if let PNodeKind::Type(super::parse_ast::PTypeKind::Domain { kind, .. }) =
                 &mut typ.node().write().expect("poisoned parse node").kind
@@ -2482,7 +2487,7 @@ pub fn check_program_core(
     let members = program.all_members();
     fn global_names(
         node: &PNodeHandle,
-        names: &mut std::collections::HashSet<String>,
+        names: &mut std::collections::HashMap<String, Vec<PNodeHandle>>,
     ) -> Result<(), TypeCheckError> {
         let kind = node.read().expect("poisoned parse node").kind.clone();
         let global = matches!(
@@ -2501,7 +2506,7 @@ pub fn check_program_core(
             || matches!(&kind, PNodeKind::Extension(ext) if ext.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>());
         if global {
             if let Some(id) = declaration_identifier(node) {
-                names.insert(definition_name(&id));
+                names.entry(definition_name(&id)).or_default().push(id);
             }
         }
         for child in subnodes(node)
@@ -2511,7 +2516,7 @@ pub fn check_program_core(
         }
         Ok(())
     }
-    let mut globals = std::collections::HashSet::new();
+    let mut globals = std::collections::HashMap::new();
     if members.iter().any(|node| matches!(&node.node().read().expect("poisoned parse node").kind, PNodeKind::Member(PMember { kind: PMemberKind::Extension(ext), .. }) if ext.as_any().is::<crate::plugin::standard::adt::adt_past_extension::PAdt>())) { global_names(program.node(), &mut globals)?; }
     let mut signature_errors = Vec::new();
     for handle in &members {
@@ -2539,13 +2544,29 @@ pub fn check_program_core(
                         PNodeKind::Extension(extension) => extension.as_any().downcast_ref::<crate::plugin::standard::adt::adt_past_extension::PAdtConstructor>().cloned().ok_or(TypeCheckError::Unsupported("ADT constructor"))?,
                         _ => return Err(TypeCheckError::Unsupported("ADT constructor")),
                     };
-                        if globals.contains(&format!("is{}", definition_name(&constructor.idndef)))
+                        let discriminator = format!("is{}", definition_name(&constructor.idndef));
+                        if let Some(shadow) = globals
+                            .get(&discriminator)
+                            .and_then(|shadows| shadows.first())
                         {
-                            return Err(TypeCheckError::Unsupported(
-                                "ADT discriminator name is shadowed",
-                            ));
+                            let constructor_pos = constructor
+                                .idndef
+                                .read()
+                                .expect("poisoned constructor")
+                                .pos
+                                .0
+                                .to_string();
+                            let shadow_pos =
+                                shadow.read().expect("poisoned shadow").pos.0.to_string();
+                            member_errors.push(TypeCheckError::PositionedMessage {
+                                    node: constructor.idndef.clone(),
+                                    message: format!("corresponding adt discriminator identifier `{discriminator}` at {constructor_pos} is shadowed at {shadow_pos}"),
+                                });
                         }
-                        check_declarations(&constructor.args)?;
+                        retain_type_mismatches(
+                            &mut member_errors,
+                            check_declarations(&constructor.args),
+                        )?;
                     }
                     for node in &adt.deriving {
                         let info = match &node.read().expect("poisoned parse node").kind {
@@ -2553,7 +2574,7 @@ pub fn check_program_core(
                         _ => return Err(TypeCheckError::Unsupported("ADT derivation")),
                     };
                         if let Some(typ) = &info.parameter {
-                            check_supported_type(typ)?;
+                            retain_type_mismatches(&mut member_errors, check_supported_type(typ))?;
                         }
                         let fields: Vec<_> = adt.constructors.iter().flat_map(|node| {
                         match &node.read().expect("poisoned parse node").kind {
@@ -2561,13 +2582,31 @@ pub fn check_program_core(
                             _ => Vec::new(),
                         }
                     }).collect();
-                        info.validate_fields(|reference| {
-                            super::parse_ast::PIdnRef::decls(reference, |decl| {
+                        for reference in &info.without {
+                            let count = super::parse_ast::PIdnRef::decls(reference, |decl| {
                                 fields.iter().any(|f| std::sync::Arc::ptr_eq(f, decl))
                             })
-                            .len()
-                        })
-                        .map_err(|_| TypeCheckError::Unsupported("ADT derivation field"))?;
+                            .len();
+                            if count != 1 {
+                                let name =
+                                    match &reference.read().expect("poisoned parse node").kind {
+                                        PNodeKind::IdnRef(id) => id.name.clone(),
+                                        _ => {
+                                            return Err(TypeCheckError::Unsupported(
+                                                "ADT derivation identifier",
+                                            ));
+                                        }
+                                    };
+                                member_errors.push(TypeCheckError::PositionedMessage {
+                                    node: reference.clone(),
+                                    message: if count == 0 {
+                                        format!("undeclared adt field `{name}`, expected field in containing adt")
+                                    } else {
+                                        format!("ambiguous adt field `{name}`")
+                                    },
+                                });
+                            }
+                        }
                     }
                 }
                 PMemberKind::Domain { members, .. } => {
