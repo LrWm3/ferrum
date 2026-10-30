@@ -1,5 +1,10 @@
 # Short saturation check after deterministic emission
 
+The subsequent [four-way interaction test](performance-method-saturation.md)
+found that these older weights regressed badly when combined with the separate
+method solver on the nested case. The retained-solver result below reproduced;
+the interaction must be considered before combining configurations.
+
 Four fresh Ferrum captures and their solver-only replays completed in **158.7
 seconds**. On the nested iterator workload, the full older weights consistently
 reduced solver work, but elapsed times did not establish an overall speedup.

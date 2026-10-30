@@ -1,5 +1,10 @@
 # Separate method solver with one worker
 
+The subsequent [four-way interaction test](performance-method-saturation.md)
+found a nested-case timeout when this mode was combined with older saturation
+weights. Its stopped schedule and prefix diagnosis are separate from the
+current-saturation observations below.
+
 The one-worker experiment reproduces the nested workload's solver-work reduction:
 **23.9% fewer quantifier instantiations and 19.7% less Z3 resource work**. Both
 repeats produced the same streams and counters within each mode. Untraced backend

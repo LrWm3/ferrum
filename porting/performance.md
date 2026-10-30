@@ -1,6 +1,11 @@
 # Prusti and backend performance results
 
-The latest [one-worker method-solver experiment](performance-method-solver.md)
+The latest [solver/saturation interaction test](performance-method-saturation.md)
+found that combining the two promising settings timed out on the nested case.
+A bounded SMT-only prefix comparison reproduced substantially more solver work;
+the full comparison stopped at its declared outcome gate.
+
+The preceding [one-worker method-solver experiment](performance-method-solver.md)
 reproduces lower solver work on the nested case and promising, noisy timing
 results. It retains small-case overhead and leaves the new switch opt-in.
 

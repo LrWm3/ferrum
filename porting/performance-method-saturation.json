@@ -1,0 +1,3416 @@
+{
+  "kind": "method-solver-saturation-factorial-v1",
+  "status": "stopped_at_combined_nested_timeout",
+  "runtime_commit": "dd263e882e019cc0e91c594607546266372a9100",
+  "source_head": "df6d9a02d372ff9a1915b24bc68b4fac4c22f779",
+  "spec": {
+    "kind": "method-solver-saturation-factorial-v1",
+    "repetitions": 2,
+    "cpu_affinity": "0,1,2,3",
+    "offline_timeout": 45,
+    "outer_timeout": 90,
+    "z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+    "proxy": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+    "supervisor": "/home/will/wk/exp/ferrum/tools/performance/prusti/session_supervisor.py",
+    "profiles": {
+      "retained_current": {
+        "solver": "retained",
+        "saturation": "current",
+        "weights": "[1,0.5,0.4,0,0]",
+        "options": [
+          "--separateMethodSolver=false"
+        ]
+      },
+      "retained_older": {
+        "solver": "retained",
+        "saturation": "older",
+        "weights": "[1,0.5,0.4,0.2,0.02]",
+        "options": [
+          "--separateMethodSolver=false"
+        ]
+      },
+      "separate_current": {
+        "solver": "separate",
+        "saturation": "current",
+        "weights": "[1,0.5,0.4,0,0]",
+        "options": [
+          "--separateMethodSolver=true"
+        ]
+      },
+      "separate_older": {
+        "solver": "separate",
+        "saturation": "older",
+        "weights": "[1,0.5,0.4,0.2,0.02]",
+        "options": [
+          "--separateMethodSolver=true"
+        ]
+      }
+    },
+    "cases": [
+      {
+        "name": "mut_element_array_wrong",
+        "path": "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_wrong.vpr",
+        "control": true,
+        "profiles": [
+          "retained_current",
+          "retained_older",
+          "separate_current",
+          "separate_older"
+        ],
+        "expect": {
+          "outcome": "failure",
+          "errors": [
+            {
+              "id": "exhale.failed:assertion.false",
+              "position": "mut_element_array_wrong.vpr@1786.10--1786.82"
+            }
+          ]
+        }
+      },
+      {
+        "name": "mut_element_nested_pass",
+        "path": "/tmp/ferrum-saturation-experiment/inputs/mut_element_nested_pass.vpr",
+        "control": false,
+        "profiles": [
+          "retained_current",
+          "retained_older",
+          "separate_current",
+          "separate_older"
+        ],
+        "expect": {
+          "outcome": "verified",
+          "errors": []
+        }
+      },
+      {
+        "name": "mut_element_array_pass",
+        "path": "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_pass.vpr",
+        "control": false,
+        "profiles": [
+          "retained_current",
+          "retained_older",
+          "separate_current",
+          "separate_older"
+        ],
+        "expect": {
+          "outcome": "verified",
+          "errors": []
+        }
+      }
+    ],
+    "options": [
+      "--timeout",
+      "60",
+      "--numberOfParallelVerifiers",
+      "1",
+      "--numberOfErrorsToReport=1",
+      "--enableMoreCompleteExhale",
+      "--disableTerminationPlugin",
+      "--assertTimeout",
+      "10000",
+      "--proverConfigArgs",
+      "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+      "--logLevel",
+      "ERROR"
+    ],
+    "commands": {
+      "ferrum": [
+        "/home/will/wk/exp/ferrum/target/debug/ferrum-bench-session"
+      ]
+    },
+    "host": {
+      "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.39",
+      "cpu_model": "13th Gen Intel(R) Core(TM) i5-1345U",
+      "allowed_affinity": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "governors": {
+        "/sys/devices/system/cpu/cpu11/cpufreq/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpu9/cpufreq/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpu7/cpufreq/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpu5/cpufreq/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpu3/cpufreq/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpu1/cpufreq/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpu10/cpufreq/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpu8/cpufreq/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpu6/cpufreq/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpu4/cpufreq/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpu2/cpufreq/scaling_governor": "powersave",
+        "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor": "powersave"
+      },
+      "load": "1.32 1.82 3.49 5/3558 546420"
+    },
+    "limits": [
+      "Fixed two-by-two comparison: solver lifecycle and the full saturation weight vector.",
+      "One worker, branches off, caches on, same existing development binaries and Z3.",
+      "Passing/failing array captures in all four modes; two nested captures per mode in mirrored order.",
+      "Two untraced timing observations per positive case and mode in the same mirrored order.",
+      "60s program / 90s outer / 45s offline limits. No retries or expanded sweep.",
+      "All owner and worker solver costs count. Shared-host wall times are noisy; phase timings are inclusive.",
+      "The full older vector changes inhale and repetition together; this does not isolate individual slots."
+    ],
+    "artifact_sha256": {
+      "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+      "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py": "81bafd46d1d7a77bdc3b8ad96fbbde1c4461c4a15caf26e955f7ea3977d1b82d",
+      "/home/will/wk/exp/ferrum/tools/performance/prusti/session_supervisor.py": "c889e2117e9130552986bac4db49230436a1f961e5e9c3735bbee34c39a97500",
+      "/home/will/wk/exp/ferrum/target/debug/ferrum-bench-session": "da00cc73f789a3d9f52fa2111681f9218bae1253e6011c15ae4934aa1dbece94",
+      "/home/will/wk/exp/ferrum/target/debug/ferrum-phase-session": "2cb040857cc4ace5f8d96a417d5488d4f4f10705ce1d450c5ba69db986233e1e",
+      "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_wrong.vpr": "132ab8ca4e53de55d95fc50b0f60a2dbad04647f9f4a4e08115030b3a72b45e8",
+      "/tmp/ferrum-saturation-experiment/inputs/mut_element_nested_pass.vpr": "9fbeab0cc9dc824772c9c5bfa06765a62998ca1141a56151b15f25068e38b3e7",
+      "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_pass.vpr": "0708553587693a4f23c8d928a6359dd15fec34b6bbd9fef1bc5c2c054524efe7",
+      "/tmp/ferrum-method-saturation-dd263e8/run.py": "60c08abe864521a878851f42fbe151c1369a18710d3d69883b93ff617ed72646",
+      "/tmp/ferrum-method-solver-235b245/experiment/trials.jsonl": "0e0d9a5af298366d734853999af32e6a41b9f46c2ac36cb8bd37b23ed6839b1e",
+      "/tmp/ferrum-saturation-short-4bef39a/001-mut_element_nested_pass-legacy-ferrum/trial.json": "5f8e3cd2d38b358d49ebbacaf59ebb34d6121e70d90d808bdcf1cfdb580e7142",
+      "/home/will/wk/exp/ferrum/crates/ferrum-silicon/src/config.rs": "efcae8d1ef27ed2d5bd7c963ef690143fa56c0e1e4d290ebdc6efab2efde8d1e",
+      "/home/will/wk/exp/ferrum/src/lib.rs": "de9acbc1ef941a872cabd4a65887aab82bf6086fb9986351907d45f2edc51d38",
+      "/home/will/wk/exp/ferrum/tools/performance/smt/run_saturation.py": "c4677dc67a9d06dd41c158de0a49c274ea61f8f6e9762dbdb959ff99bc2e5f76",
+      "/home/will/wk/exp/ferrum/tools/performance/smt/analyze_trace.py": "bb151f43a095a87aa0f4d49733dd7d839bbf86c9a754dfc740461cff0370336b"
+    },
+    "capture_format": "persist-before-forward-v2",
+    "phase_command": "/home/will/wk/exp/ferrum/target/debug/ferrum-phase-session",
+    "source_head": "df6d9a02d372ff9a1915b24bc68b4fac4c22f779",
+    "runtime_commit": "dd263e882e019cc0e91c594607546266372a9100"
+  },
+  "capture_schedule": [
+    {
+      "index": 0,
+      "case": "mut_element_array_wrong",
+      "profile": "retained_current",
+      "backend": "ferrum",
+      "repetition": 0,
+      "control": true
+    },
+    {
+      "index": 1,
+      "case": "mut_element_array_wrong",
+      "profile": "retained_older",
+      "backend": "ferrum",
+      "repetition": 0,
+      "control": true
+    },
+    {
+      "index": 2,
+      "case": "mut_element_array_wrong",
+      "profile": "separate_current",
+      "backend": "ferrum",
+      "repetition": 0,
+      "control": true
+    },
+    {
+      "index": 3,
+      "case": "mut_element_array_wrong",
+      "profile": "separate_older",
+      "backend": "ferrum",
+      "repetition": 0,
+      "control": true
+    },
+    {
+      "index": 4,
+      "case": "mut_element_array_pass",
+      "profile": "retained_current",
+      "backend": "ferrum",
+      "repetition": 0,
+      "control": true
+    },
+    {
+      "index": 5,
+      "case": "mut_element_array_pass",
+      "profile": "retained_older",
+      "backend": "ferrum",
+      "repetition": 0,
+      "control": true
+    },
+    {
+      "index": 6,
+      "case": "mut_element_array_pass",
+      "profile": "separate_current",
+      "backend": "ferrum",
+      "repetition": 0,
+      "control": true
+    },
+    {
+      "index": 7,
+      "case": "mut_element_array_pass",
+      "profile": "separate_older",
+      "backend": "ferrum",
+      "repetition": 0,
+      "control": true
+    },
+    {
+      "index": 8,
+      "case": "mut_element_nested_pass",
+      "profile": "retained_current",
+      "backend": "ferrum",
+      "repetition": 0,
+      "control": false
+    },
+    {
+      "index": 9,
+      "case": "mut_element_nested_pass",
+      "profile": "retained_older",
+      "backend": "ferrum",
+      "repetition": 0,
+      "control": false
+    },
+    {
+      "index": 10,
+      "case": "mut_element_nested_pass",
+      "profile": "separate_current",
+      "backend": "ferrum",
+      "repetition": 0,
+      "control": false
+    },
+    {
+      "index": 11,
+      "case": "mut_element_nested_pass",
+      "profile": "separate_older",
+      "backend": "ferrum",
+      "repetition": 0,
+      "control": false
+    },
+    {
+      "index": 12,
+      "case": "mut_element_nested_pass",
+      "profile": "separate_older",
+      "backend": "ferrum",
+      "repetition": 1,
+      "control": false
+    },
+    {
+      "index": 13,
+      "case": "mut_element_nested_pass",
+      "profile": "separate_current",
+      "backend": "ferrum",
+      "repetition": 1,
+      "control": false
+    },
+    {
+      "index": 14,
+      "case": "mut_element_nested_pass",
+      "profile": "retained_older",
+      "backend": "ferrum",
+      "repetition": 1,
+      "control": false
+    },
+    {
+      "index": 15,
+      "case": "mut_element_nested_pass",
+      "profile": "retained_current",
+      "backend": "ferrum",
+      "repetition": 1,
+      "control": false
+    }
+  ],
+  "phase_schedule": [
+    {
+      "index": 0,
+      "case": "mut_element_nested_pass",
+      "profile": "retained_current"
+    },
+    {
+      "index": 1,
+      "case": "mut_element_nested_pass",
+      "profile": "retained_older"
+    },
+    {
+      "index": 2,
+      "case": "mut_element_nested_pass",
+      "profile": "separate_current"
+    },
+    {
+      "index": 3,
+      "case": "mut_element_nested_pass",
+      "profile": "separate_older"
+    },
+    {
+      "index": 4,
+      "case": "mut_element_nested_pass",
+      "profile": "separate_older"
+    },
+    {
+      "index": 5,
+      "case": "mut_element_nested_pass",
+      "profile": "separate_current"
+    },
+    {
+      "index": 6,
+      "case": "mut_element_nested_pass",
+      "profile": "retained_older"
+    },
+    {
+      "index": 7,
+      "case": "mut_element_nested_pass",
+      "profile": "retained_current"
+    },
+    {
+      "index": 8,
+      "case": "mut_element_array_pass",
+      "profile": "retained_current"
+    },
+    {
+      "index": 9,
+      "case": "mut_element_array_pass",
+      "profile": "retained_older"
+    },
+    {
+      "index": 10,
+      "case": "mut_element_array_pass",
+      "profile": "separate_current"
+    },
+    {
+      "index": 11,
+      "case": "mut_element_array_pass",
+      "profile": "separate_older"
+    },
+    {
+      "index": 12,
+      "case": "mut_element_array_pass",
+      "profile": "separate_older"
+    },
+    {
+      "index": 13,
+      "case": "mut_element_array_pass",
+      "profile": "separate_current"
+    },
+    {
+      "index": 14,
+      "case": "mut_element_array_pass",
+      "profile": "retained_older"
+    },
+    {
+      "index": 15,
+      "case": "mut_element_array_pass",
+      "profile": "retained_current"
+    }
+  ],
+  "capture_rows": [
+    {
+      "index": 0,
+      "case": "mut_element_array_wrong",
+      "profile": "retained_current",
+      "repetition": 0,
+      "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/000-mut_element_array_wrong-retained_current-ferrum",
+      "command": [
+        "taskset",
+        "--cpu-list",
+        "0,1,2,3",
+        "/home/will/wk/exp/ferrum/target/debug/ferrum-bench-session",
+        "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "--timeout",
+        "60",
+        "--numberOfParallelVerifiers",
+        "1",
+        "--numberOfErrorsToReport=1",
+        "--enableMoreCompleteExhale",
+        "--disableTerminationPlugin",
+        "--assertTimeout",
+        "10000",
+        "--proverConfigArgs",
+        "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+        "--logLevel",
+        "ERROR",
+        "--separateMethodSolver=false",
+        "--proverSaturationTimeout",
+        "100",
+        "--proverSaturationTimeoutWeights",
+        "[1,0.5,0.4,0,0]",
+        "--proverLogFile",
+        "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/000-mut_element_array_wrong-retained_current-ferrum/prover",
+        "--parallelizeBranches=false",
+        "--",
+        "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_wrong.vpr"
+      ],
+      "started_utc": "2026-10-30T20:21:28.087360+00:00",
+      "finished_utc": "2026-10-30T20:21:30.858487+00:00",
+      "wall_s": 2.1750437719747424,
+      "valid": true,
+      "issues": [],
+      "cleanup_pending": [],
+      "saturation_comments": {
+        "after prelude": 1,
+        "after contract": 31,
+        "after unfold": 6
+      },
+      "supervisor": {
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": []
+      },
+      "outcomes": [
+        {
+          "outcome": "failure",
+          "errors": [
+            {
+              "id": "exhale.failed:assertion.false",
+              "message": "Exhale might fail. Assertion mir_binop_Eq_UInt_u32_UInt_u32(p_UInt_u32_snap(_7p), s_UInt_u32_cons(8)) might not hold. (mut_element_array_wrong.vpr@1786.10--1786.82)\n",
+              "position": "mut_element_array_wrong.vpr@1786.10--1786.82"
+            }
+          ],
+          "backend_warnings": []
+        }
+      ],
+      "traces": [
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/000-mut_element_array_wrong-retained_current-ferrum/traces/546558-330606704709172",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 959,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 429,
+            "declare-fun": 488,
+            "assert": 2252,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 24,
+            "check-sat": 475,
+            "push": 1147,
+            "pop": 1147
+          },
+          "input_bytes": 1021130,
+          "output_bytes": 55248,
+          "input_sha256": "188abaf5195043ff82ba51727f3994d1fb0c41319c30977a837a90bbfdc4a45b",
+          "output_sha256": "5b37688fcc99a137467ad37705c6b3e10afd0ab5849a57ec0bbf98d9e0f8c60d",
+          "query_count": 475,
+          "query_responses": {
+            "unknown": 189,
+            "unsat": 286
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 0.3196150000000002,
+            "system_cpu_s": 0.013983999999999996,
+            "wall_s": 0.33764068299205974,
+            "statistics": {
+              "added-eqs": "55665",
+              "arith-eq-adapter": "3300",
+              "arith-assume-eqs": "2",
+              "arith-bound-propagations-lp": "410",
+              "arith-conflicts": "97",
+              "arith-diseq": "1407",
+              "arith-fixed-eqs": "2786",
+              "arith-lower": "3652",
+              "arith-make-feasible": "1823",
+              "arith-max-columns": "109",
+              "arith-max-rows": "35",
+              "arith-offset-eqs": "19",
+              "arith-upper": "2985",
+              "conflicts": "1121",
+              "datatype-accessor-ax": "779",
+              "datatype-constructor-ax": "8019",
+              "datatype-occurs-check": "10656",
+              "datatype-splits": "7923",
+              "decisions": "10511",
+              "del-clause": "7722",
+              "final-checks": "490",
+              "interface-eqs": "1",
+              "max-generation": "5",
+              "max-memory": "20.80",
+              "memory": "20.51",
+              "minimized-lits": "15",
+              "mk-bool-var": "23757",
+              "mk-clause": "7722",
+              "num-allocs": "67680615",
+              "num-checks": "474",
+              "propagations": "4930",
+              "quant-instantiations": "1609",
+              "rlimit-count": "774833"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "total": {
+        "quant-instantiations": 1609,
+        "rlimit-count": 774833,
+        "decisions": 10511,
+        "conflicts": 1121,
+        "queries": 475,
+        "solver_sessions": 1,
+        "offline_cpu_s": 0.3335990000000002
+      }
+    },
+    {
+      "index": 1,
+      "case": "mut_element_array_wrong",
+      "profile": "retained_older",
+      "repetition": 0,
+      "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/001-mut_element_array_wrong-retained_older-ferrum",
+      "command": [
+        "taskset",
+        "--cpu-list",
+        "0,1,2,3",
+        "/home/will/wk/exp/ferrum/target/debug/ferrum-bench-session",
+        "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "--timeout",
+        "60",
+        "--numberOfParallelVerifiers",
+        "1",
+        "--numberOfErrorsToReport=1",
+        "--enableMoreCompleteExhale",
+        "--disableTerminationPlugin",
+        "--assertTimeout",
+        "10000",
+        "--proverConfigArgs",
+        "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+        "--logLevel",
+        "ERROR",
+        "--separateMethodSolver=false",
+        "--proverSaturationTimeout",
+        "100",
+        "--proverSaturationTimeoutWeights",
+        "[1,0.5,0.4,0.2,0.02]",
+        "--proverLogFile",
+        "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/001-mut_element_array_wrong-retained_older-ferrum/prover",
+        "--parallelizeBranches=false",
+        "--",
+        "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_wrong.vpr"
+      ],
+      "started_utc": "2026-10-30T20:21:30.867221+00:00",
+      "finished_utc": "2026-10-30T20:21:33.826031+00:00",
+      "wall_s": 2.3273241950082593,
+      "valid": true,
+      "issues": [],
+      "cleanup_pending": [],
+      "saturation_comments": {
+        "after prelude": 1,
+        "after contract": 31,
+        "after inhale": 68,
+        "before iteration": 7,
+        "after unfold": 6,
+        "before repetition": 3
+      },
+      "supervisor": {
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": []
+      },
+      "outcomes": [
+        {
+          "outcome": "failure",
+          "errors": [
+            {
+              "id": "exhale.failed:assertion.false",
+              "message": "Exhale might fail. Assertion mir_binop_Eq_UInt_u32_UInt_u32(p_UInt_u32_snap(_7p), s_UInt_u32_cons(8)) might not hold. (mut_element_array_wrong.vpr@1786.10--1786.82)\n",
+              "position": "mut_element_array_wrong.vpr@1786.10--1786.82"
+            }
+          ],
+          "backend_warnings": []
+        }
+      ],
+      "traces": [
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/001-mut_element_array_wrong-retained_older-ferrum/traces/547019-330609475599193",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 1081,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 429,
+            "declare-fun": 488,
+            "assert": 2252,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 24,
+            "check-sat": 553,
+            "push": 1147,
+            "pop": 1147
+          },
+          "input_bytes": 1025232,
+          "output_bytes": 56848,
+          "input_sha256": "6cc93e072b0e681e18af2daca5acdbfdf8f95581fa89c2cd21a885c8418ad4eb",
+          "output_sha256": "884f9129069b00e07d687afcece0c2570de1444a474df26254d368f6a166ad64",
+          "query_count": 553,
+          "query_responses": {
+            "unknown": 267,
+            "unsat": 286
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 0.3558180000000002,
+            "system_cpu_s": 0.017991000000000035,
+            "wall_s": 0.375556699000299,
+            "statistics": {
+              "added-eqs": "69258",
+              "arith-eq-adapter": "3866",
+              "arith-assume-eqs": "2",
+              "arith-bound-propagations-lp": "484",
+              "arith-conflicts": "98",
+              "arith-diseq": "1684",
+              "arith-fixed-eqs": "3452",
+              "arith-lower": "3881",
+              "arith-make-feasible": "2135",
+              "arith-max-columns": "109",
+              "arith-max-rows": "35",
+              "arith-offset-eqs": "23",
+              "arith-upper": "3983",
+              "conflicts": "1020",
+              "datatype-accessor-ax": "961",
+              "datatype-constructor-ax": "10344",
+              "datatype-occurs-check": "13744",
+              "datatype-splits": "10158",
+              "decisions": "12995",
+              "del-clause": "8962",
+              "final-checks": "697",
+              "interface-eqs": "1",
+              "max-generation": "5",
+              "max-memory": "20.75",
+              "memory": "20.55",
+              "minimized-lits": "13",
+              "mk-bool-var": "27822",
+              "mk-clause": "8962",
+              "num-allocs": "96412393",
+              "num-checks": "552",
+              "propagations": "5824",
+              "quant-instantiations": "1828",
+              "rlimit-count": "865226"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "total": {
+        "quant-instantiations": 1828,
+        "rlimit-count": 865226,
+        "decisions": 12995,
+        "conflicts": 1020,
+        "queries": 553,
+        "solver_sessions": 1,
+        "offline_cpu_s": 0.3738090000000002
+      }
+    },
+    {
+      "index": 2,
+      "case": "mut_element_array_wrong",
+      "profile": "separate_current",
+      "repetition": 0,
+      "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/002-mut_element_array_wrong-separate_current-ferrum",
+      "command": [
+        "taskset",
+        "--cpu-list",
+        "0,1,2,3",
+        "/home/will/wk/exp/ferrum/target/debug/ferrum-bench-session",
+        "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "--timeout",
+        "60",
+        "--numberOfParallelVerifiers",
+        "1",
+        "--numberOfErrorsToReport=1",
+        "--enableMoreCompleteExhale",
+        "--disableTerminationPlugin",
+        "--assertTimeout",
+        "10000",
+        "--proverConfigArgs",
+        "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+        "--logLevel",
+        "ERROR",
+        "--separateMethodSolver=true",
+        "--proverSaturationTimeout",
+        "100",
+        "--proverSaturationTimeoutWeights",
+        "[1,0.5,0.4,0,0]",
+        "--proverLogFile",
+        "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/002-mut_element_array_wrong-separate_current-ferrum/prover",
+        "--parallelizeBranches=false",
+        "--",
+        "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_wrong.vpr"
+      ],
+      "started_utc": "2026-10-30T20:21:33.834377+00:00",
+      "finished_utc": "2026-10-30T20:21:36.813815+00:00",
+      "wall_s": 2.2785556690068915,
+      "valid": true,
+      "issues": [],
+      "cleanup_pending": [],
+      "saturation_comments": {
+        "after prelude": 2,
+        "after contract": 31,
+        "after unfold": 6
+      },
+      "supervisor": {
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": []
+      },
+      "outcomes": [
+        {
+          "outcome": "failure",
+          "errors": [
+            {
+              "id": "exhale.failed:assertion.false",
+              "message": "Exhale might fail. Assertion mir_binop_Eq_UInt_u32_UInt_u32(p_UInt_u32_snap(_7p), s_UInt_u32_cons(8)) might not hold. (mut_element_array_wrong.vpr@1786.10--1786.82)\n",
+              "position": "mut_element_array_wrong.vpr@1786.10--1786.82"
+            }
+          ],
+          "backend_warnings": []
+        }
+      ],
+      "traces": [
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/002-mut_element_array_wrong-separate_current-ferrum/traces/547565-330612448461715",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 937,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 380,
+            "declare-fun": 422,
+            "assert": 2163,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 24,
+            "check-sat": 464,
+            "push": 1093,
+            "pop": 1092
+          },
+          "input_bytes": 1041584,
+          "output_bytes": 52482,
+          "input_sha256": "fa86c6ee732b606a185a4107d312f81bc94c3d845ba4d06c6087a80085086253",
+          "output_sha256": "d2495983a8a75388ba089001b7ce1618cbdc6e83e79362573506519ce12b033e",
+          "query_count": 464,
+          "query_responses": {
+            "unknown": 179,
+            "unsat": 285
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 0.32192299999999996,
+            "system_cpu_s": 0.012996000000000008,
+            "wall_s": 0.3382423039874993,
+            "statistics": {
+              "added-eqs": "55623",
+              "arith-eq-adapter": "3300",
+              "arith-assume-eqs": "2",
+              "arith-bound-propagations-lp": "410",
+              "arith-conflicts": "97",
+              "arith-diseq": "1407",
+              "arith-fixed-eqs": "2784",
+              "arith-lower": "3652",
+              "arith-make-feasible": "1813",
+              "arith-max-columns": "109",
+              "arith-max-rows": "35",
+              "arith-offset-eqs": "19",
+              "arith-upper": "2984",
+              "conflicts": "1120",
+              "datatype-accessor-ax": "773",
+              "datatype-constructor-ax": "8019",
+              "datatype-occurs-check": "10656",
+              "datatype-splits": "7923",
+              "decisions": "10511",
+              "del-clause": "7715",
+              "final-checks": "480",
+              "interface-eqs": "1",
+              "max-generation": "5",
+              "max-memory": "20.80",
+              "memory": "20.51",
+              "minimized-lits": "15",
+              "mk-bool-var": "23724",
+              "mk-clause": "7715",
+              "num-allocs": "66176895",
+              "num-checks": "463",
+              "propagations": "4927",
+              "quant-instantiations": "1597",
+              "rlimit-count": "772251"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        },
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/002-mut_element_array_wrong-separate_current-ferrum/traces/547569-330612475277795",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 40,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 80,
+            "declare-fun": 484,
+            "assert": 726,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 12,
+            "push": 55,
+            "pop": 55
+          },
+          "input_bytes": 211303,
+          "output_bytes": 12098,
+          "input_sha256": "0a71a5b0cb775e293a9f36c2806ffe530c136a97fc469d69b62ff31c33aae00e",
+          "output_sha256": "4bcf4c9216a5107a7cee3d05b8f055e89ea544ff741c2b725157df6efe216cd5",
+          "query_count": 12,
+          "query_responses": {
+            "unknown": 11,
+            "unsat": 1
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 0.024567000000000228,
+            "system_cpu_s": 0.009213000000000027,
+            "wall_s": 0.04583322303369641,
+            "statistics": {
+              "added-eqs": "57",
+              "arith-eq-adapter": "3",
+              "arith-lower": "3",
+              "arith-make-feasible": "13",
+              "arith-max-columns": "14",
+              "arith-upper": "3",
+              "conflicts": "1",
+              "datatype-accessor-ax": "6",
+              "del-clause": "5",
+              "final-checks": "10",
+              "max-generation": "4",
+              "max-memory": "18.70",
+              "memory": "18.48",
+              "mk-bool-var": "648",
+              "mk-clause": "5",
+              "num-allocs": "898125",
+              "num-checks": "11",
+              "propagations": "2",
+              "quant-instantiations": "15",
+              "rlimit-count": "210332"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "total": {
+        "quant-instantiations": 1612,
+        "rlimit-count": 982583,
+        "decisions": 10511,
+        "conflicts": 1121,
+        "queries": 476,
+        "solver_sessions": 2,
+        "offline_cpu_s": 0.3686990000000002
+      }
+    },
+    {
+      "index": 3,
+      "case": "mut_element_array_wrong",
+      "profile": "separate_older",
+      "repetition": 0,
+      "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/003-mut_element_array_wrong-separate_older-ferrum",
+      "command": [
+        "taskset",
+        "--cpu-list",
+        "0,1,2,3",
+        "/home/will/wk/exp/ferrum/target/debug/ferrum-bench-session",
+        "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "--timeout",
+        "60",
+        "--numberOfParallelVerifiers",
+        "1",
+        "--numberOfErrorsToReport=1",
+        "--enableMoreCompleteExhale",
+        "--disableTerminationPlugin",
+        "--assertTimeout",
+        "10000",
+        "--proverConfigArgs",
+        "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+        "--logLevel",
+        "ERROR",
+        "--separateMethodSolver=true",
+        "--proverSaturationTimeout",
+        "100",
+        "--proverSaturationTimeoutWeights",
+        "[1,0.5,0.4,0.2,0.02]",
+        "--proverLogFile",
+        "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/003-mut_element_array_wrong-separate_older-ferrum/prover",
+        "--parallelizeBranches=false",
+        "--",
+        "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_wrong.vpr"
+      ],
+      "started_utc": "2026-10-30T20:21:36.823043+00:00",
+      "finished_utc": "2026-10-30T20:21:40.053816+00:00",
+      "wall_s": 2.4423126360052265,
+      "valid": true,
+      "issues": [],
+      "cleanup_pending": [],
+      "saturation_comments": {
+        "after prelude": 2,
+        "after contract": 31,
+        "after inhale": 68,
+        "before iteration": 7,
+        "after unfold": 6,
+        "before repetition": 3
+      },
+      "supervisor": {
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": []
+      },
+      "outcomes": [
+        {
+          "outcome": "failure",
+          "errors": [
+            {
+              "id": "exhale.failed:assertion.false",
+              "message": "Exhale might fail. Assertion mir_binop_Eq_UInt_u32_UInt_u32(p_UInt_u32_snap(_7p), s_UInt_u32_cons(8)) might not hold. (mut_element_array_wrong.vpr@1786.10--1786.82)\n",
+              "position": "mut_element_array_wrong.vpr@1786.10--1786.82"
+            }
+          ],
+          "backend_warnings": []
+        }
+      ],
+      "traces": [
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/003-mut_element_array_wrong-separate_older-ferrum/traces/548234-330615440441307",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 1059,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 380,
+            "declare-fun": 422,
+            "assert": 2163,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 24,
+            "check-sat": 542,
+            "push": 1093,
+            "pop": 1092
+          },
+          "input_bytes": 1045686,
+          "output_bytes": 54082,
+          "input_sha256": "ac5c9922dccc9485f45392ae212804a187147459ff2787208d6914320e853c2f",
+          "output_sha256": "b23df9e29c231831b033d2a29fff4851fdca8f69d0710f4cb8bea8a47d2df9bc",
+          "query_count": 542,
+          "query_responses": {
+            "unknown": 257,
+            "unsat": 285
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 0.37359099999999934,
+            "system_cpu_s": 0.015023000000000009,
+            "wall_s": 0.3902516650268808,
+            "statistics": {
+              "added-eqs": "69214",
+              "arith-eq-adapter": "3866",
+              "arith-assume-eqs": "2",
+              "arith-bound-propagations-lp": "486",
+              "arith-conflicts": "98",
+              "arith-diseq": "1684",
+              "arith-fixed-eqs": "3446",
+              "arith-lower": "4338",
+              "arith-make-feasible": "2125",
+              "arith-max-columns": "109",
+              "arith-max-rows": "35",
+              "arith-offset-eqs": "22",
+              "arith-upper": "3526",
+              "conflicts": "1019",
+              "datatype-accessor-ax": "955",
+              "datatype-constructor-ax": "10344",
+              "datatype-occurs-check": "13744",
+              "datatype-splits": "10158",
+              "decisions": "12995",
+              "del-clause": "8929",
+              "final-checks": "687",
+              "interface-eqs": "1",
+              "max-generation": "5",
+              "max-memory": "20.80",
+              "memory": "20.51",
+              "minimized-lits": "13",
+              "mk-bool-var": "27782",
+              "mk-clause": "8929",
+              "num-allocs": "102955453",
+              "num-checks": "541",
+              "propagations": "5826",
+              "quant-instantiations": "1815",
+              "rlimit-count": "862891"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        },
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/003-mut_element_array_wrong-separate_older-ferrum/traces/548242-330615468375560",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 40,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 80,
+            "declare-fun": 484,
+            "assert": 726,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 12,
+            "push": 55,
+            "pop": 55
+          },
+          "input_bytes": 211303,
+          "output_bytes": 12098,
+          "input_sha256": "0a71a5b0cb775e293a9f36c2806ffe530c136a97fc469d69b62ff31c33aae00e",
+          "output_sha256": "4bcf4c9216a5107a7cee3d05b8f055e89ea544ff741c2b725157df6efe216cd5",
+          "query_count": 12,
+          "query_responses": {
+            "unknown": 11,
+            "unsat": 1
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 0.026557000000000386,
+            "system_cpu_s": 0.007869000000000126,
+            "wall_s": 0.04587324499152601,
+            "statistics": {
+              "added-eqs": "57",
+              "arith-eq-adapter": "3",
+              "arith-lower": "3",
+              "arith-make-feasible": "13",
+              "arith-max-columns": "14",
+              "arith-upper": "3",
+              "conflicts": "1",
+              "datatype-accessor-ax": "6",
+              "del-clause": "5",
+              "final-checks": "10",
+              "max-generation": "4",
+              "max-memory": "18.70",
+              "memory": "18.48",
+              "mk-bool-var": "648",
+              "mk-clause": "5",
+              "num-allocs": "898125",
+              "num-checks": "11",
+              "propagations": "2",
+              "quant-instantiations": "15",
+              "rlimit-count": "210332"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "total": {
+        "quant-instantiations": 1830,
+        "rlimit-count": 1073223,
+        "decisions": 12995,
+        "conflicts": 1020,
+        "queries": 554,
+        "solver_sessions": 2,
+        "offline_cpu_s": 0.42303999999999986
+      }
+    },
+    {
+      "index": 4,
+      "case": "mut_element_array_pass",
+      "profile": "retained_current",
+      "repetition": 0,
+      "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/004-mut_element_array_pass-retained_current-ferrum",
+      "command": [
+        "taskset",
+        "--cpu-list",
+        "0,1,2,3",
+        "/home/will/wk/exp/ferrum/target/debug/ferrum-bench-session",
+        "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "--timeout",
+        "60",
+        "--numberOfParallelVerifiers",
+        "1",
+        "--numberOfErrorsToReport=1",
+        "--enableMoreCompleteExhale",
+        "--disableTerminationPlugin",
+        "--assertTimeout",
+        "10000",
+        "--proverConfigArgs",
+        "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+        "--logLevel",
+        "ERROR",
+        "--separateMethodSolver=false",
+        "--proverSaturationTimeout",
+        "100",
+        "--proverSaturationTimeoutWeights",
+        "[1,0.5,0.4,0,0]",
+        "--proverLogFile",
+        "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/004-mut_element_array_pass-retained_current-ferrum/prover",
+        "--parallelizeBranches=false",
+        "--",
+        "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_pass.vpr"
+      ],
+      "started_utc": "2026-10-30T20:21:40.063184+00:00",
+      "finished_utc": "2026-10-30T20:21:42.683749+00:00",
+      "wall_s": 2.1291234599775635,
+      "valid": true,
+      "issues": [],
+      "cleanup_pending": [],
+      "saturation_comments": {
+        "after prelude": 1,
+        "after contract": 31,
+        "after unfold": 6
+      },
+      "supervisor": {
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": []
+      },
+      "outcomes": [
+        {
+          "outcome": "verified",
+          "errors": [],
+          "backend_warnings": []
+        }
+      ],
+      "traces": [
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/004-mut_element_array_pass-retained_current-ferrum/traces/548807-330618669524866",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 821,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 447,
+            "declare-fun": 490,
+            "assert": 2222,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 27,
+            "check-sat": 406,
+            "push": 1105,
+            "pop": 1105
+          },
+          "input_bytes": 1016750,
+          "output_bytes": 52866,
+          "input_sha256": "d98bc3b444479d9be0c899927bf2a71d3aaf7e34cb8f16c12ac95120c76324e0",
+          "output_sha256": "c25630a4b09e05dd8210b78911ff92849001358595b21d20be20380b3fa2cce8",
+          "query_count": 406,
+          "query_responses": {
+            "unknown": 121,
+            "unsat": 285
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 0.19004699999999985,
+            "system_cpu_s": 0.016003999999999907,
+            "wall_s": 0.21009225404122844,
+            "statistics": {
+              "added-eqs": "30338",
+              "arith-eq-adapter": "2254",
+              "arith-assume-eqs": "4",
+              "arith-bound-propagations-lp": "336",
+              "arith-conflicts": "129",
+              "arith-diseq": "1122",
+              "arith-fixed-eqs": "1426",
+              "arith-lower": "2347",
+              "arith-make-feasible": "1531",
+              "arith-max-columns": "120",
+              "arith-max-rows": "42",
+              "arith-offset-eqs": "20",
+              "arith-upper": "1944",
+              "conflicts": "1166",
+              "datatype-accessor-ax": "524",
+              "datatype-constructor-ax": "3836",
+              "datatype-occurs-check": "5026",
+              "datatype-splits": "3591",
+              "decisions": "5751",
+              "del-clause": "6014",
+              "final-checks": "287",
+              "interface-eqs": "2",
+              "max-generation": "5",
+              "max-memory": "20.92",
+              "memory": "20.82",
+              "minimized-lits": "21",
+              "mk-bool-var": "15965",
+              "mk-clause": "6014",
+              "num-allocs": "13362375",
+              "num-checks": "405",
+              "propagations": "3818",
+              "quant-instantiations": "1337",
+              "rlimit-count": "613017"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "total": {
+        "quant-instantiations": 1337,
+        "rlimit-count": 613017,
+        "decisions": 5751,
+        "conflicts": 1166,
+        "queries": 406,
+        "solver_sessions": 1,
+        "offline_cpu_s": 0.20605099999999976
+      }
+    },
+    {
+      "index": 5,
+      "case": "mut_element_array_pass",
+      "profile": "retained_older",
+      "repetition": 0,
+      "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/005-mut_element_array_pass-retained_older-ferrum",
+      "command": [
+        "taskset",
+        "--cpu-list",
+        "0,1,2,3",
+        "/home/will/wk/exp/ferrum/target/debug/ferrum-bench-session",
+        "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "--timeout",
+        "60",
+        "--numberOfParallelVerifiers",
+        "1",
+        "--numberOfErrorsToReport=1",
+        "--enableMoreCompleteExhale",
+        "--disableTerminationPlugin",
+        "--assertTimeout",
+        "10000",
+        "--proverConfigArgs",
+        "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+        "--logLevel",
+        "ERROR",
+        "--separateMethodSolver=false",
+        "--proverSaturationTimeout",
+        "100",
+        "--proverSaturationTimeoutWeights",
+        "[1,0.5,0.4,0.2,0.02]",
+        "--proverLogFile",
+        "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/005-mut_element_array_pass-retained_older-ferrum/prover",
+        "--parallelizeBranches=false",
+        "--",
+        "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_pass.vpr"
+      ],
+      "started_utc": "2026-10-30T20:21:42.691850+00:00",
+      "finished_utc": "2026-10-30T20:21:45.427933+00:00",
+      "wall_s": 2.1816660529584624,
+      "valid": true,
+      "issues": [],
+      "cleanup_pending": [],
+      "saturation_comments": {
+        "after prelude": 1,
+        "after contract": 31,
+        "after inhale": 69,
+        "before iteration": 9,
+        "after unfold": 6
+      },
+      "supervisor": {
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": []
+      },
+      "outcomes": [
+        {
+          "outcome": "verified",
+          "errors": [],
+          "backend_warnings": []
+        }
+      ],
+      "traces": [
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/005-mut_element_array_pass-retained_older-ferrum/traces/549260-330621306325485",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 943,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 447,
+            "declare-fun": 490,
+            "assert": 2222,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 27,
+            "check-sat": 484,
+            "push": 1105,
+            "pop": 1105
+          },
+          "input_bytes": 1020847,
+          "output_bytes": 54466,
+          "input_sha256": "79984d5b12cc139c2495eefba5a1901bd72e14cf1435713419eb5cff9af4101f",
+          "output_sha256": "3af1d79cb708faac37f668cc066c7b30237fa7f8a13735223183d0fec9d60751",
+          "query_count": 484,
+          "query_responses": {
+            "unknown": 199,
+            "unsat": 285
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 0.24828500000000098,
+            "system_cpu_s": 0.017020000000000035,
+            "wall_s": 0.26657592999981716,
+            "statistics": {
+              "added-eqs": "44408",
+              "arith-eq-adapter": "2825",
+              "arith-assume-eqs": "6",
+              "arith-bound-propagations-lp": "409",
+              "arith-conflicts": "131",
+              "arith-diseq": "1402",
+              "arith-fixed-eqs": "2025",
+              "arith-lower": "2712",
+              "arith-make-feasible": "1849",
+              "arith-max-columns": "121",
+              "arith-max-rows": "43",
+              "arith-offset-eqs": "24",
+              "arith-upper": "2829",
+              "conflicts": "1111",
+              "datatype-accessor-ax": "708",
+              "datatype-constructor-ax": "6295",
+              "datatype-occurs-check": "8321",
+              "datatype-splits": "5965",
+              "decisions": "8518",
+              "del-clause": "7465",
+              "final-checks": "495",
+              "interface-eqs": "3",
+              "max-generation": "5",
+              "max-memory": "20.99",
+              "memory": "20.76",
+              "minimized-lits": "21",
+              "mk-bool-var": "20450",
+              "mk-clause": "7465",
+              "num-allocs": "28950367",
+              "num-checks": "483",
+              "propagations": "4707",
+              "quant-instantiations": "1602",
+              "rlimit-count": "706520"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "total": {
+        "quant-instantiations": 1602,
+        "rlimit-count": 706520,
+        "decisions": 8518,
+        "conflicts": 1111,
+        "queries": 484,
+        "solver_sessions": 1,
+        "offline_cpu_s": 0.265305000000001
+      }
+    },
+    {
+      "index": 6,
+      "case": "mut_element_array_pass",
+      "profile": "separate_current",
+      "repetition": 0,
+      "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/006-mut_element_array_pass-separate_current-ferrum",
+      "command": [
+        "taskset",
+        "--cpu-list",
+        "0,1,2,3",
+        "/home/will/wk/exp/ferrum/target/debug/ferrum-bench-session",
+        "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "--timeout",
+        "60",
+        "--numberOfParallelVerifiers",
+        "1",
+        "--numberOfErrorsToReport=1",
+        "--enableMoreCompleteExhale",
+        "--disableTerminationPlugin",
+        "--assertTimeout",
+        "10000",
+        "--proverConfigArgs",
+        "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+        "--logLevel",
+        "ERROR",
+        "--separateMethodSolver=true",
+        "--proverSaturationTimeout",
+        "100",
+        "--proverSaturationTimeoutWeights",
+        "[1,0.5,0.4,0,0]",
+        "--proverLogFile",
+        "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/006-mut_element_array_pass-separate_current-ferrum/prover",
+        "--parallelizeBranches=false",
+        "--",
+        "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_pass.vpr"
+      ],
+      "started_utc": "2026-10-30T20:21:45.436251+00:00",
+      "finished_utc": "2026-10-30T20:21:48.202473+00:00",
+      "wall_s": 2.17910904600285,
+      "valid": true,
+      "issues": [],
+      "cleanup_pending": [],
+      "saturation_comments": {
+        "after prelude": 2,
+        "after contract": 31,
+        "after unfold": 6
+      },
+      "supervisor": {
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": []
+      },
+      "outcomes": [
+        {
+          "outcome": "verified",
+          "errors": [],
+          "backend_warnings": []
+        }
+      ],
+      "traces": [
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/006-mut_element_array_pass-separate_current-ferrum/traces/549905-330624048814454",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 799,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 398,
+            "declare-fun": 424,
+            "assert": 2133,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 27,
+            "check-sat": 395,
+            "push": 1051,
+            "pop": 1050
+          },
+          "input_bytes": 1037101,
+          "output_bytes": 50100,
+          "input_sha256": "d17b03692e87f8cc05e412cb71a0db43c9a01349c7a4d9d309fb22dd3cca92d5",
+          "output_sha256": "099af03cdfad86f3b5ed84ae606f3ea2a6c916c8f80344dbbcdd062677c27fd7",
+          "query_count": 395,
+          "query_responses": {
+            "unknown": 111,
+            "unsat": 284
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 0.19596199999999797,
+            "system_cpu_s": 0.013925999999999883,
+            "wall_s": 0.21862158604199067,
+            "statistics": {
+              "added-eqs": "29940",
+              "arith-eq-adapter": "2230",
+              "arith-assume-eqs": "4",
+              "arith-bound-propagations-lp": "322",
+              "arith-conflicts": "129",
+              "arith-diseq": "1107",
+              "arith-fixed-eqs": "1413",
+              "arith-lower": "2327",
+              "arith-make-feasible": "1503",
+              "arith-max-columns": "120",
+              "arith-max-rows": "42",
+              "arith-offset-eqs": "21",
+              "arith-upper": "1919",
+              "conflicts": "1165",
+              "datatype-accessor-ax": "518",
+              "datatype-constructor-ax": "3836",
+              "datatype-occurs-check": "5026",
+              "datatype-splits": "3591",
+              "decisions": "5742",
+              "del-clause": "5771",
+              "final-checks": "277",
+              "interface-eqs": "2",
+              "max-generation": "5",
+              "max-memory": "20.92",
+              "memory": "20.77",
+              "minimized-lits": "21",
+              "mk-bool-var": "15656",
+              "mk-clause": "5771",
+              "num-allocs": "14461321",
+              "num-checks": "394",
+              "propagations": "3716",
+              "quant-instantiations": "1265",
+              "rlimit-count": "608701"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        },
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/006-mut_element_array_pass-separate_current-ferrum/traces/549909-330624075088601",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 40,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 80,
+            "declare-fun": 484,
+            "assert": 726,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 12,
+            "push": 55,
+            "pop": 55
+          },
+          "input_bytes": 211303,
+          "output_bytes": 12098,
+          "input_sha256": "0a71a5b0cb775e293a9f36c2806ffe530c136a97fc469d69b62ff31c33aae00e",
+          "output_sha256": "4bcf4c9216a5107a7cee3d05b8f055e89ea544ff741c2b725157df6efe216cd5",
+          "query_count": 12,
+          "query_responses": {
+            "unknown": 11,
+            "unsat": 1
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 0.02753900000000087,
+            "system_cpu_s": 0.00688500000000003,
+            "wall_s": 0.04605400300351903,
+            "statistics": {
+              "added-eqs": "57",
+              "arith-eq-adapter": "3",
+              "arith-lower": "3",
+              "arith-make-feasible": "13",
+              "arith-max-columns": "14",
+              "arith-upper": "3",
+              "conflicts": "1",
+              "datatype-accessor-ax": "6",
+              "del-clause": "5",
+              "final-checks": "10",
+              "max-generation": "4",
+              "max-memory": "18.70",
+              "memory": "18.48",
+              "mk-bool-var": "648",
+              "mk-clause": "5",
+              "num-allocs": "898125",
+              "num-checks": "11",
+              "propagations": "2",
+              "quant-instantiations": "15",
+              "rlimit-count": "210332"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "total": {
+        "quant-instantiations": 1280,
+        "rlimit-count": 819033,
+        "decisions": 5742,
+        "conflicts": 1166,
+        "queries": 407,
+        "solver_sessions": 2,
+        "offline_cpu_s": 0.24431199999999875
+      }
+    },
+    {
+      "index": 7,
+      "case": "mut_element_array_pass",
+      "profile": "separate_older",
+      "repetition": 0,
+      "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/007-mut_element_array_pass-separate_older-ferrum",
+      "command": [
+        "taskset",
+        "--cpu-list",
+        "0,1,2,3",
+        "/home/will/wk/exp/ferrum/target/debug/ferrum-bench-session",
+        "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "--timeout",
+        "60",
+        "--numberOfParallelVerifiers",
+        "1",
+        "--numberOfErrorsToReport=1",
+        "--enableMoreCompleteExhale",
+        "--disableTerminationPlugin",
+        "--assertTimeout",
+        "10000",
+        "--proverConfigArgs",
+        "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+        "--logLevel",
+        "ERROR",
+        "--separateMethodSolver=true",
+        "--proverSaturationTimeout",
+        "100",
+        "--proverSaturationTimeoutWeights",
+        "[1,0.5,0.4,0.2,0.02]",
+        "--proverLogFile",
+        "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/007-mut_element_array_pass-separate_older-ferrum/prover",
+        "--parallelizeBranches=false",
+        "--",
+        "/tmp/ferrum-saturation-experiment/inputs/mut_element_array_pass.vpr"
+      ],
+      "started_utc": "2026-10-30T20:21:48.211594+00:00",
+      "finished_utc": "2026-10-30T20:21:51.165513+00:00",
+      "wall_s": 2.3434722219826654,
+      "valid": true,
+      "issues": [],
+      "cleanup_pending": [],
+      "saturation_comments": {
+        "after prelude": 2,
+        "after contract": 31,
+        "after inhale": 69,
+        "before iteration": 9,
+        "after unfold": 6
+      },
+      "supervisor": {
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": []
+      },
+      "outcomes": [
+        {
+          "outcome": "verified",
+          "errors": [],
+          "backend_warnings": []
+        }
+      ],
+      "traces": [
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/007-mut_element_array_pass-separate_older-ferrum/traces/550344-330626817318698",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 921,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 398,
+            "declare-fun": 424,
+            "assert": 2133,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 27,
+            "check-sat": 473,
+            "push": 1051,
+            "pop": 1050
+          },
+          "input_bytes": 1041198,
+          "output_bytes": 51700,
+          "input_sha256": "fcc1344e33a4acf3eaf22dd5cdce26e9586f423b86f255e7abc1a3ee5b5107fd",
+          "output_sha256": "a496e698c0c868bdccf430f07a75cf7317cd35a306379e618a46e6b416b0f956",
+          "query_count": 473,
+          "query_responses": {
+            "unknown": 189,
+            "unsat": 284
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 0.24949300000000108,
+            "system_cpu_s": 0.013971999999999873,
+            "wall_s": 0.2656156810116954,
+            "statistics": {
+              "added-eqs": "44314",
+              "arith-eq-adapter": "2798",
+              "arith-assume-eqs": "4",
+              "arith-bound-propagations-lp": "414",
+              "arith-conflicts": "132",
+              "arith-diseq": "1379",
+              "arith-fixed-eqs": "2024",
+              "arith-lower": "3036",
+              "arith-make-feasible": "1832",
+              "arith-max-columns": "120",
+              "arith-max-rows": "42",
+              "arith-offset-eqs": "24",
+              "arith-upper": "2495",
+              "conflicts": "1107",
+              "datatype-accessor-ax": "700",
+              "datatype-constructor-ax": "6290",
+              "datatype-occurs-check": "8321",
+              "datatype-splits": "5965",
+              "decisions": "8494",
+              "del-clause": "7223",
+              "final-checks": "484",
+              "interface-eqs": "2",
+              "max-generation": "5",
+              "max-memory": "20.98",
+              "memory": "20.74",
+              "minimized-lits": "19",
+              "mk-bool-var": "20228",
+              "mk-clause": "7223",
+              "num-allocs": "34434081",
+              "num-checks": "472",
+              "propagations": "4672",
+              "quant-instantiations": "1564",
+              "rlimit-count": "703667"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        },
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/007-mut_element_array_pass-separate_older-ferrum/traces/550348-330626844216595",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 40,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 80,
+            "declare-fun": 484,
+            "assert": 726,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 12,
+            "push": 55,
+            "pop": 55
+          },
+          "input_bytes": 211303,
+          "output_bytes": 12098,
+          "input_sha256": "0a71a5b0cb775e293a9f36c2806ffe530c136a97fc469d69b62ff31c33aae00e",
+          "output_sha256": "4bcf4c9216a5107a7cee3d05b8f055e89ea544ff741c2b725157df6efe216cd5",
+          "query_count": 12,
+          "query_responses": {
+            "unknown": 11,
+            "unsat": 1
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 0.02508500000000069,
+            "system_cpu_s": 0.010034000000000098,
+            "wall_s": 0.04583208495751023,
+            "statistics": {
+              "added-eqs": "57",
+              "arith-eq-adapter": "3",
+              "arith-lower": "3",
+              "arith-make-feasible": "13",
+              "arith-max-columns": "14",
+              "arith-upper": "3",
+              "conflicts": "1",
+              "datatype-accessor-ax": "6",
+              "del-clause": "5",
+              "final-checks": "10",
+              "max-generation": "4",
+              "max-memory": "18.70",
+              "memory": "18.48",
+              "mk-bool-var": "648",
+              "mk-clause": "5",
+              "num-allocs": "898125",
+              "num-checks": "11",
+              "propagations": "2",
+              "quant-instantiations": "15",
+              "rlimit-count": "210332"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "total": {
+        "quant-instantiations": 1579,
+        "rlimit-count": 913999,
+        "decisions": 8494,
+        "conflicts": 1108,
+        "queries": 485,
+        "solver_sessions": 2,
+        "offline_cpu_s": 0.29858400000000174
+      }
+    },
+    {
+      "index": 8,
+      "case": "mut_element_nested_pass",
+      "profile": "retained_current",
+      "repetition": 0,
+      "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/008-mut_element_nested_pass-retained_current-ferrum",
+      "command": [
+        "taskset",
+        "--cpu-list",
+        "0,1,2,3",
+        "/home/will/wk/exp/ferrum/target/debug/ferrum-bench-session",
+        "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "--timeout",
+        "60",
+        "--numberOfParallelVerifiers",
+        "1",
+        "--numberOfErrorsToReport=1",
+        "--enableMoreCompleteExhale",
+        "--disableTerminationPlugin",
+        "--assertTimeout",
+        "10000",
+        "--proverConfigArgs",
+        "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+        "--logLevel",
+        "ERROR",
+        "--separateMethodSolver=false",
+        "--proverSaturationTimeout",
+        "100",
+        "--proverSaturationTimeoutWeights",
+        "[1,0.5,0.4,0,0]",
+        "--proverLogFile",
+        "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/008-mut_element_nested_pass-retained_current-ferrum/prover",
+        "--parallelizeBranches=false",
+        "--",
+        "/tmp/ferrum-saturation-experiment/inputs/mut_element_nested_pass.vpr"
+      ],
+      "started_utc": "2026-10-30T20:21:51.177990+00:00",
+      "finished_utc": "2026-10-30T20:22:29.674631+00:00",
+      "wall_s": 28.145961439004168,
+      "valid": true,
+      "issues": [],
+      "cleanup_pending": [],
+      "saturation_comments": {
+        "after prelude": 1,
+        "after contract": 33,
+        "after unfold": 8
+      },
+      "supervisor": {
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": []
+      },
+      "outcomes": [
+        {
+          "outcome": "verified",
+          "errors": [],
+          "backend_warnings": []
+        }
+      ],
+      "traces": [
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/008-mut_element_nested_pass-retained_current-ferrum/traces/551100-330629786041028",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 2230,
+            "declare-datatypes": 1,
+            "declare-sort": 48,
+            "declare-const": 573,
+            "declare-fun": 506,
+            "assert": 3951,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 60,
+            "check-sat": 1111,
+            "push": 2774,
+            "pop": 2774
+          },
+          "input_bytes": 4415482,
+          "output_bytes": 110830,
+          "input_sha256": "95079029bf614ddc90635f67a417531363b46b250ff8a5c0bdb0332ec4790908",
+          "output_sha256": "0f6d03c4c58d15a529194c392d35ead22942c8525730dc4a90b16a53d57bd73e",
+          "query_count": 1111,
+          "query_responses": {
+            "unknown": 392,
+            "unsat": 719
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 9.484437,
+            "system_cpu_s": 0.04800199999999988,
+            "wall_s": 9.544267758028582,
+            "statistics": {
+              "added-eqs": "2194385",
+              "arith-eq-adapter": "142416",
+              "arith-assume-eqs": "2018",
+              "arith-bound-propagations-lp": "136824",
+              "arith-conflicts": "2120",
+              "arith-diseq": "87538",
+              "arith-fixed-eqs": "89037",
+              "arith-lower": "163722",
+              "arith-make-feasible": "83895",
+              "arith-max-columns": "1029",
+              "arith-max-rows": "587",
+              "arith-offset-eqs": "62471",
+              "arith-upper": "200742",
+              "conflicts": "15030",
+              "datatype-accessor-ax": "49827",
+              "datatype-constructor-ax": "199787",
+              "datatype-occurs-check": "157059",
+              "datatype-splits": "112504",
+              "decisions": "234087",
+              "del-clause": "752059",
+              "final-checks": "3307",
+              "interface-eqs": "1009",
+              "max-generation": "21",
+              "max-memory": "33.40",
+              "memory": "31.55",
+              "minimized-lits": "2975",
+              "mk-bool-var": "1126901",
+              "mk-clause": "752059",
+              "num-allocs": "13949455644.00",
+              "num-checks": "1110",
+              "propagations": "340404",
+              "quant-instantiations": "181264",
+              "rlimit-count": "18540052"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "total": {
+        "quant-instantiations": 181264,
+        "rlimit-count": 18540052,
+        "decisions": 234087,
+        "conflicts": 15030,
+        "queries": 1111,
+        "solver_sessions": 1,
+        "offline_cpu_s": 9.532439
+      }
+    },
+    {
+      "index": 9,
+      "case": "mut_element_nested_pass",
+      "profile": "retained_older",
+      "repetition": 0,
+      "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/009-mut_element_nested_pass-retained_older-ferrum",
+      "command": [
+        "taskset",
+        "--cpu-list",
+        "0,1,2,3",
+        "/home/will/wk/exp/ferrum/target/debug/ferrum-bench-session",
+        "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "--timeout",
+        "60",
+        "--numberOfParallelVerifiers",
+        "1",
+        "--numberOfErrorsToReport=1",
+        "--enableMoreCompleteExhale",
+        "--disableTerminationPlugin",
+        "--assertTimeout",
+        "10000",
+        "--proverConfigArgs",
+        "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+        "--logLevel",
+        "ERROR",
+        "--separateMethodSolver=false",
+        "--proverSaturationTimeout",
+        "100",
+        "--proverSaturationTimeoutWeights",
+        "[1,0.5,0.4,0.2,0.02]",
+        "--proverLogFile",
+        "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/009-mut_element_nested_pass-retained_older-ferrum/prover",
+        "--parallelizeBranches=false",
+        "--",
+        "/tmp/ferrum-saturation-experiment/inputs/mut_element_nested_pass.vpr"
+      ],
+      "started_utc": "2026-10-30T20:22:29.697433+00:00",
+      "finished_utc": "2026-10-30T20:23:01.527636+00:00",
+      "wall_s": 24.94533340597991,
+      "valid": true,
+      "issues": [],
+      "cleanup_pending": [],
+      "saturation_comments": {
+        "after prelude": 1,
+        "after contract": 33,
+        "before iteration": 34,
+        "after inhale": 69,
+        "after unfold": 8
+      },
+      "supervisor": {
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": []
+      },
+      "outcomes": [
+        {
+          "outcome": "verified",
+          "errors": [],
+          "backend_warnings": []
+        }
+      ],
+      "traces": [
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/009-mut_element_nested_pass-retained_older-ferrum/traces/558438-330668319251192",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 2369,
+            "declare-datatypes": 1,
+            "declare-sort": 48,
+            "declare-const": 573,
+            "declare-fun": 506,
+            "assert": 3951,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 60,
+            "check-sat": 1214,
+            "push": 2774,
+            "pop": 2774
+          },
+          "input_bytes": 4420350,
+          "output_bytes": 112766,
+          "input_sha256": "236e18c1b9dd1cae27ff65786ca9bf455344aad5eaeda12f7a94e807033c89bc",
+          "output_sha256": "fbe3c91a6cff97677d79033394c4177df5062c879e37f4e91d91fc309729bd60",
+          "query_count": 1214,
+          "query_responses": {
+            "unknown": 495,
+            "unsat": 719
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 5.529223000000002,
+            "system_cpu_s": 0.06298000000000048,
+            "wall_s": 5.6053999830037355,
+            "statistics": {
+              "added-eqs": "803507",
+              "arith-eq-adapter": "52627",
+              "arith-assume-eqs": "824",
+              "arith-bound-propagations-lp": "54897",
+              "arith-conflicts": "883",
+              "arith-diseq": "27702",
+              "arith-fixed-eqs": "36698",
+              "arith-lower": "60673",
+              "arith-make-feasible": "38983",
+              "arith-max-columns": "722",
+              "arith-max-rows": "402",
+              "arith-offset-eqs": "15546",
+              "arith-upper": "74037",
+              "conflicts": "10995",
+              "datatype-accessor-ax": "27347",
+              "datatype-constructor-ax": "71830",
+              "datatype-occurs-check": "111061",
+              "datatype-splits": "80862",
+              "decisions": "106354",
+              "del-clause": "279033",
+              "final-checks": "2253",
+              "interface-eqs": "412",
+              "max-generation": "16",
+              "max-memory": "29.41",
+              "memory": "28.21",
+              "minimized-lits": "480",
+              "mk-bool-var": "478365",
+              "mk-clause": "279033",
+              "num-allocs": "4650119453.00",
+              "num-checks": "1213",
+              "propagations": "137401",
+              "quant-instantiations": "95396",
+              "rlimit-count": "10823650"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "total": {
+        "quant-instantiations": 95396,
+        "rlimit-count": 10823650,
+        "decisions": 106354,
+        "conflicts": 10995,
+        "queries": 1214,
+        "solver_sessions": 1,
+        "offline_cpu_s": 5.592203000000002
+      }
+    },
+    {
+      "index": 10,
+      "case": "mut_element_nested_pass",
+      "profile": "separate_current",
+      "repetition": 0,
+      "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/010-mut_element_nested_pass-separate_current-ferrum",
+      "command": [
+        "taskset",
+        "--cpu-list",
+        "0,1,2,3",
+        "/home/will/wk/exp/ferrum/target/debug/ferrum-bench-session",
+        "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "--timeout",
+        "60",
+        "--numberOfParallelVerifiers",
+        "1",
+        "--numberOfErrorsToReport=1",
+        "--enableMoreCompleteExhale",
+        "--disableTerminationPlugin",
+        "--assertTimeout",
+        "10000",
+        "--proverConfigArgs",
+        "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+        "--logLevel",
+        "ERROR",
+        "--separateMethodSolver=true",
+        "--proverSaturationTimeout",
+        "100",
+        "--proverSaturationTimeoutWeights",
+        "[1,0.5,0.4,0,0]",
+        "--proverLogFile",
+        "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/010-mut_element_nested_pass-separate_current-ferrum/prover",
+        "--parallelizeBranches=false",
+        "--",
+        "/tmp/ferrum-saturation-experiment/inputs/mut_element_nested_pass.vpr"
+      ],
+      "started_utc": "2026-10-30T20:23:01.556467+00:00",
+      "finished_utc": "2026-10-30T20:23:44.171691+00:00",
+      "wall_s": 35.113497802987695,
+      "valid": true,
+      "issues": [],
+      "cleanup_pending": [],
+      "saturation_comments": {
+        "after prelude": 2,
+        "after contract": 33,
+        "after unfold": 8
+      },
+      "supervisor": {
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": []
+      },
+      "outcomes": [
+        {
+          "outcome": "verified",
+          "errors": [],
+          "backend_warnings": []
+        }
+      ],
+      "traces": [
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/010-mut_element_nested_pass-separate_current-ferrum/traces/564440-330700178392082",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 2188,
+            "declare-datatypes": 1,
+            "declare-sort": 48,
+            "declare-const": 520,
+            "declare-fun": 430,
+            "assert": 3802,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 60,
+            "check-sat": 1090,
+            "push": 2699,
+            "pop": 2698
+          },
+          "input_bytes": 4559430,
+          "output_bytes": 106908,
+          "input_sha256": "73d6a1d50b38f99c76cd277b0dac400bdf65ad231c7b0cb62efa5b0bd0119796",
+          "output_sha256": "dd774955c5dfd426ddaa0e42b06ad20d5b49365a0c41b7593e6f03ffda025728",
+          "query_count": 1090,
+          "query_responses": {
+            "unknown": 378,
+            "unsat": 712
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 6.581367,
+            "system_cpu_s": 0.052986999999999895,
+            "wall_s": 6.650433854025323,
+            "statistics": {
+              "added-eqs": "1400627",
+              "arith-eq-adapter": "97601",
+              "arith-assume-eqs": "2432",
+              "arith-bound-propagations-lp": "90132",
+              "arith-conflicts": "1948",
+              "arith-diseq": "59495",
+              "arith-fixed-eqs": "66327",
+              "arith-lower": "110850",
+              "arith-make-feasible": "78038",
+              "arith-max-columns": "957",
+              "arith-max-rows": "540",
+              "arith-offset-eqs": "29402",
+              "arith-upper": "150894",
+              "conflicts": "14615",
+              "datatype-accessor-ax": "41267",
+              "datatype-constructor-ax": "142134",
+              "datatype-occurs-check": "171301",
+              "datatype-splits": "130217",
+              "decisions": "191592",
+              "del-clause": "495468",
+              "final-checks": "3012",
+              "interface-eqs": "1215",
+              "max-generation": "21",
+              "max-memory": "32.01",
+              "memory": "30.34",
+              "minimized-lits": "1771",
+              "mk-bool-var": "799624",
+              "mk-clause": "495468",
+              "num-allocs": "7302810693.00",
+              "num-checks": "1089",
+              "propagations": "238510",
+              "quant-instantiations": "137841",
+              "rlimit-count": "14684656"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        },
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/010-mut_element_nested_pass-separate_current-ferrum/traces/564444-330700212544665",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 60,
+            "declare-datatypes": 1,
+            "declare-sort": 48,
+            "declare-const": 80,
+            "declare-fun": 494,
+            "assert": 770,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 22,
+            "push": 76,
+            "pop": 76
+          },
+          "input_bytes": 224180,
+          "output_bytes": 13078,
+          "input_sha256": "8b4a593ffd409af1b2052865b59b1d7a45e7c5a371c86e6b289fb69c7b11fa45",
+          "output_sha256": "c456cec34c86e58c787378c150303f8c0fd5591b88e04a36bc4cebafcfd177d2",
+          "query_count": 22,
+          "query_responses": {
+            "unknown": 15,
+            "unsat": 7
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 0.026201999999997838,
+            "system_cpu_s": 0.009070000000000356,
+            "wall_s": 0.04563713097013533,
+            "statistics": {
+              "added-eqs": "168",
+              "arith-eq-adapter": "3",
+              "arith-lower": "4",
+              "arith-make-feasible": "21",
+              "arith-max-columns": "14",
+              "arith-upper": "6",
+              "conflicts": "4",
+              "datatype-accessor-ax": "23",
+              "del-clause": "10",
+              "final-checks": "14",
+              "max-generation": "4",
+              "max-memory": "18.62",
+              "memory": "18.36",
+              "mk-bool-var": "717",
+              "mk-clause": "10",
+              "num-allocs": "747258",
+              "num-checks": "21",
+              "propagations": "3",
+              "quant-instantiations": "58",
+              "rlimit-count": "205708"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "total": {
+        "quant-instantiations": 137899,
+        "rlimit-count": 14890364,
+        "decisions": 191592,
+        "conflicts": 14619,
+        "queries": 1112,
+        "solver_sessions": 2,
+        "offline_cpu_s": 6.669625999999998
+      }
+    },
+    {
+      "index": 11,
+      "case": "mut_element_nested_pass",
+      "profile": "separate_older",
+      "repetition": 0,
+      "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/011-mut_element_nested_pass-separate_older-ferrum",
+      "command": [
+        "taskset",
+        "--cpu-list",
+        "0,1,2,3",
+        "/home/will/wk/exp/ferrum/target/debug/ferrum-bench-session",
+        "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "--timeout",
+        "60",
+        "--numberOfParallelVerifiers",
+        "1",
+        "--numberOfErrorsToReport=1",
+        "--enableMoreCompleteExhale",
+        "--disableTerminationPlugin",
+        "--assertTimeout",
+        "10000",
+        "--proverConfigArgs",
+        "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+        "--logLevel",
+        "ERROR",
+        "--separateMethodSolver=true",
+        "--proverSaturationTimeout",
+        "100",
+        "--proverSaturationTimeoutWeights",
+        "[1,0.5,0.4,0.2,0.02]",
+        "--proverLogFile",
+        "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/011-mut_element_nested_pass-separate_older-ferrum/prover",
+        "--parallelizeBranches=false",
+        "--",
+        "/tmp/ferrum-saturation-experiment/inputs/mut_element_nested_pass.vpr"
+      ],
+      "started_utc": "2026-10-30T20:23:44.192983+00:00",
+      "finished_utc": "2026-10-30T20:25:02.158569+00:00",
+      "wall_s": 76.920349980006,
+      "valid": false,
+      "issues": [
+        "Missing response to command 12800 check-sat"
+      ],
+      "cleanup_pending": [],
+      "saturation_comments": {
+        "after prelude": 2,
+        "after contract": 15,
+        "before iteration": 32,
+        "after inhale": 69,
+        "after unfold": 8
+      },
+      "supervisor": {
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": []
+      },
+      "outcomes": [
+        {
+          "outcome": "verifier_timeout",
+          "errors": [
+            {
+              "id": "timeout.error",
+              "message": "Timeout occurred after 60 second(s)",
+              "position": "<no position>"
+            }
+          ],
+          "backend_warnings": [
+            "timeout verification terminated: Worker(Worker(Cleanup(Service(Cleanup(Service(Cleanup(callback: Service(Decider(Prover(SourceProtocol { prover_id: \"worker_0\", message: \"Interaction with prover yielded null. This might indicate that the prover crashed.\" }))); adapter: Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))",
+            "timeout cleanup failed: [Worker(Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" }))))]"
+          ]
+        }
+      ],
+      "traces": [
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/011-mut_element_nested_pass-separate_older-ferrum/traces/572501-330742799526129",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 2210,
+            "declare-datatypes": 1,
+            "declare-sort": 48,
+            "declare-const": 384,
+            "declare-fun": 428,
+            "assert": 3536,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 55,
+            "check-sat": 1134,
+            "push": 2515,
+            "pop": 2486
+          },
+          "input_bytes": 4200416,
+          "output_bytes": 101052,
+          "input_sha256": "f08c94fc3023707830cb62c2639351af2668c341739cece104025692aa47dd5f",
+          "output_sha256": "a6ad5eed562413da84e2f8e5a37965217aab298cfb17d6d25ed83c93ee0869b6",
+          "query_count": 1134,
+          "query_responses": {
+            "unknown": 453,
+            "unsat": 680,
+            "null": 1
+          },
+          "issues": [
+            "Missing response to command 12800 check-sat"
+          ],
+          "offline": null
+        },
+        {
+          "folder": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/011-mut_element_nested_pass-separate_older-ferrum/traces/572505-330742826280864",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 60,
+            "declare-datatypes": 1,
+            "declare-sort": 48,
+            "declare-const": 80,
+            "declare-fun": 494,
+            "assert": 770,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 22,
+            "push": 76,
+            "pop": 76
+          },
+          "input_bytes": 224180,
+          "output_bytes": 13078,
+          "input_sha256": "8b4a593ffd409af1b2052865b59b1d7a45e7c5a371c86e6b289fb69c7b11fa45",
+          "output_sha256": "c456cec34c86e58c787378c150303f8c0fd5591b88e04a36bc4cebafcfd177d2",
+          "query_count": 22,
+          "query_responses": {
+            "unknown": 15,
+            "unsat": 7
+          },
+          "issues": [],
+          "offline": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "user_cpu_s": 0.04050899999998592,
+            "system_cpu_s": 0.008891999999999456,
+            "wall_s": 0.050505360995884985,
+            "statistics": {
+              "added-eqs": "168",
+              "arith-eq-adapter": "3",
+              "arith-lower": "4",
+              "arith-make-feasible": "21",
+              "arith-max-columns": "14",
+              "arith-upper": "6",
+              "conflicts": "4",
+              "datatype-accessor-ax": "23",
+              "del-clause": "10",
+              "final-checks": "14",
+              "max-generation": "4",
+              "max-memory": "18.62",
+              "memory": "18.36",
+              "mk-bool-var": "717",
+              "mk-clause": "10",
+              "num-allocs": "747258",
+              "num-checks": "21",
+              "propagations": "3",
+              "quant-instantiations": "58",
+              "rlimit-count": "205708"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "total": null
+    }
+  ],
+  "cells": [
+    {
+      "case": "mut_element_array_wrong",
+      "profile": "retained_current",
+      "valid": true,
+      "capture_wall_s": 2.1750437719747424,
+      "total": {
+        "quant-instantiations": 1609,
+        "rlimit-count": 774833,
+        "decisions": 10511,
+        "conflicts": 1121,
+        "queries": 475,
+        "solver_sessions": 1,
+        "offline_cpu_s": 0.3335990000000002
+      }
+    },
+    {
+      "case": "mut_element_array_wrong",
+      "profile": "retained_older",
+      "valid": true,
+      "capture_wall_s": 2.3273241950082593,
+      "total": {
+        "quant-instantiations": 1828,
+        "rlimit-count": 865226,
+        "decisions": 12995,
+        "conflicts": 1020,
+        "queries": 553,
+        "solver_sessions": 1,
+        "offline_cpu_s": 0.3738090000000002
+      }
+    },
+    {
+      "case": "mut_element_array_wrong",
+      "profile": "separate_current",
+      "valid": true,
+      "capture_wall_s": 2.2785556690068915,
+      "total": {
+        "quant-instantiations": 1612,
+        "rlimit-count": 982583,
+        "decisions": 10511,
+        "conflicts": 1121,
+        "queries": 476,
+        "solver_sessions": 2,
+        "offline_cpu_s": 0.3686990000000002
+      }
+    },
+    {
+      "case": "mut_element_array_wrong",
+      "profile": "separate_older",
+      "valid": true,
+      "capture_wall_s": 2.4423126360052265,
+      "total": {
+        "quant-instantiations": 1830,
+        "rlimit-count": 1073223,
+        "decisions": 12995,
+        "conflicts": 1020,
+        "queries": 554,
+        "solver_sessions": 2,
+        "offline_cpu_s": 0.42303999999999986
+      }
+    },
+    {
+      "case": "mut_element_array_pass",
+      "profile": "retained_current",
+      "valid": true,
+      "capture_wall_s": 2.1291234599775635,
+      "total": {
+        "quant-instantiations": 1337,
+        "rlimit-count": 613017,
+        "decisions": 5751,
+        "conflicts": 1166,
+        "queries": 406,
+        "solver_sessions": 1,
+        "offline_cpu_s": 0.20605099999999976
+      }
+    },
+    {
+      "case": "mut_element_array_pass",
+      "profile": "retained_older",
+      "valid": true,
+      "capture_wall_s": 2.1816660529584624,
+      "total": {
+        "quant-instantiations": 1602,
+        "rlimit-count": 706520,
+        "decisions": 8518,
+        "conflicts": 1111,
+        "queries": 484,
+        "solver_sessions": 1,
+        "offline_cpu_s": 0.265305000000001
+      }
+    },
+    {
+      "case": "mut_element_array_pass",
+      "profile": "separate_current",
+      "valid": true,
+      "capture_wall_s": 2.17910904600285,
+      "total": {
+        "quant-instantiations": 1280,
+        "rlimit-count": 819033,
+        "decisions": 5742,
+        "conflicts": 1166,
+        "queries": 407,
+        "solver_sessions": 2,
+        "offline_cpu_s": 0.24431199999999875
+      }
+    },
+    {
+      "case": "mut_element_array_pass",
+      "profile": "separate_older",
+      "valid": true,
+      "capture_wall_s": 2.3434722219826654,
+      "total": {
+        "quant-instantiations": 1579,
+        "rlimit-count": 913999,
+        "decisions": 8494,
+        "conflicts": 1108,
+        "queries": 485,
+        "solver_sessions": 2,
+        "offline_cpu_s": 0.29858400000000174
+      }
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "profile": "retained_current",
+      "valid": true,
+      "capture_wall_s": 28.145961439004168,
+      "total": {
+        "quant-instantiations": 181264,
+        "rlimit-count": 18540052,
+        "decisions": 234087,
+        "conflicts": 15030,
+        "queries": 1111,
+        "solver_sessions": 1,
+        "offline_cpu_s": 9.532439
+      }
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "profile": "retained_older",
+      "valid": true,
+      "capture_wall_s": 24.94533340597991,
+      "total": {
+        "quant-instantiations": 95396,
+        "rlimit-count": 10823650,
+        "decisions": 106354,
+        "conflicts": 10995,
+        "queries": 1214,
+        "solver_sessions": 1,
+        "offline_cpu_s": 5.592203000000002
+      }
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "profile": "separate_current",
+      "valid": true,
+      "capture_wall_s": 35.113497802987695,
+      "total": {
+        "quant-instantiations": 137899,
+        "rlimit-count": 14890364,
+        "decisions": 191592,
+        "conflicts": 14619,
+        "queries": 1112,
+        "solver_sessions": 2,
+        "offline_cpu_s": 6.669625999999998
+      }
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "profile": "separate_older",
+      "valid": false,
+      "capture_wall_s": 76.920349980006,
+      "total": null
+    }
+  ],
+  "gates": [
+    {
+      "index": 0,
+      "checks": {
+        "valid": true,
+        "expected_stream_count": true,
+        "current_reference_equal": true
+      },
+      "historical_reference": {
+        "folder": "/tmp/ferrum-method-solver-235b245/experiment/captures/000-mut_element_array_wrong-retained-ferrum",
+        "signature_equal": true
+      }
+    },
+    {
+      "index": 1,
+      "checks": {
+        "valid": true,
+        "expected_stream_count": true
+      }
+    },
+    {
+      "index": 2,
+      "checks": {
+        "valid": true,
+        "expected_stream_count": true,
+        "current_reference_equal": true
+      },
+      "historical_reference": {
+        "folder": "/tmp/ferrum-method-solver-235b245/experiment/captures/001-mut_element_array_wrong-separate-ferrum",
+        "signature_equal": true
+      }
+    },
+    {
+      "index": 3,
+      "checks": {
+        "valid": true,
+        "expected_stream_count": true
+      }
+    },
+    {
+      "index": 4,
+      "checks": {
+        "valid": true,
+        "expected_stream_count": true,
+        "current_reference_equal": true
+      },
+      "historical_reference": {
+        "folder": "/tmp/ferrum-method-solver-235b245/experiment/captures/002-mut_element_array_pass-retained-ferrum",
+        "signature_equal": true
+      }
+    },
+    {
+      "index": 5,
+      "checks": {
+        "valid": true,
+        "expected_stream_count": true
+      }
+    },
+    {
+      "index": 6,
+      "checks": {
+        "valid": true,
+        "expected_stream_count": true,
+        "current_reference_equal": true
+      },
+      "historical_reference": {
+        "folder": "/tmp/ferrum-method-solver-235b245/experiment/captures/003-mut_element_array_pass-separate-ferrum",
+        "signature_equal": true
+      }
+    },
+    {
+      "index": 7,
+      "checks": {
+        "valid": true,
+        "expected_stream_count": true
+      }
+    },
+    {
+      "index": 8,
+      "checks": {
+        "valid": true,
+        "expected_stream_count": true,
+        "current_reference_equal": true
+      },
+      "historical_reference": {
+        "folder": "/tmp/ferrum-method-solver-235b245/experiment/captures/007-mut_element_nested_pass-retained-ferrum",
+        "signature_equal": true
+      }
+    },
+    {
+      "index": 9,
+      "checks": {
+        "valid": true,
+        "expected_stream_count": true
+      },
+      "historical_reference": {
+        "folder": "/tmp/ferrum-saturation-short-4bef39a/001-mut_element_nested_pass-legacy-ferrum",
+        "signature_equal": true
+      }
+    },
+    {
+      "index": 10,
+      "checks": {
+        "valid": true,
+        "expected_stream_count": true,
+        "current_reference_equal": true
+      },
+      "historical_reference": {
+        "folder": "/tmp/ferrum-method-solver-235b245/experiment/captures/006-mut_element_nested_pass-separate-ferrum",
+        "signature_equal": true
+      }
+    },
+    {
+      "index": 11,
+      "checks": {
+        "valid": false,
+        "expected_stream_count": true
+      }
+    }
+  ],
+  "stop": {
+    "reason": "Capture, outcome or reproducibility gate failed; no retry.",
+    "elapsed_s": 214.10403418901842
+  },
+  "audit": {
+    "scheduled_captures": 16,
+    "recorded_captures": 12,
+    "valid_captures": 11,
+    "scheduled_phase_timings": 16,
+    "recorded_phase_timings": 0,
+    "solver_streams": 18,
+    "exact_full_stream_replays": 17,
+    "postflight_errors": [],
+    "runtime_changed": false
+  },
+  "timings": [],
+  "diagnosis": {
+    "matched_queries": [
+      {
+        "combined": {
+          "index": 12781,
+          "assertion": "bf5c4e403f9b3416c6c87f7231613cefd9e7bb288851e1b643c49dde37a6ee90",
+          "options": {
+            "print-success": "true",
+            "global-decls": "true",
+            "auto_config": "false",
+            "smt.case_split": "3",
+            "smt.delay_units": "true",
+            "type_check": "true",
+            "smt.mbqi": "false",
+            "pp.bv_literals": "false",
+            "smt.qi.eager_threshold": "1000",
+            "smt.arith.solver": "6",
+            "model.v2": "true",
+            "model.partial": "false",
+            "smt.qi.max_multi_patterns": "1000",
+            "rlimit": "5000000"
+          },
+          "response": "unknown",
+          "wait_s": 8.616374375,
+          "end": 4191331
+        },
+        "current": {
+          "index": 12543,
+          "assertion": "bf5c4e403f9b3416c6c87f7231613cefd9e7bb288851e1b643c49dde37a6ee90",
+          "options": {
+            "print-success": "true",
+            "global-decls": "true",
+            "auto_config": "false",
+            "smt.case_split": "3",
+            "smt.delay_units": "true",
+            "type_check": "true",
+            "smt.mbqi": "false",
+            "pp.bv_literals": "false",
+            "smt.qi.eager_threshold": "1000",
+            "smt.arith.solver": "6",
+            "model.v2": "true",
+            "model.partial": "false",
+            "smt.qi.max_multi_patterns": "1000",
+            "rlimit": "5000000"
+          },
+          "response": "unknown",
+          "wait_s": 0.045273885,
+          "end": 4186543
+        },
+        "assertion_bytes_equal": true,
+        "effective_options_equal": true
+      },
+      {
+        "combined": {
+          "index": 12768,
+          "assertion": "164b8eae5f45a42060b747692e2242d0c7504b49aa73c4de5c4eb027ecc89aa4",
+          "options": {
+            "print-success": "true",
+            "global-decls": "true",
+            "auto_config": "false",
+            "smt.case_split": "3",
+            "smt.delay_units": "true",
+            "type_check": "true",
+            "smt.mbqi": "false",
+            "pp.bv_literals": "false",
+            "smt.qi.eager_threshold": "1000",
+            "smt.arith.solver": "6",
+            "model.v2": "true",
+            "model.partial": "false",
+            "smt.qi.max_multi_patterns": "1000",
+            "rlimit": "5000000"
+          },
+          "response": "unknown",
+          "wait_s": 8.091141559,
+          "end": 4185164
+        },
+        "current": {
+          "index": 12530,
+          "assertion": "164b8eae5f45a42060b747692e2242d0c7504b49aa73c4de5c4eb027ecc89aa4",
+          "options": {
+            "print-success": "true",
+            "global-decls": "true",
+            "auto_config": "false",
+            "smt.case_split": "3",
+            "smt.delay_units": "true",
+            "type_check": "true",
+            "smt.mbqi": "false",
+            "pp.bv_literals": "false",
+            "smt.qi.eager_threshold": "1000",
+            "smt.arith.solver": "6",
+            "model.v2": "true",
+            "model.partial": "false",
+            "smt.qi.max_multi_patterns": "1000",
+            "rlimit": "5000000"
+          },
+          "response": "unknown",
+          "wait_s": 0.048455606,
+          "end": 4180376
+        },
+        "assertion_bytes_equal": true,
+        "effective_options_equal": true
+      },
+      {
+        "combined": {
+          "index": 12788,
+          "assertion": "46c8bbb2de84c295e0b81ba32bcb568d72fd75976667d244d530575fb06a2ca7",
+          "options": {
+            "print-success": "true",
+            "global-decls": "true",
+            "auto_config": "false",
+            "smt.case_split": "3",
+            "smt.delay_units": "true",
+            "type_check": "true",
+            "smt.mbqi": "false",
+            "pp.bv_literals": "false",
+            "smt.qi.eager_threshold": "1000",
+            "smt.arith.solver": "6",
+            "model.v2": "true",
+            "model.partial": "false",
+            "smt.qi.max_multi_patterns": "1000",
+            "rlimit": "5000000"
+          },
+          "response": "unknown",
+          "wait_s": 7.945740217,
+          "end": 4198093
+        },
+        "current": {
+          "index": 12550,
+          "assertion": "46c8bbb2de84c295e0b81ba32bcb568d72fd75976667d244d530575fb06a2ca7",
+          "options": {
+            "print-success": "true",
+            "global-decls": "true",
+            "auto_config": "false",
+            "smt.case_split": "3",
+            "smt.delay_units": "true",
+            "type_check": "true",
+            "smt.mbqi": "false",
+            "pp.bv_literals": "false",
+            "smt.qi.eager_threshold": "1000",
+            "smt.arith.solver": "6",
+            "model.v2": "true",
+            "model.partial": "false",
+            "smt.qi.max_multi_patterns": "1000",
+            "rlimit": "5000000"
+          },
+          "response": "unknown",
+          "wait_s": 0.041374407,
+          "end": 4193305
+        },
+        "assertion_bytes_equal": true,
+        "effective_options_equal": true
+      },
+      {
+        "combined": {
+          "index": 12756,
+          "assertion": "cf411cd29e06d8ecf78ae046344f070fbde6cda458bb66beeef15da8439254e1",
+          "options": {
+            "print-success": "true",
+            "global-decls": "true",
+            "auto_config": "false",
+            "smt.case_split": "3",
+            "smt.delay_units": "true",
+            "type_check": "true",
+            "smt.mbqi": "false",
+            "pp.bv_literals": "false",
+            "smt.qi.eager_threshold": "1000",
+            "smt.arith.solver": "6",
+            "model.v2": "true",
+            "model.partial": "false",
+            "smt.qi.max_multi_patterns": "1000",
+            "rlimit": "5000000"
+          },
+          "response": "unknown",
+          "wait_s": 7.563171448,
+          "end": 4182936
+        },
+        "current": {
+          "index": 12518,
+          "assertion": "cf411cd29e06d8ecf78ae046344f070fbde6cda458bb66beeef15da8439254e1",
+          "options": {
+            "print-success": "true",
+            "global-decls": "true",
+            "auto_config": "false",
+            "smt.case_split": "3",
+            "smt.delay_units": "true",
+            "type_check": "true",
+            "smt.mbqi": "false",
+            "pp.bv_literals": "false",
+            "smt.qi.eager_threshold": "1000",
+            "smt.arith.solver": "6",
+            "model.v2": "true",
+            "model.partial": "false",
+            "smt.qi.max_multi_patterns": "1000",
+            "rlimit": "5000000"
+          },
+          "response": "unknown",
+          "wait_s": 0.138195146,
+          "end": 4178148
+        },
+        "assertion_bytes_equal": true,
+        "effective_options_equal": true
+      },
+      {
+        "combined": {
+          "index": 12749,
+          "assertion": "498da979d415f6568a61942ae786aa421b4e9869db5449aebcee434764d8b420",
+          "options": {
+            "print-success": "true",
+            "global-decls": "true",
+            "auto_config": "false",
+            "smt.case_split": "3",
+            "smt.delay_units": "true",
+            "type_check": "true",
+            "smt.mbqi": "false",
+            "pp.bv_literals": "false",
+            "smt.qi.eager_threshold": "1000",
+            "smt.arith.solver": "6",
+            "model.v2": "true",
+            "model.partial": "false",
+            "smt.qi.max_multi_patterns": "1000",
+            "rlimit": "5000000"
+          },
+          "response": "unknown",
+          "wait_s": 5.143211818,
+          "end": 4179676
+        },
+        "current": {
+          "index": 12511,
+          "assertion": "498da979d415f6568a61942ae786aa421b4e9869db5449aebcee434764d8b420",
+          "options": {
+            "print-success": "true",
+            "global-decls": "true",
+            "auto_config": "false",
+            "smt.case_split": "3",
+            "smt.delay_units": "true",
+            "type_check": "true",
+            "smt.mbqi": "false",
+            "pp.bv_literals": "false",
+            "smt.qi.eager_threshold": "1000",
+            "smt.arith.solver": "6",
+            "model.v2": "true",
+            "model.partial": "false",
+            "smt.qi.max_multi_patterns": "1000",
+            "rlimit": "5000000"
+          },
+          "response": "unknown",
+          "wait_s": 0.03702112,
+          "end": 4174888
+        },
+        "assertion_bytes_equal": true,
+        "effective_options_equal": true
+      }
+    ],
+    "prefix_probes": [
+      {
+        "variant": "current",
+        "source": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/010-mut_element_nested_pass-separate_current-ferrum/traces/564440-330700178392082",
+        "query": {
+          "index": 12511,
+          "assertion": "498da979d415f6568a61942ae786aa421b4e9869db5449aebcee434764d8b420",
+          "options": {
+            "print-success": "true",
+            "global-decls": "true",
+            "auto_config": "false",
+            "smt.case_split": "3",
+            "smt.delay_units": "true",
+            "type_check": "true",
+            "smt.mbqi": "false",
+            "pp.bv_literals": "false",
+            "smt.qi.eager_threshold": "1000",
+            "smt.arith.solver": "6",
+            "model.v2": "true",
+            "model.partial": "false",
+            "smt.qi.max_multi_patterns": "1000",
+            "rlimit": "5000000"
+          },
+          "response": "unknown",
+          "wait_s": 0.03702112,
+          "end": 4174888
+        },
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+          "-smt2",
+          "-in"
+        ],
+        "limit_s": 30,
+        "status": "completed",
+        "exit_code": 0,
+        "wall_s": 6.037386451964267,
+        "cpu_s": 5.982995000000001,
+        "expected_original_responses": 12512,
+        "actual_responses": 12514,
+        "original_response_prefix_equal": true,
+        "reason_unknown": "(:reason-unknown \"(incomplete quantifiers)\")",
+        "statistics_text": "(:added-eqs                   1315519\n :arith-eq-adapter            88517\n :arith-assume-eqs            2336\n :arith-bound-propagations-lp 83533\n :arith-conflicts             1684\n :arith-diseq                 53529\n :arith-fixed-eqs             62035\n :arith-lower                 100834\n :arith-make-feasible         72234\n :arith-max-columns           847\n :arith-max-rows              476\n :arith-offset-eqs            26721\n :arith-upper                 139890\n :conflicts                   13876\n :datatype-accessor-ax        39380\n :datatype-constructor-ax     134962\n :datatype-occurs-check       165078\n :datatype-splits             125585\n :decisions                   179750\n :del-clause                  460494\n :final-checks                2886\n :interface-eqs               1167\n :max-generation              21\n :max-memory                  29.90\n :memory                      29.58\n :minimized-lits              1516\n :mk-bool-var                 747162\n :mk-clause                   463071\n :num-allocs                  6457428741.00\n :num-checks                  1024\n :propagations                222056\n :quant-instantiations        128695\n :rlimit-count                13591859\n :time                        0.03)",
+        "stderr": "",
+        "artifact_sha256": {
+          "input.smt2": "fb4ea0b4f0de64a137ebfc71e3ac600a4349dfacd0174b2590fd13e9bf7b0156",
+          "stdout.bin": "7e278ee1eb4b441964747b3d74f0e9d73c575371e0511f527c98604ee50a5d95",
+          "stderr.bin": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "statistics": {
+          "added-eqs": "1315519",
+          "arith-eq-adapter": "88517",
+          "arith-assume-eqs": "2336",
+          "arith-bound-propagations-lp": "83533",
+          "arith-conflicts": "1684",
+          "arith-diseq": "53529",
+          "arith-fixed-eqs": "62035",
+          "arith-lower": "100834",
+          "arith-make-feasible": "72234",
+          "arith-max-columns": "847",
+          "arith-max-rows": "476",
+          "arith-offset-eqs": "26721",
+          "arith-upper": "139890",
+          "conflicts": "13876",
+          "datatype-accessor-ax": "39380",
+          "datatype-constructor-ax": "134962",
+          "datatype-occurs-check": "165078",
+          "datatype-splits": "125585",
+          "decisions": "179750",
+          "del-clause": "460494",
+          "final-checks": "2886",
+          "interface-eqs": "1167",
+          "max-generation": "21",
+          "max-memory": "29.90",
+          "memory": "29.58",
+          "minimized-lits": "1516",
+          "mk-bool-var": "747162",
+          "mk-clause": "463071",
+          "num-allocs": "6457428741.00",
+          "num-checks": "1024",
+          "propagations": "222056",
+          "quant-instantiations": "128695",
+          "rlimit-count": "13591859",
+          "time": "0.03"
+        }
+      },
+      {
+        "variant": "combined",
+        "source": "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/011-mut_element_nested_pass-separate_older-ferrum/traces/572501-330742799526129",
+        "query": {
+          "index": 12749,
+          "assertion": "498da979d415f6568a61942ae786aa421b4e9869db5449aebcee434764d8b420",
+          "options": {
+            "print-success": "true",
+            "global-decls": "true",
+            "auto_config": "false",
+            "smt.case_split": "3",
+            "smt.delay_units": "true",
+            "type_check": "true",
+            "smt.mbqi": "false",
+            "pp.bv_literals": "false",
+            "smt.qi.eager_threshold": "1000",
+            "smt.arith.solver": "6",
+            "model.v2": "true",
+            "model.partial": "false",
+            "smt.qi.max_multi_patterns": "1000",
+            "rlimit": "5000000"
+          },
+          "response": "unknown",
+          "wait_s": 5.143211818,
+          "end": 4179676
+        },
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+          "-smt2",
+          "-in"
+        ],
+        "limit_s": 30,
+        "status": "completed",
+        "exit_code": 0,
+        "wall_s": 21.146820919995662,
+        "cpu_s": 21.077891,
+        "expected_original_responses": 12750,
+        "actual_responses": 12752,
+        "original_response_prefix_equal": true,
+        "reason_unknown": "(:reason-unknown \"canceled\")",
+        "statistics_text": "(:added-eqs                   3706623\n :arith-eq-adapter            159634\n :arith-assume-eqs            2310\n :arith-bound-propagations-lp 278794\n :arith-conflicts             1952\n :arith-diseq                 237124\n :arith-fixed-eqs             117953\n :arith-lower                 250425\n :arith-make-feasible         212875\n :arith-max-columns           2669\n :arith-max-rows              1854\n :arith-offset-eqs            94718\n :arith-upper                 392139\n :conflicts                   16208\n :datatype-accessor-ax        180719\n :datatype-constructor-ax     365318\n :datatype-occurs-check       588519\n :datatype-splits             488129\n :decisions                   533371\n :del-clause                  1178721\n :dyn-ack                     6\n :final-checks                2727\n :interface-eqs               1154\n :max-generation              40\n :max-memory                  60.44\n :memory                      60.25\n :minimized-lits              6341\n :mk-bool-var                 1866816\n :mk-clause                   1189762\n :num-allocs                  32045731282.00\n :num-checks                  1125\n :propagations                746823\n :quant-instantiations        539090\n :restarts                    9\n :rlimit-count                47934659\n :time                        5.03)",
+        "stderr": "",
+        "artifact_sha256": {
+          "input.smt2": "82ebb00957bfe232a65f4164c6db75eaade720b8576e12d1ce9f5262a9c24084",
+          "stdout.bin": "d89afe83811946ea4d4e2e8dd231107edcf198910f3c8bb81b322b34a3aab5d7",
+          "stderr.bin": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "statistics": {
+          "added-eqs": "3706623",
+          "arith-eq-adapter": "159634",
+          "arith-assume-eqs": "2310",
+          "arith-bound-propagations-lp": "278794",
+          "arith-conflicts": "1952",
+          "arith-diseq": "237124",
+          "arith-fixed-eqs": "117953",
+          "arith-lower": "250425",
+          "arith-make-feasible": "212875",
+          "arith-max-columns": "2669",
+          "arith-max-rows": "1854",
+          "arith-offset-eqs": "94718",
+          "arith-upper": "392139",
+          "conflicts": "16208",
+          "datatype-accessor-ax": "180719",
+          "datatype-constructor-ax": "365318",
+          "datatype-occurs-check": "588519",
+          "datatype-splits": "488129",
+          "decisions": "533371",
+          "del-clause": "1178721",
+          "dyn-ack": "6",
+          "final-checks": "2727",
+          "interface-eqs": "1154",
+          "max-generation": "40",
+          "max-memory": "60.44",
+          "memory": "60.25",
+          "minimized-lits": "6341",
+          "mk-bool-var": "1866816",
+          "mk-clause": "1189762",
+          "num-allocs": "32045731282.00",
+          "num-checks": "1125",
+          "propagations": "746823",
+          "quant-instantiations": "539090",
+          "restarts": "9",
+          "rlimit-count": "47934659",
+          "time": "5.03"
+        }
+      }
+    ],
+    "scope": "Exact local assertions and options match; complete solver contexts and histories are not claimed equivalent.",
+    "prefix_role": "Separate bounded post-stop diagnosis, not a full verifier retry or an estimate of combined full-run solver work."
+  },
+  "artifact_sha256": {
+    "/tmp/ferrum-method-saturation-dd263e8/run.py": "60c08abe864521a878851f42fbe151c1369a18710d3d69883b93ff617ed72646",
+    "/tmp/ferrum-method-saturation-dd263e8/run.log": "3e1ab3d98393ec4c12c115ce844d35a857be340e6e49d93bd7526ac5d1e85fe8",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/spec.json": "d3931f3fe7b5eae4f52dd7965aac40c140304657426caf2dbb0f03ad665189bd",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/schedule.json": "7ed0aba4a647f9e446db14c42a9a28c80a107da973fddd7aebfd2b0db0282692",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/phase-schedule.json": "da78195cb2e0006c30ea6a44aeaf914580281bd251cd9369a27951ba67723f3c",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/gates.json": "55522374d7a1a2f83d5c5d32b84b4f9f06344fab06902ac9916a009c981c24be",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/stopped.json": "8a388c2fa5f5275975ae61d1da9640ac1905848b493ecb10730a54e9b155cbd2",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/post-stop-audit.json": "af85801220d133a5a46bda381b58d8e4b7016d5dd4fb8655243a158403ce985b",
+    "/tmp/ferrum-method-saturation-dd263e8/slow-query-matches.json": "81952d078e57a7e81f292864e5f172612696be983c7e91725ca8c0f166bca320",
+    "/tmp/ferrum-method-saturation-dd263e8/probe-prefix.py": "af27a8a0b8e2878ad2ecb42d40aed9532ea312b5323a20ab0f1708c22f3719f2",
+    "/tmp/ferrum-method-saturation-dd263e8/prefix-diagnosis/results.json": "141f62443c6744476a6f59fc3ff713ec0d07303bccb94d3181312f30daee90bd",
+    "/tmp/ferrum-method-saturation-dd263e8/prefix-run.log": "822f9c731e266311c957c57c24ca995f6cc57e80f1cd1c30112ffcc4d7df116e",
+    "/tmp/ferrum-method-saturation-dd263e8/make-report-stopped.py": "fef15da1477bc15c22999d8be5dcd86e994b430a77fa7d24f82025b5f7dba3f2",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/000-mut_element_array_wrong-retained_current-ferrum/trial.json": "e2d9784d7994169e8ca962dc587b5bf353eafaae3f7cc99ed5692bfa2dc62b75",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/000-mut_element_array_wrong-retained_current-ferrum/session.json": "4663c9dd123bb983fcc40969360d811e7fe1f9e9a865b9b96ccb751bce9fddc2",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/001-mut_element_array_wrong-retained_older-ferrum/trial.json": "814b04443e043c849fa931e48b0857fc172b651bd2f5751e9d902e2aa4a6c9da",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/001-mut_element_array_wrong-retained_older-ferrum/session.json": "fafee05d61788f251ec25629c969995491cfcd9bb363d93cac3f581cbca79aa6",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/002-mut_element_array_wrong-separate_current-ferrum/trial.json": "8c7e9a780cd1f8863781b1423fc95bd6f55827ed0309d2fe40e7e5647f0df65a",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/002-mut_element_array_wrong-separate_current-ferrum/session.json": "6ec53176f065f254e8103fcdd9a6adf1aead14743bb066f462778bce1a8eaac1",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/003-mut_element_array_wrong-separate_older-ferrum/trial.json": "8c1fe428cb956e017b4dea72b456e60ebe5c5bf90beba71e105dc51bed0fb547",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/003-mut_element_array_wrong-separate_older-ferrum/session.json": "479ac1ff368f4e43e357d439431a44e11eaeb76cd92b62b113a7375e15cd497a",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/004-mut_element_array_pass-retained_current-ferrum/trial.json": "31f3e785e23d9f0afe5be5185384e42d35857a6c2c648f6de492bbf939d41d1f",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/004-mut_element_array_pass-retained_current-ferrum/session.json": "bcfc273e664681e7c0d5e447fb226552a59b310b336b8bf0c1eff2715c93358c",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/005-mut_element_array_pass-retained_older-ferrum/trial.json": "92db9583b6bc1f920ef2aee3ea2d37e8cbcda616d116b30d201b546bb792e1ba",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/005-mut_element_array_pass-retained_older-ferrum/session.json": "00244e7ca14e2524430b5effb6b0ea4320bc0ea91f1d2b71ed5029323a00e8d2",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/006-mut_element_array_pass-separate_current-ferrum/trial.json": "e8295aee1addb8f9aa9951089525f5e4ee09bb46f29016ddbc89413d42ab3e40",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/006-mut_element_array_pass-separate_current-ferrum/session.json": "ba8045ab4ff6aab4cee39afb32df1a546ea737457b3a33941b308c4c754c5c3b",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/007-mut_element_array_pass-separate_older-ferrum/trial.json": "6c2b34ecc0e86845b16b0b65f850a6d99b0cf8c034161293e456981bc9d8d675",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/007-mut_element_array_pass-separate_older-ferrum/session.json": "e6bf7c2fe60f99787d590bb12541d25e0eef69b90f20662ed5cb2bad03456b9c",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/008-mut_element_nested_pass-retained_current-ferrum/trial.json": "9f9be1609d448961d965738498811e1e16f8d0183d73304a8a30ff68a39e20be",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/008-mut_element_nested_pass-retained_current-ferrum/session.json": "b7bfb10cd73e280787777709dd0c0196604f1bb72b76624cb5e038f09c07ae04",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/009-mut_element_nested_pass-retained_older-ferrum/trial.json": "5ea1ed1707bad1874872fee963686a52843094b3e0bc09b55f2443aefc3993ff",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/009-mut_element_nested_pass-retained_older-ferrum/session.json": "8de7d3e39d0524854a1bdc228132ab34ddbcebee36c21a1d6865129ffd89721e",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/010-mut_element_nested_pass-separate_current-ferrum/trial.json": "b43738880fe8f18b7034b63577a6b04a5ff22917bc0eeefacaab6860db4c547f",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/010-mut_element_nested_pass-separate_current-ferrum/session.json": "27b44b7984ccd931403e5f7897faa5f71bffa8fe626ca8521e1b0101cdfb2241",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/011-mut_element_nested_pass-separate_older-ferrum/trial.json": "3ceb738d5b3651e10db4bd9c4dd85d30705a97b09a003ad44c83dc3f9286517d",
+    "/tmp/ferrum-method-saturation-dd263e8/experiment/captures/011-mut_element_nested_pass-separate_older-ferrum/session.json": "1eed4a2158eecfbb2ac40b9f8da0fcb0efdb2d1f5de8d861d82ab6348981f837",
+    "/tmp/ferrum-method-saturation-dd263e8/prefix-diagnosis/current/input.smt2": "fb4ea0b4f0de64a137ebfc71e3ac600a4349dfacd0174b2590fd13e9bf7b0156",
+    "/tmp/ferrum-method-saturation-dd263e8/prefix-diagnosis/current/stdout.bin": "7e278ee1eb4b441964747b3d74f0e9d73c575371e0511f527c98604ee50a5d95",
+    "/tmp/ferrum-method-saturation-dd263e8/prefix-diagnosis/current/stderr.bin": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/ferrum-method-saturation-dd263e8/prefix-diagnosis/combined/input.smt2": "82ebb00957bfe232a65f4164c6db75eaade720b8576e12d1ce9f5262a9c24084",
+    "/tmp/ferrum-method-saturation-dd263e8/prefix-diagnosis/combined/stdout.bin": "d89afe83811946ea4d4e2e8dd231107edcf198910f3c8bb81b322b34a3aab5d7",
+    "/tmp/ferrum-method-saturation-dd263e8/prefix-diagnosis/combined/stderr.bin": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "runner_source": "#!/usr/bin/env python3\n\"\"\"Fixed four-way solver-lifecycle/saturation comparison; no retries.\"\"\"\nimport json\nimport os\nfrom pathlib import Path\nimport subprocess\nimport sys\nimport time\n\nREPO=Path('/home/will/wk/exp/ferrum')\nROOT=Path('/tmp/ferrum-method-saturation-dd263e8')\nOUT=ROOT/'experiment'\nsys.path.insert(0,str(REPO/'tools/performance/smt'))\nfrom run_saturation import check_outcome, sha, trial, write\n\nOUT.mkdir()\nspec=json.loads(Path('/tmp/ferrum-method-solver-235b245/experiment/spec.json').read_text())\nspec['kind']='method-solver-saturation-factorial-v1'\nspec['source_head']=subprocess.check_output(['git','rev-parse','HEAD'],cwd=REPO,text=True).strip()\nspec['runtime_commit']='dd263e882e019cc0e91c594607546266372a9100'\nspec.pop('runtime_parent',None);spec.pop('runtime_patch_sha256',None)\nspec['profiles']={}\nfor solver in ['retained','separate']:\n for saturation,weights in [('current','[1,0.5,0.4,0,0]'),('older','[1,0.5,0.4,0.2,0.02]')]:\n  spec['profiles'][f'{solver}_{saturation}']={'solver':solver,'saturation':saturation,'weights':weights,\n   'options':[f'--separateMethodSolver={str(solver==\"separate\").lower()}']}\nprofiles=list(spec['profiles'])\nmirrored=[*profiles,*reversed(profiles)]\nfor case in spec['cases']:case['profiles']=profiles\nspec['host']['load']=Path('/proc/loadavg').read_text().strip()\nspec['limits']=['Fixed two-by-two comparison: solver lifecycle and the full saturation weight vector.',\n 'One worker, branches off, caches on, same existing development binaries and Z3.',\n 'Passing/failing array captures in all four modes; two nested captures per mode in mirrored order.',\n 'Two untraced timing observations per positive case and mode in the same mirrored order.',\n '60s program / 90s outer / 45s offline limits. No retries or expanded sweep.',\n 'All owner and worker solver costs count. Shared-host wall times are noisy; phase timings are inclusive.',\n 'The full older vector changes inhale and repetition together; this does not isolate individual slots.']\nprior_path=Path('/tmp/ferrum-method-solver-235b245/experiment/trials.jsonl')\nold_path=Path('/tmp/ferrum-saturation-short-4bef39a/001-mut_element_nested_pass-legacy-ferrum/trial.json')\nreferences={(r['case'],r['profile']+'_current'):r for line in prior_path.read_text().splitlines() for r in [json.loads(line)]}\nreferences[('mut_element_nested_pass','retained_older')]=json.loads(old_path.read_text())\npaths=[spec['z3'],spec['proxy'],spec['supervisor'],*spec['commands']['ferrum'],spec['phase_command'],\n *(c['path'] for c in spec['cases']),str(Path(__file__).resolve()),str(prior_path),str(old_path),\n str(REPO/'crates/ferrum-silicon/src/config.rs'),str(REPO/'src/lib.rs'),\n str(REPO/'tools/performance/smt/run_saturation.py'),str(REPO/'tools/performance/smt/analyze_trace.py')]\nspec['artifact_sha256']={p:sha(p) for p in paths}\nschedule=[]\nfor case in ['mut_element_array_wrong','mut_element_array_pass','mut_element_nested_pass']:\n for profile in mirrored if case=='mut_element_nested_pass' else profiles:\n  schedule.append({'index':len(schedule),'case':case,'profile':profile,'backend':'ferrum',\n   'repetition':sum(r['case']==case and r['profile']==profile for r in schedule),\n   'control':case!='mut_element_nested_pass'})\nphase_schedule=[{'index':i,'case':case,'profile':profile} for i,(case,profile) in enumerate(\n (case,profile) for case in ['mut_element_nested_pass','mut_element_array_pass'] for profile in mirrored)]\nwrite(OUT/'spec.json',spec);write(OUT/'schedule.json',schedule);write(OUT/'phase-schedule.json',phase_schedule)\nstarted=time.monotonic();rows=[];gates=[];phases=[]\ncaptures=OUT/'captures';captures.mkdir()\ndef signature(row):\n return sorted((t['input_sha256'],t['output_sha256'],t['query_count'],t['offline']['statistics'].get('quant-instantiations','0'),t['offline']['statistics'].get('rlimit-count','0')) for t in row['traces'])\ndef stop(reason):\n write(OUT/'stopped.json',{'reason':reason,'elapsed_s':time.monotonic()-started})\n raise SystemExit(reason)\nfor row in schedule:\n profile=spec['profiles'][row['profile']]\n settings={**spec,'options':[*spec['options'],*profile['options']]}\n result=trial(settings,row,captures);rows.append(result)\n with (OUT/'trials.jsonl').open('a') as f:f.write(json.dumps(result)+'\\n')\n gate={'index':row['index'],'checks':{'valid':result['valid'],\n  'expected_stream_count':len(result['traces'])==(1 if profile['solver']=='retained' else 2)}}\n prior=[r for r in rows[:-1] if r['case']==row['case'] and r['profile']==row['profile']]\n if result['valid'] and prior:gate['checks']['repeat_signature_equal']=signature(result)==signature(prior[0])\n reference=references.get((row['case'],row['profile']))\n if result['valid'] and reference:\n  gate['historical_reference']={'folder':reference['folder'],'signature_equal':signature(result)==signature(reference)}\n  if profile['saturation']=='current':gate['checks']['current_reference_equal']=gate['historical_reference']['signature_equal']\n gates.append(gate);write(OUT/'gates.json',gates)\n print('GATE',json.dumps(gate),flush=True)\n if not all(gate['checks'].values()):stop('Capture, outcome or reproducibility gate failed; no retry.')\nfor row in phase_schedule:\n case=next(c for c in spec['cases'] if c['name']==row['case']);profile=spec['profiles'][row['profile']]\n folder=OUT/f\"phase-{row['index']:02d}-{row['case']}-{row['profile']}\";folder.mkdir()\n command=['taskset','--cpu-list',spec['cpu_affinity'],spec['phase_command'],spec['z3'],*spec['options'],\n  *profile['options'],'--parallelizeBranches=false','--proverSaturationTimeout','100',\n  '--proverSaturationTimeoutWeights',profile['weights'],'--',case['path']]\n supervisor=[sys.executable,spec['supervisor'],'--timeout',str(spec['outer_timeout']),'--output',str(folder/'session.json'),'--',*command]\n print('PHASE START',row['index'],row['case'],row['profile'],flush=True)\n load=Path('/proc/loadavg').read_text().strip()\n proc=subprocess.run(supervisor,env={**os.environ,'FERRUM_BENCH_INTERNAL_CACHES':'on'},capture_output=True,text=True)\n (folder/'supervisor.log').write_text(proc.stdout+proc.stderr)\n session=json.loads((folder/'session.json').read_text())\n spans=[json.loads(line[len('@@PERF@@'):]) for line in session['raw_output'].splitlines() if line.startswith('@@PERF@@')]\n record={**row,'command':command,'session':str(folder/'session.json'),'wall_s':session['wall_seconds'],\n  'phase_s':{p['phase']:int(p['elapsed_ns'])/1e9 for p in spans},'load_before':load,\n  'load_after':Path('/proc/loadavg').read_text().strip(),'valid':proc.returncode==0 and check_outcome(session,case)}\n phases.append(record);write(OUT/'timings.json',phases)\n print('PHASE FINISH',row['case'],row['profile'],record['valid'],'wall',record['wall_s'],'verify',record['phase_s'].get('session_verify_inclusive'),flush=True)\n if not record['valid'] or 'session_verify_inclusive' not in record['phase_s']:stop('Invalid timing; no retry.')\npostflight=[p for p,h in spec['artifact_sha256'].items() if sha(p)!=h]\nsummary={'gates':gates,'timings':phases,'elapsed_s':time.monotonic()-started,'postflight_errors':postflight}\nwrite(OUT/'summary.json',summary)\nprint('DONE',summary['elapsed_s'],'postflight',postflight,flush=True)\nraise SystemExit(bool(postflight))\n",
+  "prefix_runner_source": "\"\"\"Post-stop diagnosis, not a retry of the full verification workload.\"\"\"\nimport json\nimport resource\nfrom pathlib import Path\nimport subprocess\nimport sys\nimport time\n\nROOT=Path('/tmp/ferrum-method-saturation-dd263e8')\nREPO=Path('/home/will/wk/exp/ferrum')\nsys.path.insert(0,str(REPO/'tools/performance/smt'))\nfrom run_saturation import sha,write\nfrom analyze_trace import expressions\n\nm=json.loads((ROOT/'slow-query-matches.json').read_text())\npair=min(m['pairs'],key=lambda p:p['combined']['index'])\nspec=json.loads((ROOT/'experiment/spec.json').read_text())\noutput=ROOT/'prefix-diagnosis';output.mkdir()\nrecords=[]\nfor index,name in enumerate(['current','combined']):\n source=Path(m['streams'][index]);q=pair[name]\n analysis=json.loads((source/'analysis.json').read_text())\n original_query=next(x for x in analysis['queries'] if x['index']==q['index'])\n raw=(source/'stdin.bin').read_bytes()[:q['end']]\n payload=raw+b'\\n(get-info :reason-unknown)\\n(get-info :all-statistics)\\n'\n folder=output/name;folder.mkdir();(folder/'input.smt2').write_bytes(payload)\n command=['taskset','--cpu-list',spec['cpu_affinity'],spec['z3'],'-smt2','-in']\n before=resource.getrusage(resource.RUSAGE_CHILDREN);start=time.monotonic()\n with (folder/'stdout.bin').open('wb') as out,(folder/'stderr.bin').open('wb') as err:\n  try:\n   process=subprocess.run(command,input=payload,stdout=out,stderr=err,timeout=30)\n   status='completed';code=process.returncode\n  except subprocess.TimeoutExpired:\n   status='timeout';code=None\n after=resource.getrusage(resource.RUSAGE_CHILDREN)\n data=(folder/'stdout.bin').read_bytes();tokens=[data[a:b] for a,b in expressions(data)]\n original=(source/'stdout.bin').read_bytes();expected=[original[a:b] for a,b in expressions(original)][:original_query['response_index']+1]\n exact=len(tokens)==len(expected)+2 and tokens[:-2]==expected\n record={'variant':name,'source':str(source),'query':q,'command':command,'limit_s':30,\n  'status':status,'exit_code':code,'wall_s':time.monotonic()-start,'cpu_s':after.ru_utime+after.ru_stime-before.ru_utime-before.ru_stime,\n  'expected_original_responses':len(expected),'actual_responses':len(tokens),'original_response_prefix_equal':exact,\n  'reason_unknown':tokens[-2].decode() if exact else None,'statistics_text':tokens[-1].decode() if exact else None,\n  'stderr':(folder/'stderr.bin').read_text(),'artifact_sha256':{p.name:sha(p) for p in folder.iterdir()}}\n records.append(record);write(output/'results.json',records)\n print(json.dumps({k:record[k] for k in ['variant','status','wall_s','cpu_s','original_response_prefix_equal','reason_unknown','statistics_text']}),flush=True)\n",
+  "limits": [
+    "The declared gate stopped the main experiment after the first combined nested timeout; mirror captures and all untraced timings were not run.",
+    "Combined full-run solver totals are unavailable. The completed owner stream alone is not a combined total.",
+    "Capture elapsed time includes parser, tracing and logging on a shared host, and is not direct Prusti timing.",
+    "Post-stop prefix replay is truncated through a completed matched query and does not verify the whole program.",
+    "No runtime/default change, rebuild, new full Rust matrix or pinned-Silicon comparison."
+  ]
+}
