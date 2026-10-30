@@ -38219,7 +38219,8 @@
     "Native and source owner/worker solver contexts are different; equal quantifier/pattern counts do not establish equivalent formulas or histories.",
     "Two solver-only replays per stream in opposite backend orders have stable work counters but variable CPU and wall times.",
     "Offline traces follow a fixed recorded decision path; all original responses are checked rather than rerunning verifier decisions.",
-    "Relay metadata lacks final exit fields because verifiers terminate relays; outer supervisors report no pending cleanup and command/response audits are complete."
+    "Relay metadata lacks final exit fields because verifiers terminate relays; outer supervisors report no pending cleanup and command/response audits are complete.",
+    "Source owner omits the decision statistic; combined source decisions and the earlier derived percentage are unavailable. Do not zero-fill missing statistics. Quantifier/equality/resource totals remain based on present fields."
   ],
   "history_control": {
     "result": {

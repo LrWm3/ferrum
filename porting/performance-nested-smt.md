@@ -7,8 +7,8 @@ preamble order, and checks structural equality at the late permission query.
 Ferrum's captured SMT stream makes Z3 do more work on
 `mut_element_nested_pass`, even though it issues fewer checks. Two solver-only
 replays reproduced all original responses and the same work counters: compared
-with Silicon's two streams, Ferrum caused **13.8% more quantifier instantiations,
-76.5% more search decisions and 19.3% more resource-counter work**.
+with Silicon's two streams, Ferrum caused **13.8% more quantifier instantiations
+and 19.3% more resource-counter work**.
 
 The original direct-Prusti observation was 80.17 seconds native versus 34.93
 seconds JVM. This diagnostic parsed-Viper replay verified in **54.33 versus
@@ -98,12 +98,17 @@ for each stream, including allocation and search statistics.
 | Z3 statistic | Ferrum | Silicon owner + worker | Native increase |
 | --- | ---: | ---: | ---: |
 | Quantifier instantiations | 134,279 | 117,969 | 13.8% |
-| Search decisions | 207,183 | 117,353 | 76.5% |
+| Search decisions | 207,183 | Unavailable: owner omits statistic | Unavailable |
 | Added equalities | 1,901,684 | 871,209 | 118.3% |
 | Resource counter | 15,587,789 | 13,071,558 | 19.3% |
 
-Source totals sum counters from its two distinct solver processes. These are
-the counters reported by this Z3 version, not timing or allocated-memory sizes.
+Source totals sum available counters from its two distinct solver processes.
+The owner omits the decision statistic; the source worker reports 117,353.
+The earlier combined-decision percentage assumed the omitted field was zero
+and is withdrawn here. Missing statistics are unavailable. The quantifier,
+added-equality and resource totals above are present in both streams and remain
+supported. These are counters reported by this Z3 version, not timing or
+allocated-memory sizes.
 They describe a fixed captured path with active resource limits; they do not
 recompute verifier decisions if a response were to differ.
 
