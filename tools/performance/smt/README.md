@@ -42,3 +42,13 @@ original response prefix was checked before interpreting appended statistics.
 This follows a fixed recorded path rather than recomputing verifier decisions.
 Resource limits remained active. Timing variability and process ownership still
 need consideration when interpreting replay results.
+
+`run_saturation.py --spec FROZEN_SPEC.json --output NEW_DIRECTORY` implements the
+[comparable saturation protocol](../../../porting/performance-saturation-protocol.md).
+It checks artifact hashes, writes the complete schedule first, gates on real
+negative controls, captures serial verification trials and audits fixed-path
+solver replays. `--prepare-only` prints the schedule without running verifiers.
+The spec explicitly supplies commands, inputs/oracles, profiles, CPU affinity,
+limits, repetitions and hashes; the runner does not infer a production default.
+Run `python3 tools/performance/smt/test_saturation.py` for schedule integrity and
+proof/failure/cleanup classification checks.
