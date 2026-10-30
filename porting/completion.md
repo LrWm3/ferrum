@@ -139,50 +139,47 @@ The [fresh Prusti validation record](prusti-validation.md) documents the frozen
 builds, 602-client inventory, initial results, effective settings and reproduced
 source-version differences separately from incremental corrections.
 
-## 4. Broader compatibility testing — in progress
+## 4. Broader compatibility testing — complete
 
-- Run a reproducible selected corpus against native Ferrum and pinned Silicon,
-  including ordinary and advanced features, valid and invalid obligations,
-  multiple workers, timeouts, reset/reuse, and both available solver transports.
-- Triage every discrepancy. Equal nonzero exit codes are insufficient to show
-  compatible failures; source crashes and harness timeouts are inconclusive.
-- Investigate unexpected native success before accepting a result, fix confirmed
-  port defects and retain reduced permanent regressions.
-- Publish the final matrix, commands, coverage and individually justified
-  source/API limitations. Report unresolved port defects as unresolved rather
-  than declaring this stage complete.
+The final comparison uses runtime and tooling `afdf10c` against pinned Silicon
+`ff386ae` and Silver `c4f54b8`. All 1,512 selected stdio pairs were recorded:
+651 both verified, 846 have matching failure IDs and spans, and 15 remain
+inconclusive because of timeouts. No conclusive outcome or ID/span mismatch
+remains in the selected corpus. Four failed original source sessions and their
+32 selected isolated retry sides remain separately recorded.
 
-The initial `5cbb29b` backend and `808efa6` tooling have completed all
-1,512 selected fixture/configuration comparisons. There are 650 shared proofs,
-836 matching error-ID/span multisets, ten diagnostic mismatches and 16
-inconclusive pairs after timeout/infrastructure classification. Source prover
-faults following timeouts are preserved; isolated successes do not establish
-reuse compatibility. The [baseline evidence](compatibility-baseline.md) records
-the interrupted run and its separate continuation, representative linked and
-two-worker profiles, controls and observed reporting differences. Confirmed
-ADT, havoc, conditional-position and warning gaps are being corrected before
-a full successor run. Stage 4 remains in progress.
+The linked and two-worker profiles each cover 26 representative cases with
+nine shared proofs and 17 matching failures. They have exact message, order,
+warning and configuration-warning agreement, plus two documented phase-label
+adaptations. Across the full stdio corpus, four prover-warning arrays and 51
+reviewed message renderings still differ; four further message comparisons are
+inconclusive timeout pairs. The eight remaining phase-label differences are
+recorded separately. The focused linked replay also preserves the pinned
+source API heap-sort failures and timeout/crash limitations.
 
-The full `dc20a0f` successor run covers all 1,512 selected pairs: 649 shared
-proofs, 846 matching error-ID/span multisets and 17 inconclusive timeout pairs.
-There are no conclusive outcome or ID/span differences. Four failed source
-sessions remain separately recorded from their 32 selected isolated retries.
-The [intermediate successor evidence](compatibility-dc20.md) records the complete
-coverage audit, linked/two-worker profiles and timeout controls. Eight warning
-differences exposed additional reporter, nested typechecking and mask-frame
-construction-order gaps. These require fixes and validation before completion.
+Seventeen of 18 lifecycle controls passed. The source stdio timeout-then-valid
+control failed with an unknown `Seq<PyType>` sort; all native timeout controls
+recovered. Supervisor process reaping succeeded in all controls, while native
+backend cleanup warnings remain recorded. These are distinct observations.
 
-The five corrective commits ending at `afdf10c` now address those gaps and the
-worker-symbol and linked-pattern retry defects exposed by focused replays. The
-[correction checkpoint](compatibility-corrections.md) records 398 passing linked
-library tests and all 30 focused comparisons, including raw warning differences
-and four linked inconclusive pairs. The complete corrected corpus and controls,
-and completion of the updated Prusti validation, remain pending. Stage 4 is
-still in progress; performance trials have not started.
+The corrected code passed 398 affected linked library tests. Prusti pin
+`a59ed917c` passed both locked production configurations and launchers plus all
+17 real-Z3 adapter tests. This is incremental integration validation; the
+602-client Rust matrix remains the separately recorded stage-3 run.
 
-## 5. Performance measurement — authorized after comparison
+The [final comparison report](compatibility-final.md) and its machine-readable
+companion record coverage, artifacts, exact discrepancies, controls and limits.
+The [initial baseline](compatibility-baseline.md), [intermediate dc20 run](compatibility-dc20.md)
+and [corrective regression checks](compatibility-corrections.md) preserve earlier
+evidence. Both comparison drivers disabled Silicon internal caches. Performance
+measurements must distinguish that option from Prusti result caching.
 
-After stage 4, benchmark representative actual Prusti stdlib workloads with
+## 5. Performance measurement — in progress
+
+The compatibility review is complete. Measurement tools are being validated;
+no performance trial or speed claim has been made at this checkpoint.
+
+Benchmark representative actual Prusti stdlib workloads with
 branch parallelism disabled/enabled and different worker counts. Freeze the
 validated Ferrum/Prusti revisions, build profiles, dependency binaries, fixtures,
 cache settings and timeout budgets. Retain generated Viper inputs so backend
