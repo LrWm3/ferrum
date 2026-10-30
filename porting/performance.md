@@ -1,6 +1,10 @@
 # Prusti and backend performance results
 
-The latest [term-cache investigation](performance-term-cache.md) restores
+The latest [one-worker method-solver experiment](performance-method-solver.md)
+reproduces lower solver work on the nested case and promising, noisy timing
+results. It retains small-case overhead and leaves the new switch opt-in.
+
+The preceding [term-cache investigation](performance-term-cache.md) restores
 Silicon's lazy term hashing, measures a small-case improvement, and separates
 parser costs from solver-lifecycle and saturation opportunities. Its bounded
 measurements and unchanged SMT streams are separate from the older matrix below.

@@ -114,6 +114,10 @@ different default. The [short saturation experiment](performance-saturation-shor
 also remains promising: its older weights reduced solver work, but have not
 established a reliable end-to-end gain. Neither configuration default changed here.
 
+That follow-up is now recorded in the
+[one-worker method-solver experiment](performance-method-solver.md), including
+the new opt-in switch, repeated solver counters and the small-case tradeoff.
+
 The [machine report](performance-term-cache.json) contains frozen artifacts,
 binary/source hashes, every timing observation, paired ratios, compact trace
 audits, profile counts, validation results and runner sources. Raw evidence is
