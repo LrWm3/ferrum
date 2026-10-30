@@ -3464,6 +3464,57 @@ mod public_logging_tests {
 
     #[test]
     #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
+    fn mask_frame_unresolved_warnings_match_source_before_recorders_merge() {
+        use silver::reporter::message::SimpleMessageKind;
+        std::thread::Builder::new().stack_size(VERIFICATION_STACK_SIZE).spawn(|| {
+            let z3 = std::env::var("FERRUM_TEST_Z3").expect("set FERRUM_TEST_Z3");
+            let suffix = "This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.";
+            let cases = [
+                ("functions.vpr", include_str!("../tests/fixtures/mask_warning_functions.vpr"), vec![format!("Could not resolve expression x.h (functions.vpr@46.16--46.19) during the axiomatisation of function err1. {suffix}")], vec![("not.wellformed:insufficient.permission", "functions.vpr@46.12--46.22"), ("application.precondition:insufficient.permission", "functions.vpr@52.12--52.19"), ("function.not.wellformed:insufficient.permission", "functions.vpr@56.1--58.14")]),
+                ("nested.vpr", include_str!("../tests/fixtures/mask_warning_nested.vpr"), vec![format!("Could not resolve expression x.g (nested.vpr@13.16--13.19) during the axiomatisation of function fun1. {suffix}"), format!("Could not resolve expression x.g (nested.vpr@41.22--41.25) during the axiomatisation of function fun4. {suffix}")], vec![("assert.failed:assertion.false", "nested.vpr@57.10--57.15"), ("application.precondition:insufficient.permission", "nested.vpr@63.3--63.10")]),
+            ];
+            for (path, input, expected, expected_errors) in cases {
+                let mut phases = SilFrontendPhases::new(path.into(), silver::plugin::silver_plugin_manager::SilverPluginManager::new(vec![]));
+                let parsed = phases.parse(input).unwrap();
+                let analyzed = phases.analyze(parsed).unwrap();
+                let program = phases.translate(analyzed).unwrap();
+                for workers in [1, 2] {
+                    for mask in [false, true] {
+                      for parallel in [false, true] {
+                        if parallel && workers == 1 { continue; }
+                        let mut args = vec!["--ignoreFile".into(), "--z3Exe".into(), z3.clone(), "--numberOfParallelVerifiers".into(), workers.to_string()];
+                        if mask { args.push("--maskHeapMode".into()); }
+                        if parallel { args.push("--parallelizeBranches".into()); }
+                        args.push(path.into());
+                        let config = Config::parse(&args).unwrap();
+                        let reporter = Arc::new(PollingReporter::new(Arc::new(NoopReporter)));
+                        let mut session = Session::new_with_reporter(config, reporter.clone()).unwrap();
+                        let result = session.verify(&program, &[]).unwrap();
+                        let VerificationResult::Failure(errors) = result else { panic!("expected ordinary failures: {path}, workers={workers}, mask={mask}, parallel={parallel}") };
+                        let mut actual_errors: Vec<_> = errors.iter().map(|error| (error.full_id(), error.position().to_string())).collect();
+                        let mut wanted_errors: Vec<_> = expected_errors.iter().map(|(id, pos)| (id.to_string(), pos.to_string())).collect();
+                        actual_errors.sort(); wanted_errors.sort();
+                        assert_eq!(actual_errors, wanted_errors, "{path}, workers={workers}, mask={mask}, parallel={parallel}");
+                        let actual: Vec<_> = session.take_warnings().into_iter().filter(|w| w.starts_with("Could not resolve expression ")).collect();
+                        let mut delivered = Vec::new();
+                        while reporter.has_new_message() {
+                            if let Message::Simple { kind: SimpleMessageKind::InternalWarning, text } = reporter.get_new_message().unwrap() {
+                                if text.starts_with("Could not resolve expression ") { delivered.push(text); }
+                            }
+                        }
+                        let wanted = if mask { expected.clone() } else { vec![] };
+                        assert_eq!(actual, wanted, "{path}, workers={workers}, mask={mask}");
+                        assert_eq!(delivered, wanted, "{path}, workers={workers}, mask={mask}");
+                        session.stop().unwrap();
+                      }
+                    }
+                }
+            }
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires real Z3; set FERRUM_TEST_Z3"]
     fn public_trace_preserves_postcondition_axioms_across_resets_and_phase_two_failure() {
         std::thread::Builder::new()
             .stack_size(VERIFICATION_STACK_SIZE)

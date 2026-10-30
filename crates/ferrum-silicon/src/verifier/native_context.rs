@@ -16260,7 +16260,11 @@ where
             sink,
             &analysis.predicates,
         )?;
-        let functions = analysis.functions.borrow();
+        let mut functions = analysis.functions.borrow_mut();
+        // Frame translation can introduce unresolved symbols during function
+        // verification. The source function unit re-declares every such symbol
+        // to workers before replaying axioms that may refer to them.
+        functions.fresh_variables = self.function_fresh_variables.clone();
         functions.declare_verification_symbols(&self.factory, sink)?;
         functions.emit_recorded_axioms(sink)
     }

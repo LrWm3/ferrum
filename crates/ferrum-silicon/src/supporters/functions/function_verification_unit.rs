@@ -392,7 +392,13 @@ impl<D: Clone> FunctionVerificationUnit<D> {
                 let phase_one = context
                     .check_function_specifications(state, &data)
                     .map_err(FunctionVerificationError::Service)?;
-                data.advance_phase(factory, &phase_one.recorders, &[])
+                // Silver's FunctionData.advancePhase computes mask-frame declarations
+                // before merging this phase's recorders and before recording a fatal result.
+                // Frame translation can consequently report unresolved accesses here.
+                let additional_declarations = context
+                    .well_definedness_declarations(&data)
+                    .map_err(FunctionVerificationError::Service)?;
+                data.advance_phase(factory, &phase_one.recorders, &additional_declarations)
                     .map_err(FunctionVerificationError::Data)?;
                 let result = if phase_one.result.is_fatal() {
                     context.record_function_failure(function, &phase_one.result);
