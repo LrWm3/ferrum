@@ -33,6 +33,15 @@ class Compare(unittest.TestCase):
         self.assertEqual(c.compare({'outcome':'verified'}, {'outcome':'verifier_timeout'}),
             'invalid_success_evidence')
 
+    def test_infrastructure_errors_never_become_proof_failures(self):
+        success = {'outcome': 'verified', 'errors': []}
+        for error_id in c.INFRASTRUCTURE_ERROR_IDS:
+            row = {'outcome': 'failure', 'errors': [{'id': error_id, 'position': '1.1'}]}
+            for other in (row, success):
+                self.assertEqual(c.compare(row, other), 'inconclusive')
+                self.assertEqual(c.compare(other, row), 'inconclusive')
+        self.assertEqual(c.compare({'outcome':'prover_error'}, success), 'inconclusive')
+
     def test_timeouts_are_inconclusive(self):
         success = {'outcome': 'verified', 'errors': []}
         for outcome in ('timeout', 'verifier_timeout'):

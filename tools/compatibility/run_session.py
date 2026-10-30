@@ -108,6 +108,10 @@ with tempfile.TemporaryFile() as capture:
 text = output.decode('utf-8', errors='replace')
 records = []
 protocol_errors = []
+infrastructure_error_ids = frozenset({
+    "prover.interaction.failed", "external.tool.error",
+    "exceptional.error", "dependencynotfound.error",
+})
 for line in text.splitlines():
     if line.startswith('@@COMPAT@@'):
         try:
@@ -122,10 +126,12 @@ for line in text.splitlines():
         if not isinstance(errors, list) or any(not isinstance(error, dict) for error in errors):
             protocol_errors.append('errors must be an array of objects')
             continue
-        if any(error.get('id') == 'timeout.error' for error in errors):
+        if any(error.get('id') in infrastructure_error_ids for error in errors):
+            record['outcome'] = 'prover_error'
+        elif any(error.get('id') == 'timeout.error' for error in errors):
             record['outcome'] = 'verifier_timeout'
         records.append(record)
-session_fault = any(r.get('outcome') in ('exception', 'unknown_result', 'unknown_failure', 'rendering_error', 'cleanup_error') for r in records)
+session_fault = any(r.get('outcome') in ('exception', 'unknown_result', 'unknown_failure', 'rendering_error', 'cleanup_error', 'prover_error') for r in records)
 a.output.write_text(json.dumps({'command': command, 'exit_code': child.returncode,
     'outcome': 'harness_timeout' if timed_out else ('completed' if child.returncode == 0 and not protocol_errors and not session_fault and not cleanup_pending else 'process_error'),
     'protocol_errors': protocol_errors, 'cleanup_pending': cleanup_pending,

@@ -130,3 +130,8 @@ mkdir -p /tmp/ferrum-worker-config-classes
 The broad `parallel_examples` group supplies `--parallelizeBranches` and an
 explicit two-worker option; shared corpus settings must not duplicate it. A
 separate targeted two-worker profile should also enable branch parallelism.
+
+Prover interaction, external tool, exceptional and missing-dependency error IDs
+are infrastructure faults, not proof failures. The session retains their raw
+records, is marked unsuccessful, and a failed reused batch receives isolated
+retries; its original session evidence remains visible.

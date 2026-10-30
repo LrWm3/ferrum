@@ -100,7 +100,7 @@ files = sys.argv[sys.argv.index("--") + 1:]
 for path in files:
     stem = pathlib.Path(path).stem
     if stem == "crash" and len(files) > 1:
-        print("@@COMPAT@@" + json.dumps({"case": path, "outcome": "exception"}))
+        print("@@COMPAT@@" + json.dumps({"case": path, "outcome": "failure", "errors": [{"id": "prover.interaction.failed", "position": "<no position>", "message": "solver protocol"}]}))
         break
     failure = mode == "native" and stem == "difference"
     print("@@COMPAT@@" + json.dumps({"case": path, "outcome": "failure" if failure else "verified", "errors": [{"id": "assert.failed:assertion.false", "position": "1.1"}] if failure else []}))
@@ -133,6 +133,10 @@ for path in files:
                     self.assertNotEqual(pair[mode]["initial_session_path"], pair[mode]["session_path"])
                     self.assertFalse(pair[mode]["reused_session_completed"])
                     self.assertTrue(pair[mode]["isolated_retry_selected"])
+            first = next(pair for pair in pairs if pair["key"] == "crash")["source"]["first_observation"]
+            self.assertEqual(first["outcome"], "prover_error")
+            self.assertEqual(first["errors"][0]["id"], "prover.interaction.failed")
+            self.assertEqual(first["errors"][0]["message"], "solver protocol")
             # Omitting an executable from the manifest must prevent execution.
             evidence_data = json.loads(evidence.read_text())
             missing = dict(evidence_data)

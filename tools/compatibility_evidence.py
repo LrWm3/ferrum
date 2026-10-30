@@ -26,6 +26,12 @@ def inventory(root):
     return {str(p.relative_to(root)): digest(p) for p in sorted(root.rglob('*.vpr')) if p.is_file()}
 
 
+INFRASTRUCTURE_ERROR_IDS = frozenset({
+    "prover.interaction.failed", "external.tool.error",
+    "exceptional.error", "dependencynotfound.error",
+})
+
+
 def compare(source, native):
     # A per-case row is usable only if its enclosing process completed normally.
     if any(x.get('session_outcome') != 'completed' or x.get('exit_code') != 0 for x in (source, native)):
@@ -37,6 +43,10 @@ def compare(source, native):
             isinstance(error, dict) and error.get('id') == 'timeout.error'
             for error in (x.get('errors') or [])) for x in (source, native)):
         return 'inconclusive'
+    if any(x.get("outcome") == "prover_error" or any(
+            isinstance(error, dict) and error.get("id") in INFRASTRUCTURE_ERROR_IDS
+            for error in (x.get("errors") or [])) for x in (source, native)):
+        return "inconclusive"
     if source['outcome'] == native['outcome'] == 'verified':
         return 'both_verified'
     if source['outcome'] != native['outcome']:

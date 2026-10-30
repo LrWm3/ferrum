@@ -25,6 +25,17 @@ class SessionRunner(unittest.TestCase):
             result = self.run_case(f'print({text!r})')
             self.assertEqual(result['outcome'], 'process_error')
 
+    def test_infrastructure_errors_preserve_raw_record_and_fail_session(self):
+        for error_id in ('prover.interaction.failed', 'external.tool.error',
+                         'exceptional.error', 'dependencynotfound.error'):
+            error = {'id': error_id, 'position': '<no position>', 'message': 'solver failed'}
+            record = {'case': 'first.vpr', 'outcome': 'failure', 'errors': [error]}
+            result = self.run_case('print(' + repr('@@COMPAT@@' + json.dumps(record)) + ')')
+            self.assertEqual(result['outcome'], 'process_error')
+            self.assertEqual(result['records'][0]['outcome'], 'prover_error')
+            self.assertEqual(result['records'][0]['errors'], [error])
+            self.assertIn(error_id, result['raw_output'])
+
     def test_empty_command_rejected(self):
         result = subprocess.run([sys.executable, str(RUNNER), '--output', '/tmp/unused-session.json', '--'], capture_output=True)
         self.assertNotEqual(result.returncode, 0)
