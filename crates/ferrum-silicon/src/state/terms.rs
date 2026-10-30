@@ -523,12 +523,26 @@ impl Hash for ResourceMap {
     }
 }
 
-#[derive(Debug)]
 struct TermNode {
     kind: TermKind,
     sort: Sort,
     flyweight: bool,
     var_repr: Mutex<Option<Term>>,
+    // The kind is immutable, including every child hash. Auxiliary variable
+    // representations are deliberately excluded from structural identity.
+    structural_hash: OnceLock<u64>,
+}
+
+impl fmt::Debug for TermNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Hashing must not change diagnostics or expose cache state.
+        f.debug_struct("TermNode")
+            .field("kind", &self.kind)
+            .field("sort", &self.sort)
+            .field("flyweight", &self.flyweight)
+            .field("var_repr", &self.var_repr)
+            .finish()
+    }
 }
 
 /// An immutable symbolic node. Equality mode is pinned for its lifetime.
@@ -598,6 +612,9 @@ impl Term {
 
 impl PartialEq for Term {
     fn eq(&self, other: &Self) -> bool {
+        if self.ptr_eq(other) {
+            return true;
+        }
         if self.0.flyweight != other.0.flyweight {
             return false;
         }
@@ -615,7 +632,17 @@ impl Hash for Term {
         if self.0.flyweight && !matches!(self.kind(), TermKind::AppHint(_)) {
             Arc::as_ptr(&self.0).hash(state);
         } else {
-            self.0.kind.hash(state);
+            // Hash shared subterms once instead of walking the same DAG on
+            // every cache lookup. Equality still checks the full structure;
+            // the fingerprint is never used as proof of equality.
+            self.0
+                .structural_hash
+                .get_or_init(|| {
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    self.0.kind.hash(&mut hasher);
+                    hasher.finish()
+                })
+                .hash(state);
         }
     }
 }
@@ -681,6 +708,7 @@ impl TermFactory {
                             sort,
                             flyweight: self.options.use_flyweight,
                             var_repr: Mutex::new(None),
+                            structural_hash: OnceLock::new(),
                         })
                     })
                     .clone(),
@@ -692,6 +720,7 @@ impl TermFactory {
                 sort,
                 flyweight: self.options.use_flyweight,
                 var_repr: Mutex::new(None),
+                structural_hash: OnceLock::new(),
             }));
         }
         let mut pool = TERM_POOL
@@ -706,6 +735,7 @@ impl TermFactory {
                         sort,
                         flyweight: true,
                         var_repr: Mutex::new(None),
+                        structural_hash: OnceLock::new(),
                     })
                 })
                 .clone(),
@@ -3196,6 +3226,106 @@ mod tests {
             use_old_axiomatization: false,
             mask_heap_mode: false,
         })
+    }
+
+    fn term_hash(term: &Term) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        term.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    #[test]
+    fn structural_hash_visits_shared_nodes_once_and_keeps_equality() {
+        let f = factory(false);
+        let mut node = f.var(Identifier::new("shared_hash_leaf"), Sort::Int, false);
+        let mut nodes = vec![node.clone()];
+        // This DAG has only 65 nodes but exponentially many paths to its leaf.
+        for _ in 0..64 {
+            node = f.plus(node.clone(), node);
+            nodes.push(node.clone());
+        }
+        assert!(nodes.iter().all(|n| n.0.structural_hash.get().is_none()));
+        let expected = term_hash(&node);
+        assert!(nodes.iter().all(|n| n.0.structural_hash.get().is_some()));
+        assert_eq!(term_hash(&node.clone()), expected);
+        let sibling = f.plus(nodes[63].clone(), nodes[63].clone());
+        assert!(!node.ptr_eq(&sibling));
+        assert_eq!(node, sibling);
+        assert_eq!(term_hash(&sibling), expected);
+        assert!(std::collections::HashSet::from([node]).contains(&sibling));
+    }
+
+    #[test]
+    fn cached_hashes_preserve_order_independent_bindings_and_flyweight_hints() {
+        for flyweight in [false, true] {
+            let f = factory(flyweight);
+            let x = f.var(Identifier::new("cached_hash_x"), Sort::Int, false);
+            let y = f.var(Identifier::new("cached_hash_y"), Sort::Int, false);
+            let body = f.plus(x.clone(), y.clone());
+            let a = f.let_term(
+                [(x.clone(), f.int_literal(1)), (y.clone(), f.int_literal(2))],
+                body.clone(),
+            );
+            let b = f.let_term([(y, f.int_literal(2)), (x.clone(), f.int_literal(1))], body);
+            assert_eq!(a, b);
+            assert_eq!(term_hash(&a), term_hash(&b));
+            let a = f.app_hint_var(x.clone());
+            let b = f.app_hint_var(x);
+            assert!(!a.ptr_eq(&b));
+            assert_eq!(a, b);
+            assert_eq!(term_hash(&a), term_hash(&b));
+        }
+    }
+
+    #[test]
+    fn cached_hash_collisions_do_not_replace_structural_equality() {
+        let f = factory(false);
+        let x = f.var(Identifier::new("collision_x"), Sort::Int, false);
+        let y = f.var(Identifier::new("collision_y"), Sort::Int, false);
+        x.0.structural_hash.set(0).unwrap();
+        y.0.structural_hash.set(0).unwrap();
+        assert_eq!(term_hash(&x), term_hash(&y));
+        assert_ne!(x, y);
+        assert_eq!(std::collections::HashSet::from([x, y]).len(), 2);
+    }
+
+    #[test]
+    fn hash_cache_ignores_auxiliary_representations_and_is_thread_safe() {
+        let f = factory(false);
+        let heap = f.heap_update(
+            f.dummy_heap(Sort::Heap(Box::new(Sort::Int))),
+            f.var(Identifier::new("hash_location"), Sort::Ref, false),
+            f.int_literal(1),
+        );
+        let debug = format!("{heap:?}");
+        let expected = term_hash(&heap);
+        assert_eq!(format!("{heap:?}"), debug);
+        let mut set = std::collections::HashSet::from([heap.clone()]);
+        let representation = f.app(
+            f.applicable(ApplicableData {
+                kind: ApplicableKind::Fun,
+                id: Identifier::new("cached_heap_repr"),
+                arg_sorts: vec![],
+                result_sort: heap.sort().clone(),
+            }),
+            vec![],
+        );
+        heap.set_var_repr(Some(representation));
+        assert_eq!(term_hash(&heap), expected);
+        assert!(set.remove(&heap));
+        let shared = f.plus(
+            f.var(Identifier::new("thread_hash"), Sort::Int, false),
+            f.int_literal(3),
+        );
+        let hashes = std::thread::scope(|scope| {
+            (0..4)
+                .map(|_| scope.spawn(|| term_hash(&shared)))
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|worker| worker.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert!(hashes.iter().all(|h| *h == term_hash(&shared)));
     }
 
     #[test]
