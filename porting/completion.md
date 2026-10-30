@@ -104,7 +104,7 @@ tests; see [hardening-validation.md](hardening-validation.md) for checked covera
 and explicit limits. Unexercised unsupported paths remain
 unclassified for broader compatibility triage, not silently accepted.
 
-## 3. Fresh Prusti verification — in progress
+## 3. Fresh Prusti verification — complete
 
 - Update the isolated `prusti-ferrum` integration worktree to the resulting
   committed Ferrum revision; preserve the user's active stdlib worktree.
@@ -125,14 +125,20 @@ plus spec-library, Rust/runtime and trigger controls. Explicit harness backend
 selection is required because inherited `PRUSTI_*` variables are cleared.
 The complete initial matrix has 602 clients on each backend, with fixture hashes
 and coverage checked: 516 native and 545 JVM annotations match. A corrected map
-adapter rerun closes 21 native client differences. Original-budget sequential
-timeout retries on the updated cleanup integration remain in progress; stage 3
-is not yet complete. The earlier eight-case matrix is not reused.
+adapter rerun closes 21 native client differences. The updated integration
+`3f623122a` pins Ferrum `5cbb29b`, passes both builds and 17 adapter tests, and
+completes every planned original-budget retry. Of 28 iterator client attempts,
+12 meet expectations, 11 time out and five retain shared Prusti failures. The
+iterator library verifies. Of 12 borrow attempts, eight meet expectations, three
+time out and one retains a shared encoder failure. No retry reaches the outer
+watchdog or unexpectedly accepts a negative fixture. Remaining timeouts are
+inconclusive; this is incremental validation rather than a full matrix rerun on
+the final binary. The earlier eight-case matrix is not reused.
 The [fresh Prusti validation record](prusti-validation.md) documents the frozen
 builds, 602-client inventory, initial results, effective settings and reproduced
 source-version differences separately from incremental corrections.
 
-## 4. Broader compatibility testing — pending
+## 4. Broader compatibility testing — in progress
 
 - Run a reproducible selected corpus against native Ferrum and pinned Silicon,
   including ordinary and advanced features, valid and invalid obligations,
@@ -144,6 +150,15 @@ source-version differences separately from incremental corrections.
 - Publish the final matrix, commands, coverage and individually justified
   source/API limitations. Report unresolved port defects as unresolved rather
   than declaring this stage complete.
+
+The frozen `5cbb29b` backend and `808efa6` tooling are running 1,512 selected
+fixture/configuration pairs against pinned Silicon. The 26-pair linked and
+two-worker profiles each have nine shared proofs and 17 matching error-ID/span
+multisets, all in completed reused sessions. Timeout followed by a valid input
+has been exercised successfully for both implementations in stdio, two-worker
+and linked profiles; native uses a harder supplemental fixture because the
+initial control finishes before its deadline. The full corpus and reporting
+triage remain in progress, including newly observed warning category/span gaps.
 
 ## 5. Performance measurement — deferred
 

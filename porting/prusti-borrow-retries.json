@@ -1,0 +1,166 @@
+{
+  "scope": "Incremental borrow retries; original matrix remains separate",
+  "integration_revision": "3f623122a0b1473c44d15c4d1a11200addb8a030",
+  "ferrum_revision": "5cbb29be28b45194e555d2e173ed39b1a64a80de",
+  "artifact_root": "/tmp/ferrum-prusti-stage3/final-integration-borrow-retry",
+  "plan_sha256": "e7277b666da882df16ea276f5dabf876dab4f1a385cd6398359b19782f76700c",
+  "records_sha256": "2305e1c04939e3b73a5d6754ae4fd3e8233d8bcc2f13840dc9b7194b46c3f84b",
+  "full_audit_sha256": "112bd461ecb7896e6ffbda4eb5ef80727f91815256c961ce83d7b9b3889f64dd",
+  "counts": {
+    "native": {
+      "expectation_satisfied": 5,
+      "verifier_timeout": 2
+    },
+    "jvm": {
+      "verifier_timeout": 1,
+      "expectation_satisfied": 3,
+      "completed_failure": 1
+    }
+  },
+  "cases": [
+    {
+      "backend": "native",
+      "case": "inclusive_slice_pass",
+      "fixture_sha256": "e51c776214fbee3940f535f6a7f2080d5d9df06313e0caebc7c1fdd07cd1fa0d",
+      "initial_outer_timeout": false,
+      "retry_outcome": "expectation_satisfied",
+      "retry_exit_code": 0,
+      "encoder_unsupported": false,
+      "initial_log_sha256": "4dc4e0d75c09f18804a352754ad071255b5d3d72f1766a09f39b635f5c67e564",
+      "retry_log_sha256": "5a56e540f36cbde30fbe3c365bc52ca528d1dd70c3f0c173925ac248f888cd04",
+      "retry_results_sha256": "ed30c44ffa1829de954a31d9d2e9d1474bf968245bfad3f7a5cda0d16b9f641a"
+    },
+    {
+      "backend": "native",
+      "case": "open_from_pass",
+      "fixture_sha256": "3d8bfa3562175ab483c9b60a2b60867b70782780da5dc9bfee0fa43d5920e35e",
+      "initial_outer_timeout": false,
+      "retry_outcome": "verifier_timeout",
+      "retry_exit_code": 101,
+      "encoder_unsupported": false,
+      "initial_log_sha256": "9658a15dbf64ee99c71ff139d7c83e04021b04f522e7d8dc8fa09b4016b5304f",
+      "retry_log_sha256": "0b74900ae8874c6520baed9786dbb3df476d178722d22c4105eb8d8014787b4e",
+      "retry_results_sha256": "ed30c44ffa1829de954a31d9d2e9d1474bf968245bfad3f7a5cda0d16b9f641a"
+    },
+    {
+      "backend": "native",
+      "case": "open_to_pass",
+      "fixture_sha256": "0967f99591a98f9e32a588b7b6128b778c3b52f37e1328b24869c025cfcf211c",
+      "initial_outer_timeout": false,
+      "retry_outcome": "expectation_satisfied",
+      "retry_exit_code": 0,
+      "encoder_unsupported": false,
+      "initial_log_sha256": "22e38787e7586d4f4c598242ef65d0323229450db6f16d4a73b33d065fb44740",
+      "retry_log_sha256": "b22ec18cb9a30b7bb1da54ca9e06f7d704f9928572376da16e11f08c14352b97",
+      "retry_results_sha256": "ed30c44ffa1829de954a31d9d2e9d1474bf968245bfad3f7a5cda0d16b9f641a"
+    },
+    {
+      "backend": "native",
+      "case": "open_wrong_frame",
+      "fixture_sha256": "0d22ad4b69bba9d1719b848f3b76bb4a887a8acff04cccae2a65bb864829391f",
+      "initial_outer_timeout": false,
+      "retry_outcome": "expectation_satisfied",
+      "retry_exit_code": 101,
+      "encoder_unsupported": false,
+      "initial_log_sha256": "33f6d09c53878ef7a70f3328f4d83d38a0bcc80b17e92df6f3c75373cceb57fe",
+      "retry_log_sha256": "98eb25b4e9b841b085edf5dcf84c0e9f641374a2648be9deaa771569c889be2a",
+      "retry_results_sha256": "ed30c44ffa1829de954a31d9d2e9d1474bf968245bfad3f7a5cda0d16b9f641a"
+    },
+    {
+      "backend": "native",
+      "case": "range_checked_pass",
+      "fixture_sha256": "f476b078ac527738753a052b912fa6bf63727d005030b965deb5c71808d6658e",
+      "initial_outer_timeout": false,
+      "retry_outcome": "expectation_satisfied",
+      "retry_exit_code": 0,
+      "encoder_unsupported": false,
+      "initial_log_sha256": "51f088efa8ccbb88022b6479954215e79f30a55079baaf3815ce07e5e8cffe08",
+      "retry_log_sha256": "dc3c48f0a56bd8aba75af85b5a1ce194c475fafabd949b06278d4f6a9421e48b",
+      "retry_results_sha256": "ed30c44ffa1829de954a31d9d2e9d1474bf968245bfad3f7a5cda0d16b9f641a"
+    },
+    {
+      "backend": "native",
+      "case": "range_wrong_frame",
+      "fixture_sha256": "9dc0eb20da355656682f9b926aa2a34f9497671ad0c57836d06116e36c95e5c2",
+      "initial_outer_timeout": false,
+      "retry_outcome": "expectation_satisfied",
+      "retry_exit_code": 101,
+      "encoder_unsupported": false,
+      "initial_log_sha256": "2a6e97d5b384ec3328064b2d4764c5eda8adcb162a583da5a921658d94f4132c",
+      "retry_log_sha256": "6d2f3fa8242e8504dbf2d61714d71036c0b24a2e0664013b97019144ff580a7f",
+      "retry_results_sha256": "ed30c44ffa1829de954a31d9d2e9d1474bf968245bfad3f7a5cda0d16b9f641a"
+    },
+    {
+      "backend": "native",
+      "case": "vec_lookup_inclusive_pass",
+      "fixture_sha256": "0f254999c1b5f19fd6708ee2f3cf9a8a9fcb61df94f14fc2aa28b277a626e1c1",
+      "initial_outer_timeout": false,
+      "retry_outcome": "verifier_timeout",
+      "retry_exit_code": 101,
+      "encoder_unsupported": true,
+      "initial_log_sha256": "05dc26dbded059332c4d27e196114cfc165b61ca50cd4dd1d998776e6f2ff6b5",
+      "retry_log_sha256": "e3081ab282284762d51f5ffa78d2b451a685a40c54a94589cad58bebfe59b8d9",
+      "retry_results_sha256": "ed30c44ffa1829de954a31d9d2e9d1474bf968245bfad3f7a5cda0d16b9f641a"
+    },
+    {
+      "backend": "jvm",
+      "case": "inclusive_exhausted_pass",
+      "fixture_sha256": "a4da8db282ac985722249b40dd7051a06fa78ef8779521a472f614fc32df4f36",
+      "initial_outer_timeout": false,
+      "retry_outcome": "verifier_timeout",
+      "retry_exit_code": 101,
+      "encoder_unsupported": false,
+      "initial_log_sha256": "f4b52b419a38ede7cde4f93fa87a37720432a57ab70036f25d787b674bb4748b",
+      "retry_log_sha256": "0e87293e16e76d906bf20b9d4519b7a22a0462323e4b4a3d1dab5b08b6ece56d",
+      "retry_results_sha256": "8a56d8a1b9684da8d960b30571e304afeab9dc30f474dbceb08eccf45993d7ac"
+    },
+    {
+      "backend": "jvm",
+      "case": "inclusive_missing_pass",
+      "fixture_sha256": "ccc6b1639c029fe5326bc75a49b51e2cb9d97abeeb6ef4c70ec7a3fd58d45b18",
+      "initial_outer_timeout": false,
+      "retry_outcome": "expectation_satisfied",
+      "retry_exit_code": 0,
+      "encoder_unsupported": false,
+      "initial_log_sha256": "0d9f615dad70af08cb720f41959fb994dcdcd4286051cd1320133074ee8ba9a2",
+      "retry_log_sha256": "da2204e3797053de8f263bf8bde88d780318d9015cacc808ca3c191216f65ebc",
+      "retry_results_sha256": "8a56d8a1b9684da8d960b30571e304afeab9dc30f474dbceb08eccf45993d7ac"
+    },
+    {
+      "backend": "jvm",
+      "case": "inclusive_slice_pass",
+      "fixture_sha256": "e51c776214fbee3940f535f6a7f2080d5d9df06313e0caebc7c1fdd07cd1fa0d",
+      "initial_outer_timeout": false,
+      "retry_outcome": "expectation_satisfied",
+      "retry_exit_code": 0,
+      "encoder_unsupported": false,
+      "initial_log_sha256": "a730efb3179ff659816a5572f604cd2956a33952d9fb4aedaed15226f0ee4be2",
+      "retry_log_sha256": "d5ecec0f5285f9dfb1e38fb0ea1db62fcfbcf3e48b34be8c84c5426adf02161e",
+      "retry_results_sha256": "8a56d8a1b9684da8d960b30571e304afeab9dc30f474dbceb08eccf45993d7ac"
+    },
+    {
+      "backend": "jvm",
+      "case": "vec_lookup_inclusive_pass",
+      "fixture_sha256": "0f254999c1b5f19fd6708ee2f3cf9a8a9fcb61df94f14fc2aa28b277a626e1c1",
+      "initial_outer_timeout": false,
+      "retry_outcome": "completed_failure",
+      "retry_exit_code": 101,
+      "encoder_unsupported": true,
+      "initial_log_sha256": "061aaa875c0e321551ac7590d2d36878cfdd6d5a69c798b087fa4be9efe4455d",
+      "retry_log_sha256": "cb07035e21a9bc5cacd9ed6d04a16667d5f1a6e3a8622a3f565fadf3f42859bb",
+      "retry_results_sha256": "8a56d8a1b9684da8d960b30571e304afeab9dc30f474dbceb08eccf45993d7ac"
+    },
+    {
+      "backend": "jvm",
+      "case": "vec_lookup_range_pass",
+      "fixture_sha256": "d0874a0cf40b9e55d93f94109123bfb2f904ebd7ca762841744e44b983356db3",
+      "initial_outer_timeout": false,
+      "retry_outcome": "expectation_satisfied",
+      "retry_exit_code": 0,
+      "encoder_unsupported": false,
+      "initial_log_sha256": "8946d309fc641dcec2db9032b298d8b0e308b54d16f26ad6ef8fc26b5cb826c6",
+      "retry_log_sha256": "cf1ea89448dbe0fe0fc5db3a0952c5a823fd8be3e9e459cb93ffdbe361f0c5d4",
+      "retry_results_sha256": "8a56d8a1b9684da8d960b30571e304afeab9dc30f474dbceb08eccf45993d7ac"
+    }
+  ]
+}

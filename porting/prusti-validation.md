@@ -1,8 +1,8 @@
 # Fresh Prusti validation checkpoint
 
 The initial full matrix is **complete**: all 602 clients ran on each backend,
-with exact fixture coverage and hashes checked. Original-budget serial retries
-on the corrected integration are in progress. This records initial and
+with exact fixture coverage and hashes checked. All planned original-budget
+serial retries on the corrected integration are also complete. This records initial and
 incremental evidence separately; it is not a performance comparison. Historical
 eight-case results are not reused.
 
@@ -215,11 +215,11 @@ Of the 109 borrow pairs, 85 satisfy both expectations, 13 have reviewed shared
 Prusti failures (nine encoder-only, four also containing a generated verification
 error), ten have at least one verifier timeout, and one is the controlled obsolete
 unsupported expectation described above. Timeouts remain inconclusive and are
-queued for sequential retries with the same bounds after the initial matrix.
+preserved separately from the completed sequential retries below.
 Per-case logs, source hashes and decisions are in `small-suite-triage.json` and
 `borrow-triage.json` under the retained matrix directory.
 
-## Iterator review and pending retries
+## Iterator review and completed retries
 
 The borrow spec library and several borrow clients fail in the Prusti encoder on
 both backends. Some also carry a generated verification failure without a Rust
@@ -269,5 +269,33 @@ The native iterator specification-library retry also verifies successfully,
 without either timeout. Its original run reached the verifier deadline. The
 direct command, environment and log hash are retained separately in
 `final-integration-iterator-library-retry/result.json` and summarized alongside
-the client retry evidence. Twelve borrow attempts remain in progress; stage 3
-is not yet complete.
+the client retry evidence.
+
+## Completed borrow retries and validation scope
+
+The twelve originally timed-out backend attempts across ten borrow fixtures
+were rerun sequentially on integration `3f623122a`, with the same bounds and
+fresh targets. All selected names, fixture hashes, backend metadata and driver,
+launcher and server hashes match the recorded plan. All separate controls pass.
+
+| Borrow retry backend | Expectations met | Verifier timeouts | Completed shared encoder failures |
+| --- | ---: | ---: | ---: |
+| Native (7 attempts) | 5 | 2 | 0 |
+| JVM (5 attempts) | 3 | 1 | 1 |
+
+Native `open_from_pass` and `vec_lookup_inclusive_pass` still time out; the
+latter also retains its original unsupported-restoration diagnostic at `13:23`.
+The JVM retry of that case reports the same encoder diagnostic without timing
+out. JVM `inclusive_exhausted_pass` still times out. Both native negative retries
+report their expected failures. No borrow retry reaches the outer watchdog or
+unexpectedly accepts a negative fixture. The [borrow retry evidence](prusti-borrow-retries.json)
+records individual outcomes and hashes; the complete local audit is
+`/tmp/ferrum-prusti-stage3/final-retry-borrow-library-audit.json`.
+
+The fresh validation stage is complete: both updated builds and adapter tests,
+the full initial matrix, the corrected hash suite, all selected timeout retries,
+and review of the observed differences are recorded. This is incremental
+validation, not a new 602-client run on the final binary. Remaining verifier
+timeouts are inconclusive; shared encoder failures and the two reproduced
+source-version differences remain explicit. These results do not establish a
+performance improvement or universal Viper compatibility.
