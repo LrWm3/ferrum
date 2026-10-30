@@ -161,20 +161,8 @@ pub(crate) fn reset_configured_with_origin(
     if let Some(config) = config {
         // Source SilFrontend.reset reconstructs the configured manager before the
         // provider's optional empty-manager override.
-        let names = super::sil_frontend::configured_plugin_names(config);
-        let mut duplicates = Vec::new();
-        for name in &names {
-            if names.iter().filter(|other| *other == name).count() > 1 && !duplicates.contains(name)
-            {
-                duplicates.push(name.clone());
-            }
-        }
-        if !duplicates.is_empty() {
-            reporter.report(Message::Simple {
-                kind: crate::reporter::message::SimpleMessageKind::ConfigurationWarning,
-                text: format!("The following plugins will be executed multiple times, which is most likely a configuration mistake: {}.", duplicates.join(", ")),
-            }).map_err(ProviderSetupError::Reporter)?;
-        }
+        super::sil_frontend::report_configured_plugin_warnings(config, reporter)
+            .map_err(ProviderSetupError::Reporter)?;
         let manager = match origin {
             Some(origin) => {
                 super::sil_frontend::standard_plugin_manager_with_origin(config, origin)

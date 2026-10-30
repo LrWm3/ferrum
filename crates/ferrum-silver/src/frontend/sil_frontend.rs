@@ -145,6 +145,28 @@ pub fn configured_plugin_names(
     names
 }
 
+/// Report duplicate configured plugins at the same frontend setup boundary as Silver.
+pub fn report_configured_plugin_warnings(
+    config: &crate::frontend::sil_front_end_config::SilFrontendConfig,
+    reporter: &dyn crate::reporter::reporter::Reporter,
+) -> Result<(), crate::reporter::reporter::ReportError> {
+    use crate::reporter::message::{Message, SimpleMessageKind};
+    let names = configured_plugin_names(config);
+    let mut duplicates = Vec::new();
+    for name in &names {
+        if names.iter().filter(|other| *other == name).count() > 1 && !duplicates.contains(name) {
+            duplicates.push(name.clone());
+        }
+    }
+    if !duplicates.is_empty() {
+        reporter.report(Message::Simple {
+            kind: SimpleMessageKind::ConfigurationWarning,
+            text: format!("The following plugins will be executed multiple times, which is most likely a configuration mistake: {}.", duplicates.join(", ")),
+        })?;
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 struct NativeErrorRenderer;
 impl crate::verifier::verification_error::ErrorNodeRenderer for NativeErrorRenderer {

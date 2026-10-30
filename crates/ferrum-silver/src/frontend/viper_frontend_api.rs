@@ -83,7 +83,6 @@ impl ViperFrontendApi<super::sil_frontend::SilFrontendPhases> {
             crate::plugin::silver_plugin_manager::PluginResolutionError,
         >,
     ) -> Result<(), FrontendApiInitError> {
-        use crate::reporter::message::{Message, SimpleMessageKind};
         let mut complete_args = args.to_vec();
         complete_args.push("--ignoreFile".into());
         complete_args.push(DUMMY_INPUT_FILENAME.into());
@@ -95,20 +94,8 @@ impl ViperFrontendApi<super::sil_frontend::SilFrontendPhases> {
         if config.exit() {
             return Err(FrontendApiInitError::ExitRequested);
         }
-        let names = super::sil_frontend::configured_plugin_names(&config);
-        let mut duplicates = Vec::new();
-        for name in &names {
-            if names.iter().filter(|other| *other == name).count() > 1 && !duplicates.contains(name)
-            {
-                duplicates.push(name.clone());
-            }
-        }
-        if !duplicates.is_empty() {
-            reporter.report(Message::Simple {
-                kind: SimpleMessageKind::ConfigurationWarning,
-                text: format!("The following plugins will be executed multiple times, which is most likely a configuration mistake: {}.", duplicates.join(", ")),
-            }).map_err(FrontendApiInitError::Reporter)?;
-        }
+        super::sil_frontend::report_configured_plugin_warnings(&config, reporter)
+            .map_err(FrontendApiInitError::Reporter)?;
         let plugins = super::sil_frontend::standard_plugin_manager_with_resolver(&config, resolver)
             .map_err(FrontendApiInitError::Plugin)?;
         reporter

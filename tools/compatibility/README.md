@@ -9,7 +9,8 @@ The native example uses one Ferrum `Session` and a fresh frontend per input,
 maps verification results, transforms errors, applies plugin finish hooks and
 deduplicates before stopping the session. Source invokes its frontend finish
 for verification results; frontend errors remain separately reported. Both
-capture warning events per case. Focused refute, termination, SIF and ARP
+capture parsing, typechecking, verification, annotation and internal warning
+events per case, plus cumulative configuration warnings across resets. Focused refute, termination, SIF and ARP
 controls matched error IDs and positions, but do not establish general parity.
 
 Compile against source jar SHA bcab94591994788e41a62fa673f1001339ac2323ef58e27d428a7ca739c12726:
@@ -36,8 +37,9 @@ The tooling was checked and built over `dc2b014`, whose backend code is
 reused session containing success, assertion failure, parser failure and success,
 with matching error IDs and positions. Five evidence-classification tests and
 five subprocess/cleanup tests pass. This establishes the focused harness checks;
-the broader corpus run remains pending. Rebuild against the final frozen backend
-revision before that run. Hash the
+the broader corpus was pending at that checkpoint. The later
+[initial baseline](../../porting/compatibility-baseline.md) covers all 1,512 pairs;
+its successor comparison is recorded separately. Hash the
 source driver, compiled class, native executable, Java, jar, Z3 and fixtures.
 `compatibility_evidence.py freeze` hashes source repositories and binary inputs;
 review imports outside those roots independently. A killed process is recorded
@@ -116,8 +118,8 @@ Linux and records its own cleanup evidence. If that supervisor itself fails to
 respond, an emergency process-group kill records a runner error; detached
 descendants may survive this exceptional path. Six orchestration checks exercise
 record coverage, malformed envelopes, retry accounting, reporting differences,
-artifact binding and addition of an ignored source resource. The corpus itself
-has not yet been run at this checkpoint.
+artifact binding and addition of an ignored source resource. These describe the original tooling checkpoint; see the linked baseline
+for subsequent corpus results.
 
 The source worker-option checks use the pinned jar and do not start a solver:
 
@@ -135,3 +137,12 @@ Prover interaction, external tool, exceptional and missing-dependency error IDs
 are infrastructure faults, not proof failures. The session retains their raw
 records, is marked unsuccessful, and a failed reused batch receives isolated
 retries; its original session evidence remains visible.
+
+The native driver retains the complete `Session::take_warnings()` result in
+`backend_warnings` for each case. Reporter-delivered warnings also appear in
+`warnings`, so these fields may overlap; `backend_warnings` additionally
+retains convenience-sink diagnostics such as cleanup failures. Warning
+comparison uses the reporter events and does not count that overlap twice.
+Snapshots are taken after result mapping and plugin finish hooks. Both drivers
+expose `configuration_warnings` cumulatively, including repeated duplicate-plugin
+configuration warnings on reset; the comparator checks this field separately.
