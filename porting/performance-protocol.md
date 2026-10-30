@@ -65,3 +65,13 @@ records are unavailable, not zero. Z3 process CPU includes startup, parsing,
 solving and cleanup. Wall phases overlap, so no subtraction yields exclusive
 symbolic execution. Report an unresolved component explicitly if reliable
 measurement is unavailable.
+
+For the separate parsed-Viper instrumentation study, use all four selected cases,
+the 1-worker/branch-off and 4-worker/branch-on configurations, and three-request
+reused sessions. Schedule three repetitions of plain, phase-instrumented, and
+phase-instrumented plus solver-accounting variants for each backend: 144 process
+sessions in total. Freeze randomized blocks and variant order with seed 43 before
+execution. Compare phase instrumentation against plain and accounting against
+phase-only within complete valid blocks. Keep first and subsequent phase records
+distinct. If accounting cannot pass real behavior and cleanup controls, retain
+that failure and omit its CPU attribution rather than assigning missing cost zero.

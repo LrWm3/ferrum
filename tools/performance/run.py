@@ -3,7 +3,7 @@
 import argparse, collections, decimal, hashlib, json, os, pathlib, platform, random, re, resource, shutil, subprocess, sys, time
 P=pathlib.Path
 TIMER=P('/usr/bin/time')
-TIMER_FORMAT='wall_s=%e\nuser_s=%U\nsystem_s=%S\nmax_rss_kib=%M\nexit_status=%x' 
+TIMER_FORMAT='wall_s=%e\nuser_s=%U\nsystem_s=%S\nmax_rss_kib=%M\nexit_status=%x'
 
 def sha(p):
     with open(p,'rb') as f: return hashlib.file_digest(f,'sha256').hexdigest()
