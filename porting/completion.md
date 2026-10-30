@@ -172,6 +172,14 @@ coverage audit, linked/two-worker profiles and timeout controls. Eight warning
 differences exposed additional reporter, nested typechecking and mask-frame
 construction-order gaps. These require fixes and validation before completion.
 
+The five corrective commits ending at `afdf10c` now address those gaps and the
+worker-symbol and linked-pattern retry defects exposed by focused replays. The
+[correction checkpoint](compatibility-corrections.md) records 398 passing linked
+library tests and all 30 focused comparisons, including raw warning differences
+and four linked inconclusive pairs. The complete corrected corpus and controls,
+and completion of the updated Prusti validation, remain pending. Stage 4 is
+still in progress; performance trials have not started.
+
 ## 5. Performance measurement — authorized after comparison
 
 After stage 4, benchmark representative actual Prusti stdlib workloads with
