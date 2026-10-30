@@ -1,0 +1,33 @@
+[package]
+name = "ferrum-phase-session"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+publish = false
+autobins = false
+
+[[bin]]
+name = "ferrum-bench-session"
+path = "src/plain.rs"
+
+[[bin]]
+name = "ferrum-phase-session"
+path = "src/timed.rs"
+
+[dependencies]
+ferrum = { path = @RUNTIME_PATH@ }
+serde_json = "=1.0.145"
+
+[features]
+native-z3 = ["ferrum/native-z3"]
+
+[profile.dev.package.ferrum]
+opt-level = 1
+[profile.dev.package.ferrum-silicon]
+opt-level = 1
+[profile.dev.package.ferrum-silver]
+opt-level = 1
+[profile.dev.package.ferrum-phase-session]
+opt-level = 1
+
+[workspace]
