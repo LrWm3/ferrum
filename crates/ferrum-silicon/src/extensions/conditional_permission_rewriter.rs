@@ -41,7 +41,6 @@ use ferrum_silver::ast::utility::{
     expressions,
     nodes::{self, Node, NodeReplacementError},
     statements::StatementReplacementError,
-    viper_strategy,
 };
 
 #[derive(Clone, Debug)]
@@ -61,16 +60,6 @@ fn failure(e: impl std::fmt::Debug) -> ConditionalPermissionError {
 }
 fn make(kind: ExpKind, meta: &Metadata) -> Exp {
     Exp::new(kind, meta.clone())
-}
-fn direct(old: &Exp, new: Exp) -> Result<Exp, ConditionalPermissionError> {
-    match viper_strategy::preserve_metadata(&Node::Exp(old.clone()), &Node::Exp(new), true)
-        .map_err(failure)?
-    {
-        Node::Exp(e) => Ok(e),
-        _ => Err(ConditionalPermissionError(
-            "expression metadata replacement".into(),
-        )),
-    }
 }
 fn no_introspection(e: &Exp) -> Result<bool, ConditionalPermissionError> {
     expressions::contains_permission_introspection(e)
@@ -211,70 +200,8 @@ fn conditional_rewrite(
                 || !contains_wildcard(&rhs.permission_or_full().expect("access permission"))?)
                 && no_introspection(cond)?;
             let result = if safe {
-                direct(
-                    e,
-                    conditionalize(rhs, &condition.add(cond), allow_wildcards, program)?,
-                )
+                conditionalize(rhs, &condition.add(cond), allow_wildcards, program)?
             } else {
-                direct(
-                    e,
-                    make(
-                        ExpKind::Implies(
-                            make(
-                                ExpKind::And(condition.expression(), cond.clone()),
-                                &Metadata::default(),
-                            ),
-                            rhs.clone(),
-                        ),
-                        e.metadata(),
-                    ),
-                )
-            }?;
-            seen.borrow_mut().push(result.clone());
-            return Ok(result);
-        }
-        if let ExpKind::Let(_, bound, _) = rhs.kind() {
-            if !rhs.is_pure() {
-                if no_obligations(bound, program)? && no_introspection(cond)? {
-                    let replacement = direct(e, rhs.clone())?;
-                    return recurse_children(
-                        &replacement,
-                        &condition.add(cond),
-                        allow_wildcards,
-                        program,
-                        seen,
-                    );
-                }
-                let result = direct(
-                    e,
-                    make(
-                        ExpKind::Implies(
-                            make(
-                                ExpKind::And(condition.expression(), cond.clone()),
-                                &Metadata::default(),
-                            ),
-                            rhs.clone(),
-                        ),
-                        e.metadata(),
-                    ),
-                )?;
-                seen.borrow_mut().push(result.clone());
-                return Ok(result);
-            }
-        }
-        if !rhs.is_pure() {
-            if no_introspection(cond)? {
-                let replacement = direct(e, rhs.clone())?;
-                return recurse_children(
-                    &replacement,
-                    &condition.add(cond),
-                    allow_wildcards,
-                    program,
-                    seen,
-                );
-            }
-            let result = direct(
-                e,
                 make(
                     ExpKind::Implies(
                         make(
@@ -284,8 +211,58 @@ fn conditional_rewrite(
                         rhs.clone(),
                     ),
                     e.metadata(),
+                )
+            };
+            seen.borrow_mut().push(result.clone());
+            return Ok(result);
+        }
+        if let ExpKind::Let(_, bound, _) = rhs.kind() {
+            if !rhs.is_pure() {
+                if no_obligations(bound, program)? && no_introspection(cond)? {
+                    let replacement = rhs.clone();
+                    return recurse_children(
+                        &replacement,
+                        &condition.add(cond),
+                        allow_wildcards,
+                        program,
+                        seen,
+                    );
+                }
+                let result = make(
+                    ExpKind::Implies(
+                        make(
+                            ExpKind::And(condition.expression(), cond.clone()),
+                            &Metadata::default(),
+                        ),
+                        rhs.clone(),
+                    ),
+                    e.metadata(),
+                );
+                seen.borrow_mut().push(result.clone());
+                return Ok(result);
+            }
+        }
+        if !rhs.is_pure() {
+            if no_introspection(cond)? {
+                let replacement = rhs.clone();
+                return recurse_children(
+                    &replacement,
+                    &condition.add(cond),
+                    allow_wildcards,
+                    program,
+                    seen,
+                );
+            }
+            let result = make(
+                ExpKind::Implies(
+                    make(
+                        ExpKind::And(condition.expression(), cond.clone()),
+                        &Metadata::default(),
+                    ),
+                    rhs.clone(),
                 ),
-            )?;
+                e.metadata(),
+            );
             return recurse_children(&result, condition, allow_wildcards, program, seen);
         }
     }
@@ -293,38 +270,29 @@ fn conditional_rewrite(
         let result = if allow_wildcards
             || !contains_wildcard(&e.permission_or_full().expect("access permission"))?
         {
-            direct(e, conditionalize(e, condition, allow_wildcards, program)?)?
+            conditionalize(e, condition, allow_wildcards, program)?
         } else {
-            direct(
-                e,
-                make(
-                    ExpKind::Implies(condition.expression(), e.clone()),
-                    e.metadata(),
-                ),
-            )?
+            make(
+                ExpKind::Implies(condition.expression(), e.clone()),
+                e.metadata(),
+            )
         };
         seen.borrow_mut().push(result.clone());
         return Ok(result);
     }
     if let ExpKind::Let(_, bound, _) = e.kind() {
         if !no_obligations(bound, program)? {
-            let result = direct(
-                e,
-                make(
-                    ExpKind::Implies(condition.expression(), e.clone()),
-                    e.metadata(),
-                ),
-            )?;
+            let result = make(
+                ExpKind::Implies(condition.expression(), e.clone()),
+                e.metadata(),
+            );
             seen.borrow_mut().push(result.clone());
             return Ok(result);
         }
     }
     if condition.0.is_some() && e.is_pure() {
         let c = condition.expression();
-        return direct(
-            e,
-            make(ExpKind::Implies(c.clone(), e.clone()), c.metadata()),
-        );
+        return Ok(make(ExpKind::Implies(c.clone(), e.clone()), c.metadata()));
     }
     recurse_children(e, condition, allow_wildcards, program, seen)
 }
@@ -377,7 +345,11 @@ fn recurse_children(
     }
 }
 
-/// Two-pass source preprocessing. Unsupported expression or statement extension
+/// Two-pass source preprocessing. At the pinned Silver revision, Strategy's rule
+/// execution and child rebuilding do not invoke ViperStrategy::preserveMetaData.
+/// Keep the metadata explicitly selected by each source rule, including existing
+/// error transformations, without adding links back to the replaced expression.
+/// Unsupported expression or statement extension
 /// products fail instead of bypassing conditional permission rewriting.
 pub fn rewrite(
     program: &Program,
@@ -400,8 +372,7 @@ pub fn rewrite(
                         ),
                         e.metadata(),
                     );
-                    return viper_strategy::preserve_metadata(node, &Node::Exp(rewritten), true)
-                        .map_err(|_| DiagnosticError::Unsupported("ternary metadata"));
+                    return Ok(Node::Exp(rewritten));
                 }
             }
         }
