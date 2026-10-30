@@ -1,0 +1,593 @@
+{
+  "package_manifest": {
+    "version": "v2-package",
+    "files": {
+      "z3-wait4-wrapper.c": "65a0fd9f4b183264de8a8834f071a4fb6eca9dfef1a5b7572c5b85f8ec219e3c",
+      "z3-wait4-wrapper": "b466d143d04250c777c0a54433753706670b730fdd117f804d05bb7105a04a55",
+      "run_session.py": "6ac1ac34c72718723e8d36da20ae982a6c157166b0a67a11f80b594cedcc43fb",
+      "assess.py": "8ffb52388da7584336e9ec66dce1a94b85a70a2ac537b8aa04333986b3d9a670",
+      "test_v2.py": "9ea5acb746e030ef4035531cb8ca78733d7bf3d8a8ce68d6331b6a4893719fd8",
+      "fake-z3.py": "3eef970cc60a0916ff8d37e4ff117cfc9b405ab390998d4728f639ffa6e0b39e",
+      "real-gates.py": "e18566a381cda650b66d4dc6d1e29a6bac1adebe87aa215dced4fc4ecd1a6c05",
+      "README.md": "81765721b68a52e702780b9934384414cee78fced68d8e57e495269c26ceb91a",
+      "fake-test.log": "11d41711cf6b622a54151fd8a89908b411185cd5f6194079555f775b824db8a1"
+    },
+    "prototype_manifest": "/tmp/ferrum-stage5-z3-accounting-v2/manifest.json",
+    "prototype_manifest_sha256": "71a69e6bdeef493b7e7fc4824542514003155df73f4713d78620acedfb208359",
+    "test_command": "python3 /tmp/ferrum-stage5-z3-package/test_v2.py",
+    "test_exit": 0,
+    "real_controls_command": "python3 /tmp/ferrum-stage5-z3-package/real-gates.py --output /tmp/ferrum-stage5-z3-package-real-controls",
+    "real_controls_executed": false
+  },
+  "real_controls_report_sha256": "a0d54fd78af237dc7a704d6296133940109b57e70a1fa9103c57035efbdd4868",
+  "real_controls": {
+    "frozen_artifacts_sha256": {
+      "/tmp/ferrum-stage5-z3-real-controls/report.json": "30678c71b48b75ed9b92614fca51b96ac543c44ef51b796b0542ada6d7441ac5",
+      "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+      "/tmp/ferrum-reference-silicon/target/scala-2.13/silicon.jar": "bcab94591994788e41a62fa673f1001339ac2323ef58e27d428a7ca739c12726",
+      "/tmp/ferrum-jdk17/bin/java": "a2195ae9f8a91b82f53df7e1d1b9a650937ebbabbf67d0240c6378b4fbd9990b",
+      "/tmp/ferrum-stage5-phase-target/debug/ferrum-bench-session": "34c7c1a378bbd0138ca27e190346d1898c41c0b2d94948e64c55b78fc89742d7",
+      "/tmp/ferrum-stage4-timeout-controls/fixtures/pass.vpr": "0697264f631358e64f5a40116985edf40ed3c906edcea5d195f7911e85c5d4eb",
+      "/tmp/ferrum-stage4-timeout-controls/fixtures/fail.vpr": "b5308ad0527631c93721295bacafd96b86212053323ff315ed11d3254115a2fc",
+      "/tmp/ferrum-stage4-timeout-controls/fixtures/parse.vpr": "50a1182697c38f5f9100d7b66f1a37b32de8844edeee3941e3b09cee5e273f38",
+      "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates.vpr": "5fb7723360179784abc7af42ab88f1e5399c99af0bbca5b6f980173483346c5a",
+      "/usr/bin/time": "3b11dec50514a8473e9f6efa7a34d584d0657538c09988f61b72d38ad4991a10",
+      "/home/will/.local/share/mise/installs/python/3.12.13/bin/python3.12": "8392ec78d090ab7e1b1c058cff454de64a0780e263e6a9e66cdb1256be322fb0",
+      "/tmp/ferrum-stage5-z3-package/manifest.json": "8b0be0c97121b98ff5ef36a4444ef2bfa0aa37994b853b447b042ce02fb56e53",
+      "/tmp/ferrum-stage5-phase-preparation/java-plain-classes/SourceSession.class": "f5d5d740826dc8ed7f0fbb526b708d8b7880c0bdfcd850b58d4625fc4d3d9b45",
+      "/tmp/ferrum-stage5-phase-preparation/java-plain-classes/SourceSession$CaptureReporter.class": "5d19f77eb95eb9402d417b9d281a2d873651ab972af3525a33d85b44ada11077"
+    },
+    "results": [
+      {
+        "name": "native-normal-wrapped",
+        "command": [
+          "/home/will/.local/share/mise/installs/python/3.12/bin/python3",
+          "/tmp/ferrum-stage5-z3-package/run_session.py",
+          "--timeout",
+          "120",
+          "--output",
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-normal-wrapped.json",
+          "--",
+          "/usr/bin/time",
+          "-q",
+          "-f",
+          "wall_s=%e\nuser_s=%U\nsystem_s=%S\nexit_status=%x",
+          "-o",
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-normal-wrapped.time",
+          "--",
+          "/tmp/ferrum-stage5-phase-target/debug/ferrum-bench-session",
+          "/tmp/ferrum-stage5-z3-package/z3-wait4-wrapper",
+          "--timeout",
+          "30",
+          "--",
+          "/tmp/ferrum-stage4-timeout-controls/fixtures/pass.vpr",
+          "/tmp/ferrum-stage4-timeout-controls/fixtures/fail.vpr",
+          "/tmp/ferrum-stage4-timeout-controls/fixtures/pass.vpr",
+          "/tmp/ferrum-stage4-timeout-controls/fixtures/parse.vpr",
+          "/tmp/ferrum-stage4-timeout-controls/fixtures/pass.vpr"
+        ],
+        "environment_override": {
+          "FERRUM_BENCH_INTERNAL_CACHES": "on",
+          "FERRUM_Z3_REAL": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+          "FERRUM_Z3_RECORD_DIR": "/tmp/ferrum-stage5-z3-package-real-controls/native-normal-wrapped-accounting"
+        },
+        "runner_exit": 0,
+        "runner_stdout": "",
+        "runner_stderr": "",
+        "session_sha256": "1f889dc1057701fc3313d1015f009ed623cd77101950560a11df42cd1cd46743",
+        "timer_sha256": "9a89703fc3f7aaf0c5d3c5e49eb0eccb3965f17b74e9208c224b6cae1ef77ba1",
+        "accounting_file_hashes": {
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-normal-wrapped-accounting/z3-Xjfbl5/identity.json": "2dd1dc23bc5b384d1379f4c84c854b6d0bd333a1e29bace8d134d84daf3b4e2a",
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-normal-wrapped-accounting/z3-Xjfbl5/start.json": "352b5d2ec960098aea160dc7772f765a23d58cf322d5f0329b79b32185ceebf7",
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-normal-wrapped-accounting/z3-PMjXIy/identity.json": "7d1b9c3efc2bc3748cff4e452683e78251f233c80491f8dfb90dc7d6eb8972b3",
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-normal-wrapped-accounting/z3-PMjXIy/start.json": "f4ca7917ed405c38f1764a7361ba26597bd9613cf6178ff232d9201cdfbfa9cd",
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-normal-wrapped-accounting/z3-WQZlqp/identity.json": "f6b077cc3b8559113f9394fba807d04a80e0808b31caac244723beda81255c83",
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-normal-wrapped-accounting/z3-WQZlqp/start.json": "8746e211023c444a9b58d9c1619917abc7e9f5deb23d651edc284efda97d770d",
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-normal-wrapped-accounting/z3-HuRtNj/identity.json": "cfad20373d6e87801763d3cad94e091709b815549222baa70734c366f7072584",
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-normal-wrapped-accounting/z3-HuRtNj/start.json": "dec37ea28fa054198664c635b9fe8885a2f463d75de5f66da861a81f4b2e996a"
+        },
+        "timer": {
+          "wall_s": "0.10",
+          "user_s": "0.01",
+          "system_s": "0.00",
+          "exit_status": "0"
+        },
+        "exact_differences_from_v1_baseline": {},
+        "assessment": {
+          "processes": [
+            {
+              "directory": "/tmp/ferrum-stage5-z3-package-real-controls/native-normal-wrapped-accounting/z3-HuRtNj",
+              "kind": "solver",
+              "identity": {
+                "wrapper_pid": 3485290,
+                "child_pid": 3485291,
+                "child_start_ticks": 28131516
+              },
+              "method": "adopted_wait4",
+              "cpu": {
+                "user_s": 0.00362,
+                "system_s": 0.00724
+              },
+              "matching_adopted": 1
+            },
+            {
+              "directory": "/tmp/ferrum-stage5-z3-package-real-controls/native-normal-wrapped-accounting/z3-PMjXIy",
+              "kind": "solver",
+              "identity": {
+                "wrapper_pid": 3485299,
+                "child_pid": 3485300,
+                "child_start_ticks": 28131523
+              },
+              "method": "adopted_wait4",
+              "cpu": {
+                "user_s": 0.002924,
+                "system_s": 0.010721999999999999
+              },
+              "matching_adopted": 1
+            },
+            {
+              "directory": "/tmp/ferrum-stage5-z3-package-real-controls/native-normal-wrapped-accounting/z3-WQZlqp",
+              "kind": "solver",
+              "identity": {
+                "wrapper_pid": 3485293,
+                "child_pid": 3485294,
+                "child_start_ticks": 28131518
+              },
+              "method": "adopted_wait4",
+              "cpu": {
+                "user_s": 0.003034,
+                "system_s": 0.011124
+              },
+              "matching_adopted": 1
+            },
+            {
+              "directory": "/tmp/ferrum-stage5-z3-package-real-controls/native-normal-wrapped-accounting/z3-Xjfbl5",
+              "kind": "solver",
+              "identity": {
+                "wrapper_pid": 3485296,
+                "child_pid": 3485297,
+                "child_start_ticks": 28131521
+              },
+              "method": "adopted_wait4",
+              "cpu": {
+                "user_s": 0.0021869999999999997,
+                "system_s": 0.009845
+              },
+              "matching_adopted": 1
+            }
+          ],
+          "adopted_total": [
+            {
+              "pid": 3485291,
+              "start_ticks": "28131516",
+              "raw_wait_status": 9,
+              "user_s": 0.00362,
+              "system_s": 0.00724,
+              "max_rss_kib": 35120
+            },
+            {
+              "pid": 3485294,
+              "start_ticks": "28131518",
+              "raw_wait_status": 9,
+              "user_s": 0.003034,
+              "system_s": 0.011124,
+              "max_rss_kib": 35132
+            },
+            {
+              "pid": 3485297,
+              "start_ticks": "28131521",
+              "raw_wait_status": 9,
+              "user_s": 0.0021869999999999997,
+              "system_s": 0.009845,
+              "max_rss_kib": 35276
+            },
+            {
+              "pid": 3485300,
+              "start_ticks": "28131523",
+              "raw_wait_status": 9,
+              "user_s": 0.002924,
+              "system_s": 0.010721999999999999,
+              "max_rss_kib": 35608
+            }
+          ],
+          "complete": true,
+          "unmatched_adopted_indices": []
+        },
+        "cpu": {
+          "foreground_timer_s": "0.01",
+          "adopted_all_s": "0.0506959999999999987",
+          "instrumented_total_s": "0.0606959999999999987",
+          "identified_solver_s": "0.0506959999999999987",
+          "frontend_runtime_wrapper_other_residual_s": "0.0100000000000000000",
+          "timer_resolution": "typically 0.01 s; rounding may dominate small residuals"
+        }
+      },
+      {
+        "name": "source-normal-wrapped",
+        "command": [
+          "/home/will/.local/share/mise/installs/python/3.12/bin/python3",
+          "/tmp/ferrum-stage5-z3-package/run_session.py",
+          "--timeout",
+          "120",
+          "--output",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped.json",
+          "--",
+          "/usr/bin/time",
+          "-q",
+          "-f",
+          "wall_s=%e\nuser_s=%U\nsystem_s=%S\nexit_status=%x",
+          "-o",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped.time",
+          "--",
+          "/tmp/ferrum-jdk17/bin/java",
+          "-Xss128m",
+          "-cp",
+          "/tmp/ferrum-stage5-phase-preparation/java-plain-classes:/tmp/ferrum-reference-silicon/target/scala-2.13/silicon.jar",
+          "SourceSession",
+          "/tmp/ferrum-stage5-z3-package/z3-wait4-wrapper",
+          "--timeout",
+          "30",
+          "--",
+          "/tmp/ferrum-stage4-timeout-controls/fixtures/pass.vpr",
+          "/tmp/ferrum-stage4-timeout-controls/fixtures/fail.vpr",
+          "/tmp/ferrum-stage4-timeout-controls/fixtures/pass.vpr",
+          "/tmp/ferrum-stage4-timeout-controls/fixtures/parse.vpr",
+          "/tmp/ferrum-stage4-timeout-controls/fixtures/pass.vpr"
+        ],
+        "environment_override": {
+          "FERRUM_BENCH_INTERNAL_CACHES": "on",
+          "FERRUM_Z3_REAL": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+          "FERRUM_Z3_RECORD_DIR": "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting"
+        },
+        "runner_exit": 0,
+        "runner_stdout": "",
+        "runner_stderr": "",
+        "session_sha256": "032d3ce3c99ffc512dad903524666626ce65b95e53bab989985690e70871d293",
+        "timer_sha256": "114f18a341535351b6a8b6dd7ef3fe04459afb665e9394669b68fbae7db79a16",
+        "accounting_file_hashes": {
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-SC9wB6/identity.json": "e03cbd9de9f4851e98790d9882a8349ec176adf566d34f3ed55be4a655a7996d",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-SC9wB6/start.json": "4215d46bae0b263a17ba006b1d3c71acc246c0254ace9ea1d2916092e18465cd",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-Uhi8NR/identity.json": "87d797dab9c0125e002da98e66f9a56c5e550a09893294b97dfa3529dcc018e4",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-Uhi8NR/start.json": "a02d625cbb81f614c3f8af73ab63b6ca79023eaae33c3a764acf591afcbd66e9",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-j841GL/identity.json": "e9dad1da0d1e2f50c48d6c2519502b81b61e62a35843208149ef3dfbb3f6ebb6",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-j841GL/start.json": "c404956edbddf56ee0eb76a357a856bd10cf83158b0aa2f928272e9e8df45797",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-lUdqqW/identity.json": "b6e13c7781c916fbd3a7c472521f2078041e2de4db7ff36cfc8fe63d1e129aa2",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-lUdqqW/start.json": "af92e8eaf9896c88a36e37e0b14d902d54ebdfb6f551efc4d033f0a0e0c91b04",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-1e1sez/identity.json": "a01d91a260a2afe9741bea6327b02aeb434078af47cb6a3fbfbe1103cd487ceb",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-1e1sez/start.json": "601ce8614462b489343b406257ec2871f6650dbc61cc68acf3afb0fd49c3db52",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-DSRpCb/identity.json": "9508bea6c448d33c207b6ce40dbfc57b988be225b8b36f9076fc9f3f67fbeee5",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-DSRpCb/start.json": "1300ed8ec7b79dc337eac2a0c8a6b451e767e0972989329dfb13a843431e2bd0",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-Hz4syG/identity.json": "704dbe0a74b7d5be59480c8519d985ed6441fc2192d787867857285f1f09d180",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-Hz4syG/start.json": "cd6d4a94f4c2bc2df4cc276fe392a82fcea619220b61cdf87177653ea7de2a12",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-a3zTcu/identity.json": "de00a1328d8c6ff463c3a15240c547d99208af2ee0b84a1289f11e3925571c73",
+          "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-a3zTcu/start.json": "50416bf5503700de9255cb458d06ef54ce32f7cb7735f4b30c1b6b7fede978a1"
+        },
+        "timer": {
+          "wall_s": "1.88",
+          "user_s": "3.73",
+          "system_s": "0.19",
+          "exit_status": "0"
+        },
+        "exact_differences_from_v1_baseline": {},
+        "assessment": {
+          "processes": [
+            {
+              "directory": "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-1e1sez",
+              "kind": "solver",
+              "identity": {
+                "wrapper_pid": 3485776,
+                "child_pid": 3485779,
+                "child_start_ticks": 28131786
+              },
+              "method": "adopted_wait4",
+              "cpu": {
+                "user_s": 0.005142,
+                "system_s": 0.009255
+              },
+              "matching_adopted": 1
+            },
+            {
+              "directory": "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-DSRpCb",
+              "kind": "solver",
+              "identity": {
+                "wrapper_pid": 3485725,
+                "child_pid": 3485726,
+                "child_start_ticks": 28131777
+              },
+              "method": "adopted_wait4",
+              "cpu": {
+                "user_s": 0.006264,
+                "system_s": 0.008352
+              },
+              "matching_adopted": 1
+            },
+            {
+              "directory": "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-Hz4syG",
+              "kind": "solver",
+              "identity": {
+                "wrapper_pid": 3485510,
+                "child_pid": 3485511,
+                "child_start_ticks": 28131659
+              },
+              "method": "adopted_wait4",
+              "cpu": {
+                "user_s": 0.005863,
+                "system_s": 0.007817
+              },
+              "matching_adopted": 1
+            },
+            {
+              "directory": "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-SC9wB6",
+              "kind": "solver",
+              "identity": {
+                "wrapper_pid": 3485892,
+                "child_pid": 3485893,
+                "child_start_ticks": 28131793
+              },
+              "method": "adopted_wait4",
+              "cpu": {
+                "user_s": 0.0037679999999999996,
+                "system_s": 0.008793
+              },
+              "matching_adopted": 1
+            },
+            {
+              "directory": "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-Uhi8NR",
+              "kind": "solver",
+              "identity": {
+                "wrapper_pid": 3485894,
+                "child_pid": 3485895,
+                "child_start_ticks": 28131794
+              },
+              "method": "adopted_wait4",
+              "cpu": {
+                "user_s": 0.006861,
+                "system_s": 0.006861
+              },
+              "matching_adopted": 1
+            },
+            {
+              "directory": "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-a3zTcu",
+              "kind": "solver",
+              "identity": {
+                "wrapper_pid": 3485774,
+                "child_pid": 3485775,
+                "child_start_ticks": 28131786
+              },
+              "method": "adopted_wait4",
+              "cpu": {
+                "user_s": 0.00484,
+                "system_s": 0.008713
+              },
+              "matching_adopted": 1
+            },
+            {
+              "directory": "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-j841GL",
+              "kind": "solver",
+              "identity": {
+                "wrapper_pid": 3485532,
+                "child_pid": 3485534,
+                "child_start_ticks": 28131667
+              },
+              "method": "adopted_wait4",
+              "cpu": {
+                "user_s": 0.0031699999999999996,
+                "system_s": 0.010569
+              },
+              "matching_adopted": 1
+            },
+            {
+              "directory": "/tmp/ferrum-stage5-z3-package-real-controls/source-normal-wrapped-accounting/z3-lUdqqW",
+              "kind": "solver",
+              "identity": {
+                "wrapper_pid": 3485723,
+                "child_pid": 3485724,
+                "child_start_ticks": 28131777
+              },
+              "method": "adopted_wait4",
+              "cpu": {
+                "user_s": 0.00362,
+                "system_s": 0.010862
+              },
+              "matching_adopted": 1
+            }
+          ],
+          "adopted_total": [
+            {
+              "pid": 3485511,
+              "start_ticks": "28131659",
+              "raw_wait_status": 9,
+              "user_s": 0.005863,
+              "system_s": 0.007817,
+              "max_rss_kib": 35316
+            },
+            {
+              "pid": 3485534,
+              "start_ticks": "28131667",
+              "raw_wait_status": 9,
+              "user_s": 0.0031699999999999996,
+              "system_s": 0.010569,
+              "max_rss_kib": 35332
+            },
+            {
+              "pid": 3485726,
+              "start_ticks": "28131777",
+              "raw_wait_status": 9,
+              "user_s": 0.006264,
+              "system_s": 0.008352,
+              "max_rss_kib": 35576
+            },
+            {
+              "pid": 3485724,
+              "start_ticks": "28131777",
+              "raw_wait_status": 9,
+              "user_s": 0.00362,
+              "system_s": 0.010862,
+              "max_rss_kib": 35188
+            },
+            {
+              "pid": 3485775,
+              "start_ticks": "28131786",
+              "raw_wait_status": 9,
+              "user_s": 0.00484,
+              "system_s": 0.008713,
+              "max_rss_kib": 35536
+            },
+            {
+              "pid": 3485779,
+              "start_ticks": "28131786",
+              "raw_wait_status": 9,
+              "user_s": 0.005142,
+              "system_s": 0.009255,
+              "max_rss_kib": 35316
+            },
+            {
+              "pid": 3485893,
+              "start_ticks": "28131793",
+              "raw_wait_status": 9,
+              "user_s": 0.0037679999999999996,
+              "system_s": 0.008793,
+              "max_rss_kib": 35456
+            },
+            {
+              "pid": 3485895,
+              "start_ticks": "28131794",
+              "raw_wait_status": 9,
+              "user_s": 0.006861,
+              "system_s": 0.006861,
+              "max_rss_kib": 35244
+            }
+          ],
+          "complete": true,
+          "unmatched_adopted_indices": []
+        },
+        "cpu": {
+          "foreground_timer_s": "3.92",
+          "adopted_all_s": "0.1107499999999999992",
+          "instrumented_total_s": "4.0307499999999999992",
+          "identified_solver_s": "0.1107499999999999992",
+          "frontend_runtime_wrapper_other_residual_s": "3.9200000000000000000",
+          "timer_resolution": "typically 0.01 s; rounding may dominate small residuals"
+        }
+      },
+      {
+        "name": "native-timeout-wrapped",
+        "command": [
+          "/home/will/.local/share/mise/installs/python/3.12/bin/python3",
+          "/tmp/ferrum-stage5-z3-package/run_session.py",
+          "--timeout",
+          "120",
+          "--output",
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-timeout-wrapped.json",
+          "--",
+          "/usr/bin/time",
+          "-q",
+          "-f",
+          "wall_s=%e\nuser_s=%U\nsystem_s=%S\nexit_status=%x",
+          "-o",
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-timeout-wrapped.time",
+          "--",
+          "/tmp/ferrum-stage5-phase-target/debug/ferrum-bench-session",
+          "/tmp/ferrum-stage5-z3-package/z3-wait4-wrapper",
+          "--timeout",
+          "1",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates.vpr",
+          "/tmp/ferrum-stage4-timeout-controls/fixtures/pass.vpr"
+        ],
+        "environment_override": {
+          "FERRUM_BENCH_INTERNAL_CACHES": "off",
+          "FERRUM_Z3_REAL": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+          "FERRUM_Z3_RECORD_DIR": "/tmp/ferrum-stage5-z3-package-real-controls/native-timeout-wrapped-accounting"
+        },
+        "runner_exit": 0,
+        "runner_stdout": "",
+        "runner_stderr": "",
+        "session_sha256": "f0830049051054ea04570cca65faa0ce137e5199029e4992dd44e90b5ea36627",
+        "timer_sha256": "453b23203a49346a1d4e60d58d75968c199713767fd2432b93c83fadbc069107",
+        "accounting_file_hashes": {
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-timeout-wrapped-accounting/z3-SfqpbF/identity.json": "e60ab8f09c78d773f2f63e45042ff4a01e9e5862e0457c1fa889b95a8fc32026",
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-timeout-wrapped-accounting/z3-SfqpbF/start.json": "dba5f20d61505029be7ab557cc504a0deaf0cde99191f982bd144a5410270e16",
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-timeout-wrapped-accounting/z3-pZpuDs/identity.json": "c15961cadc1d34131287ae79c244f18e53ae197f941d80758a8e76b2d7e314c6",
+          "/tmp/ferrum-stage5-z3-package-real-controls/native-timeout-wrapped-accounting/z3-pZpuDs/start.json": "f248500e7016eb78e99b3e8c5f58e7a8cb9cd3dddba0d326ddf830cda7f33507"
+        },
+        "timer": {
+          "wall_s": "1.11",
+          "user_s": "0.32",
+          "system_s": "0.03",
+          "exit_status": "0"
+        },
+        "exact_differences_from_v1_baseline": {},
+        "assessment": {
+          "processes": [
+            {
+              "directory": "/tmp/ferrum-stage5-z3-package-real-controls/native-timeout-wrapped-accounting/z3-SfqpbF",
+              "kind": "solver",
+              "identity": {
+                "wrapper_pid": 3486381,
+                "child_pid": 3486382,
+                "child_start_ticks": 28131991
+              },
+              "method": "adopted_wait4",
+              "cpu": {
+                "user_s": 0.003619,
+                "system_s": 0.010857
+              },
+              "matching_adopted": 1
+            },
+            {
+              "directory": "/tmp/ferrum-stage5-z3-package-real-controls/native-timeout-wrapped-accounting/z3-pZpuDs",
+              "kind": "solver",
+              "identity": {
+                "wrapper_pid": 3486139,
+                "child_pid": 3486140,
+                "child_start_ticks": 28131883
+              },
+              "method": "adopted_wait4",
+              "cpu": {
+                "user_s": 0.702,
+                "system_s": 0.020057
+              },
+              "matching_adopted": 1
+            }
+          ],
+          "adopted_total": [
+            {
+              "pid": 3486140,
+              "start_ticks": "28131883",
+              "raw_wait_status": 9,
+              "user_s": 0.702,
+              "system_s": 0.020057,
+              "max_rss_kib": 42144
+            },
+            {
+              "pid": 3486382,
+              "start_ticks": "28131991",
+              "raw_wait_status": 9,
+              "user_s": 0.003619,
+              "system_s": 0.010857,
+              "max_rss_kib": 35152
+            }
+          ],
+          "complete": true,
+          "unmatched_adopted_indices": []
+        },
+        "cpu": {
+          "foreground_timer_s": "0.35",
+          "adopted_all_s": "0.736533",
+          "instrumented_total_s": "1.086533",
+          "identified_solver_s": "0.736533",
+          "frontend_runtime_wrapper_other_residual_s": "0.350000",
+          "timer_resolution": "typically 0.01 s; rounding may dominate small residuals"
+        }
+      }
+    ],
+    "limitations": [
+      "Behavior gate only, not a benchmark.",
+      "Reported completeness is bounded by observed identity files and tracked adopted processes.",
+      "CPU sums are process-tree accounting; no exclusive symbolic/frontend attribution.",
+      "GNU time rounds foreground CPU; do not subtract elapsed wall times."
+    ]
+  },
+  "scope": "Three bounded behavior/accounting controls, not performance evidence."
+}
