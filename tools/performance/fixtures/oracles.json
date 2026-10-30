@@ -1,0 +1,240 @@
+{
+  "path_base": "this directory; resolve to absolute paths when freezing benchmark inputs",
+  "cases": [
+    {
+      "name": "observation_pass",
+      "path": "observation_pass.vpr",
+      "sha256": "a0057d4998b80152fdaf1a1492b555b5d238bb4eca6b3f89c42225d7ae4a1546",
+      "expect": {
+        "outcome": "verified",
+        "errors": []
+      },
+      "origin": {
+        "copied_path": "/tmp/ferrum-stage5-backend-inputs/fixtures/observation_pass.vpr",
+        "copied_sha256": "a0057d4998b80152fdaf1a1492b555b5d238bb4eca6b3f89c42225d7ae4a1546",
+        "parity": {
+          "prusti_pin": "a59ed917c1c3c4c4ca6ff1de12ad20d48491d021",
+          "source_sha256": "daf967a7df0c1f86993538b6fb909ca28747baf687c4128007a15321da9f8f30",
+          "cache_policy": {
+            "outer_result_cache": "off",
+            "silicon_internal_caches": "production_default_on"
+          },
+          "outcomes_checked": true,
+          "native": {
+            "path": "/tmp/ferrum-stage5-prusti-inputs/calibration/observation_pass-native-attempt2/verifier/viper_program/program-check.vpr",
+            "sha256": "a0057d4998b80152fdaf1a1492b555b5d238bb4eca6b3f89c42225d7ae4a1546",
+            "log": "/tmp/ferrum-stage5-prusti-inputs/calibration/observation_pass-native-attempt2/trial.log",
+            "log_sha256": "598a9ddc44de0ebcd06e908dfb3e9937135cf4d2263b5efac78c1a1dc386051d",
+            "exit_code": 0,
+            "session": "/tmp/ferrum-stage5-prusti-inputs/calibration/observation_pass-native-attempt2/trial.json",
+            "session_sha256": "295186984a019d9e82ad596667274a487e37295dfd9682a0dd6c37c2a9a5fc75",
+            "phase_counts": {
+              "Rust to VIR encoding": 1,
+              "VIR conversion": 1,
+              "backend verification": 1
+            },
+            "checking_lines": [
+              "    Checking stdlib_sequence_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_sequence_spec)"
+            ]
+          },
+          "jvm": {
+            "path": "/tmp/ferrum-stage5-prusti-inputs/calibration/observation_pass-jvm-attempt2/verifier/viper_program/program-check.vpr",
+            "sha256": "a0057d4998b80152fdaf1a1492b555b5d238bb4eca6b3f89c42225d7ae4a1546",
+            "log": "/tmp/ferrum-stage5-prusti-inputs/calibration/observation_pass-jvm-attempt2/trial.log",
+            "log_sha256": "03908c4f236c547548c0e154255f48e21b22390f3252af075ebdce09d1857c71",
+            "exit_code": 0,
+            "session": "/tmp/ferrum-stage5-prusti-inputs/calibration/observation_pass-jvm-attempt2/trial.json",
+            "session_sha256": "1f503c4ac74e661c0e90c22cfd7d0e22b668672c4398975b36a5cad1a8230630",
+            "phase_counts": {
+              "Rust to VIR encoding": 1,
+              "VIR conversion": 1,
+              "backend verification": 1
+            },
+            "checking_lines": [
+              "    Checking stdlib_sequence_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_sequence_spec)"
+            ]
+          }
+        },
+        "imports": "no import or include tokens anywhere in source bytes"
+      }
+    },
+    {
+      "name": "mut_element_array_pass",
+      "path": "mut_element_array_pass.vpr",
+      "sha256": "0708553587693a4f23c8d928a6359dd15fec34b6bbd9fef1bc5c2c054524efe7",
+      "expect": {
+        "outcome": "verified",
+        "errors": []
+      },
+      "origin": {
+        "copied_path": "/tmp/ferrum-stage5-backend-inputs/fixtures/mut_element_array_pass.vpr",
+        "copied_sha256": "0708553587693a4f23c8d928a6359dd15fec34b6bbd9fef1bc5c2c054524efe7",
+        "parity": {
+          "prusti_pin": "a59ed917c1c3c4c4ca6ff1de12ad20d48491d021",
+          "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+          "cache_policy": {
+            "outer_result_cache": "off",
+            "silicon_internal_caches": "production_default_on"
+          },
+          "outcomes_checked": true,
+          "native": {
+            "path": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_array_pass-native-attempt2/verifier/viper_program/program-check.vpr",
+            "sha256": "0708553587693a4f23c8d928a6359dd15fec34b6bbd9fef1bc5c2c054524efe7",
+            "log": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_array_pass-native-attempt2/trial.log",
+            "log_sha256": "af359c27eb19ab8d2eeb59fa2259a58d7e2256db95e4223b3286833b5cdd3045",
+            "exit_code": 0,
+            "session": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_array_pass-native-attempt2/trial.json",
+            "session_sha256": "59dbdac07cbf969aa141d098b8ee83444162148529eed8ff3a90fc185c3ea4fe",
+            "phase_counts": {
+              "Rust to VIR encoding": 1,
+              "VIR conversion": 1,
+              "backend verification": 1
+            },
+            "checking_lines": [
+              "    Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+            ]
+          },
+          "jvm": {
+            "path": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_array_pass-jvm-attempt2/verifier/viper_program/program-check.vpr",
+            "sha256": "0708553587693a4f23c8d928a6359dd15fec34b6bbd9fef1bc5c2c054524efe7",
+            "log": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_array_pass-jvm-attempt2/trial.log",
+            "log_sha256": "3f901e38757a0057c1f66257e88bd84f611e1b6e9bfb196e2f7ecb1eb19202aa",
+            "exit_code": 0,
+            "session": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_array_pass-jvm-attempt2/trial.json",
+            "session_sha256": "6b27f26c6ad6e9168a6bd1f4e4138aa1db8561fca100696c5e2cdbba5129d102",
+            "phase_counts": {
+              "Rust to VIR encoding": 1,
+              "VIR conversion": 1,
+              "backend verification": 1
+            },
+            "checking_lines": [
+              "    Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+            ]
+          }
+        },
+        "imports": "no import or include tokens anywhere in source bytes"
+      }
+    },
+    {
+      "name": "mut_element_option_pass",
+      "path": "mut_element_option_pass.vpr",
+      "sha256": "9876f7b0689ba6602fdb793bb7b07a93a81c66052ff48a06ecb353daa1c5744e",
+      "expect": {
+        "outcome": "verified",
+        "errors": []
+      },
+      "origin": {
+        "copied_path": "/tmp/ferrum-stage5-backend-inputs/fixtures/mut_element_option_pass.vpr",
+        "copied_sha256": "9876f7b0689ba6602fdb793bb7b07a93a81c66052ff48a06ecb353daa1c5744e",
+        "parity": {
+          "prusti_pin": "a59ed917c1c3c4c4ca6ff1de12ad20d48491d021",
+          "source_sha256": "27acdac9db654e0944064a9eba246337c1b7d12710596a9d7ffbb14dbac4674d",
+          "cache_policy": {
+            "outer_result_cache": "off",
+            "silicon_internal_caches": "production_default_on"
+          },
+          "outcomes_checked": true,
+          "native": {
+            "path": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_option_pass-native-attempt2/verifier/viper_program/program-check.vpr",
+            "sha256": "9876f7b0689ba6602fdb793bb7b07a93a81c66052ff48a06ecb353daa1c5744e",
+            "log": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_option_pass-native-attempt2/trial.log",
+            "log_sha256": "34e5bb58efb8399c66f70fae632a9c8336529bd99663af37b271afdb479af864",
+            "exit_code": 0,
+            "session": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_option_pass-native-attempt2/trial.json",
+            "session_sha256": "3b6570d6afeae23e8d3391cac99a5a03d7340875c67958851e703c00178eb785",
+            "phase_counts": {
+              "Rust to VIR encoding": 1,
+              "VIR conversion": 1,
+              "backend verification": 1
+            },
+            "checking_lines": [
+              "    Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+            ]
+          },
+          "jvm": {
+            "path": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_option_pass-jvm-attempt2/verifier/viper_program/program-check.vpr",
+            "sha256": "9876f7b0689ba6602fdb793bb7b07a93a81c66052ff48a06ecb353daa1c5744e",
+            "log": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_option_pass-jvm-attempt2/trial.log",
+            "log_sha256": "49cc2a1b620204ba9bcfe12ae0f78bbfeaa863d9711d7bf847b2cf12f564a0bd",
+            "exit_code": 0,
+            "session": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_option_pass-jvm-attempt2/trial.json",
+            "session_sha256": "9d8cfd3349ad1dfda7faba356284582aac269fba54d8b2928704bb8ae9e2570a",
+            "phase_counts": {
+              "Rust to VIR encoding": 1,
+              "VIR conversion": 1,
+              "backend verification": 1
+            },
+            "checking_lines": [
+              "    Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+            ]
+          }
+        },
+        "imports": "no import or include tokens anywhere in source bytes"
+      }
+    },
+    {
+      "name": "mut_element_array_wrong",
+      "path": "mut_element_array_wrong.vpr",
+      "sha256": "132ab8ca4e53de55d95fc50b0f60a2dbad04647f9f4a4e08115030b3a72b45e8",
+      "expect": {
+        "outcome": "failure",
+        "errors": [
+          {
+            "id": "exhale.failed:assertion.false",
+            "position": "mut_element_array_wrong.vpr@1786.10--1786.82"
+          }
+        ]
+      },
+      "origin": {
+        "copied_path": "/tmp/ferrum-stage5-backend-inputs/fixtures/mut_element_array_wrong.vpr",
+        "copied_sha256": "132ab8ca4e53de55d95fc50b0f60a2dbad04647f9f4a4e08115030b3a72b45e8",
+        "parity": {
+          "prusti_pin": "a59ed917c1c3c4c4ca6ff1de12ad20d48491d021",
+          "source_sha256": "e5f50a76c80ee2f33d504dafa4eb35612c519e789565685ce542251058cfca79",
+          "cache_policy": {
+            "outer_result_cache": "off",
+            "silicon_internal_caches": "production_default_on"
+          },
+          "outcomes_checked": true,
+          "native": {
+            "path": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_array_wrong-native-attempt2/verifier/viper_program/program-check.vpr",
+            "sha256": "132ab8ca4e53de55d95fc50b0f60a2dbad04647f9f4a4e08115030b3a72b45e8",
+            "log": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_array_wrong-native-attempt2/trial.log",
+            "log_sha256": "78a066ad9212f8adebb749c66fe4fb09238299ee7957ce7af908abacbb57f1b6",
+            "exit_code": 101,
+            "session": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_array_wrong-native-attempt2/trial.json",
+            "session_sha256": "d446dbe9ce883b5f1dbdb8a1d9c8359766ac7f6987a601569842a1cda93f9e64",
+            "phase_counts": {
+              "Rust to VIR encoding": 1,
+              "VIR conversion": 1,
+              "backend verification": 1
+            },
+            "checking_lines": [
+              "    Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+            ]
+          },
+          "jvm": {
+            "path": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_array_wrong-jvm-attempt2/verifier/viper_program/program-check.vpr",
+            "sha256": "132ab8ca4e53de55d95fc50b0f60a2dbad04647f9f4a4e08115030b3a72b45e8",
+            "log": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_array_wrong-jvm-attempt2/trial.log",
+            "log_sha256": "1575fa9ff08987de49add1cb61e29c818a505df541ed870727f3d2db77baa09e",
+            "exit_code": 101,
+            "session": "/tmp/ferrum-stage5-prusti-inputs/calibration/mut_element_array_wrong-jvm-attempt2/trial.json",
+            "session_sha256": "25151bf64559fc960f90ccf98801362f8464031f8ceccbdf4eb5c06c37fcb67f",
+            "phase_counts": {
+              "Rust to VIR encoding": 1,
+              "VIR conversion": 1,
+              "backend verification": 1
+            },
+            "checking_lines": [
+              "    Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+            ]
+          }
+        },
+        "imports": "no import or include tokens anywhere in source bytes"
+      }
+    }
+  ],
+  "basis": "paired source/native plain cache-on parsed oracle",
+  "oracle_report_sha256": "7e6c574bafdec9179ee79505355ce96c31b6fef36b1e7ac10ad27ee56c9981d1"
+}

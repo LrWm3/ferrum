@@ -1,0 +1,2 @@
+# Preserve the exact generated input bytes, including trailing spaces.
+*.vpr -text -whitespace
