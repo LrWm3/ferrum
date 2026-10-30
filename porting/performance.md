@@ -1,5 +1,10 @@
 # Prusti and backend performance results
 
+The latest [term-cache investigation](performance-term-cache.md) restores
+Silicon's lazy term hashing, measures a small-case improvement, and separates
+parser costs from solver-lifecycle and saturation opportunities. Its bounded
+measurements and unchanged SMT streams are separate from the older matrix below.
+
 The later [live stdlib profiling follow-up](performance-live-stdlib.md) investigates
 harder iterator cases in the adoption run. It finds substantial Z3 quantifier
 matching in two short observed windows. Its workload, partial sampling and
