@@ -60,7 +60,13 @@ class CorpusEvidence(unittest.TestCase):
             {"id": "assert.failed:assertion.false", "position": "1.1", "message": "native"}]}
         self.assertEqual(run_corpus.diagnostic_comparison(source, native), {
             "same_error_messages": False, "same_error_order": False,
-            "same_warnings": False, "same_phase": True})
+            "same_warnings": False, "same_configuration_warnings": None, "same_phase": True})
+        source["configuration_warnings"] = ["config"]
+        self.assertIsNone(run_corpus.diagnostic_comparison(source, native)["same_configuration_warnings"])
+        native["configuration_warnings"] = []
+        self.assertFalse(run_corpus.diagnostic_comparison(source, native)["same_configuration_warnings"])
+        native["configuration_warnings"] = ["config"]
+        self.assertTrue(run_corpus.diagnostic_comparison(source, native)["same_configuration_warnings"])
         self.assertIsNone(run_corpus.diagnostic_comparison({}, {})["same_error_messages"])
         bad = {**native, "session_outcome": "process_error"}
         self.assertTrue(all(value is None for value in run_corpus.diagnostic_comparison(source, bad).values()))

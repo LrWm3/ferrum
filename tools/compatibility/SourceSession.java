@@ -10,11 +10,18 @@ import viper.silver.verifier.Failure;
 public final class SourceSession {
     static class CaptureReporter extends StdIOReporter {
         final ArrayList<String> warnings = new ArrayList<>();
+        final ArrayList<String> configurationWarnings = new ArrayList<>();
         CaptureReporter() { super("compatibility", false); }
         void add(scala.collection.Iterator<? extends AbstractError> it) {
             while (it.hasNext()) warnings.add(it.next().readableMessage());
         }
-        @Override public void doReport(viper.silver.reporter.Message m) {
+        synchronized void clearWarnings() { warnings.clear(); }
+        synchronized ArrayList<String> warningSnapshot() { return new ArrayList<>(warnings); }
+        synchronized ArrayList<String> configurationWarningSnapshot() { return new ArrayList<>(configurationWarnings); }
+        @Override public synchronized void doReport(viper.silver.reporter.Message m) {
+            if (m instanceof viper.silver.reporter.ConfigurationWarning) configurationWarnings.add(((viper.silver.reporter.ConfigurationWarning)m).text());
+            if (m instanceof viper.silver.reporter.InternalWarningMessage) warnings.add(((viper.silver.reporter.InternalWarningMessage)m).text());
+            if (m instanceof viper.silver.reporter.AnnotationWarning) warnings.add(((viper.silver.reporter.AnnotationWarning)m).text());
             if (m instanceof viper.silver.reporter.WarningsDuringParsing) add(((viper.silver.reporter.WarningsDuringParsing)m).warnings().iterator());
             if (m instanceof viper.silver.reporter.WarningsDuringTypechecking) add(((viper.silver.reporter.WarningsDuringTypechecking)m).warnings().iterator());
             if (m instanceof viper.silver.reporter.WarningsDuringVerification) add(((viper.silver.reporter.WarningsDuringVerification)m).warnings().iterator());
@@ -29,6 +36,10 @@ public final class SourceSession {
             else b.append(c);
         }
         return b.append('"').toString();
+    }
+    static boolean isInfrastructureError(String id) {
+        return id.equals("prover.interaction.failed") || id.equals("external.tool.error")
+            || id.equals("exceptional.error") || id.equals("dependencynotfound.error");
     }
     static ArrayList<String> workerOptions(java.util.List<String> caller) {
         ArrayList<String> result = new ArrayList<>();
@@ -57,7 +68,7 @@ public final class SourceSession {
             f.init(f._ver());
             for (int i = firstInput; i < args.length; i++) {
                 String path = args[i];
-                reporter.warnings.clear();
+                reporter.clearWarnings();
                 try {
                     f.reset(Paths.get(path));
                     f.runAllPhases();
@@ -69,7 +80,12 @@ public final class SourceSession {
                         System.out.println("@@COMPAT@@{\"case\":" + q(path) + ",\"outcome\":\"unknown_result\",\"message\":" + q(result.getClass().getName()) + "}");
                         break;
                     }
-                    line.append(",\"outcome\":").append(q(result instanceof Failure ? (((Failure)result).errors().isEmpty() ? "unknown_failure" : "failure") : "verified"));
+                    boolean proverError = false;
+                    if (result instanceof Failure) {
+                        var it = ((Failure)result).errors().iterator();
+                        while (it.hasNext()) if (isInfrastructureError(it.next().fullId())) proverError = true;
+                    }
+                    line.append(",\"outcome\":").append(q(proverError ? "prover_error" : result instanceof Failure ? (((Failure)result).errors().isEmpty() ? "unknown_failure" : "failure") : "verified"));
                     line.append(",\"errors\":[");
                     if (result instanceof Failure) {
                         var it = ((Failure)result).errors().iterator(); boolean first = true;
@@ -80,8 +96,13 @@ public final class SourceSession {
                         }
                     }
                     line.append("],\"warnings\":[");
-                    for (int w = 0; w < reporter.warnings.size(); w++) { if (w > 0) line.append(','); line.append(q(reporter.warnings.get(w))); }
+                    var warnings = reporter.warningSnapshot();
+                    for (int w = 0; w < warnings.size(); w++) { if (w > 0) line.append(','); line.append(q(warnings.get(w))); }
+                    line.append("],\"configuration_warnings\":[");
+                    var configurationWarnings = reporter.configurationWarningSnapshot();
+                    for (int w = 0; w < configurationWarnings.size(); w++) { if (w > 0) line.append(','); line.append(q(configurationWarnings.get(w))); }
                     System.out.println("@@COMPAT@@" + line.append("]}"));
+                    if (proverError) break; // A failed prover interaction can poison later sessions.
                 } catch (Throwable e) {
                     System.out.println("@@COMPAT@@{\"case\":" + q(path) + ",\"outcome\":\"exception\",\"message\":" + q(e.toString()) + "}");
                     break; // Recovery after exceptional frontend state is not assumed.

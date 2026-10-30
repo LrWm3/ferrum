@@ -48,7 +48,7 @@ def validate_records(session, expected):
 def diagnostic_comparison(source, native):
     """Keep reporting differences visible even when proof outcomes agree."""
     if any(r.get("session_outcome") != "completed" or r.get("exit_code") != 0 for r in (source, native)):
-        return {"same_error_messages": None, "same_error_order": None, "same_warnings": None, "same_phase": None}
+        return {"same_error_messages": None, "same_error_order": None, "same_warnings": None, "same_configuration_warnings": None, "same_phase": None}
     a, b = source.get("errors"), native.get("errors")
     complete = all(isinstance(errors, list) and all(isinstance(error, dict)
         and all(isinstance(error.get(key), str) for key in ("id", "position", "message"))
@@ -63,6 +63,10 @@ def diagnostic_comparison(source, native):
     if all(isinstance(row.get("warnings"), list) and all(isinstance(w, str)
             for w in row["warnings"]) for row in (source, native)):
         warnings = source["warnings"] == native["warnings"]
+    configuration_warnings = None
+    if all(isinstance(row.get("configuration_warnings"), list) and all(isinstance(w, str)
+            for w in row["configuration_warnings"]) for row in (source, native)):
+        configuration_warnings = source["configuration_warnings"] == native["configuration_warnings"]
     # Source state names are an enum; native names describe the same phases.
     phase_names = {"Parsing": "parsing", "SemanticAnalysis": "semantic_analysis",
         "Translation": "translation", "ConsistencyCheck": "consistency",
@@ -71,7 +75,7 @@ def diagnostic_comparison(source, native):
     if source.get("phase") and native.get("phase"):
         phase = phase_names.get(source["phase"], source["phase"]) == native["phase"]
     return {"same_error_messages": messages, "same_error_order": order,
-        "same_warnings": warnings, "same_phase": phase}
+        "same_warnings": warnings, "same_configuration_warnings": configuration_warnings, "same_phase": phase}
 
 
 def load_session(path, returncode, command):
