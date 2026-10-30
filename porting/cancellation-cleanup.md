@@ -95,5 +95,18 @@ JVM matrix and is not quiet timing or original-budget parity evidence.
 Its complete launch, hashes and results are retained under
 `/tmp/ferrum-prusti-stage3/cleanup-fix-control60`. The proof log SHA-256 is
 `2b8a48ba68ed2c8e83addba7e6a7d0c45c69a690e6da508545fe922ba0bbc822`.
-The original 180-second serial retries remain pending; this control does not
-establish that every original matrix watchdog case is resolved.
+
+The subsequent serial iterator retries use the original 180-second verifier and
+300-second command limits. All three original native watchdog cases now finish:
+`mut_native_resource_into_iter_pass` verifies, while
+`mut_native_resource_framing_pass` and `mut_native_resource_framing_wrong` return
+the verifier-timeout diagnostic. None reaches the outer watchdog. Across the
+complete 28-attempt iterator retry selection, no outer watchdog recurs and no
+negative case is unexpectedly accepted. The remaining proof timeouts are still
+inconclusive.
+
+This demonstrates cleanup/reporting on those retry invocations, not a general
+memory or timing bound. Host conditions and independently generated Viper inputs
+also differ between runs. The [Prusti validation record](prusti-validation.md)
+and [retry evidence](prusti-iterator-retries.json) preserve the original and
+updated observations separately.

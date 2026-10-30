@@ -193,8 +193,8 @@ The corrected native hash run satisfies all 40 client expectations and all 11
 controls, as recorded above. Each original backend ran 229 separate controls:
 209 runtime checks, eight Rust checks, two core-only checks, two trigger checks
 and eight specification-library checks. Native passed 226 and JVM passed 228.
-The original native hash library fails because of the adapter defect fixed above; the native
-iterator library times out. The borrow specification library fails on both
+The original native hash library fails because of the adapter defect fixed above;
+the native iterator library times out. The borrow specification library fails on both
 backends in Prusti's encoder. Every other control passes.
 
 The original 602 pairs comprise 511 satisfying both annotations, 35 shared
@@ -243,8 +243,31 @@ records the controlled AST stack, correction and library checks. Integration
 `3f623122a` now passes both updated production builds and all 17 adapter tests.
 Its uninstrumented short-budget cancellation control returns the verifier-timeout
 diagnostic without the outer watchdog. The original-budget retry coordinator
-first checked all 602 client names and source hashes per backend. It now runs
-28 iterator client attempts (16 native, 12 JVM), the native iterator library,
-and 12 borrow attempts sequentially. These use the original 180-second verifier
-and 300-second command limits, with fresh verification targets. Results remain
-pending; the initial matrix keeps its original binaries and evidence.
+first checked all 602 client names and source hashes per backend. All 28 selected
+iterator client attempts have now completed sequentially, using the original
+180-second verifier and 300-second command limits and fresh verification targets.
+
+| Iterator retry backend | Expectations met | Verifier timeouts | Completed shared Prusti failures |
+| --- | ---: | ---: | ---: |
+| Native (16 attempts) | 4 | 9 | 3 |
+| JVM (12 attempts) | 8 | 2 | 2 |
+
+No outer watchdog recurred and no negative case was unexpectedly accepted.
+All separate compilation/runtime controls passed. The completed failures retain
+the shared unsupported-selector or precondition diagnostics; some timeout cases
+also retain encoder errors. These categories do not erase overlapping causes.
+The remaining timeouts are inconclusive, including native array/framing cases
+whose JVM retries completed.
+
+Five original/retry dump pairs are byte-identical, twelve differ and eleven are
+unavailable. Matching Rust fixture hashes do not establish identical encodings
+or a causal speed improvement. [prusti-iterator-retries.json](prusti-iterator-retries.json)
+retains individual outcomes and hashes separately from the initial matrix.
+The full local summary SHA-256 is
+`80d4ab69af53b91acc52198de3cd96f5a94a3ffcc3e40b8fd25ae684c058f3af`.
+The native iterator specification-library retry also verifies successfully,
+without either timeout. Its original run reached the verifier deadline. The
+direct command, environment and log hash are retained separately in
+`final-integration-iterator-library-retry/result.json` and summarized alongside
+the client retry evidence. Twelve borrow attempts remain in progress; stage 3
+is not yet complete.
