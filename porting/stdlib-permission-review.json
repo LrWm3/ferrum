@@ -1,0 +1,1468 @@
+{
+  "base_ferrum": "b8f76d8",
+  "kind": "targeted_verification_regression_not_performance_benchmark",
+  "prusti": {
+    "replace-current": {
+      "case": "mut_element_replace_pass",
+      "classification": "invalid_backend",
+      "wall_s": 36.97,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          1288985000
+        ],
+        "VIR conversion": [
+          105019761
+        ],
+        "backend verification": [
+          32168282270
+        ]
+      },
+      "server": "/tmp/ferrum-order-trigger-fix/trigger-server",
+      "server_sha256": "e94e0f5763e3feb906ed8c9ffeec10842453dcb2210fdfe523d365087949243f",
+      "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_replace_pass.rs",
+      "source_sha256": "09bb105cab1cf7816388b1b638f5e1dd53085d2249c70ab8e8be118c22c6407e",
+      "runner_sha256": "798e2b16612f170f031aa1831a2476d816f831eca908156d568ace63504b8fb7",
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-review-b8f76d8/replace-current/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-stdlib-review-b8f76d8/replace-current/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:47247"
+      },
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-order-trigger-fix/trigger-server",
+          "--port",
+          "47247"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/replace-current/result.json",
+      "client_log_sha256": "e37d738c9b7d579e498c5f2e05e291023e48211a78d1ddc75fdd3c5aff5ce9e8",
+      "server_log_sha256": "e2d8a25c315c2cbfe7dc6ab118fbaae09d0a56630de42c01be50f4d3fa61c5a2"
+    },
+    "replace-return-current": {
+      "case": "mut_element_replace_return_pass",
+      "classification": "invalid_backend",
+      "wall_s": 8.68,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          649755949
+        ],
+        "VIR conversion": [
+          51636108
+        ],
+        "backend verification": [
+          4648520654
+        ]
+      },
+      "server": "/tmp/ferrum-order-trigger-fix/trigger-server",
+      "server_sha256": "e94e0f5763e3feb906ed8c9ffeec10842453dcb2210fdfe523d365087949243f",
+      "client": "/tmp/prusti-im5-checkpoint255/debug/cargo-prusti",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "source": "/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_replace_return_pass.rs",
+      "source_sha256": "78a6d0f34f18063b042ff3bb88d1dabddfb62f6f4439367b786159813466df54",
+      "runner_sha256": "8dc19b839bfe1847d401f6b960e0764c5edea23efac3e4869392bcc709d7b190",
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-review-b8f76d8/replace-return-current/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-stdlib-review-b8f76d8/replace-return-current/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:43149"
+      },
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-order-trigger-fix/trigger-server",
+          "--port",
+          "43149"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/replace-return-current/result.json",
+      "client_log_sha256": "3f2824a80a773e89b3ace1d5c21209b4982671a82a6e8cbcd6e9f8153bd1a067",
+      "server_log_sha256": "da5b8165dbc932a6a28a60a40baafdb3e3fddae6c9a363814e725953678ec295",
+      "viper_sha256": "a38759a0cfc830268b2d80136b9c0830a9eda3ce206f40abe0a3aabad800a774"
+    },
+    "replace-return-original-triggers": {
+      "case": "mut_element_replace_return_pass",
+      "classification": "invalid_backend",
+      "wall_s": 2.06,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          40727995
+        ],
+        "VIR conversion": [
+          7937759
+        ],
+        "backend verification": [
+          1468863495
+        ]
+      },
+      "server": "/tmp/ferrum-order-trigger-fix/trigger-server",
+      "server_sha256": "e94e0f5763e3feb906ed8c9ffeec10842453dcb2210fdfe523d365087949243f",
+      "client": "/tmp/prusti-im5-checkpoint255/debug/cargo-prusti",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "source": "/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_replace_return_pass.rs",
+      "source_sha256": "78a6d0f34f18063b042ff3bb88d1dabddfb62f6f4439367b786159813466df54",
+      "runner_sha256": "8dc19b839bfe1847d401f6b960e0764c5edea23efac3e4869392bcc709d7b190",
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --snapshotSummaryOnlyTriggers=false",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-review-b8f76d8/replace-return-original-triggers/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-stdlib-review-b8f76d8/replace-return-original-triggers/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:48333"
+      },
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-order-trigger-fix/trigger-server",
+          "--port",
+          "48333"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/replace-return-original-triggers/result.json",
+      "client_log_sha256": "e022c8c71a12dd19816fd1ef57fafca843e7799ecf8d21d7d86aa33a20daaec9",
+      "server_log_sha256": "dc4e4fbc5c01cd7139a10c22d6c88f49821053dd2de53dc33f5b63ccf18ee293",
+      "viper_sha256": "a38759a0cfc830268b2d80136b9c0830a9eda3ce206f40abe0a3aabad800a774"
+    },
+    "replace-return-no-cache": {
+      "case": "mut_element_replace_return_pass",
+      "classification": "invalid_backend",
+      "wall_s": 2.45,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          46813588
+        ],
+        "VIR conversion": [
+          7255301
+        ],
+        "backend verification": [
+          1711431742
+        ]
+      },
+      "server": "/tmp/ferrum-order-trigger-fix/trigger-server",
+      "server_sha256": "e94e0f5763e3feb906ed8c9ffeec10842453dcb2210fdfe523d365087949243f",
+      "client": "/tmp/prusti-im5-checkpoint255/debug/cargo-prusti",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "source": "/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_replace_return_pass.rs",
+      "source_sha256": "78a6d0f34f18063b042ff3bb88d1dabddfb62f6f4439367b786159813466df54",
+      "runner_sha256": "8dc19b839bfe1847d401f6b960e0764c5edea23efac3e4869392bcc709d7b190",
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --disableCaches",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-review-b8f76d8/replace-return-no-cache/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-stdlib-review-b8f76d8/replace-return-no-cache/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:35249"
+      },
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-order-trigger-fix/trigger-server",
+          "--port",
+          "35249"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/replace-return-no-cache/result.json",
+      "client_log_sha256": "3a1209730e09521a3d765684d1b581c5c619b05124c98ef71029de5ab8a2c9c2",
+      "server_log_sha256": "5cccf5ed04c430938259000d678c080ea2f7818c286df33105d4a5e11b9b76e2",
+      "viper_sha256": "a38759a0cfc830268b2d80136b9c0830a9eda3ce206f40abe0a3aabad800a774"
+    },
+    "replace-return-separate": {
+      "case": "mut_element_replace_return_pass",
+      "classification": "invalid_backend",
+      "wall_s": 1.75,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          37475434
+        ],
+        "VIR conversion": [
+          4964394
+        ],
+        "backend verification": [
+          1206921375
+        ]
+      },
+      "server": "/tmp/ferrum-order-trigger-fix/trigger-server",
+      "server_sha256": "e94e0f5763e3feb906ed8c9ffeec10842453dcb2210fdfe523d365087949243f",
+      "client": "/tmp/prusti-im5-checkpoint255/debug/cargo-prusti",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "source": "/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_replace_return_pass.rs",
+      "source_sha256": "78a6d0f34f18063b042ff3bb88d1dabddfb62f6f4439367b786159813466df54",
+      "runner_sha256": "8dc19b839bfe1847d401f6b960e0764c5edea23efac3e4869392bcc709d7b190",
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --separateMethodSolver",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-review-b8f76d8/replace-return-separate/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-stdlib-review-b8f76d8/replace-return-separate/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:42683"
+      },
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-order-trigger-fix/trigger-server",
+          "--port",
+          "42683"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/replace-return-separate/result.json",
+      "client_log_sha256": "29abe2deb3a1827594786d63f60af8b82857ec4cff3e0865030fbd2cb5da0bf2",
+      "server_log_sha256": "43d803007b80ad57cef6d05cf88d0ddfcb496c405a74ddb2b5b263086c6b4ccf",
+      "viper_sha256": "a38759a0cfc830268b2d80136b9c0830a9eda3ce206f40abe0a3aabad800a774"
+    },
+    "replace-return-fixed": {
+      "case": "mut_element_replace_return_pass",
+      "classification": "valid",
+      "wall_s": 1.41,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          33144387
+        ],
+        "VIR conversion": [
+          4960050
+        ],
+        "backend verification": [
+          902486482
+        ]
+      },
+      "server": "/tmp/ferrum-stdlib-review-b8f76d8/permission-deps-server",
+      "server_sha256": "7b4516fb67a59c2db0ae6e707f591222f59ea9d229e299b5ef06a82c429753a9",
+      "client": "/tmp/prusti-im5-checkpoint255/debug/cargo-prusti",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "source": "/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_replace_return_pass.rs",
+      "source_sha256": "78a6d0f34f18063b042ff3bb88d1dabddfb62f6f4439367b786159813466df54",
+      "runner_sha256": "8dc19b839bfe1847d401f6b960e0764c5edea23efac3e4869392bcc709d7b190",
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-review-b8f76d8/replace-return-fixed/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-stdlib-review-b8f76d8/replace-return-fixed/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:41487"
+      },
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-stdlib-review-b8f76d8/permission-deps-server",
+          "--port",
+          "41487"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/replace-return-fixed/result.json",
+      "client_log_sha256": "0ee5eed8854aa70cbebaf1dd49f1fb4c3bd35dbf952455a75923c060d92a0ad6",
+      "server_log_sha256": "433e8c14544cdb015818f903e2cc631e70031b26acb67cf5439287cf9c7ff9b5",
+      "viper_sha256": "a38759a0cfc830268b2d80136b9c0830a9eda3ce206f40abe0a3aabad800a774"
+    },
+    "replace-fixed": {
+      "case": "mut_element_replace_pass",
+      "classification": "valid",
+      "wall_s": 3.33,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          138469288
+        ],
+        "VIR conversion": [
+          8323763
+        ],
+        "backend verification": [
+          2707202503
+        ]
+      },
+      "server": "/tmp/ferrum-stdlib-review-b8f76d8/permission-deps-server",
+      "server_sha256": "7b4516fb67a59c2db0ae6e707f591222f59ea9d229e299b5ef06a82c429753a9",
+      "client": "/tmp/prusti-im5-checkpoint255/debug/cargo-prusti",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "source": "/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_replace_pass.rs",
+      "source_sha256": "09bb105cab1cf7816388b1b638f5e1dd53085d2249c70ab8e8be118c22c6407e",
+      "runner_sha256": "8dc19b839bfe1847d401f6b960e0764c5edea23efac3e4869392bcc709d7b190",
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-review-b8f76d8/replace-fixed/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-stdlib-review-b8f76d8/replace-fixed/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:51553"
+      },
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-stdlib-review-b8f76d8/permission-deps-server",
+          "--port",
+          "51553"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/replace-fixed/result.json",
+      "client_log_sha256": "f2956863e6cca6094073157cb3d6d6f30ca42d03b68ed8888d8185e984659302",
+      "server_log_sha256": "8f39a3abd59ef32f978a567a887845fbb0d43be4ca72faa239eb6b2cadc4921a",
+      "viper_sha256": "ed761265def20c8f8b9e570c994440e97949e10df1ce78b346238ddefd08f86b"
+    },
+    "replace-false-fixed": {
+      "case": "mut_element_replace_false",
+      "classification": "valid",
+      "wall_s": 1.06,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          86168751
+        ],
+        "VIR conversion": [
+          5082373
+        ],
+        "backend verification": [
+          518062846
+        ]
+      },
+      "server": "/tmp/ferrum-stdlib-review-b8f76d8/permission-deps-server",
+      "server_sha256": "7b4516fb67a59c2db0ae6e707f591222f59ea9d229e299b5ef06a82c429753a9",
+      "client": "/tmp/prusti-im5-checkpoint255/debug/cargo-prusti",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "source": "/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_replace_false.rs",
+      "source_sha256": "48f0a33d94f773f97f8b6443d0984565249e230485a2d51ad87215e13cd6527d",
+      "runner_sha256": "8dc19b839bfe1847d401f6b960e0764c5edea23efac3e4869392bcc709d7b190",
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-review-b8f76d8/replace-false-fixed/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-stdlib-review-b8f76d8/replace-false-fixed/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:53329"
+      },
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-stdlib-review-b8f76d8/permission-deps-server",
+          "--port",
+          "53329"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/replace-false-fixed/result.json",
+      "client_log_sha256": "c9e7f6431412932370b74e1f90399f113608da93f264aa33e51057a0b5949320",
+      "server_log_sha256": "77c20a2715e44f8ef75712219059ac8b78d915f3cf5b1627d7d2251c01f161ff",
+      "viper_sha256": "a2372ff4b40b2c22e915d55d21f191969871f47bb30baef1e5b3da67090b2db3",
+      "exact_expected_rust_diagnostic_checked": true
+    },
+    "full-current": {
+      "case": "mut_native_resource_pair_prefix_wrong_second",
+      "classification": "valid",
+      "wall_s": 310.66,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          8756202185
+        ],
+        "VIR conversion": [
+          39572113
+        ],
+        "backend verification": [
+          300046288669
+        ]
+      },
+      "server": "/tmp/ferrum-order-trigger-fix/trigger-server",
+      "server_sha256": "e94e0f5763e3feb906ed8c9ffeec10842453dcb2210fdfe523d365087949243f",
+      "client": "/tmp/prusti-im5-checkpoint255/debug/cargo-prusti",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "source": "/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_native_resource_pair_prefix_wrong_second.rs",
+      "source_sha256": "8ad934aff72ef8c7460567e4b1ad92a25294522c48a49ce346919b2d32ed6bfc",
+      "runner_sha256": "754195939c1343e455addb14d9b328a7f30bfda32ad92439a0809bb0fcf79f9c",
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=600 --numberOfParallelVerifiers 1 --parallelizeBranches=false --checkTimeout 100 --proverEnableTimeBounds",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_ASSERT_TIMEOUT": "30000",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-review-b8f76d8/full-current/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-stdlib-review-b8f76d8/full-current/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:51911"
+      },
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0-3",
+          "/tmp/ferrum-order-trigger-fix/trigger-server",
+          "--port",
+          "51911"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/full-current/result.json",
+      "client_log_sha256": "66b9188feca3d6c8e0c37a479278a7e7bf86ac5510fc787d9770ebf232f6aa66",
+      "server_log_sha256": "5bd3427022658db3240ea9b8d249d6187df6ef8b0e741f7949eb0cbb04beecf7",
+      "viper_sha256": "5e376b2b45bacf192184bb0eb3dce5d942c627d58f45a545fd00e0d41abdece7"
+    },
+    "full-original-triggers": {
+      "case": "mut_native_resource_pair_prefix_wrong_second",
+      "classification": "valid",
+      "wall_s": 357.01,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          18322420108
+        ],
+        "VIR conversion": [
+          214749741
+        ],
+        "backend verification": [
+          333691984172
+        ]
+      },
+      "server": "/tmp/ferrum-order-trigger-fix/trigger-server",
+      "server_sha256": "e94e0f5763e3feb906ed8c9ffeec10842453dcb2210fdfe523d365087949243f",
+      "client": "/tmp/prusti-im5-checkpoint255/debug/cargo-prusti",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "source": "/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_native_resource_pair_prefix_wrong_second.rs",
+      "source_sha256": "8ad934aff72ef8c7460567e4b1ad92a25294522c48a49ce346919b2d32ed6bfc",
+      "runner_sha256": "754195939c1343e455addb14d9b328a7f30bfda32ad92439a0809bb0fcf79f9c",
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=600 --numberOfParallelVerifiers 1 --parallelizeBranches=false --checkTimeout 100 --proverEnableTimeBounds --snapshotSummaryOnlyTriggers=false",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_ASSERT_TIMEOUT": "30000",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-review-b8f76d8/full-original-triggers/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-stdlib-review-b8f76d8/full-original-triggers/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:39237"
+      },
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "4-7",
+          "/tmp/ferrum-order-trigger-fix/trigger-server",
+          "--port",
+          "39237"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/full-original-triggers/result.json",
+      "client_log_sha256": "9d1169dea68c0ce3dc0b6276debd0bd9425bb57361030917a6490bede67b772b",
+      "server_log_sha256": "5820bfed73fbfeaedffb791d0f88ed947c295ad9576638ba767c27080c1468c2",
+      "viper_sha256": "92c070eebee0371241d3df8190bb10089f4a93ebd08a24fef6d53cf67e21a9a8"
+    },
+    "positive-current": {
+      "case": "mut_native_resource_pair_prefix_pass",
+      "classification": "valid",
+      "wall_s": 266.81,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          59307186109
+        ],
+        "VIR conversion": [
+          126222508
+        ],
+        "backend verification": [
+          202666839745
+        ]
+      },
+      "server": "/tmp/ferrum-order-trigger-fix/trigger-server",
+      "server_sha256": "e94e0f5763e3feb906ed8c9ffeec10842453dcb2210fdfe523d365087949243f",
+      "client": "/tmp/prusti-im5-checkpoint255/debug/cargo-prusti",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "source": "/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_native_resource_pair_prefix_pass.rs",
+      "source_sha256": "7e9d277c967e588fae0380d6e4d34ed009aff1c334d7457e9e47259f27183458",
+      "runner_sha256": "754195939c1343e455addb14d9b328a7f30bfda32ad92439a0809bb0fcf79f9c",
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=600 --numberOfParallelVerifiers 1 --parallelizeBranches=false --checkTimeout 100 --proverEnableTimeBounds",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_ASSERT_TIMEOUT": "30000",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-review-b8f76d8/positive-current/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-stdlib-review-b8f76d8/positive-current/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:55823"
+      },
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "4-7",
+          "/tmp/ferrum-order-trigger-fix/trigger-server",
+          "--port",
+          "55823"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/positive-current/result.json",
+      "client_log_sha256": "ab212aa036a143e0aedd52989029ca3c7bf926ede64e911430454fbe6c060252",
+      "server_log_sha256": "7426669ca3ddd11a80c6fd7387f4c8b8923abdc54b28cf48e1072b90482a555d",
+      "viper_sha256": "04fb4a596bf0080339fe1abe7ac04c7737fbfb88f184ce2e98f9f76367540bd9"
+    },
+    "positive-wand-fixed": {
+      "case": "mut_native_resource_pair_prefix_pass",
+      "classification": "valid",
+      "wall_s": 246.06,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          14195566355
+        ],
+        "VIR conversion": [
+          56267193
+        ],
+        "backend verification": [
+          229095039737
+        ]
+      },
+      "server": "/tmp/ferrum-stdlib-review-b8f76d8/permission-deps-server",
+      "server_sha256": "7b4516fb67a59c2db0ae6e707f591222f59ea9d229e299b5ef06a82c429753a9",
+      "client": "/tmp/prusti-im5-checkpoint255/debug/cargo-prusti",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "source": "/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_native_resource_pair_prefix_pass.rs",
+      "source_sha256": "7e9d277c967e588fae0380d6e4d34ed009aff1c334d7457e9e47259f27183458",
+      "runner_sha256": "754195939c1343e455addb14d9b328a7f30bfda32ad92439a0809bb0fcf79f9c",
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=600 --numberOfParallelVerifiers 1 --parallelizeBranches=false --checkTimeout 100 --proverEnableTimeBounds",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_ASSERT_TIMEOUT": "30000",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-review-b8f76d8/positive-wand-fixed/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-stdlib-review-b8f76d8/positive-wand-fixed/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:33991"
+      },
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0-3",
+          "/tmp/ferrum-stdlib-review-b8f76d8/permission-deps-server",
+          "--port",
+          "33991"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/positive-wand-fixed/result.json",
+      "client_log_sha256": "0bac66de515fde29e078918bb97be8fa5424cbb1062265fe40f361fd3e259d51",
+      "server_log_sha256": "87570956b0d054a911b324599c16c65bdd8c4c8fa00ef053e6cd2ac2ea93568b",
+      "viper_sha256": "6773f17effa9b9b3478b4d2515ccb16d16f1917435fa50c745d9f75fe8cad2a0"
+    },
+    "full-wand-fixed": {
+      "case": "mut_native_resource_pair_prefix_wrong_second",
+      "classification": "valid",
+      "wall_s": 336.51,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          20107834101
+        ],
+        "VIR conversion": [
+          546931734
+        ],
+        "backend verification": [
+          308707373190
+        ]
+      },
+      "server": "/tmp/ferrum-stdlib-review-b8f76d8/permission-deps-server",
+      "server_sha256": "7b4516fb67a59c2db0ae6e707f591222f59ea9d229e299b5ef06a82c429753a9",
+      "client": "/tmp/prusti-im5-checkpoint255/debug/cargo-prusti",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "source": "/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_native_resource_pair_prefix_wrong_second.rs",
+      "source_sha256": "8ad934aff72ef8c7460567e4b1ad92a25294522c48a49ce346919b2d32ed6bfc",
+      "runner_sha256": "754195939c1343e455addb14d9b328a7f30bfda32ad92439a0809bb0fcf79f9c",
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=600 --numberOfParallelVerifiers 1 --parallelizeBranches=false --checkTimeout 100 --proverEnableTimeBounds",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_ASSERT_TIMEOUT": "30000",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-review-b8f76d8/full-wand-fixed/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-stdlib-review-b8f76d8/full-wand-fixed/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:58223"
+      },
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "4-7",
+          "/tmp/ferrum-stdlib-review-b8f76d8/permission-deps-server",
+          "--port",
+          "58223"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/full-wand-fixed/result.json",
+      "client_log_sha256": "80516cd746a6453f5d09905e71757e3143b56c8510fa7a27667169de3243c012",
+      "server_log_sha256": "e0ba4997de83d9c62e5caa860db1c94cb6c4788c512188992f4f4c0e3251c359",
+      "viper_sha256": "b3dc8b0ec561a28adc5a4b151c5f6666e190154ded11ec6f5c53fc94acb0a9f3",
+      "exact_expected_rust_diagnostic_checked": true
+    }
+  },
+  "wand_compatibility": {
+    "before": [
+      {
+        "case": "packaging_cond_perm.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "exhale.failed:insufficient.permission",
+            "packaging_cond_perm.vpr@22.10--22.22"
+          ],
+          [
+            "exhale.failed:insufficient.permission",
+            "packaging_cond_perm.vpr@32.10--32.22"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "packaging_cond_perm.vpr@44.10--44.15"
+          ],
+          [
+            "exhale.failed:insufficient.permission",
+            "packaging_cond_perm.vpr@55.10--55.22"
+          ]
+        ]
+      },
+      {
+        "case": "Perm.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "assert.failed:assertion.false",
+            "Perm.vpr@11.16--11.38"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "Perm.vpr@21.20--21.42"
+          ]
+        ]
+      },
+      {
+        "case": "QPFields.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@16.12--16.46"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@30.16--30.50"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@41.12--41.51"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@53.12--53.53"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@66.12--66.46"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@75.12--75.51"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@87.12--87.51"
+          ]
+        ]
+      },
+      {
+        "case": "QPPredicates.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@33.12--33.45"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@47.16--47.49"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@58.12--58.55"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@70.12--70.57"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@83.12--83.45"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@92.12--92.55"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@104.12--104.55"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@164.12--164.64"
+          ]
+        ]
+      },
+      {
+        "case": "applying-twice-qp-fields.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-fields.vpr@17.12--17.17"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-fields.vpr@33.12--33.17"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-fields.vpr@51.12--51.17"
+          ]
+        ]
+      },
+      {
+        "case": "applying-twice-qp-predicates.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-predicates.vpr@32.12--32.17"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-predicates.vpr@53.12--53.17"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-predicates.vpr@75.12--75.17"
+          ]
+        ]
+      },
+      {
+        "case": "SnapshotsNestedMagicWands.vpr",
+        "outcome": "verified",
+        "errors": []
+      }
+    ],
+    "fixed": [
+      {
+        "case": "packaging_cond_perm.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "exhale.failed:insufficient.permission",
+            "packaging_cond_perm.vpr@22.10--22.22"
+          ],
+          [
+            "exhale.failed:insufficient.permission",
+            "packaging_cond_perm.vpr@32.10--32.22"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "packaging_cond_perm.vpr@44.10--44.15"
+          ],
+          [
+            "exhale.failed:insufficient.permission",
+            "packaging_cond_perm.vpr@55.10--55.22"
+          ]
+        ]
+      },
+      {
+        "case": "Perm.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "assert.failed:assertion.false",
+            "Perm.vpr@11.16--11.38"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "Perm.vpr@21.20--21.42"
+          ]
+        ]
+      },
+      {
+        "case": "QPFields.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@16.12--16.46"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@30.16--30.50"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@41.12--41.51"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@53.12--53.53"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@66.12--66.46"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@75.12--75.51"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@87.12--87.51"
+          ]
+        ]
+      },
+      {
+        "case": "QPPredicates.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@33.12--33.45"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@47.16--47.49"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@58.12--58.55"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@70.12--70.57"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@83.12--83.45"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@92.12--92.55"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@104.12--104.55"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@164.12--164.64"
+          ]
+        ]
+      },
+      {
+        "case": "applying-twice-qp-fields.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-fields.vpr@17.12--17.17"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-fields.vpr@33.12--33.17"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-fields.vpr@51.12--51.17"
+          ]
+        ]
+      },
+      {
+        "case": "applying-twice-qp-predicates.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-predicates.vpr@32.12--32.17"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-predicates.vpr@53.12--53.17"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-predicates.vpr@75.12--75.17"
+          ]
+        ]
+      },
+      {
+        "case": "SnapshotsNestedMagicWands.vpr",
+        "outcome": "verified",
+        "errors": []
+      }
+    ],
+    "source": [
+      {
+        "case": "packaging_cond_perm.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "exhale.failed:insufficient.permission",
+            "packaging_cond_perm.vpr@22.10--22.22"
+          ],
+          [
+            "exhale.failed:insufficient.permission",
+            "packaging_cond_perm.vpr@32.10--32.22"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "packaging_cond_perm.vpr@44.10--44.15"
+          ],
+          [
+            "exhale.failed:insufficient.permission",
+            "packaging_cond_perm.vpr@55.10--55.22"
+          ]
+        ]
+      },
+      {
+        "case": "Perm.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "assert.failed:assertion.false",
+            "Perm.vpr@11.16--11.38"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "Perm.vpr@21.20--21.42"
+          ]
+        ]
+      },
+      {
+        "case": "QPFields.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@16.12--16.46"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@30.16--30.50"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@41.12--41.51"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@53.12--53.53"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@66.12--66.46"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@75.12--75.51"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPFields.vpr@87.12--87.51"
+          ]
+        ]
+      },
+      {
+        "case": "QPPredicates.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@33.12--33.45"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@47.16--47.49"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@58.12--58.55"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@70.12--70.57"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@83.12--83.45"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@92.12--92.55"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@104.12--104.55"
+          ],
+          [
+            "assert.failed:insufficient.permission",
+            "QPPredicates.vpr@164.12--164.64"
+          ]
+        ]
+      },
+      {
+        "case": "applying-twice-qp-fields.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-fields.vpr@17.12--17.17"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-fields.vpr@33.12--33.17"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-fields.vpr@51.12--51.17"
+          ]
+        ]
+      },
+      {
+        "case": "applying-twice-qp-predicates.vpr",
+        "outcome": "failure",
+        "errors": [
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-predicates.vpr@32.12--32.17"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-predicates.vpr@53.12--53.17"
+          ],
+          [
+            "assert.failed:assertion.false",
+            "applying-twice-qp-predicates.vpr@75.12--75.17"
+          ]
+        ]
+      },
+      {
+        "case": "SnapshotsNestedMagicWands.vpr",
+        "outcome": "verified",
+        "errors": []
+      }
+    ]
+  },
+  "runtime_commit": "85fc9d8",
+  "checks": {
+    "new_regression": {
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/permission-regression-final.log",
+      "sha256": "043a8ca1a4c810821910ac031ab1636f411fc55534a43a5cc62446961bd78cb3",
+      "result": [
+        "",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s",
+        ""
+      ]
+    },
+    "debug_metadata": {
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/permission-debug-metadata.log",
+      "sha256": "d81a4010b8a9c183a8b7cf31300f0fa26013b3e435605359b18e4a5314ffd4bb",
+      "result": [
+        "",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 351 filtered out; finished in 0.03s",
+        ""
+      ]
+    },
+    "existing_wand_regressions": {
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/wand-cli-regression.log",
+      "sha256": "ffbb82a72656b0566f18cc37e289c7e86b3f07ad7999bb07fa06a3c866c2ff19",
+      "result": [
+        "",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 3.11s",
+        ""
+      ]
+    },
+    "workspace": {
+      "artifact": "/tmp/ferrum-stdlib-review-b8f76d8/workspace-check.log",
+      "sha256": "38293757a40bf1c4cdc37983c74566f7ac06bf76f7bdc3b12ac413fde07edf1c",
+      "result": [
+        "    Checking ferrum-silicon v0.1.0 (/home/will/wk/exp/ferrum/crates/ferrum-silicon)",
+        "    Checking ferrum v0.1.0 (/home/will/wk/exp/ferrum)",
+        "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.63s"
+      ]
+    }
+  }
+}
