@@ -177,6 +177,7 @@ pub struct NativeOptions {
     pub disable_value_map_caching: bool,
     pub disable_caches: bool,
     pub disable_isc_triggers: bool,
+    pub snapshot_summary_only_triggers: bool,
     pub include_methods: regex::Regex,
     pub exclude_methods: regex::Regex,
     pub counterexample: Option<crate::rules::symbolic_execution_rules::CounterexampleKind>,
@@ -277,6 +278,7 @@ impl NativeOptions {
             disable_value_map_caching: config.disable_value_map_caching,
             disable_caches: config.disable_caches,
             disable_isc_triggers: config.disable_isc_triggers,
+            snapshot_summary_only_triggers: config.snapshot_summary_only_triggers,
             include_methods,
             exclude_methods,
             counterexample: config.frontend.counterexample.map(|value| {
@@ -23979,6 +23981,9 @@ where
         let id = self.quantified_counter;
         self.quantified_counter = self.quantified_counter.wrapping_add(1);
         id
+    }
+    fn snapshot_summary_only_triggers(&self) -> bool {
+        self.options.snapshot_summary_only_triggers
     }
 }
 impl<S: Prover, PD, FD> crate::rules::quantified_chunk_support::PermissionMapFreshener

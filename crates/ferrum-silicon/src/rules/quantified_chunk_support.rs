@@ -695,6 +695,9 @@ pub fn summarise_permission_map<F: PermissionMapFreshener>(
 pub trait SnapshotSummaryFreshener<P, D, J>: SnapshotMapFreshener<P, D, J> {
     fn fresh_summary_binder(&mut self) -> Result<Term, Self::Error>;
     fn next_snapshot_summary_id(&mut self) -> u64;
+    fn snapshot_summary_only_triggers(&self) -> bool {
+        false
+    }
 }
 #[derive(Debug)]
 pub enum SnapshotSummaryError<E> {
@@ -704,6 +707,185 @@ pub enum SnapshotSummaryError<E> {
     NonQuantifiedChunk,
     MissingFieldCodomain,
 }
+
+#[cfg(test)]
+mod snapshot_summary_trigger_tests {
+    use super::*;
+    use crate::state::{
+        chunks::{BasicChunkIdentifier, Chunk, QuantifiedPredicateChunk},
+        identifiers::Identifier,
+        state::State,
+        terms::{ResourceKey, Sort, TermOptions},
+    };
+    use ferrum_silver::ast::program::{Predicate, PredicateData, Program};
+    use std::sync::Arc;
+
+    struct Freshener {
+        map: Term,
+        binder: Term,
+        next_id: u64,
+        summary_only: bool,
+    }
+    impl SnapshotMapFreshener<(), (), ()> for Freshener {
+        type Error = std::convert::Infallible;
+        fn fresh_snapshot_map(
+            &mut self,
+            _: &State<(), (), ()>,
+            _: &ResourceKey,
+            _: &[Term],
+        ) -> Result<Term, Self::Error> {
+            Ok(self.map.clone())
+        }
+    }
+    impl SnapshotSummaryFreshener<(), (), ()> for Freshener {
+        fn fresh_summary_binder(&mut self) -> Result<Term, Self::Error> {
+            Ok(self.binder.clone())
+        }
+        fn next_snapshot_summary_id(&mut self) -> u64 {
+            self.next_id += 1;
+            self.next_id
+        }
+        fn snapshot_summary_only_triggers(&self) -> bool {
+            self.summary_only
+        }
+    }
+
+    #[test]
+    fn summary_trigger_policy_preserves_bodies_domains_and_resource_triggers() {
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let var = |name, sort| factory.var(Identifier::new(name), sort, false);
+        let resource = ResourceKey::Predicate(Arc::new(Predicate::new(PredicateData {
+            name: "p".into(),
+            formal_args: vec![],
+            body: None,
+            meta: Default::default(),
+        })));
+        let sort = Sort::PredicateSnapFunction {
+            predicate_name: "p".into(),
+            codomain: Box::new(Sort::Snap),
+        };
+        let map = var("summary", sort.clone());
+        let old_map = var("old", sort);
+        let binder = var("s", Sort::Snap);
+        let argument = var("x", Sort::Int);
+        let condition = var("condition", Sort::Bool);
+        let permission = var("permission", Sort::Perm);
+        let chunk = Chunk::QuantifiedPredicate(QuantifiedPredicateChunk::new(
+            &factory,
+            BasicChunkIdentifier("p".into()),
+            vec![argument.clone()],
+            None,
+            old_map.clone(),
+            condition.clone(),
+            condition,
+            None,
+            permission,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+            vec![],
+        ));
+        let program = Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Default::default(),
+        );
+        let state: State<(), (), ()> = State::new(
+            program,
+            Default::default(),
+            Default::default(),
+            (),
+            &factory,
+            false,
+            false,
+        );
+        for disabled in [false, true] {
+            for domain in [None, Some(var("domain_condition", Sort::Bool))] {
+                let generate = |summary_only| {
+                    let mut freshener = Freshener {
+                        map: map.clone(),
+                        binder: binder.clone(),
+                        next_id: 0,
+                        summary_only,
+                    };
+                    summarise_snapshot_map(
+                        &factory,
+                        &mut freshener,
+                        &state,
+                        &resource,
+                        std::slice::from_ref(&argument),
+                        std::slice::from_ref(&chunk),
+                        domain.as_ref(),
+                        true,
+                        disabled,
+                    )
+                    .unwrap()
+                };
+                let (old, original, original_domains) = generate(false);
+                let (new, candidate, candidate_domains) = generate(true);
+                assert_eq!(old, new);
+                assert_eq!(original_domains, candidate_domains);
+                assert_eq!(
+                    original[1..],
+                    candidate[1..],
+                    "resource-trigger axioms must not change"
+                );
+                let (
+                    TermKind::Quantification {
+                        vars: av,
+                        body: ab,
+                        triggers: at,
+                        ..
+                    },
+                    TermKind::Quantification {
+                        vars: bv,
+                        body: bb,
+                        triggers: bt,
+                        ..
+                    },
+                ) = (original[0].kind(), candidate[0].kind())
+                else {
+                    panic!("value definitions must remain quantified")
+                };
+                assert_eq!(av, bv);
+                assert_eq!(
+                    ab, bb,
+                    "permission/domain guards and value equality must not change"
+                );
+                if disabled {
+                    assert!(at.is_empty() && bt.is_empty());
+                    assert_eq!(original, candidate, "disableISCTriggers takes precedence");
+                } else {
+                    assert_eq!(at.len(), 2);
+                    assert_eq!(bt, &at[..1]);
+                    assert_eq!(
+                        bt[0].terms,
+                        vec![factory.resource_lookup(&resource, map.clone(), vec![binder.clone()])]
+                    );
+                    assert_eq!(
+                        at[1].terms,
+                        vec![factory.resource_lookup(
+                            &resource,
+                            old_map.clone(),
+                            vec![binder.clone()]
+                        )]
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Produce the value, optional resource-trigger, and optional domain definitions for a
 /// fresh summarising snapshot map. Emission and cache lookup are handled by the caller.
 pub fn summarise_snapshot_map<P, D, J: Clone + PartialEq, F: SnapshotSummaryFreshener<P, D, J>>(
@@ -835,6 +1017,13 @@ pub fn summarise_snapshot_map<P, D, J: Clone + PartialEq, F: SnapshotSummaryFres
         );
         let triggers = if disable_isc_triggers {
             vec![]
+        } else if freshener.snapshot_summary_only_triggers() {
+            // Keep the full axiom, but avoid activating it on every lookup of
+            // an old chunk map. Those lookups can otherwise fan out through
+            // many summaries. This opt-in policy may affect proof completeness.
+            vec![Trigger {
+                terms: vec![summary_lookup.clone()],
+            }]
         } else {
             vec![
                 Trigger {
