@@ -47,7 +47,7 @@ use super::store::Store;
 use super::terms::{Sort, TermFactory};
 use ferrum_silver::ast::expression::{Exp, ExpKind, ExpressionTypeError};
 use ferrum_silver::ast::r#type::Type;
-use std::collections::HashSet;
+use indexmap::IndexSet;
 
 /// Source `computeReferenceDisjointnesses`, parameterized by its actual store/heap inputs.
 pub fn compute_reference_disjointnesses(
@@ -56,9 +56,12 @@ pub fn compute_reference_disjointnesses(
     reference: &Term,
     factory: &TermFactory,
 ) -> Vec<Term> {
-    let mut refs = HashSet::new();
-    let mut sets = HashSet::new();
-    let mut seqs = HashSet::new();
+    // Solver assertion order must not depend on randomized hash iteration.
+    // Preserve first occurrence in the ordered store/heap traversal, retaining
+    // the source's reference/set/sequence groups and structural deduplication.
+    let mut refs = IndexSet::new();
+    let mut sets = IndexSet::new();
+    let mut seqs = IndexSet::new();
     let mut collect = |term: &Term| match term.sort() {
         Sort::Ref if term != reference => {
             refs.insert(term.clone());
@@ -173,4 +176,90 @@ pub fn compute_reference_disjointnesses_exp(
         result.push(Exp::new(ExpKind::Not(contains), Default::default()));
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::resources::resources::BaseId;
+    use crate::state::{
+        chunks::{BasicChunk, BasicChunkIdentifier},
+        heap::ListBackedHeap,
+        identifiers::Identifier,
+        store::{AbstractLocalVar, MapBackedStore},
+        terms::TermOptions,
+    };
+    use ferrum_silver::ast::expression::LocalVar;
+
+    #[test]
+    fn allocation_disjointness_preserves_order_membership_and_deduplication() {
+        let f = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let var = |name, sort| f.var(Identifier::new(name), sort, false);
+        let new = var("new", Sort::Ref);
+        let a = var("a", Sort::Ref);
+        let b = var("b", Sort::Ref);
+        let heap_ref = var("heap_ref", Sort::Ref);
+        let set_a = var("set_a", Sort::Set(Box::new(Sort::Ref)));
+        let set_b = var("set_b", Sort::Set(Box::new(Sort::Ref)));
+        let seq_a = var("seq_a", Sort::Seq(Box::new(Sort::Ref)));
+        let seq_b = var("seq_b", Sort::Seq(Box::new(Sort::Ref)));
+        let binding = |name: &str, term: &Term, typ| {
+            (
+                AbstractLocalVar::new(Exp::new(
+                    ExpKind::LocalVar(LocalVar::new(name.into(), typ, Default::default())),
+                    Default::default(),
+                )),
+                (term.clone(), None),
+            )
+        };
+        let store = MapBackedStore::from_bindings([
+            binding("sb", &set_b, Type::Set(Type::Ref.into())),
+            binding("b", &b, Type::Ref),
+            binding("qa", &seq_a, Type::Seq(Type::Ref.into())),
+            binding("sa", &set_a, Type::Set(Type::Ref.into())),
+            binding("a", &a, Type::Ref),
+            binding("qb", &seq_b, Type::Seq(Type::Ref.into())),
+            binding("alias", &b, Type::Ref),
+            binding("new", &new, Type::Ref),
+            binding("ignored", &f.int_literal(42), Type::Int),
+        ]);
+        let chunk = |name: &str, receiver: &Term, snapshot: &Term| {
+            Chunk::Basic(BasicChunk::new(
+                BaseId::Field,
+                BasicChunkIdentifier(name.into()),
+                vec![receiver.clone()],
+                None,
+                snapshot.clone(),
+                None,
+                f.full_perm(),
+                None,
+                None,
+            ))
+        };
+        let heap = ListBackedHeap::from_chunks([
+            chunk("next", &b, &heap_ref),
+            chunk("set", &a, &set_a),
+            chunk("seq", &new, &seq_b),
+            chunk("alias", &heap_ref, &b),
+        ]);
+        let expected = vec![
+            f.not(f.equals(new.clone(), b)),
+            f.not(f.equals(new.clone(), a)),
+            f.not(f.equals(new.clone(), heap_ref)),
+            f.not(f.set_in(new.clone(), set_b)),
+            f.not(f.set_in(new.clone(), set_a)),
+            f.not(f.seq_in(seq_a, new.clone())),
+            f.not(f.seq_in(seq_b, new.clone())),
+        ];
+        for _ in 0..128 {
+            assert_eq!(
+                compute_reference_disjointnesses(&store, &heap, &new, &f),
+                expected
+            );
+        }
+    }
 }

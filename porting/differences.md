@@ -3,6 +3,17 @@
 Implementation has begun. Unresolved upstream issues remain proposals in source
 comments; the following changes are adopted explicitly.
 
+## Stable allocation-disjointness ordering
+
+Silicon `state/Utils.scala` gathers known references, reference sets and reference
+sequences in mutable hash sets before constructing fresh-allocation assumptions.
+Ferrum uses insertion-ordered sets and retains first occurrence from its ordered
+store/heap traversal. The formula set, group order, duplicate elimination and
+self-reference exclusion are unchanged. This avoids Rust's per-process hash
+randomization without attempting to reproduce Scala's incidental hash order.
+The [allocation validation](allocation-order.md) records unit coverage, positive
+and negative controls, and three identical captured solver prefixes.
+
 ## Dominator label update
 
 Silver `cfg/utility/Dominators.scala` evaluates `label(index) == ancestorLabel`

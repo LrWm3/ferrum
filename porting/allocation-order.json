@@ -1,0 +1,884 @@
+{
+  "base_revision": "26282c2",
+  "change": "allocation ordering only",
+  "patch_sha256": "6848b2392b35881384022db7208abf9115a15240fc9a77ec64aac20304439d48",
+  "binary_sha256": "55312fda1a6b4172f377da58fd75b9e6ae3c232b1160fcbcba7b3df1a72ba5f6",
+  "source_file_count": 441,
+  "all_frozen_rust_sources_unchanged": true,
+  "unit_tests": {
+    "passed": 309,
+    "ignored": 43
+  },
+  "observations": [
+    {
+      "label": "allocation-wand-0",
+      "manifest": {
+        "case": "wand",
+        "input": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+        "input_sha256": "3bfb64af438a88d256e0acfef0f89d6c4b6c0d673bd19101bf26bfcbc0a1b6ab",
+        "binary_sha256": "55312fda1a6b4172f377da58fd75b9e6ae3c232b1160fcbcba7b3df1a72ba5f6",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "e4742567318243f0341b1dee31e8e3b1affface6ebe567ce1c6f73d3a6e7557f",
+        "command": [
+          "taskset",
+          "-c",
+          "0-3",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-wand-0/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr"
+        ],
+        "started": 1793417883.268008,
+        "load": [
+          7.72314453125,
+          7.25048828125,
+          4.7978515625
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "0-3",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-wand-0/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr"
+        ],
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 30.47079367900733,
+        "records": [
+          {
+            "backend_warnings": [
+              "timeout verification terminated: Cleanup(Service(Cleanup(Service(Cleanup(Context(Cleanup(callback: Context(Cleanup(Context(Cleanup(callback: Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(callback: Context(Cleanup(Service(Cleanup(callback: Service(Decider(Prover(SourceProtocol { prover_id: \"main\", message: \"Interaction with prover yielded null. This might indicate that the prover crashed.\" }))); adapter: Context(Cleanup(callback: Context(ContinuationAbort); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(consumption callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(production callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(consumption callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(production callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))",
+              "timeout cleanup failed: Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))"
+            ],
+            "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+            "configuration_warnings": [],
+            "errors": [
+              {
+                "id": "timeout.error",
+                "message": "Timeout occurred after 30 second(s)",
+                "position": "<no position>"
+              }
+            ],
+            "outcome": "verifier_timeout",
+            "phase": "verification",
+            "warnings": []
+          }
+        ],
+        "raw_output": "An exception was thrown while verifying method `insert`.\n@@COMPAT@@{\"backend_warnings\":[\"timeout verification terminated: Cleanup(Service(Cleanup(Service(Cleanup(Context(Cleanup(callback: Context(Cleanup(Context(Cleanup(callback: Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(callback: Context(Cleanup(Service(Cleanup(callback: Service(Decider(Prover(SourceProtocol { prover_id: \\\"main\\\", message: \\\"Interaction with prover yielded null. This might indicate that the prover crashed.\\\" }))); adapter: Context(Cleanup(callback: Context(ContinuationAbort); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(consumption callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(production callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(consumption callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(production callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))\",\"timeout cleanup failed: Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))\"],\"case\":\"/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr\",\"configuration_warnings\":[],\"errors\":[{\"id\":\"timeout.error\",\"message\":\"Timeout occurred after 30 second(s)\",\"position\":\"<no position>\"}],\"outcome\":\"failure\",\"phase\":\"verification\",\"warnings\":[]}\n"
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/allocation-wand-0/streams/1441197-356801899491504",
+          "metadata": {
+            "argv": [
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "proxy_pid": 1441197,
+            "solver_pid": 1441201,
+            "started_monotonic_ns": 356801899607895,
+            "started_wall_ns": 1793417883337706302,
+            "capture_format": "persist-before-forward-v2",
+            "forwarded_ns_boundary": "forwarding start, recorded before write"
+          },
+          "issues": [
+            "Missing response to command 3546 check-sat"
+          ],
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 523,
+            "declare-datatypes": 1,
+            "declare-sort": 5,
+            "declare-const": 85,
+            "declare-fun": 79,
+            "assert": 1182,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 331,
+            "push": 673,
+            "pop": 660
+          },
+          "response_count": 3546,
+          "forall_count": 94,
+          "exists_count": 0,
+          "pattern_count": 102,
+          "input_bytes": 372920,
+          "output_bytes": 28248,
+          "input_sha256": "60e72ea7287bc9c1ad39a5dc9853d76d5829d409e2865a5b67e3a0e40e5f0b60",
+          "output_sha256": "3fe30b548f860dffbffaab64ffa8f51878a6bca704bdd4f63c15f64926cb6dce",
+          "command_count": 3547,
+          "query_count": 331
+        }
+      ]
+    },
+    {
+      "label": "allocation-wand-1",
+      "manifest": {
+        "case": "wand",
+        "input": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+        "input_sha256": "3bfb64af438a88d256e0acfef0f89d6c4b6c0d673bd19101bf26bfcbc0a1b6ab",
+        "binary_sha256": "55312fda1a6b4172f377da58fd75b9e6ae3c232b1160fcbcba7b3df1a72ba5f6",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "e4742567318243f0341b1dee31e8e3b1affface6ebe567ce1c6f73d3a6e7557f",
+        "command": [
+          "taskset",
+          "-c",
+          "4-7",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-wand-1/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr"
+        ],
+        "started": 1793417883.2680097,
+        "load": [
+          7.72314453125,
+          7.25048828125,
+          4.7978515625
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "4-7",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-wand-1/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr"
+        ],
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 30.49737624201225,
+        "records": [
+          {
+            "backend_warnings": [
+              "timeout verification terminated: Cleanup(Service(Cleanup(Service(Cleanup(Context(Cleanup(callback: Context(Cleanup(Context(Cleanup(callback: Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(callback: Context(Cleanup(Service(Cleanup(callback: Service(Decider(Prover(SourceProtocol { prover_id: \"main\", message: \"Interaction with prover yielded null. This might indicate that the prover crashed.\" }))); adapter: Context(Cleanup(callback: Context(ContinuationAbort); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(consumption callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(production callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(consumption callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(production callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))",
+              "timeout cleanup failed: Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))"
+            ],
+            "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+            "configuration_warnings": [],
+            "errors": [
+              {
+                "id": "timeout.error",
+                "message": "Timeout occurred after 30 second(s)",
+                "position": "<no position>"
+              }
+            ],
+            "outcome": "verifier_timeout",
+            "phase": "verification",
+            "warnings": []
+          }
+        ],
+        "raw_output": "An exception was thrown while verifying method `insert`.\n@@COMPAT@@{\"backend_warnings\":[\"timeout verification terminated: Cleanup(Service(Cleanup(Service(Cleanup(Context(Cleanup(callback: Context(Cleanup(Context(Cleanup(callback: Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(callback: Context(Cleanup(Service(Cleanup(callback: Service(Decider(Prover(SourceProtocol { prover_id: \\\"main\\\", message: \\\"Interaction with prover yielded null. This might indicate that the prover crashed.\\\" }))); adapter: Context(Cleanup(callback: Context(ContinuationAbort); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(consumption callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(production callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(consumption callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(production callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))\",\"timeout cleanup failed: Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))\"],\"case\":\"/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr\",\"configuration_warnings\":[],\"errors\":[{\"id\":\"timeout.error\",\"message\":\"Timeout occurred after 30 second(s)\",\"position\":\"<no position>\"}],\"outcome\":\"failure\",\"phase\":\"verification\",\"warnings\":[]}\n"
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/allocation-wand-1/streams/1441167-356801905477348",
+          "metadata": {
+            "argv": [
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "proxy_pid": 1441167,
+            "solver_pid": 1441204,
+            "started_monotonic_ns": 356801905620547,
+            "started_wall_ns": 1793417883343833941,
+            "capture_format": "persist-before-forward-v2",
+            "forwarded_ns_boundary": "forwarding start, recorded before write"
+          },
+          "issues": [
+            "Missing response to command 3546 check-sat"
+          ],
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 523,
+            "declare-datatypes": 1,
+            "declare-sort": 5,
+            "declare-const": 85,
+            "declare-fun": 79,
+            "assert": 1182,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 331,
+            "push": 673,
+            "pop": 660
+          },
+          "response_count": 3546,
+          "forall_count": 94,
+          "exists_count": 0,
+          "pattern_count": 102,
+          "input_bytes": 372920,
+          "output_bytes": 28248,
+          "input_sha256": "60e72ea7287bc9c1ad39a5dc9853d76d5829d409e2865a5b67e3a0e40e5f0b60",
+          "output_sha256": "3fe30b548f860dffbffaab64ffa8f51878a6bca704bdd4f63c15f64926cb6dce",
+          "command_count": 3547,
+          "query_count": 331
+        }
+      ]
+    },
+    {
+      "label": "allocation-wand-2",
+      "manifest": {
+        "case": "wand",
+        "input": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+        "input_sha256": "3bfb64af438a88d256e0acfef0f89d6c4b6c0d673bd19101bf26bfcbc0a1b6ab",
+        "binary_sha256": "55312fda1a6b4172f377da58fd75b9e6ae3c232b1160fcbcba7b3df1a72ba5f6",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "e4742567318243f0341b1dee31e8e3b1affface6ebe567ce1c6f73d3a6e7557f",
+        "command": [
+          "taskset",
+          "-c",
+          "8-11",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-wand-2/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr"
+        ],
+        "started": 1793417883.2679942,
+        "load": [
+          7.72314453125,
+          7.25048828125,
+          4.7978515625
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "8-11",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-wand-2/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr"
+        ],
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 30.496807820978574,
+        "records": [
+          {
+            "backend_warnings": [
+              "timeout verification terminated: Cleanup(Service(Cleanup(Service(Cleanup(Context(Cleanup(callback: Context(Cleanup(Context(Cleanup(callback: Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(callback: Context(Cleanup(Service(Cleanup(callback: Service(Decider(Prover(SourceProtocol { prover_id: \"main\", message: \"Interaction with prover yielded null. This might indicate that the prover crashed.\" }))); adapter: Context(Cleanup(callback: Context(ContinuationAbort); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(consumption callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(production callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(consumption callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(production callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))",
+              "timeout cleanup failed: Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))"
+            ],
+            "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+            "configuration_warnings": [],
+            "errors": [
+              {
+                "id": "timeout.error",
+                "message": "Timeout occurred after 30 second(s)",
+                "position": "<no position>"
+              }
+            ],
+            "outcome": "verifier_timeout",
+            "phase": "verification",
+            "warnings": []
+          }
+        ],
+        "raw_output": "An exception was thrown while verifying method `insert`.\n@@COMPAT@@{\"backend_warnings\":[\"timeout verification terminated: Cleanup(Service(Cleanup(Service(Cleanup(Context(Cleanup(callback: Context(Cleanup(Context(Cleanup(callback: Context(Cleanup(Context(Cleanup(Context(Cleanup(Context(Cleanup(callback: Context(Cleanup(Service(Cleanup(callback: Service(Decider(Prover(SourceProtocol { prover_id: \\\"main\\\", message: \\\"Interaction with prover yielded null. This might indicate that the prover crashed.\\\" }))); adapter: Context(Cleanup(callback: Context(ContinuationAbort); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(consumption callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(production callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(consumption callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); adapter: Service(Cleanup(callback: Service(ContinuationAbort); adapter: Context(Cleanup(production callback: Context(ContinuationAbort); branch: Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))\",\"timeout cleanup failed: Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))\"],\"case\":\"/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr\",\"configuration_warnings\":[],\"errors\":[{\"id\":\"timeout.error\",\"message\":\"Timeout occurred after 30 second(s)\",\"position\":\"<no position>\"}],\"outcome\":\"failure\",\"phase\":\"verification\",\"warnings\":[]}\n"
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/allocation-wand-2/streams/1441198-356801916305452",
+          "metadata": {
+            "argv": [
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "proxy_pid": 1441198,
+            "solver_pid": 1441213,
+            "started_monotonic_ns": 356801916461053,
+            "started_wall_ns": 1793417883354631500,
+            "capture_format": "persist-before-forward-v2",
+            "forwarded_ns_boundary": "forwarding start, recorded before write"
+          },
+          "issues": [
+            "Missing response to command 3546 check-sat"
+          ],
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 523,
+            "declare-datatypes": 1,
+            "declare-sort": 5,
+            "declare-const": 85,
+            "declare-fun": 79,
+            "assert": 1182,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 331,
+            "push": 673,
+            "pop": 660
+          },
+          "response_count": 3546,
+          "forall_count": 94,
+          "exists_count": 0,
+          "pattern_count": 102,
+          "input_bytes": 372920,
+          "output_bytes": 28248,
+          "input_sha256": "60e72ea7287bc9c1ad39a5dc9853d76d5829d409e2865a5b67e3a0e40e5f0b60",
+          "output_sha256": "3fe30b548f860dffbffaab64ffa8f51878a6bca704bdd4f63c15f64926cb6dce",
+          "command_count": 3547,
+          "query_count": 331
+        }
+      ]
+    },
+    {
+      "label": "allocation-control-pass",
+      "manifest": {
+        "case": "/tmp/ferrum-order-trigger-fix/allocation-pass.vpr",
+        "input": "/tmp/ferrum-order-trigger-fix/allocation-pass.vpr",
+        "input_sha256": "3abe7f57eef75d91d2beb85b0496fa1434fae47156f8287c1ff3d03ea7b6524c",
+        "binary_sha256": "55312fda1a6b4172f377da58fd75b9e6ae3c232b1160fcbcba7b3df1a72ba5f6",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "e4742567318243f0341b1dee31e8e3b1affface6ebe567ce1c6f73d3a6e7557f",
+        "command": [
+          "taskset",
+          "-c",
+          "0-3",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-control-pass/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-order-trigger-fix/allocation-pass.vpr"
+        ],
+        "started": 1793417914.9559827,
+        "load": [
+          7.36328125,
+          7.19677734375,
+          4.85888671875
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "0-3",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-control-pass/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-order-trigger-fix/allocation-pass.vpr"
+        ],
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 0.3060158619773574,
+        "records": [
+          {
+            "backend_warnings": [],
+            "case": "/tmp/ferrum-order-trigger-fix/allocation-pass.vpr",
+            "configuration_warnings": [],
+            "errors": [],
+            "outcome": "verified",
+            "phase": "verification",
+            "warnings": []
+          }
+        ],
+        "raw_output": "@@COMPAT@@{\"backend_warnings\":[],\"case\":\"/tmp/ferrum-order-trigger-fix/allocation-pass.vpr\",\"configuration_warnings\":[],\"errors\":[],\"outcome\":\"verified\",\"phase\":\"verification\",\"warnings\":[]}\n"
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/allocation-control-pass/streams/1447182-356833601074252",
+          "metadata": {
+            "argv": [
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "proxy_pid": 1447182,
+            "solver_pid": 1447185,
+            "started_monotonic_ns": 356833601200660,
+            "started_wall_ns": 1793417915039514411,
+            "capture_format": "persist-before-forward-v2",
+            "forwarded_ns_boundary": "forwarding start, recorded before write"
+          },
+          "issues": [],
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 17,
+            "declare-datatypes": 1,
+            "declare-sort": 5,
+            "declare-const": 17,
+            "declare-fun": 38,
+            "assert": 99,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 3,
+            "push": 4,
+            "pop": 4
+          },
+          "response_count": 196,
+          "forall_count": 73,
+          "exists_count": 1,
+          "pattern_count": 84,
+          "input_bytes": 21609,
+          "output_bytes": 1578,
+          "input_sha256": "c2515f802c1764d3555a1bb72d9d62c4ba0e8885da6c8afd52fe0ab4572b7a38",
+          "output_sha256": "7cb3af656b2802369aaac0620f489642a77205f3f343d5653f9ba61f4a61afc7",
+          "command_count": 196,
+          "query_count": 3
+        }
+      ]
+    },
+    {
+      "label": "allocation-control-fail",
+      "manifest": {
+        "case": "/tmp/ferrum-order-trigger-fix/allocation-fail.vpr",
+        "input": "/tmp/ferrum-order-trigger-fix/allocation-fail.vpr",
+        "input_sha256": "3fefbcbed675bfb538bcd29b3ee07673c664ed26fe59abbcf186280546300d1a",
+        "binary_sha256": "55312fda1a6b4172f377da58fd75b9e6ae3c232b1160fcbcba7b3df1a72ba5f6",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "e4742567318243f0341b1dee31e8e3b1affface6ebe567ce1c6f73d3a6e7557f",
+        "command": [
+          "taskset",
+          "-c",
+          "0-3",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-control-fail/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-order-trigger-fix/allocation-fail.vpr"
+        ],
+        "started": 1793417915.9952679,
+        "load": [
+          7.36328125,
+          7.19677734375,
+          4.85888671875
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "0-3",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-control-fail/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-order-trigger-fix/allocation-fail.vpr"
+        ],
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 0.3080939759965986,
+        "records": [
+          {
+            "backend_warnings": [],
+            "case": "/tmp/ferrum-order-trigger-fix/allocation-fail.vpr",
+            "configuration_warnings": [],
+            "errors": [
+              {
+                "id": "assert.failed:assertion.false",
+                "message": "Assert might fail. Assertion z == x might not hold. (allocation-fail.vpr@9.10--9.16)\n",
+                "position": "allocation-fail.vpr@9.10--9.16"
+              }
+            ],
+            "outcome": "failure",
+            "phase": "verification",
+            "warnings": []
+          }
+        ],
+        "raw_output": "@@COMPAT@@{\"backend_warnings\":[],\"case\":\"/tmp/ferrum-order-trigger-fix/allocation-fail.vpr\",\"configuration_warnings\":[],\"errors\":[{\"id\":\"assert.failed:assertion.false\",\"message\":\"Assert might fail. Assertion z == x might not hold. (allocation-fail.vpr@9.10--9.16)\\n\",\"position\":\"allocation-fail.vpr@9.10--9.16\"}],\"outcome\":\"failure\",\"phase\":\"verification\",\"warnings\":[]}\n"
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/allocation-control-fail/streams/1447344-356834655303959",
+          "metadata": {
+            "argv": [
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "proxy_pid": 1447344,
+            "solver_pid": 1447381,
+            "started_monotonic_ns": 356834655422357,
+            "started_wall_ns": 1793417916093526893,
+            "capture_format": "persist-before-forward-v2",
+            "forwarded_ns_boundary": "forwarding start, recorded before write"
+          },
+          "issues": [],
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 71,
+            "declare-datatypes": 1,
+            "declare-sort": 5,
+            "declare-const": 17,
+            "declare-fun": 38,
+            "assert": 133,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 34,
+            "push": 35,
+            "pop": 35
+          },
+          "response_count": 377,
+          "forall_count": 73,
+          "exists_count": 1,
+          "pattern_count": 84,
+          "input_bytes": 25901,
+          "output_bytes": 3026,
+          "input_sha256": "0b374ddce599fa97cca0a18bced3677addaafceb8d99fbe7dc4bd8bd77ca4f0a",
+          "output_sha256": "61ad4bf883c3aa526bc4128300c0deea7d7152dcd9277c5bd15dae78b3a17753",
+          "command_count": 377,
+          "query_count": 34
+        }
+      ]
+    }
+  ],
+  "archive": {
+    "path": "porting/evidence/allocation-order/observations.tar.gz",
+    "sha256": "13971a2cceecd3d8b16733adcbdd9166c8111f4d112f04e33d994cfc580f5dbd",
+    "inventory": [
+      {
+        "path": "allocation-build.log",
+        "sha256": "6b45e47e45890ffd520bcd910bd11fa138176de337b359ef39a2b695c1f4d53a",
+        "bytes": 211
+      },
+      {
+        "path": "allocation-control-fail/manifest.json",
+        "sha256": "2696b478698f57eb0947c84aa0179ff1b6f6629896a9357ee6b56b5b2200c34b",
+        "bytes": 922
+      },
+      {
+        "path": "allocation-control-fail/result.json",
+        "sha256": "74e9682d4f702ab8f6b2bd8be8f17646f18e0bdf93b7400ee5b950e0227f6715",
+        "bytes": 1413
+      },
+      {
+        "path": "allocation-control-fail/runner.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": "allocation-control-fail/streams/1447344-356834655303959/analysis.json",
+        "sha256": "b818f01c7c446adf26a8d88ccf338c63e7eb786c3dfbbe8dfc896e142f99d5b8",
+        "bytes": 259601
+      },
+      {
+        "path": "allocation-control-fail/streams/1447344-356834655303959/chunks.jsonl",
+        "sha256": "99027eaa95bf5f17f9c4e2998ccdd823e82094291e9ba3f6ef539b23ef85f39a",
+        "bytes": 86902
+      },
+      {
+        "path": "allocation-control-fail/streams/1447344-356834655303959/metadata.json",
+        "sha256": "a61b59e74658b42f5537092b96dcba568a2da280c46e5fc6c443b8ff532c5b27",
+        "bytes": 357
+      },
+      {
+        "path": "allocation-control-fail/streams/1447344-356834655303959/stderr.bin",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": "allocation-control-fail/streams/1447344-356834655303959/stdin.bin",
+        "sha256": "0b374ddce599fa97cca0a18bced3677addaafceb8d99fbe7dc4bd8bd77ca4f0a",
+        "bytes": 25901
+      },
+      {
+        "path": "allocation-control-fail/streams/1447344-356834655303959/stdout.bin",
+        "sha256": "61ad4bf883c3aa526bc4128300c0deea7d7152dcd9277c5bd15dae78b3a17753",
+        "bytes": 3026
+      },
+      {
+        "path": "allocation-control-fail/z3-relay",
+        "sha256": "bd24e3951335b911c9f9e1528e24c55d1b921dce67c2c3eb9c7fb472f0f66a23",
+        "bytes": 346
+      },
+      {
+        "path": "allocation-control-pass/manifest.json",
+        "sha256": "58717f01696c69e287032b990abf73c6dbcbf5004e10e26db86effe907999f2a",
+        "bytes": 922
+      },
+      {
+        "path": "allocation-control-pass/result.json",
+        "sha256": "a22ce0079de466017688b7da67b6fade12be34c0b7c9b60320204ad8e3b7eaa9",
+        "bytes": 979
+      },
+      {
+        "path": "allocation-control-pass/runner.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": "allocation-control-pass/streams/1447182-356833601074252/analysis.json",
+        "sha256": "f9a44417d441cd0071ca02a3a3ac8e29ce311c5a90278a6bc5672754b1973cb5",
+        "bytes": 138496
+      },
+      {
+        "path": "allocation-control-pass/streams/1447182-356833601074252/chunks.jsonl",
+        "sha256": "a95eb558e7a16bcf16f2707b1dd85960467a3b28abfd57f4822a1b36348f6b1f",
+        "bytes": 45088
+      },
+      {
+        "path": "allocation-control-pass/streams/1447182-356833601074252/metadata.json",
+        "sha256": "b74fe37ca2931cd290f63fc52ef723709d06d1c2852136d49ab74a327c909aff",
+        "bytes": 357
+      },
+      {
+        "path": "allocation-control-pass/streams/1447182-356833601074252/stderr.bin",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": "allocation-control-pass/streams/1447182-356833601074252/stdin.bin",
+        "sha256": "c2515f802c1764d3555a1bb72d9d62c4ba0e8885da6c8afd52fe0ab4572b7a38",
+        "bytes": 21609
+      },
+      {
+        "path": "allocation-control-pass/streams/1447182-356833601074252/stdout.bin",
+        "sha256": "7cb3af656b2802369aaac0620f489642a77205f3f343d5653f9ba61f4a61afc7",
+        "bytes": 1578
+      },
+      {
+        "path": "allocation-control-pass/z3-relay",
+        "sha256": "c3eec7e0d9a76d449be97ce75fdaa62c8ac0ccfa5efdf7555273f5b8c4814ee7",
+        "bytes": 346
+      },
+      {
+        "path": "allocation-fail.vpr",
+        "sha256": "3fefbcbed675bfb538bcd29b3ee07673c664ed26fe59abbcf186280546300d1a",
+        "bytes": 253
+      },
+      {
+        "path": "allocation-pass.vpr",
+        "sha256": "3abe7f57eef75d91d2beb85b0496fa1434fae47156f8287c1ff3d03ea7b6524c",
+        "bytes": 263
+      },
+      {
+        "path": "allocation-source-manifest.json",
+        "sha256": "4c43eddd8ebcbf22038f5984f0b61e2e85be51a55b5d9899b410911e0163d5a8",
+        "bytes": 56658
+      },
+      {
+        "path": "allocation-test-fixed.log",
+        "sha256": "af86f3f70f8d853fe29575256575bbd7a15d48085054fa7d5b70bea564e9816d",
+        "bytes": 460
+      },
+      {
+        "path": "allocation-test.log",
+        "sha256": "c0c9db83ae4d4788edff5519c1f37ea6eb7d37f5b6e1bb4982977e5a73aa1a0c",
+        "bytes": 4322
+      },
+      {
+        "path": "allocation-unit-suite.log",
+        "sha256": "afbbc99c313fac999a320d2045d8665eeb87b72b602d5584e655f2b4b4be77ca",
+        "bytes": 40162
+      },
+      {
+        "path": "allocation-wand-0/manifest.json",
+        "sha256": "0768c894a9833047c2bf7b521acd768b86298620438a915cdaa14aa1ecf84450",
+        "bytes": 998
+      },
+      {
+        "path": "allocation-wand-0/result.json",
+        "sha256": "ef286e34035bb2afb221c5245df51c3b20095530fa1f7e49b76e4c0d84902d5e",
+        "bytes": 6344
+      },
+      {
+        "path": "allocation-wand-0/runner.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": "allocation-wand-0/streams/1441197-356801899491504/analysis.json",
+        "sha256": "2033106c5539c3f337512694deaa062b450525272b8f590b9f8eab66ff29eec6",
+        "bytes": 2444500
+      },
+      {
+        "path": "allocation-wand-0/streams/1441197-356801899491504/chunks.jsonl",
+        "sha256": "804e5123ec1851d7be95c8e34cdc334ae1775bb4e50eb4ca0eed9441c7e76b35",
+        "bytes": 824560
+      },
+      {
+        "path": "allocation-wand-0/streams/1441197-356801899491504/metadata.json",
+        "sha256": "afb7f774c5d8627a2d338aba5ae3b2ec555fb8cb37c5d2d51c1ec54a550292b3",
+        "bytes": 357
+      },
+      {
+        "path": "allocation-wand-0/streams/1441197-356801899491504/stderr.bin",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": "allocation-wand-0/streams/1441197-356801899491504/stdin.bin",
+        "sha256": "60e72ea7287bc9c1ad39a5dc9853d76d5829d409e2865a5b67e3a0e40e5f0b60",
+        "bytes": 372920
+      },
+      {
+        "path": "allocation-wand-0/streams/1441197-356801899491504/stdout.bin",
+        "sha256": "3fe30b548f860dffbffaab64ffa8f51878a6bca704bdd4f63c15f64926cb6dce",
+        "bytes": 28248
+      },
+      {
+        "path": "allocation-wand-0/z3-relay",
+        "sha256": "c11d7af7384bfde95c710d7641406f02aa0533754cebbfbd10b3d55fa5b0f7f8",
+        "bytes": 340
+      },
+      {
+        "path": "allocation-wand-1/manifest.json",
+        "sha256": "bb6394a946a402ce09030a80954cfd39de90a5458518a4d43788ca55c165a576",
+        "bytes": 999
+      },
+      {
+        "path": "allocation-wand-1/result.json",
+        "sha256": "58bef61653acf45258f0a184f98c271ca2fd2df8566c9f3d8d901fca57591650",
+        "bytes": 6344
+      },
+      {
+        "path": "allocation-wand-1/runner.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": "allocation-wand-1/streams/1441167-356801905477348/analysis.json",
+        "sha256": "03b207cd881f0e380280bb84ab1c1535764e3bd4be852aeb7920d05da337e69f",
+        "bytes": 2445018
+      },
+      {
+        "path": "allocation-wand-1/streams/1441167-356801905477348/chunks.jsonl",
+        "sha256": "064549f5b655cd93369f81dffad9543948161448a52ad0e24f5feb6383b580ef",
+        "bytes": 824560
+      },
+      {
+        "path": "allocation-wand-1/streams/1441167-356801905477348/metadata.json",
+        "sha256": "a2220a5b8323587f9a76f70c8037acb1c36e6d9ea5f750575acaa1e9b52a9583",
+        "bytes": 357
+      },
+      {
+        "path": "allocation-wand-1/streams/1441167-356801905477348/stderr.bin",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": "allocation-wand-1/streams/1441167-356801905477348/stdin.bin",
+        "sha256": "60e72ea7287bc9c1ad39a5dc9853d76d5829d409e2865a5b67e3a0e40e5f0b60",
+        "bytes": 372920
+      },
+      {
+        "path": "allocation-wand-1/streams/1441167-356801905477348/stdout.bin",
+        "sha256": "3fe30b548f860dffbffaab64ffa8f51878a6bca704bdd4f63c15f64926cb6dce",
+        "bytes": 28248
+      },
+      {
+        "path": "allocation-wand-1/z3-relay",
+        "sha256": "c2fa5930c56452fa6a5482101e181b69d565092d78cee5eb3994b1583cac939a",
+        "bytes": 340
+      },
+      {
+        "path": "allocation-wand-2/manifest.json",
+        "sha256": "30eb5c10258b76ed2e34200cd9fb1647122b045d1a24249aca51b15d6cae1a35",
+        "bytes": 1000
+      },
+      {
+        "path": "allocation-wand-2/result.json",
+        "sha256": "0f928a2fc3a7f146daf9676b98a6f27461b1de2af8f6259d7888f7d18d67ccbc",
+        "bytes": 6346
+      },
+      {
+        "path": "allocation-wand-2/runner.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": "allocation-wand-2/streams/1441198-356801916305452/analysis.json",
+        "sha256": "3f461bd87aae2652902f7b28ff9db296bb959ab22581802feff1a383459ed09e",
+        "bytes": 2444975
+      },
+      {
+        "path": "allocation-wand-2/streams/1441198-356801916305452/chunks.jsonl",
+        "sha256": "231a1a0524c624da4d7d84aa11e993e13740e38efde0f0af7b04a3332645d945",
+        "bytes": 824560
+      },
+      {
+        "path": "allocation-wand-2/streams/1441198-356801916305452/metadata.json",
+        "sha256": "194d6cd9c102a6bfe743f03c25e45105689b152a562cd885eb31a6eba09545f5",
+        "bytes": 357
+      },
+      {
+        "path": "allocation-wand-2/streams/1441198-356801916305452/stderr.bin",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": "allocation-wand-2/streams/1441198-356801916305452/stdin.bin",
+        "sha256": "60e72ea7287bc9c1ad39a5dc9853d76d5829d409e2865a5b67e3a0e40e5f0b60",
+        "bytes": 372920
+      },
+      {
+        "path": "allocation-wand-2/streams/1441198-356801916305452/stdout.bin",
+        "sha256": "3fe30b548f860dffbffaab64ffa8f51878a6bca704bdd4f63c15f64926cb6dce",
+        "bytes": 28248
+      },
+      {
+        "path": "allocation-wand-2/z3-relay",
+        "sha256": "66548b4cf8208f2af67dde9386d5356c06bbc52f60b6c97b5f945ffb814830e6",
+        "bytes": 340
+      },
+      {
+        "path": "allocation.patch",
+        "sha256": "6848b2392b35881384022db7208abf9115a15240fc9a77ec64aac20304439d48",
+        "bytes": 4734
+      },
+      {
+        "path": "run_case.py",
+        "sha256": "e4742567318243f0341b1dee31e8e3b1affface6ebe567ce1c6f73d3a6e7557f",
+        "bytes": 4108
+      }
+    ]
+  }
+}
