@@ -887,77 +887,89 @@ mod snapshot_summary_trigger_tests {
             false,
             false,
         );
-        for disabled in [false, true] {
-            for domain in [None, Some(var("domain_condition", Sort::Bool))] {
-                let generate = |summary_only| {
-                    let mut freshener = Freshener {
-                        map: map.clone(),
-                        binder: binder.clone(),
-                        next_id: 0,
-                        summary_only,
-                    };
-                    summarise_snapshot_map(
-                        &factory,
-                        &mut freshener,
-                        &state,
-                        &resource,
-                        std::slice::from_ref(&argument),
-                        std::slice::from_ref(&chunk),
-                        domain.as_ref(),
-                        true,
-                        disabled,
-                    )
-                    .unwrap()
-                };
-                let (old, original, original_domains) = generate(false);
-                let (new, candidate, candidate_domains) = generate(true);
-                assert_eq!(old, new);
-                assert_eq!(original_domains, candidate_domains);
-                assert_eq!(
-                    original[1..],
-                    candidate[1..],
-                    "resource-trigger axioms must not change"
-                );
-                let (
-                    TermKind::Quantification {
-                        vars: av,
-                        body: ab,
-                        triggers: at,
-                        ..
-                    },
-                    TermKind::Quantification {
-                        vars: bv,
-                        body: bb,
-                        triggers: bt,
-                        ..
-                    },
-                ) = (original[0].kind(), candidate[0].kind())
-                else {
-                    panic!("value definitions must remain quantified")
-                };
-                assert_eq!(av, bv);
-                assert_eq!(
-                    ab, bb,
-                    "permission/domain guards and value equality must not change"
-                );
-                if disabled {
-                    assert!(at.is_empty() && bt.is_empty());
-                    assert_eq!(original, candidate, "disableISCTriggers takes precedence");
-                } else {
-                    assert_eq!(at.len(), 2);
-                    assert_eq!(bt, &at[..1]);
-                    assert_eq!(
-                        bt[0].terms,
-                        vec![factory.resource_lookup(&resource, map.clone(), vec![binder.clone()])]
-                    );
-                    assert_eq!(
-                        at[1].terms,
-                        vec![factory.resource_lookup(
+        for used_as_trigger in [false, true] {
+            for disabled in [false, true] {
+                for domain in [None, Some(var("domain_condition", Sort::Bool))] {
+                    let generate = |summary_only| {
+                        let mut freshener = Freshener {
+                            map: map.clone(),
+                            binder: binder.clone(),
+                            next_id: 0,
+                            summary_only,
+                        };
+                        summarise_snapshot_map(
+                            &factory,
+                            &mut freshener,
+                            &state,
                             &resource,
-                            old_map.clone(),
-                            vec![binder.clone()]
-                        )]
+                            std::slice::from_ref(&argument),
+                            std::slice::from_ref(&chunk),
+                            domain.as_ref(),
+                            used_as_trigger,
+                            disabled,
+                        )
+                        .unwrap()
+                    };
+                    let (old, original, original_domains) = generate(false);
+                    let (new, candidate, candidate_domains) = generate(true);
+                    assert_eq!(old, new);
+                    assert_eq!(original_domains, candidate_domains);
+                    assert_eq!(
+                        original[1..],
+                        candidate[1..],
+                        "resource-trigger axioms must not change"
                     );
+                    let (
+                        TermKind::Quantification {
+                            vars: av,
+                            body: ab,
+                            triggers: at,
+                            ..
+                        },
+                        TermKind::Quantification {
+                            vars: bv,
+                            body: bb,
+                            triggers: bt,
+                            ..
+                        },
+                    ) = (original[0].kind(), candidate[0].kind())
+                    else {
+                        panic!("value definitions must remain quantified")
+                    };
+                    assert_eq!(av, bv);
+                    assert_eq!(
+                        ab, bb,
+                        "permission/domain guards and value equality must not change"
+                    );
+                    if disabled {
+                        assert!(at.is_empty() && bt.is_empty());
+                        assert_eq!(original, candidate, "disableISCTriggers takes precedence");
+                    } else if used_as_trigger {
+                        assert_eq!(at.len(), 2);
+                        assert_eq!(
+                            original, candidate,
+                            "heap-dependent triggers need both lookup directions"
+                        );
+                    } else {
+                        assert_eq!(at.len(), 2);
+                        assert_eq!(bt, &at[..1]);
+                        assert_eq!(
+                            bt[0].terms,
+                            vec![factory.resource_lookup(
+                                &resource,
+                                map.clone(),
+                                vec![binder.clone()]
+                            )]
+                        );
+                        assert_eq!(
+                            at[1].terms,
+                            vec![factory.resource_lookup(
+                                &resource,
+                                old_map.clone(),
+                                vec![binder.clone()]
+                            )]
+                        );
+                    }
                 }
             }
         }
@@ -1095,10 +1107,11 @@ pub fn summarise_snapshot_map<P, D, J: Clone + PartialEq, F: SnapshotSummaryFres
         );
         let triggers = if disable_isc_triggers {
             vec![]
-        } else if freshener.snapshot_summary_only_triggers() {
-            // Keep the full axiom, but avoid activating it on every lookup of
-            // an old chunk map. Those lookups can otherwise fan out through
-            // many summaries. Trigger selection may affect proof completeness.
+        } else if freshener.snapshot_summary_only_triggers() && !used_as_trigger {
+            // Old-map lookups must still activate summaries used by heap-dependent
+            // triggers: otherwise their resource-trigger definitions may never fire,
+            // making quantified folds/postconditions unprovable. For other summaries,
+            // avoid the fan-out from every old chunk lookup without changing the axiom.
             vec![Trigger {
                 terms: vec![summary_lookup.clone()],
             }]

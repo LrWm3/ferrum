@@ -1,0 +1,2221 @@
+{
+  "base_revision": "2e4578ade1d59e925f09cb4378bd4e22bbfb9bde",
+  "compatibility_patch": "trigger-candidate.patch",
+  "server_runtime_patch": "trigger-runtime.patch",
+  "source_manifest": {
+    "base": "2e4578ade1d59e925f09cb4378bd4e22bbfb9bde",
+    "files": {
+      "Cargo.lock": "9c3dd33610ee76200509240da42d9d554d1f3d3cd4e17719e4e966875f235b9f",
+      "src/lib.rs": "de9acbc1ef941a872cabd4a65887aab82bf6086fb9986351907d45f2edc51d38",
+      "src/main.rs": "56afd9e291c1e3f1a12b462fabd9c87c0e16ae9ec6d0707b5c10204f18acf9c9",
+      "examples/compatibility_session.rs": "4e20f95ab061e9e7b06e0834409c47e3f0687cb50399bb494023fbfbc7f2bd15",
+      "Cargo.toml": "4f463f53aca8abac96dee6939c6247cf3718ae9b2694fa3e90ae2787b70d5e7a",
+      "tests/native_annotated_bool.rs": "37512d8acc1ee9ca7d53803a587ab429b338dd19e7b2c57b1478cd24d420c686",
+      "tests/native_exception_path.rs": "5544a1d11847a2cc60a04e6c566b4a69efec03e7d2282b3648944760e75dec1b",
+      "tests/native_prover_comments.rs": "ba18e8137ad2ef495f0bd9a43c8c2a44afad6239c47c0f62a7ba4aa13811f8ef",
+      "tests/native_version_lifecycle.rs": "10d8d8d17c1eacc489dcb9976c2491256587e68ccabb8ec9f8dee88099502ed1",
+      "tests/native_domain_axiom_closure.rs": "ebd1bc8534603ff9090347587803de13788e548f9af33bbae506398222f279f6",
+      "tests/native_domain_event.rs": "82ebf65e93bed23588642ea57548e1af68620113c59bed68ba0f152082501db0",
+      "tests/native_statistics_exception.rs": "4078603cd1817264441587a298d8122b1dc9179dc3a8e1e3ae9d172b57a7241c",
+      "tests/native_quantified_warning.rs": "5120857f02d0905c5fda61cab67bcf31a6ab22050ae6c5c53fb2e35d09a94a6e",
+      "tests/native_diagnostic_cycles.rs": "312b3700b6736e695cc0d0e7db99c0884f881bb9636f44b9d03f4d9574dea435",
+      "tests/native_trigger_warning.rs": "461e429bf56306d6ecaa8049fcb8edfef8bce24bed49b5366d7c8c51b4eb4add",
+      "tests/native_mask_alias_replay.rs": "81dc48cc1a8c62672ca41fd0ad8bb85e1ca49168e8166cc58bc2b2700e43489c",
+      "tests/native_conditional_position.rs": "3fb42b34cf2417c86593ef9f3c8fb4428ce90b24adc01705d564300fad2387cb",
+      "tests/native_owned_return_nesting.rs": "e36a72563754e3f1117f7b91fc0fc43caedd63a00c78d2938ea129d833a5267b",
+      "tests/native_generic_domain_grounding.rs": "cbbade3f4ceaec17981dd2d4fea388e73c88d483b9977c59a2e2fd850ce9b9a9",
+      "tests/native_snapshot_summary_triggers.rs": "05270732ec0b24510f62134b375abb27f3904dd8c49742e63c26cbf261a1c03a",
+      "tests/native_function_perm_warnings.rs": "877e24fae42b1d3460ba7bf5edc04dc19d6bc0eba291b24837b7bece8005998d",
+      "tests/native_block_events.rs": "4bd1d62f0f8aa963d66075eac6dd3fe0d036bf2ba29dadf29a5c798ab8044e23",
+      "tests/native_frontend_api.rs": "4eb068e0d51cc57fecc0131a03bb7e0a2157e780f6daf8635ea3457b4251e2a5",
+      "tests/native_global_declarations.rs": "fcae19965f6140c7a4720a50f82ab77a6c043931dad2449297e1c9409b71d72b",
+      "tests/native_debugger_cli.rs": "6d11c0c2ab042caaf40f5e09396921415119b9962810f2f05c05749cde5d8b97",
+      "tests/native_internal_warning.rs": "e1aafa1dd89a614859837f9a4eca565c9b9fb50d1f55f76ef1feb7fdce993d29",
+      "tests/native_cli.rs": "061e2867fafbb105fcad4a0ed2ecc9389fdeda3a536258f7533d4ad1a49ace8d",
+      "tests/native_adt_triggers.rs": "e8c596911f269a236683af47030095fbe5d36ce3090ec8828ada3a3e7cf2838a",
+      "tests/native_logging_api.rs": "5e48592c87bd3f9e1daea2b70ebfee03847606415259b29bf6885f7e40ee70ce",
+      "tools/performance/rust/Cargo.lock": "7728dae0df9cf2e0251cbb3d2a230bb53c6a0b86bb9c517604079de9cb705f11",
+      "tools/performance/rust/src/plain.rs": "1ba8ffb99e88d413ab50e185d71dda6109d1783a554c1b40c36108519a0fe4d5",
+      "tools/performance/rust/src/timed.rs": "d4318aa200c6734f3c9f0d8865f9b172429916558146a94ac5df5d5d335c77d9",
+      "crates/ferrum-silicon/tests/context_log_hooks.rs": "2063b3be7a916086ae059415eb82c9b11a43e3bdc603812929ab5d0d800dc95d",
+      "crates/ferrum-silicon/tests/state_report_stack.rs": "881d7d1c72fd3d11ce5d4878751e4e80a6e7b03c0a99f753a8016a991a897357",
+      "crates/ferrum-silicon/tests/upstream/mapped_counterexample_tests.rs": "4834fd388ea4a5369042233ac5ce31ea1fe467f0bfbd61d795ca849d8e1ac8e5",
+      "crates/ferrum-silicon/tests/upstream/silicon_tests_greedy_qp.rs": "6f3af64e31347e95f2b52a2ccd5f981cab28f89b19f616e1d7120697d2243a90",
+      "crates/ferrum-silicon/tests/upstream/portable_silicon_tests.rs": "1c837b4eaafc23cac1dc77701fbcfbfa45c98571f8df7d71b8a91dfb41cab0b9",
+      "crates/ferrum-silicon/tests/upstream/simple_arithmetic_term_solver_tests.rs": "0a6c02559b90f39ccd99ac341c1b545541ec2b2ac95eeb365055c900c7d8d582",
+      "crates/ferrum-silicon/tests/upstream/trigger_generator_tests.rs": "01968d97b3aa9373ab1cd81b2298be10292173f5f270a0107d1743c3e2d5a022",
+      "crates/ferrum-silicon/tests/upstream/arp_plugin_tests.rs": "2cf8c734b80b96d257a4f77faa260b3e5ef99f7ee2187859474cccd305a5523a",
+      "crates/ferrum-silicon/tests/upstream/silicon_counterexample_variables_tests.rs": "94c9cb1aa21cd9eeae124e9df3d06a557ac0ea500ad68281a92492b3221925ce",
+      "crates/ferrum-silicon/tests/upstream/error_message_tests.rs": "3451d45be728e011870bf07e3b17dd2c3539c9366d62146ff4abfd2190e2f262",
+      "crates/ferrum-silicon/tests/upstream/silicon_tests_old_axiomatization.rs": "16ee01c11649614d043e238838f3352d7170c278c289ab9559c20e7788e2e8cb",
+      "crates/ferrum-silicon/tests/upstream/silicon_backend_type_test.rs": "d2954fd2ddb88a1e802b0d91d14137bea43f53ef642ed52de8ecdfff71e2aa52",
+      "crates/ferrum-silicon/tests/upstream/viper_tutorial_examples.rs": "25e45cf163975cbf07cab0189d638a9704ceb2ea33fc194433aaa4d6f819ea06",
+      "crates/ferrum-silicon/tests/upstream/silicon_tests_mask_heap_mode.rs": "699ad791223bb99ef1955bb637bdfd672a760c762ce13d160634b1ef7746f2c9",
+      "crates/ferrum-silicon/tests/upstream/silicon_tests_old_perm_semantics.rs": "d0c23147d1aff1f24d66cb8da0dfcf14cd08574ef8a01833884df254c6642524",
+      "crates/ferrum-silicon/tests/upstream/general_counterexample_tests.rs": "038f2aaf2a3c94b99d42ba1441ba229b8326bcb0a54d7b57ed18d9756c4ee2f3",
+      "crates/ferrum-silicon/tests/upstream/node_backtranslation_tests.rs": "e2dae4fe224ad582f1151490eab869c5bd47b4c4248607c36f4d3e2853b60dab",
+      "crates/ferrum-silicon/tests/upstream/silicon_tests.rs": "9845027ff5092bc5b35a074f013328f4980fc54fda63b3df7f88e3ed930c8fd0",
+      "crates/ferrum-silicon/tests/upstream/silicon_tests_conditionalize_permissions.rs": "95da8161f51a3ad38db042a2e799be598d8ccac023b5a79939685791526538f2",
+      "crates/ferrum-silicon/tests/upstream/silicon_tests_more_complete_exhale.rs": "589db672c4186bcfb3021256c04b5e0bbb2c7883b1c60a5706745f461c3bfaad",
+      "crates/ferrum-silicon/tests/upstream/silicon_tests_smoke_detection.rs": "b2ac03c9edd525efdf29a3df10a43782be67f7a101287370130d4d2747101b6b",
+      "crates/ferrum-silicon/tests/upstream/adt_plugin_tests.rs": "9cbd61f6d6bf8c5a17df0778336f1671e339bbe310ab0f0338e35e90d1b6fec3",
+      "crates/ferrum-silicon/tests/upstream/symb_ex_logger_tests.rs": "860542db9cdfaafde659160a14f28f63723053f9c0e8a8e9c2d9f1a45fcc6cee",
+      "crates/ferrum-silicon/tests/upstream/silicon_tests_parallel_branches.rs": "06fece1fdfb85969a62421cae7030bdb90f3d6fae751b3b3ff37b4e53252947e",
+      "crates/ferrum-silicon/tests/upstream/silicon_quantifier_weight_tests.rs": "c96cc57429f590cf2f1612ba2710f0b6d03f59e819fb7a972bd7288dd9ec5b26",
+      "crates/ferrum-silicon/tests/upstream/silicon_tests_more_joins.rs": "d216faff5bd9a926d3fc33eadb2fd8c249b07d90ca73248b566f1c2e0b7ab22d",
+      "crates/ferrum-silicon/tests/upstream/memory_consumption_tests.rs": "5aca6d00bd9bdd3ae592b4d142bd7b0905abd16c159bb93ddb35bb3269b86157",
+      "crates/ferrum-silicon/tests/upstream/silicon_tests_quasihavoc.rs": "4d4af3329ebf48169868c56f2e2f69c03b5dfcf14d3a6981b3f72700d87f71c1",
+      "crates/ferrum-silicon/tests/upstream/tests.rs": "74c666144bd6fb11415e7978208a5448c6719832444107c439ff28816a3b828c",
+      "crates/ferrum-silicon/tests/upstream/concurrent_instantiation_tests.rs": "5f63398ea890c9b0195c54d3ff2f997490cc328caa9ac0064062c8ab23b19003",
+      "crates/ferrum-silicon/tests/upstream/silicon_tests_sif_plugin.rs": "6cc38f160b31b2971dccf62c582bdf81ca64e5aaaff5e3efbcb905d4fe53d0e5",
+      "crates/ferrum-silicon/tests/upstream/silicon_tests_simplified_unfold.rs": "524a68cf78e1c3e5418376004d0de816835160bd4a0e809931b864463998082b",
+      "crates/ferrum-silicon/tests/upstream/state_reporting_tests.rs": "7752d3a04b936e08fd4c3c556124db71542c19a752ff829a9350e1b44aacebe1",
+      "crates/ferrum-silicon/tests/upstream/trigger_rewriter_tests.rs": "3438a3ca5b08dfdd9ecdeca21df02092ab9d6de22a3dd210f74ac5cc2bb86a45",
+      "crates/ferrum-silicon/tests/decider_logging.rs": "868e9a9c9c8d7c037db52d7f5924181969b6aa2727ee9108bc5e209b04e2cb0b",
+      "crates/ferrum-silicon/src/verifier/worker_verifier.rs": "1aa4e104397ba807365140ce21f58e6d2e5cee92e59c82c1629886409c4fec12",
+      "crates/ferrum-silicon/src/verifier/native_context.rs": "fea30a19dbdb4eab1826c5f02554d51be8cb6b408c04c7ebf54c9ccdb30e55ca",
+      "crates/ferrum-silicon/src/verifier/base_verifier.rs": "54b81e353b79498f8fc6c2820b603a1f1745240eb072a584ca0275db3c749e41",
+      "crates/ferrum-silicon/src/verifier/native_preamble.rs": "04c7ab5a8663cff9902ca5a36027b20336e98392946e1f4df8498b08da58f4c3",
+      "crates/ferrum-silicon/src/verifier/mod.rs": "7060611b9569ac998d006faceec4641500ce19ee64bb61b46739f52a3b5dd814",
+      "crates/ferrum-silicon/src/verifier/verifier.rs": "cb6e36c7e5cffae3a673bbc1677cd0fc9421e45bf1d52f13de7a721945cd2e76",
+      "crates/ferrum-silicon/src/verifier/verification_pool_manager.rs": "0d814a1a9793c85e433ef66d63585871359e4e223e6c21773b481ae9ccac7479",
+      "crates/ferrum-silicon/src/verifier/default_main_verifier.rs": "78a00755bfd09f08cc6e11d553a1c909d3f03da4f249dfe81b534fb5d289324f",
+      "crates/ferrum-silver/src/components/mod.rs": "9e64caebb78479b7ef2349f35ad7017dc5fc52573d693487daef0746a91ae7da",
+      "crates/ferrum-silver/src/components/components.rs": "3c4ea8a525b2c0061690d29cff5a2996a79ab5abeed110e4742569a38dace184",
+      "crates/ferrum-silicon/src/reporting/formatters.rs": "c59f3677b88d6f64958380833e1a7ac56919b064927d097374e6bb7cd5c6cfc0",
+      "crates/ferrum-silicon/src/reporting/multi_run_line_recorder.rs": "1e7379600168740dc077c8f017123ebb64073c8d32732dfe00c01105230b29a7",
+      "crates/ferrum-silicon/src/reporting/converter.rs": "2aff5563feffc0ae646ae4bad121c04cd3cd1a0cf81074d8dbbb689444193fff",
+      "crates/ferrum-silicon/src/reporting/mod.rs": "cab09fcf3f6b1ae87398c8a7707ebb13a309ce89aebf15106dd7e48b9ef50f4e",
+      "crates/ferrum-silicon/src/reporting/silicon_resolved_counterexample.rs": "b63d4d74a5b0d41c244543e3905c4ce372d5473f3708226cb10ef4c2f479a748",
+      "crates/ferrum-silicon/src/reporting/domain_interpreter.rs": "665decb598dbc4d08ca4270eb0ca7d87afc38b7b8527f9a88901a7b63dbd857e",
+      "crates/ferrum-silicon/src/reporting/multi_run_counting_recorder.rs": "87d8b92b05c6138981382f2d43b9dbaf5db10cf2e42b773e5267fb6bf51e5878",
+      "crates/ferrum-silicon/src/reporting/exceptions.rs": "f0fd25964b11d1be135d646af3933d397ab8df4a8e190248fb9f06d827a7bdd5",
+      "crates/ferrum-silicon/src/reporting/multi_run_recorder.rs": "099e020abfafd77bb8240a0a7e6391ffa7a945f84bf1cf1c83aa4ebee2e6d65e",
+      "crates/ferrum-silicon/src/reporting/package.rs": "52aa4c26c9068bac268f4a94be5d711271fbb4334161325af64d4dc70e6a006f",
+      "crates/ferrum-silicon/src/interfaces/decider/prover.rs": "6fc19795ddbc7ecaeff73ff0f074412fc62052945ab4bdce605da107986e316f",
+      "crates/ferrum-silicon/src/interfaces/decider/mod.rs": "4ce720a32b9c68156e2952f1ec7ab9950ed7900c714bfa0f67bbfa6c27a687b7",
+      "crates/ferrum-silicon/src/interfaces/decider/term_converter.rs": "141b871231ce2de024f36afc087a6218410894eaeae9138c97d2c23e76c417bd",
+      "crates/ferrum-silicon/src/interfaces/verification.rs": "11fc9e7fd1a1d69cb05cb25fd1e5f881039a1ee48e031a6ef6a6b3bf4e0f6e5c",
+      "crates/ferrum-silicon/src/interfaces/mod.rs": "96757e3dee366df582b40b13d06306f6868929666a587c1c137d9ed0f3d900e6",
+      "crates/ferrum-silicon/src/interfaces/state/mod.rs": "9774ea455f22d7fcdfa847bd3b2ad0d21e22f115bcb770d9afb887912068f5e9",
+      "crates/ferrum-silicon/src/interfaces/state/chunks.rs": "e48d7b5b11a5db03faac057583cd0e024fb3409d01567b327a267cf1cfff7fe9",
+      "crates/ferrum-silicon/src/interfaces/verification_unit.rs": "8807639d7a6cbd9bb4eb0233c1b9a33f748c99ea34341385c84ddc560bd397f6",
+      "crates/ferrum-silicon/src/interfaces/preamble.rs": "32614ff4a5937d5bd6c3e970443757dd9b96aed7792a21bf666f16e8c880fe04",
+      "crates/ferrum-silver/src/parser/fast_parser.rs": "b816bafad37ebcaf24457e0a5d6f67b3fd071e5c64f6f10a7ce7775e73f5fb9a",
+      "crates/ferrum-silver/src/parser/parse_ast_keyword.rs": "614a60ee9f916470194a3d9957ac3067d828cafa9711964eb1276f2c58462151",
+      "crates/ferrum-silver/src/parser/macro_expander.rs": "03bc12c4214330bed3a710dc10cd1b0ad2e37c33a5350201b6eeb1abf3c5c684",
+      "crates/ferrum-silver/src/parser/mod.rs": "96ea2f4a737e74b80ecca2ce0f6d72b7dbd7dc36c035e71ff6ff7a4cb89dcbcf",
+      "crates/ferrum-silver/src/parser/parse_ast.rs": "f7fc93ed87dd2de2f2f290a72f938bfe99bd0ccec8aaa811702951eb1e455fe7",
+      "crates/ferrum-silver/src/parser/reformat_pretty_printer.rs": "4fe0751b02e43a7872316a84de0fe486e649c0c1b2542d826c3f2726cd3251a2",
+      "crates/ferrum-silver/src/parser/fast_message.rs": "de126a6cda68845d9ff5b7cc4b1f64b696286c626eea4a33ca2252a3fb7c11b7",
+      "crates/ferrum-silver/src/parser/resolver.rs": "86386b6f6c863c37ecec5d1870f6002e8332eace8967cbc07172df6a4bce195c",
+      "crates/ferrum-silver/src/parser/translator.rs": "c0c57382f3273377feca73d3d26159499a6c2a10812d0adbb506f9ba8ecd2cac",
+      "crates/ferrum-silicon/src/supporters/quantifier_supporter.rs": "500dbd46f7ca5c66007727861c10882a8f3138724bc79e9d8153d410f37ae603",
+      "crates/ferrum-silicon/src/supporters/functions/function_data.rs": "59e289d73a7236886a81231941e902596722da45184ac94957cd664f4278f1b3",
+      "crates/ferrum-silicon/src/supporters/functions/heap_access_replacing_expression_translator.rs": "a88d10c1d3bdcb4cfb32d1fe0b756f1337d9788e7b5166043ae88b977ad1ce34",
+      "crates/ferrum-silicon/src/supporters/functions/function_recorder.rs": "86ecc54bb26eb91a0e7255d7fcbfd70fc32b4c70f45739c376bb6ca85aed703f",
+      "crates/ferrum-silicon/src/supporters/functions/mod.rs": "e13c5f9265bbbd711889e352d4b8184b53ff0cff85f313231114a99ba5c505ce",
+      "crates/ferrum-silicon/src/supporters/functions/mask_heap_function_encoding.rs": "a47144c5947b5086b4d885b769e46eb00280ccbeda5a7c69dd6bb067dc38b13c",
+      "crates/ferrum-silicon/src/supporters/functions/function_encoding.rs": "66a2bda35652683f59c4c20706ed55518d404161e036e0ad35dbf755c311665d",
+      "crates/ferrum-silicon/src/supporters/functions/function_verification_unit.rs": "5c7f30c8891898d6cd5d429a0a104d8e4f92fd8507a5a6db6e63640483376c29",
+      "crates/ferrum-silicon/src/supporters/magic_wand_snap_functions_contributor.rs": "98a12a568cd606405272af6a0b3887d5c2c0de8ec704ba4ebde84133a048577c",
+      "crates/ferrum-silicon/src/supporters/default_maps_contributor.rs": "88476b96b62a242dbd6dfd608b2a1519d171580d15e65762616a093ac4e2d425",
+      "crates/ferrum-silicon/src/supporters/method_supporter.rs": "529ee5be22cc0fb129a605c6c43c54b7e559f009c73c1da8cd99a27558f29b87",
+      "crates/ferrum-silicon/src/supporters/annotation_supporter.rs": "ecba4958b07b53a970a7a47d78a7fe21014d6e70ee75613b9c304cc2cbd7372f",
+      "crates/ferrum-silicon/src/supporters/mod.rs": "3bd89bc03124d277d806706660d71a0e10465c0a9657ba5f0fe453504fcc5ca4",
+      "crates/ferrum-silicon/src/supporters/domains.rs": "dce548fd395c29499b35c2363b353c8c6935c248ab9eb871f47dcd81d3649638",
+      "crates/ferrum-silicon/src/supporters/builtin_domains_contributor.rs": "6938e909f283a7a209f95f96b0901b263dcf8d9c1cd1c18c887af85753ce0153",
+      "crates/ferrum-silicon/src/supporters/default_sets_contributor.rs": "b6cff2bd6f6138f270b0e8f9cfbda9c2be38d612005896a70a6ee39543bf55dd",
+      "crates/ferrum-silver/src/reporter/reporter.rs": "212c1654e3dabe769dc2a0580b7fff70fb34de301256285ffbe0196120763d71",
+      "crates/ferrum-silver/src/reporter/mod.rs": "d6d5ad4ce1930b65348b5e42e90747a7914057023c9b0030f52b59e709dab11a",
+      "crates/ferrum-silver/src/reporter/message.rs": "e18a97c6df82ab24d2bf83de478c38b810e829334c4d46a26593f85f60935565",
+      "crates/ferrum-silicon/src/supporters/qps/predicate_and_wand_snap_functions_contributor.rs": "4ecf6758ac4819bf0837eae05292a742c02e4a056397714c18134690d355cb49",
+      "crates/ferrum-silicon/src/supporters/qps/predicate_snap_generator.rs": "284f7e7fa34c24bf3ecb7f7d92502ebb4b5ea5044fe52be0e3a32a41ed2c60aa",
+      "crates/ferrum-silicon/src/supporters/qps/mod.rs": "52ac79305ad3626f52d544a0bf7fdbaf4634bc5715f8d26241ea72dbcad97aab",
+      "crates/ferrum-silicon/src/supporters/qps/mask_heap_functions_contributor.rs": "ef10b073c5fb29c76ce92225c1ead8892b5f01f4ce233e043955bb0c6ca2f171",
+      "crates/ferrum-silicon/src/supporters/qps/field_value_functions_contributor.rs": "30dc17180791554a69e8ecff17012039a83d756cbfeb1f6b7d61effc9f7b1cef",
+      "crates/ferrum-silicon/src/supporters/default_multisets_contributor.rs": "f741aa030039ed45250e861da84d360465572c540555636c1c69e57bf252d1a8",
+      "crates/ferrum-silicon/src/supporters/expression_translator.rs": "1edb99ef6357273cb927cd3b33c7328e30babb81ca2e684e0cd1ac4bd04e63f3",
+      "crates/ferrum-silicon/src/supporters/default_sequences_contributor.rs": "41a579872e71599b739392f0800eb1d71593ab04cf6a2b2d21c36246c607f1d5",
+      "crates/ferrum-silicon/src/supporters/mask_heap_snapshot_supporter.rs": "044c5ba0ba270bba29cc59d507104dd842319b80130ae0b9b9a18391e19d1851",
+      "crates/ferrum-silicon/src/supporters/cfg_supporter.rs": "489dcb86fd13935a66099ff1aacadb51d7791269b7e4a84cc363d801c6046ad6",
+      "crates/ferrum-silicon/src/supporters/snapshot_supporter.rs": "f55394901fd5c48d2b6cb88e7bfb33715a2066c30b3abed9b019096b66697b1e",
+      "crates/ferrum-silicon/src/supporters/predicate_verification_unit.rs": "f545aa4a6977cd5b5e9c98a93087d0fe8f7d71bfc44bc63e35d1cd6f9a7612c7",
+      "crates/ferrum-silver/src/reporter/format/mod.rs": "d8fcf44dc3365a250d98c9cd647040e97aef7aed861d4f5a8d4c492a4059c6ec",
+      "crates/ferrum-silver/src/reporter/format/package.rs": "fc58f77e7bc7760603499e3f1cbd41fcd16996b4bd35d92a437e388c4aa2a211",
+      "crates/ferrum-silver/src/reporter/package.rs": "1bb4a420d13bb5eabc7305c7caf04956cb286e0a622918ea35ce26ec5e576f65",
+      "crates/ferrum-silicon/src/decider/z3_prover_std_io.rs": "7a9c6d57a38030bd6e481c55b424f4b3662bd8b7809d64616e06b0dc2ff45fc5",
+      "crates/ferrum-silicon/src/decider/cvc5_prover_std_io.rs": "5d9a4707bbdc2446f943620e5bf2e1e17ddddeacfa082c7ff8aa07b852805c51",
+      "crates/ferrum-silicon/src/decider/mod.rs": "1d6e1629aa86a85bffc49894751ff5406e743bc8e2bacb568fbc7a890bef7108",
+      "crates/ferrum-silicon/src/decider/smt_lib2_preamble_reader.rs": "039062af3a9443da18b5e375d17332d0ad55ef62dfc8a258498d9224daa53034",
+      "crates/ferrum-silicon/src/decider/native_z3.rs": "0c586402e6b0ee23236ae5d071f6abcff8c05f3138318cdef49030e09d673ea0",
+      "crates/ferrum-silicon/src/decider/term_to_smt_lib2_converter.rs": "f1c8769308dbf86e4da0ebfb41fb402bd8302f2bdf4cb8b194c03dafb0132be6",
+      "crates/ferrum-silicon/src/decider/decider.rs": "c29627da9be64628da1ee27584e476085c28d38e69d80a32a2615eb409d8053e",
+      "crates/ferrum-silicon/src/decider/path_conditions.rs": "3a0724c54512da4cb1948b935c58ca41a7fe6e229301bc07c36f932889472bad",
+      "crates/ferrum-silicon/src/decider/z3_prover_api.rs": "bdb6a943c16f8d7403327a6307d2ec0a971a21ba9f0155e612aa8bd6d387b5dc",
+      "crates/ferrum-silicon/src/decider/package.rs": "07aaa308d4ae011e146e3907fa4cb98c69974e62bc55fc320a0be0b8ffa67b98",
+      "crates/ferrum-silicon/src/decider/prover_std_io.rs": "af0b4ba999d95665a41a541e507374f0022b292f1a86b49ec21f14ad91c2622d",
+      "crates/ferrum-silicon/src/decider/smtlib_name_generator.rs": "0ba7aa83e142083c5e5a25ddb7bc3d1333734d4332c7663c324cd9967c5e1f8e",
+      "crates/ferrum-silicon/src/decider/term_to_z3_api_converter.rs": "9da08e29b5ffb57a48fac44780dd4a1036bde4a2440302e2de47929d7319057a",
+      "crates/ferrum-silicon/src/debugger/debug_parser.rs": "9c88619fa385c63d42b588487bebaa33ec9eefb7126b482a701b69b8a99216ea",
+      "crates/ferrum-silicon/src/debugger/mod.rs": "2eeea576388f909694fc5692fead19d0eb44261eec3c83bf19d9b4da0b1a01fa",
+      "crates/ferrum-silicon/src/debugger/native_presentation.rs": "5f5d69389f8975d338627390644d5e05f143be68628d8bf3abfa4881e3ffb861",
+      "crates/ferrum-silicon/src/debugger/native_failure.rs": "bf1e635499b119a576e04995e7994a878ac02bb40473cf4d733c2f98af1428fd",
+      "crates/ferrum-silicon/src/debugger/native_debugger.rs": "13769612ca82f4d6412d76090bad648d8db558611b76ec6ad753d905ed289631",
+      "crates/ferrum-silicon/src/debugger/debug_typechecker.rs": "8558ced5bed2a7c0e6c38dfc0d1328b45abbf97e1319acf8406a4e61d7420a87",
+      "crates/ferrum-silicon/src/debugger/native_session.rs": "99e4f72d740e29c674b5c7c10b0a9c4dee8bde729d6762ca8ca180dba0458410",
+      "crates/ferrum-silicon/src/debugger/debug_exp.rs": "c894902a298517dd21763ffed1e72a3d33eb8ec594f369306c8d45da49d48718",
+      "crates/ferrum-silicon/src/debugger/silicon_debugger.rs": "f350413cf336ac0806426a15a3ea40161e16c9901d8eab2027f08cf5317ffcf9",
+      "crates/ferrum-silver/src/frontend/mod.rs": "c8bef7a55cc94851995d3386fd5417b4531d66b38af2b090d328eb4734f62995",
+      "crates/ferrum-silver/src/frontend/reformatter_ast_provider.rs": "65ef69558d3b9485b5556ce43d737b6e07877220a6c46439ec964eb6ec800d2c",
+      "crates/ferrum-silicon/src/annotation/mod.rs": "57d6fe9a6c6449475bd2b7f45b6d1bc5bc98829af545720c7cad962db19ee2eb",
+      "crates/ferrum-silver/src/frontend/viper_ast_provider.rs": "c541371d3b470eccae52fd1db6fa4f7766ac5e47f334395acdd280fd442f25ab",
+      "crates/ferrum-silicon/src/annotation/flyweight.rs": "1e7906d947dd8ad14d8a93a119e3c803e6eb354ea1f53efdf7e0ad08e35455de",
+      "crates/ferrum-silver/src/frontend/sil_front_end_config.rs": "a5cfbc3358226955b1531de485781687b3f929bd1c769dc3bae0cf8c8a5e1f11",
+      "crates/ferrum-silicon/src/silicon.rs": "c731cd20ffab1433add1bcff68c7ae3de16052aeced9da7f9e4a1a57e744ea53",
+      "crates/ferrum-silver/src/frontend/viper_p_ast_provider.rs": "049fbd4e27f3f18f6816a9bc071a377a89d7804f2067bd860d28a6bb497477bb",
+      "crates/ferrum-silver/src/frontend/frontend.rs": "7cbd2cfecadc8fa348f1f21fcc671b6b51e2414c48da15c7103eab7ee7a2b92b",
+      "crates/ferrum-silver/src/frontend/sil_frontend.rs": "83f6bf3324b27fe41b401ce5b38aba44ad0bf54abb9f7978d9c20fcaa7b6ff0a",
+      "crates/ferrum-silver/src/frontend/viper_frontend_api.rs": "5f0a832d59b8225d5425d05b2f79c3702e28a53605cedd32cdbe91d4bfc7052d",
+      "crates/ferrum-silicon/src/state/identifiers.rs": "d17852d1f6d11f66112f9a1195469bf86976ebadee2bb8af05336fe387db2fef",
+      "crates/ferrum-silicon/src/state/triggers.rs": "5ad13e54b70085037620c7df945c36cb2bcf11c9170c68c1654c155ad68a4d29",
+      "crates/ferrum-silicon/src/state/mod.rs": "5875cbd5d6a5e6cc88c2c008af5f90346b8094aea730ae6e4d1b9930723a65c8",
+      "crates/ferrum-silicon/src/state/symbol_converter.rs": "18c8df684a10587b1b828062a83ecac12acf937599034285d60dd15a3853a54c",
+      "crates/ferrum-silicon/src/state/function_precondition_transformer.rs": "9777af3a5bb85c5d024f3e64a6d3c6c5205b8db86ae034f94deedd07cdfb06e2",
+      "crates/ferrum-silicon/src/state/utils.rs": "376295826441e699a76ae9e6ff7429c7b913e1848f471bd2f2f22111ace94bfe",
+      "crates/ferrum-silicon/src/state/chunks.rs": "7a2513dc1763c559584513e2e1adb524eafc3b86fff85ca8d5ed916acd778da7",
+      "crates/ferrum-silicon/src/state/terms.rs": "3d93a1dd95ff343bbc1a8a69f980011ba61edadf90c66fe2df677db5af695cff",
+      "crates/ferrum-silicon/src/state/snapshot_map_cache.rs": "00dc0c0bf011dd3d7c8a6ccffda532a7c96d5f42c46a7cd213207b578bb0d9d3",
+      "crates/ferrum-silicon/src/state/state.rs": "36c782c76aa17ea23965c8b18bb631628e61cf5b93ff37c6aaaaf632dd81fe8c",
+      "crates/ferrum-silicon/src/state/store.rs": "b1369700bf68512c71af9e3a871fe96bca4d0fbcc1a781fa3f872a1ffdd3e56a",
+      "crates/ferrum-silicon/src/state/package.rs": "0c454af6600190815fd5026985f6abb34afe5a6f1da5f26c68d2fe9574eb8fa1",
+      "crates/ferrum-silicon/src/state/heap.rs": "4eda5a43c399bbb16b16b2293a8a641908a7fce23641c4711fff7646cc6387cd",
+      "crates/ferrum-silver/src/plugin/parser_plugin_template.rs": "e56ffd33eb186b820926fa9a4fa38744688ca123b77e164cb7f3a8934a956228",
+      "crates/ferrum-silver/src/plugin/sif/sif_plugin.rs": "bccc2ffb7c27b5b53e06d4ac0db7048b011a6d368b76a0b7b61c54a36ca369e1",
+      "crates/ferrum-silicon/src/resources/property_expressions.rs": "2065b1dc62c7b4be7396ed04e24348dc6fc729d210138ef8a5f83c3af68453ad",
+      "crates/ferrum-silver/src/plugin/sif/sif_extended_transformer.rs": "32fa0f4a55c74d4cef0095b00aaf1dac70161dedd416122bb430f64a8cd1ba0a",
+      "crates/ferrum-silicon/src/resources/resource_descriptions.rs": "20788a7308fb28e2fbb3ba0dd253cdad54a2628fb8c5e39946cce5b5bf6fdbab",
+      "crates/ferrum-silver/src/plugin/sif/mod.rs": "121b53caf2ec006ea8b2e97454826771da261bbbcdc947abd25a531140f05cb8",
+      "crates/ferrum-silicon/src/resources/mod.rs": "bb2990d5b65c49ce5b838aeda61250fddb7f1a3000f4d1f2c1c12d882a0e1cbc",
+      "crates/ferrum-silver/src/plugin/sif/sif_error.rs": "a925515296bb5eb59cd9d3e3a3980479783830934e2eda061b0c53d701627513",
+      "crates/ferrum-silicon/src/resources/bundled.rs": "5332bae7456d66eb59e4ccfd695cc6a4dd8df71c03a45efc6736fd6628c01244",
+      "crates/ferrum-silver/src/plugin/sif/sifp_ast_extensions.rs": "be8ec89aa0c7b8736ea342b0b5181536afbf7d086c9281001bf98877e9d685a9",
+      "crates/ferrum-silicon/src/resources/resources.rs": "93679a92b65a57bb199b63811b2e51226a7623f738e64c73a8b0a23c673c1fca",
+      "crates/ferrum-silver/src/plugin/sif/sif_ast_extensions.rs": "11794136ba017542a70d714eb3390cc8920f50aa39f367f03782115ad9639942",
+      "crates/ferrum-silicon/src/resources/non_quantified_property_interpreter.rs": "b62323a02fb1c71444babe72eae6754c3892efc1c6cb53d14ac552c7390bd1fe",
+      "crates/ferrum-silicon/src/resources/property.rs": "ed8dbc6306c34bcd98f0e82c8a47fda4e65b1e7a64bb8b27102501e4ee1881bd",
+      "crates/ferrum-silicon/src/resources/debug_property_interpreter.rs": "e4952778b2d135b6f4a430f49eb3a7d655bb418dac14f2ff1719cbfa603cfcf3",
+      "crates/ferrum-silicon/src/resources/property_interpreter.rs": "9ef69093ad1f545c62b4d5bb576abb09fbca6f108227e42db70b57881123dee9",
+      "crates/ferrum-silicon/src/resources/quantified_property_interpreter.rs": "7852434f82505d801cc2a6fbb2854fbe428d1048155d18314e11e60c68a43375",
+      "crates/ferrum-silver/src/plugin/mod.rs": "11eaef38fa3cf4e6b2d736481a3a1e810ccf4b3345d6144573be45b96c76fca7",
+      "crates/ferrum-silicon/src/package.rs": "dfce5f61fb7889bf733f2c4dbc5367b87cbea653185f25503394943bfc5337cd",
+      "crates/ferrum-silver/src/plugin/silver_plugin_manager.rs": "2bd2e67e20b959594991ca51a9ff471d509759f3fe2e843364a7f3cd2733ba9d",
+      "crates/ferrum-silicon/src/extensions/mod.rs": "66fbc215deff281c62d650f1d089a9c7c99add980dde0c864584bc2878109f3c",
+      "crates/ferrum-silicon/src/extensions/conditional_permission_rewriter.rs": "c23217b69e1b6682056a8f80f1e8efe44adbcfb9ac7cb22bc1f1d9a688564d1e",
+      "crates/ferrum-silicon/src/extensions/try_block_stmt.rs": "9d7dff1243137278be7fdbe715910dcfa3725b9ca08ee6a5021b4d7c782735c7",
+      "crates/ferrum-silicon/src/extensions/try_block_parser_plugin.rs": "9ffb8630e27bbb14bbc94f7820f82683c19c7398c32c27167d0aa31c38eee82d",
+      "crates/ferrum-silicon/Cargo.toml": "6ece00eb98dbe96246a76ea768e5cb6509e7ab8671086aafe7bd9939f611eaec",
+      "crates/ferrum-silicon/src/utils.rs": "e9b63ff872396c5dc883fd0aec3b961288ccb29015c413dced7c83eab043738d",
+      "crates/ferrum-silver/src/plugin/standard/refute/refute_plugin.rs": "da4a9566cc7fc6976771d7fcf224c5bc47110a2dc36c1e497c175c160e39d58e",
+      "crates/ferrum-silver/src/plugin/standard/refute/refute_ast_extension.rs": "878ad3aaa6e87dae13f0452e78ac83dbd4e931c3c5811e3bcc50cdcf4f9a4061",
+      "crates/ferrum-silver/src/plugin/standard/refute/mod.rs": "24c2df837ca1cb575c834fb513a44016e681c767a763d35c7dc027db27b9965b",
+      "crates/ferrum-silver/src/plugin/standard/refute/refute_past_extension.rs": "89bd663acfbb3f864b0251f760782293c75702adcb7393cfcc5c0fa93dd747b0",
+      "crates/ferrum-silver/src/plugin/standard/refute/refute_errors.rs": "8fcdcea954f26cbf5d70f7e9a55d496b56302918d86b0cd8475ab2538384f28e",
+      "crates/ferrum-silver/src/plugin/standard/arp/arppast_extension.rs": "3e4c15ca5440cceee76218d5fa56b6a5f435d9f303fde5c4c6fc5c99f4726dea",
+      "crates/ferrum-silver/src/plugin/standard/arp/mod.rs": "ab770301ad7b4bd37413282f968d01ff7402c6573dcdd44155865c7c67347e43",
+      "crates/ferrum-silver/src/plugin/standard/arp/arpast_extension.rs": "877b921f61d5887752de56546980ccee2db04f51f93d8101905adb2869f6efe8",
+      "crates/ferrum-silver/src/plugin/standard/arp/arp_plugin.rs": "428196608b2abdb7e0a7b9d7cdb69b978caad978b7264c1417473ed0993fa53e",
+      "crates/ferrum-silicon/src/common/concurrency/mod.rs": "faf75cf5fb85845e9cfa6ced042c33cbcfad64b940337a975bfc8cf87e4ba155",
+      "crates/ferrum-silicon/src/common/concurrency/package.rs": "18a2de191f081f75269a3e527a7a43776627b372e7eb307684d8ff12242cb3b8",
+      "crates/ferrum-silicon/src/common/mod.rs": "112094b3c6291c68defcf3738254607a16539bb3b217ebf6f4933d49618361ef",
+      "crates/ferrum-silver/src/plugin/standard/adt/mod.rs": "60153d3b9dc3fd1b6a802186df24d78220032ac3d6f0131adf82a60f2e4fb73a",
+      "crates/ferrum-silver/src/plugin/standard/adt/adt_ast_extension.rs": "a4466ac9e622404972e2a0662be4d487bf498461f818d9647c9a2565deb22d47",
+      "crates/ferrum-silver/src/plugin/standard/adt/adt_plugin.rs": "acf5884e509f302869274b57c09aa1d8e9e387b45b77693c8799505b81a4af24",
+      "crates/ferrum-silver/src/plugin/standard/adt/adt_past_extension.rs": "38cb13997e85db2e0d7d7395805a22d3b3a4fc519f865430f2b6b362629bf582",
+      "crates/ferrum-silicon/src/common/collections/immutable/insertion_ordered_set.rs": "96ea4beacedb0fc8300e18a3241819c83da2a195f2ab4d557c7f28625ea860e0",
+      "crates/ferrum-silicon/src/common/collections/immutable/mod.rs": "a593d7d5066abb4f29097e29dc3a27054f9f8b461bdb64e111efa6212c65d1bd",
+      "crates/ferrum-silicon/src/common/collections/immutable/multi_map.rs": "abd8bf806162832285c486a7c486d37549563e70fa5dc509a9691818bd91ce26",
+      "crates/ferrum-silicon/src/common/collections/mod.rs": "cea2516c30953086b07220ad07decf06ae288f43ade4ffaeff3c8b53d5147f90",
+      "crates/ferrum-silver/src/plugin/standard/adt/encoding/mod.rs": "8dbee4196e2fb1b52e86929513d53c50f589ad7ec80ce72f74881ad401465a89",
+      "crates/ferrum-silicon/src/common/collections/mutable/mod.rs": "554214824d35a4d2a304085f19f84ac62d0163bd3234c638d5ff70e7f5d0104a",
+      "crates/ferrum-silver/src/plugin/standard/adt/encoding/adt_encoder.rs": "454f431bd77663f3d6a46008290a557cea60c2b41464e7cfb59f0f7ab2569540",
+      "crates/ferrum-silicon/src/common/collections/mutable/multi_map.rs": "60247393781500db28666c6686e40fe381bb8586dc2106bb1d165ee9d56001c9",
+      "crates/ferrum-silver/src/plugin/standard/adt/encoding/adt_name_manager.rs": "7f82db412f369a681203124614b81122ec6b4013868517f56e713060b4468532",
+      "crates/ferrum-silicon/src/common/collections/package.rs": "07ad03f611f9464d53bf6f98d2963a23aa5b9c196f3da0e0fc9742a76e56bc94",
+      "crates/ferrum-silver/src/plugin/standard/termination/transformation/nested_predicates.rs": "a25ae18009f1f0cb88eef6670271e343fab3f0d81e09450ae4c813f4185eb573",
+      "crates/ferrum-silver/src/plugin/standard/termination/transformation/exp_transformer.rs": "8fb1b97d66a136516bf838d38aed5a1ba91a0d86dda42930faee82fe4ed7f5b6",
+      "crates/ferrum-silver/src/plugin/standard/termination/transformation/decreases_check.rs": "1f9d5e07ad8d66c965a1a5463ff9a065f1bbfd09cd577e09d51c4b2dc93b51e2",
+      "crates/ferrum-silver/src/plugin/standard/termination/transformation/program_manager.rs": "a57bbe7df2df60a31350c96a7c6fe928ec8ada850f7f743676c742b7c9f36285",
+      "crates/ferrum-silver/src/plugin/standard/termination/transformation/mod.rs": "6bb649f4ac4cee882dd7bd4f0a1a24ccde4fbd02b6eb2fee16f438d9c9f5b338",
+      "crates/ferrum-silver/src/plugin/standard/termination/transformation/trafo.rs": "5a0cfb1d5d428fcb821970c10a02a1a451764c46ee3993f6345142168108a75f",
+      "crates/ferrum-silver/src/plugin/standard/termination/transformation/call_graph.rs": "479920e61c7a737ffaa9c5d77a967afe409206f72a8487d9e041918bb8043e24",
+      "crates/ferrum-silver/src/plugin/standard/termination/transformation/function_check.rs": "f6470eee67d73e9f425e2496030f75f3f91927310ef1a469eaeaed6dc0676634",
+      "crates/ferrum-silver/src/plugin/standard/termination/transformation/method_check.rs": "79d06fc8a2cda2ea29ba0f79b94ea77a1a07d93e31f7215092bc99441b04f3a3",
+      "crates/ferrum-silver/src/plugin/standard/termination/transformation/error_trafo_factory.rs": "732b1eb44d4ef36983e03d460890846a9ea06a5356b6c0fb4c42b08ebfd55a94",
+      "crates/ferrum-silver/src/plugin/standard/termination/termination_errors.rs": "be46568b267abdcedb582d51ea012685f4768ebc96913c0fa79b425d4e91c0bb",
+      "crates/ferrum-silver/src/plugin/standard/termination/termination_plugin.rs": "340d9aaa6b0ddc3c3594628eb50b7b148847a22853872ac23ba7a621b2fdc182",
+      "crates/ferrum-silver/src/plugin/standard/termination/mod.rs": "7bdca31ad356c47d6873e7703388c63bf2f821bb2c1381bfa6eb0e8fd897b009",
+      "crates/ferrum-silver/src/plugin/standard/termination/termination_past_extension.rs": "5f745ecef604bfffcf50d1a7a7f0773dc87508268d90028b1610de0166fc6a7e",
+      "crates/ferrum-silver/src/plugin/standard/termination/termination_ast_extension.rs": "845a2980892ed6c041166c29191f1cde5c9cca2b28aac419dcf2b83863945ce8",
+      "crates/ferrum-silver/src/plugin/standard/mod.rs": "2d4b319a8a8035742db49e8fe2fafebe4ccea80728fbdabc4a81250a30ee405e",
+      "crates/ferrum-silicon/src/rules/symbolic_execution_rules.rs": "5bd6df98053d85cde97987b05b680e21e284ad9dde205f092dc69f922b3a235f",
+      "crates/ferrum-silicon/src/rules/chunk_supporter.rs": "9c29c7ccd340aa004b0e10f5e25014a2af5c94bc4f65d4e98be2fd8e786fa992",
+      "crates/ferrum-silicon/src/rules/evaluator.rs": "86480a35c02043d8588e5aee50e2e1cc46de140a567510521f9d1d9b0d98bd2c",
+      "crates/ferrum-silicon/src/rules/executor.rs": "3e8670905d71bf022ca15b890af89c68cbd03baab8905367546895567e98acd2",
+      "crates/ferrum-silicon/src/rules/magic_wand_supporter.rs": "a266880d285497d6fafe5f11119a6b8a222f8dea832e075778e119a103c6e3c0",
+      "crates/ferrum-silicon/src/rules/permission_supporter.rs": "22af786406d232e644e2caf16b09434c313f22e17ee04625775a9aada0d2e80f",
+      "crates/ferrum-silicon/src/rules/mod.rs": "71a731b62f202be35e99357dc2777f868100737dd6002bd2803bc93793fddcd8",
+      "crates/ferrum-silicon/src/rules/havoc_supporter.rs": "0f9c27f4c93b1a1ecc4cefa382f1b4d96559e475eaa9a211b5a49638d457f4bf",
+      "crates/ferrum-silicon/src/rules/producer.rs": "77ec819f09e5503ae34a61f3739da8ea077ecad77625316f3224cb97068799a0",
+      "crates/ferrum-silicon/src/rules/function_supporter.rs": "276a3598d7760c66820a421ad74c11909d5e10ed49292f22960887da60a85738",
+      "crates/ferrum-silicon/src/rules/let_supporter.rs": "3e25cc87637e82f8445ab5cd30df969cbd1cd5bef870d79da3a2b305ad84a932",
+      "crates/ferrum-silicon/src/rules/joiner.rs": "8a6ef1f62281840631ce2893f6ed8d172d1cbe2195cf2d91e45ec10f818bf5fa",
+      "crates/ferrum-silicon/src/rules/more_complete_exhale_supporter.rs": "a848c9fe3c25192292b003878d8531a80cb17e5005d44665f8729375ca00f465",
+      "crates/ferrum-silicon/src/rules/quantified_chunk_support.rs": "a312035545d57f034b1067efb7a933dd612f9afefdc3aaf5688dec3ab6a6a7e4",
+      "crates/ferrum-silicon/src/rules/state_consolidator.rs": "518dbd9eb2218139ebf130d4cdb4ae581df7fa3129d333da7df6e08de887cd9e",
+      "crates/ferrum-silicon/src/rules/execution_flow_controller.rs": "e4186ec16ca62aa6770e94d09cdc0dfe5c4ddb94950c3e17e8336cc2f8ae17ac",
+      "crates/ferrum-silicon/src/rules/brancher.rs": "cd51205aff00fe3c18801359a693731673ae4919519f6c4c0ccb45203321f44c",
+      "crates/ferrum-silicon/src/rules/predicate_supporter.rs": "04f6f863025d27098f4db60a01643643fe41f4268c8f37d6e330fa27dcbe514e",
+      "crates/ferrum-silicon/src/rules/consumer.rs": "bd67daeaf46fc0d3cbef641a48b1248b9476869df7d5c04032639d82184ff8c4",
+      "crates/ferrum-silicon/src/rules/heap_supporter.rs": "a6be190f92a559e87910fcc43b739fd1ded4efa5e8a34a06ca171868c9f04d36",
+      "crates/ferrum-silicon/src/rules/consumption_result.rs": "21ba6d56a65f59a03dd4596990b92353cff7fe9eb62ce71549fec10ecbf12c7e",
+      "crates/ferrum-silicon/src/rules/mask_heap_supporter.rs": "d8c0f3a2cbed92b74a05b02be7007ff406efaccd716d31487fcad6e9211711f5",
+      "crates/ferrum-silicon/src/lib.rs": "1f3668ed0e34ce91c74e77b8d51ffd4bede2fe51f83cf638b831753329b2b780",
+      "crates/ferrum-silver/src/testing/project_info.rs": "9a600b708014d545c812dd799dc22ee5992099767bf4148c4e3907f5cd19f2a0",
+      "crates/ferrum-silver/src/testing/mod.rs": "d044656393b572e656a3c8f0ca7ee455ab6c20093808a9931e18b605967100a8",
+      "crates/ferrum-silver/src/testing/backend_type_test.rs": "56a7fb346addf07a634a7146f97fef17539724f2b65715bf376e6045e8316e51",
+      "crates/ferrum-silver/src/lib.rs": "1244ed78c896ce59ec8747b04feff0a98f7c5452cba2518ec21e646d5447b21e",
+      "crates/ferrum-silver/src/plugin/standard/smoke/mod.rs": "8986c269d12218482b44e67e58e9c19e47446138fe86595e56b67aabd784a4ff",
+      "crates/ferrum-silver/src/plugin/standard/smoke/smoke_detection_plugin.rs": "e7996d20593d53287fdcc66aafa4d9f04d2d0f4917dc3eeb818928b13dba98f9",
+      "crates/ferrum-silver/src/plugin/standard/smoke/unreachable_ast_extension.rs": "5aeb2d09a8df8e7e133fdb3da2675959267c3f50e20073959f1d110a6b908dd4",
+      "crates/ferrum-silver/src/plugin/standard/smoke/unreachable_past_extension.rs": "01819e52410da0e6e8c33617da095533bfd2a4459c6373c753d8c397aaff7caa",
+      "crates/ferrum-silver/src/utility/name_generator.rs": "dd441c42d151d35511aab388f21bd43b1df988f16330fa18c2fd79104399a068",
+      "crates/ferrum-silver/src/utility/paths.rs": "5b26ca6b70828a1ff8fce8c62b986f49a52af7005146d34bcf5aa76831b34094",
+      "crates/ferrum-silver/src/utility/sil_name_generator.rs": "e0e32811aa6be7640f0b0e2ef90a8937c588e55fe0af35b1bb00e4d488ebe21d",
+      "crates/ferrum-silver/src/utility/mod.rs": "756ba402a9040fe80b4d525533e225d361bb9bd1bfb49fdd8469a86a067cb8c5",
+      "crates/ferrum-silver/src/utility/timing_utils.rs": "a0025c5522597f693b57125f042fd8c18c30ff9907a284595b22a0cf9f1e8bfa",
+      "crates/ferrum-silver/src/utility/program_submitter.rs": "cddae5b97ee6bd75d75db45f601ceb0f1d8ec3c7d01e171396de55e05b56edbf",
+      "crates/ferrum-silver/src/utility/stack.rs": "d015c3497997507cb345de889218e3c35cc8f1e9bcabbe4d2d84dbbfca65ada0",
+      "crates/ferrum-silver/src/utility/common.rs": "438d69ad85df9f052d5c2aa079f4df39f0b1cd6477044a5e97953f83ebc0ffa9",
+      "crates/ferrum-silver/src/utility/sanitizer.rs": "3b1570f99123a11a9632343d30c44542b044c1d6f30b9cedcb78859a0a0b57f9",
+      "crates/ferrum-silver/src/utility/caching.rs": "39f36b080215941c683300e443e9fbbd12ee50c10bc9a3b97613deed60100e62",
+      "crates/ferrum-silver/src/plugin/standard/predicateinstance/mod.rs": "a84639810571deccc11bdfcaf11acb9c9e3916721c820c011cbae0d4b9e9ba86",
+      "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_errors.rs": "71fc65eaa9a8b1230436c76b43f48f6df70bea7b68d4cb30c5845565a357ee95",
+      "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_plugin.rs": "ceff8125c7eb73fb6064bb4cfd300c17a723419c37c3fea57e80bb4919c6b82d",
+      "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_ast_extension.rs": "b7551d616248d64485a815162cddd6bf22835997820e3cd8f4dfede54accde5c",
+      "crates/ferrum-silver/src/plugin/standard/predicateinstance/predicate_instance_past_extension.rs": "fadd82d6992cc6e6cf9cb494513f249ae2bcbb824fbd7a12bad1b99d9e054a00",
+      "crates/ferrum-silver/src/plugin/silver_plugin.rs": "f0d4f0342a97880df04175861323459b98ed1dd586f243922e8657b686cd2cab",
+      "crates/ferrum-silver/src/plugin/plugin_template.rs": "ac1cbd8d96e2e5ad63914ed2e89998f94f27564d28e52e405f1206334e9bb518",
+      "crates/ferrum-silver/src/resources/mod.rs": "6786fbf56f1aebd891a521206f640b2e16b82c93537fa587492ae3895be1dfc0",
+      "crates/ferrum-silver/src/resources/bundled.rs": "b5b5bff5292a208f2374fdfd2435a9224c1369f9ed8a7a65812ff5f6c299a578",
+      "crates/ferrum-silver/src/ast/pretty/pretty_printer.rs": "9f69411e01f81cc489c94f3306d26cca3d2bf578edc41e31592645953d0fc691",
+      "crates/ferrum-silver/src/ast/pretty/mod.rs": "ed1de6361ca3d2fd711a6f31279b335b2ba6220e143bd6ec583d58c8e5b03412",
+      "crates/ferrum-silver/src/ast/program.rs": "e2a5afb39b81d9300ccc65526dfb9eaab66dfbce5e9d9ce6dc505d2a0d42efd9",
+      "crates/ferrum-silver/src/ast/mod.rs": "888b29ad353af2eac2f4cb7866b43acef8d2fdd363669f8ab05e75d021351099",
+      "crates/ferrum-silver/src/ast/type.rs": "74373fda0451ad5de9b8a0f63af978cf2141955966be58e3ad2c0b0a8b155a79",
+      "crates/ferrum-silver/src/ast/expression.rs": "9768d6759f83337bd84acad739c9ea3da2e48aac24184fd466c2c53e416fa147",
+      "crates/ferrum-silver/src/ast/ast.rs": "4772bcf7fc63ec365d1dc0208d5d139312bf5f54f3ceca796e2c34e1d6b556a8",
+      "crates/ferrum-silicon/src/logger/log_config.rs": "fd248ad7319facd6e69ae5e5d7498c5b023f8e68bdb0a2c9439c7ce8f9ef3d51",
+      "crates/ferrum-silicon/src/logger/trace_report.rs": "de4cf27633cf01f3e346000d5c0226da87c3cb95895838c5104d252cd5bf0ffd",
+      "crates/ferrum-silicon/src/logger/symb_ex_logger.rs": "a36ebaf25ec37719321522ec4ef45c6129dbe3fa5fc030a2381f6bd0962823a0",
+      "crates/ferrum-silver/src/ast/utility/expressions.rs": "c18b64600a26d496de7e36e08c6fae08a3ebbadfd45c1aac00dfdce1c26d0a1c",
+      "crates/ferrum-silver/src/ast/utility/inverse_functions.rs": "8a09cd2393ceeb3e4660e2767d37592f3698a15355e88108fe98d65341390d06",
+      "crates/ferrum-silver/src/ast/utility/viper_strategy.rs": "ebca4815dabe896e46ba6db84934fe8f66efb3c93772db09f4fc8a7777c50c6e",
+      "crates/ferrum-silver/src/ast/utility/generic_trigger_generator.rs": "42089bdb1a51ca4df39507f11bff591047d9492fae1f640f4f0ffbfc34e11940",
+      "crates/ferrum-silver/src/ast/utility/statements.rs": "a3f56bf2b3e72bb78434838c59fd271c628b3fd88d8c47bba93b4e40cf8d32b7",
+      "crates/ferrum-silver/src/ast/utility/impure_assume_rewriter.rs": "5bb924cf8a9e6d6d90c8a32cfbf610f2bbbf3b9774846bb904505de0839c76a1",
+      "crates/ferrum-silver/src/ast/utility/triggers.rs": "fa4f7317ab7a00fab3ee9f352be5978a3bd861620d162343201e62cdac050702",
+      "crates/ferrum-silicon/src/logger/records/structural/structural_record.rs": "29c9746f25635465cbfaed70642e3f76c624d7694781a839864c5890f2697c2b",
+      "crates/ferrum-silicon/src/logger/records/structural/mod.rs": "2b440900213754c00da6ba056206bc84452a9b60d62a91dadb2779673645923a",
+      "crates/ferrum-silicon/src/logger/records/structural/joining_record.rs": "bf49b1d409b723310fb927163003bfd22bbff5466dc05496ed0ab3b4e8b2da00",
+      "crates/ferrum-silicon/src/logger/records/structural/branching_record.rs": "c9b037cfcef22ac975419ba165f470d0b51d67c30fb9f37ed77a3c95e0d10049",
+      "crates/ferrum-silicon/src/logger/records/record_data.rs": "77ec40d59db69e355d864fce2d3779f02f7dd76c8c949f2f6d8e2f42280ecab9",
+      "crates/ferrum-silver/src/ast/utility/rewriter/mod.rs": "99ce830696f5d947b6ad110618383dd4a536952e5f6f0826c6c48b04b96dc3f8",
+      "crates/ferrum-silver/src/ast/utility/rewriter/strategy.rs": "80891f093dd705a8ab55bec55c5948a735c78a0e35676c16ed012cea598bfc67",
+      "crates/ferrum-silver/src/ast/utility/rewriter/t_regex_automaton.rs": "41d8cb15824d4ca57ce36ce7d8c334a41c3723dcb0c2f26d0a968997e8c94274",
+      "crates/ferrum-silver/src/ast/utility/rewriter/rewritable.rs": "1debac88c962ca80b6ca5018b9ed048005286876ad94c97649162c0112020422",
+      "crates/ferrum-silver/src/ast/utility/rewriter/t_regex.rs": "41c3d121d6603fc9f8746ac2470b3a7300b33c8b15f0e5204a3edf8f244f2cd6",
+      "crates/ferrum-silver/src/ast/utility/rewriter/regex_strategy.rs": "58d0177feaf193f24aa67531977c493d0dbdb627fe26ff7ad6c284c1e550506d",
+      "crates/ferrum-silver/src/ast/utility/mod.rs": "9a8742e899ac968a72fb3bfae55b966478bf4ade592c2f2c8b4346f88b657b1b",
+      "crates/ferrum-silver/src/ast/utility/visitor.rs": "b876d3b4e6da2529f4c7b733bd26f6a48bf5c32c0afcbece92d4aba6fa81b8ea",
+      "crates/ferrum-silver/src/ast/utility/generic_axiom_rewriter.rs": "5925030e67fd4a31b80731258dd4a2a56e86531626bb5d9af5558ae3a366f7e5",
+      "crates/ferrum-silver/src/ast/utility/file_loader.rs": "746605c522a55eb8f2bf05b7892cf7456c84cd530446fc8689069adf1a266d44",
+      "crates/ferrum-silver/src/ast/utility/quantified_permissions.rs": "f24ae16ae23660b83c30acd81f9d2e9f6d395581e49cdb639872e920cbb203ae",
+      "crates/ferrum-silver/src/ast/utility/simplifier.rs": "d9da0ebad876c6417f48a5b67e67d143c9de63774e051faa32597e9f0628edf0",
+      "crates/ferrum-silver/src/ast/utility/functions.rs": "0ba5abc98b7e4f88a798cfe5809b948e867228cd239b8d393c61473c8fbe1659",
+      "crates/ferrum-silver/src/ast/utility/nodes.rs": "3c60bd046cb037127c79d5b1776149a091c274aa2bc828f5a07d1dbf3816d509",
+      "crates/ferrum-silver/src/ast/utility/consistency.rs": "e9957ab4376c6e86198c21f68d4cd13b15a39706718fb3c24d4f4dee4e29cb31",
+      "crates/ferrum-silver/src/ast/utility/domain_instances.rs": "5161961cab2390735a5a988630b6e21c6db448d2bb7d81cbc08c84226b4f5a1a",
+      "crates/ferrum-silver/src/ast/utility/generic_arithmetic_solver.rs": "a7e50764c4ff7fc4d1a950e4b9a8663139212046566b7d3bb8a717359a214712",
+      "crates/ferrum-silver/src/ast/utility/permissions.rs": "570e1996369ca003676b92ad922483c75b1866b7a140726b72f631279cf4e8b0",
+      "crates/ferrum-silver/src/ast/utility/backend_type_factories.rs": "b38db082edb265140f68f68466fccee480b4d78e9b1590363b31906b36970ac9",
+      "crates/ferrum-silver/src/ast/utility/types.rs": "69edf34ed5d8263f78c7b1517dfe220ef566b7c8720d7122bfb37788a6f921fc",
+      "crates/ferrum-silver/Cargo.toml": "026595669f799f206a095658f6067f96924987f26ba290a9a356ed6c51073eba",
+      "crates/ferrum-silicon/src/logger/state_reporting.rs": "464319bc55da00a3049cbf17cde866d4e963aa62743e0dd62697f98cc122a697",
+      "crates/ferrum-silicon/src/logger/mod.rs": "1867959a9f5f03a31db5a28b32bcb41e72cf896897222633acd444af3b4fa9ee",
+      "crates/ferrum-silicon/src/logger/run_owner.rs": "5e7c4e162dbc33e1f550509ce3355ac3b7d49b5bd3858a89036132ab35caee69",
+      "crates/ferrum-silicon/src/logger/general.rs": "a43e0acc676072e1108b25d38ed14c3c222a481807ff169fa7ea2cbc9dcf0fbe",
+      "crates/ferrum-silicon/src/logger/writer/mod.rs": "9c30e1ba68065c554b8cdf6d211058eeb18cde644d380a303e952345d92de48d",
+      "crates/ferrum-silicon/src/logger/writer/symb_ex_log_report_writer.rs": "f621d00a44565dd141352f7e630c2b1a90d3648923d24fec4de2632550ed981e",
+      "crates/ferrum-silicon/src/logger/writer/term_writer.rs": "4fe56272e3d23793c0b928e9023290b2f8bacd0c9e6427ae4b39cb42356af402",
+      "crates/ferrum-silicon/src/logger/renderer/renderer.rs": "be41f4fe3b4c97ccb0279193c52a118c4437a9236294bf18275f9ba0b734bf6b",
+      "crates/ferrum-silicon/src/logger/renderer/mod.rs": "eaf09f13fab8f6371460410550b2b75b7ccf4c6e8f11c7fbf0488cafca76c11a",
+      "crates/ferrum-silicon/src/logger/renderer/simple_tree_renderer.rs": "3aa583d2f03e76516cf2e6e94cbde9f578969a872c2bad50fe664c151de7658b",
+      "crates/ferrum-silver/tests/upstream/annotation_based_test_suite.rs": "d9fe135f62c839f6942d87387c927ed94c090d58e7b73d453e31502ea2cf28fa",
+      "crates/ferrum-silver/tests/upstream/domain_instance_test.rs": "81d4a517604df6f0dd39b89896f346ea1e3b40e040a3cebbff710056eac61cfb",
+      "crates/ferrum-silver/tests/upstream/test_helpers.rs": "5ee7ec7266962899d925efc32e8186d8e33f939b6a6da0c96c2d806e94dc9fcd",
+      "crates/ferrum-silver/tests/upstream/expected_counterexample_annotation.rs": "7532492ee06ab6d62b4dc9300570fea5dbe0e8ca4c10854ede5268793ecab25e",
+      "crates/ferrum-silver/tests/upstream/statistical_test_suite.rs": "f3c60b95c7c160d71b584ee6d64c3dd504eec7dec52c14fbb1801d5a4354ff30",
+      "crates/ferrum-silver/tests/upstream/name_generator_test.rs": "aa7e3699e603e6a222ad62319d1dbdd2a79424398a0f5be7d8c0357e54aa96fe",
+      "crates/ferrum-silver/tests/upstream/simplifier_tests.rs": "e384fd59d5158fb1660ece178b710bd293cf57c65af1e82143061955792b5a8d",
+      "crates/ferrum-silver/tests/upstream/counterexample_variables_tests.rs": "c29247a3921f66c39e281a07f76ebc3ae776bae544c79f8d17e33f0688ca83ee",
+      "crates/ferrum-silver/tests/upstream/method_dependency_tests.rs": "4c303754905e548705943dd4779358781ec85bbdac9e28e2f7fffb6dec4c81e3",
+      "crates/ferrum-silver/tests/upstream/test_errors.rs": "7a4133133530f5cd004670e86c37974979867fa8363c3872018ef127b999f631",
+      "crates/ferrum-silver/tests/upstream/resource_based_test_suite.rs": "3bf1e5be98a8d7dac90ae5b041cfd8eda35471326f0333a73b155b9e2effac1a",
+      "crates/ferrum-silver/tests/upstream/feature_combinations_tests.rs": "50b6a5656f69f0a490d6cf1d170a1d228550ac9cf34300e72e867a21982328ad",
+      "crates/ferrum-silver/tests/upstream/reformatter_tests.rs": "1b6a52f85872e3060fcb9a837010a08752ec8968c93e10cb37c4b136567ec2c1",
+      "crates/ferrum-silver/tests/upstream/ast_annotation_tests.rs": "b762e8b6e5eff92ec01c2a10eed61913f7eb07310c50125478667faa0d709e44",
+      "crates/ferrum-silver/tests/upstream/pretty_printer_test.rs": "5e70b9a1ef7d017c5f3859144fe4416bb4922c12ce82bbf8e77cf91edd829dca",
+      "crates/ferrum-silver/tests/upstream/ast_positions_tests.rs": "797c028863b52bf2861bba48192064d7d5a0991390cd119ea621cffdecef075e",
+      "crates/ferrum-silver/tests/upstream/cfg_tests.rs": "08fb3642e9215f200344a53fc2840a16e25072d2e8c1d8e0eab2e83e48b55568",
+      "crates/ferrum-silicon/src/logger/records/data/single_merge_record.rs": "3e68a32ccd50df2c35d2b057f19aaafd4a63f165c7ffff08ce28c125dcf4feeb",
+      "crates/ferrum-silicon/src/logger/records/data/method_call_record.rs": "069b12c7c15da5dbf8e3a1f499a58524e62095f3b08ce6999329e11a3a92bb3e",
+      "crates/ferrum-silicon/src/logger/records/data/implies_record.rs": "0567a5cfaac2fc5fadd4d5e9989060a36ee8506a49d0999ec6265600f5d41d4b",
+      "crates/ferrum-silicon/src/logger/records/data/produce_record.rs": "960af560231ccfe94fbf6c40f49d6004f038fd86c5895d95d6144e7a9c0458dc",
+      "crates/ferrum-silicon/src/logger/records/data/cond_exp_record.rs": "1794fb454d3f1c85c11eb99a7539c34e0a10418aa79f36a29fcb7a1b8b8ae280",
+      "crates/ferrum-silicon/src/logger/records/data/data_record.rs": "892fa1e1bd155caa8cf0ebeab00765c264ac71ae9089548e91ba7fb04b69442c",
+      "crates/ferrum-silicon/src/logger/records/data/prover_assert_record.rs": "9a1f554ddf3ea10c1b96ffef0a5366533b8d03f1a5bda4986138dba90ac0bd86",
+      "crates/ferrum-silicon/src/logger/records/data/evaluate_record.rs": "1db408a3236ae233b5fc89ffb947ed140b9ffd931fdef32d47bb0ebff0a7261e",
+      "crates/ferrum-silicon/src/logger/records/data/wellformedness_check_record.rs": "05f84087eac74922fbd9f332a49e8ee4dcb09a3a9dc771a971a29b41817cd09a",
+      "crates/ferrum-silicon/src/logger/records/data/mod.rs": "05606070f61bd52bdb080123a2598c913b65eaed903db4f3aeb787e071419279",
+      "crates/ferrum-silver/tests/upstream/ast_transformation_tests.rs": "5b83cb1b8cc81dcf2d7e878d0ff8e8ac8502aa6a0f51b81999afb61cb6afa7f7",
+      "crates/ferrum-silicon/src/logger/records/data/execute_record.rs": "2f29e0496e57eefc2b8c12d32a18642b6ec9131a2b301a7bc2a0dcf6d7f242eb",
+      "crates/ferrum-silver/tests/upstream/plugin_tests.rs": "fca56ffbaa5364137f811b895bd1bd729f2b11604a08b45100d82a4546d7a7a9",
+      "crates/ferrum-silver/tests/upstream/utility_tests.rs": "0236287b2bfe49707f19bf905c9a1ab19423f0d5ff6bedaf3bbc389536d3db39",
+      "crates/ferrum-silver/tests/upstream/rewrite_with_cycles.rs": "bc7b0ba0c75f2eb5ce73df1b288257cf1039b86f164ccb84111e469b35d5984c",
+      "crates/ferrum-silicon/src/logger/records/data/decider_assert_record.rs": "b7ff5d7a136b71f243011d398280e79438b9681d0519d8541259da41191d9188",
+      "crates/ferrum-silver/tests/upstream/sil_suite.rs": "d6bc4cc5812e46b11cad7078eee868b1381cd2201135c439cacc45ff3c69e294",
+      "crates/ferrum-silicon/src/logger/records/data/consume_record.rs": "bc8d070adf71cd3fbbea2a47fd6ac24381baa5bb2aba9b5e616eace196896849",
+      "crates/ferrum-silver/tests/upstream/test_annotations.rs": "e72862783f126081b694bed048cccacba792178ce58a8cf2d5f9baff4f7fcd72",
+      "crates/ferrum-silver/tests/upstream/entity_hash_tests.rs": "173228658e6874a5d419da406dfbc6e8eb4e5f27de0d1afa9275cfb8ce942621",
+      "crates/ferrum-silver/tests/upstream/test_annotation_parser.rs": "57e9795e343e57469bd489411e3256034d530c4dcbe1e5c1bb981027a4b0d47a",
+      "crates/ferrum-silver/tests/upstream/single_file_sil_suite.rs": "28a279ceb8b1c6114366004e91e0d87e9f6430d1715cdcfcdbf58736c386881b",
+      "crates/ferrum-silicon/src/logger/records/data/method_record.rs": "dce593b69a1f1e189a1357aee06b9e55570c0f1a0d12a8c6e717fd29ac53cee1",
+      "crates/ferrum-silver/tests/upstream/chopper_tests.rs": "83f3a0e66778b9c0e230451f82600454d6aacd4eea3fe87bf11dc3d3bd2df26a",
+      "crates/ferrum-silver/tests/upstream/annotation_based_test_suite_test.rs": "1d86de17c2a6a3d3279b7cb02ad55565eb35a022d869ed874758ed4abb10dae7",
+      "crates/ferrum-silicon/src/logger/records/data/comment_record.rs": "80327e033f94a33e831223ce9dd0a1a78657d85681abc6e8a56b01e34be328c5",
+      "crates/ferrum-silver/tests/upstream/semantic_analysis_tests.rs": "d29e12e4b891eb5c7aeb43a51dea7d5ced9da528b1393a3d1a5eb2cbe8482d99",
+      "crates/ferrum-silver/tests/upstream/parse_tree_tests.rs": "e565258db9f10ee9e9964045894049650ce3367609394bfa242512e9d415c2b5",
+      "crates/ferrum-silver/tests/upstream/regex_tests.rs": "67f3068fecff738399e34ebaf995850f244e6b43784853766a00bcd0365100cc",
+      "crates/ferrum-silver/tests/upstream/test_input.rs": "b98d5dd4686451ca60f7e7700060fed46135da0801ba32fe669924204bb423a5",
+      "crates/ferrum-silver/tests/upstream/consistency_tests.rs": "030a2b9ab6987b5c6929c50fd6c43df12aa6343c3047d030e10f9184aa248956",
+      "crates/ferrum-silver/tests/upstream/rewriter_tests.rs": "c5834a42c60a6409527e8c3f75dcb6c89ed542161bcb3a5fd0e18caabc66c683",
+      "crates/ferrum-silver/tests/upstream/io_tests.rs": "909df496efa889e996bb61853359383ae1257e5c43d32f6e7fb0124c6eeabec8",
+      "crates/ferrum-silicon/src/logger/records/data/conditional_edge_record.rs": "8d4a95ca76771906c1b2365ee5f0452f94939141fe4cb6f63a58f6cfeb6c8a54",
+      "crates/ferrum-silicon/src/logger/records/mod.rs": "aadf58042bf21e2f2292ace50906d9c9dbf5f7178efbb5bb7270b340b6625323",
+      "crates/ferrum-silicon/src/logger/records/symbolic_record.rs": "2e5ddf31ab65c33fab19a273d72ba055b211261a559560366a51366f97cd1ad1",
+      "crates/ferrum-silicon/src/logger/records/data/member_record.rs": "9dd6acd125fd1787f033450dcd37f7d1a6459a061dca202626055fab03195a08",
+      "crates/ferrum-silicon/src/logger/records/data/predicate_record.rs": "98706e5fd0e08200c87c1d2685ac755b78f09c7431d5098f5c189dc0ea73a901",
+      "crates/ferrum-silicon/src/logger/records/data/decider_assume_record.rs": "43e3978e538a178b28f6c33984e97ef111f6913cb3296ca6e4dbebad69043fbc",
+      "crates/ferrum-silicon/src/logger/records/data/function_record.rs": "b6798840676bc70f85cf990d81fa58bb299c1cce2f6b593adc29f11b1c761b25",
+      "crates/ferrum-silver/src/cfg/cfg.rs": "c88bb1090e70c33418e2be2407211529d433f896b77493b7472f3e5ea9b3954f",
+      "crates/ferrum-silver/src/logger/mod.rs": "4bfd1b9557015bbafb9fec177cccf93ace5bad497fbda8fa0f74cb456d3e5226",
+      "crates/ferrum-silver/src/logger/viper_logger.rs": "f4e410143728e3cee0915f9f1799861a25e257f640f1ef86f576972e01488da7",
+      "crates/ferrum-silver/src/cfg/silver/mod.rs": "da8c5e803411f4c495893dba1723f2562f87069a0e724fd6e324bdda3f644888",
+      "crates/ferrum-silver/src/cfg/silver/silver_cfg.rs": "e5fcb72194e819d867a44d1d475d71f4f46a793f0db7a19356b3d184a8f2b0df",
+      "crates/ferrum-silver/src/cfg/silver/cfg_generator.rs": "09691cbcae125694aaa2c12d5456cd432d40b6c31ef04700b8f90f600113bd15",
+      "crates/ferrum-silver/src/cfg/mod.rs": "81904703850b96fe0046334a656324b01520052531c5c9a4c9a729658f46038a",
+      "crates/ferrum-silver/src/cfg/block.rs": "6cb1249fc7940948d154906d2db2f79c09111eca05bb8e07a4675a28cf8aa4cd",
+      "crates/ferrum-silver/src/cfg/cfg_test.rs": "88c31007be0ed7069d6e8350cf5c8fd129a0b0bb5b9aa13ca5776d123c065785",
+      "crates/ferrum-silver/src/ast/statement.rs": "3cf7efe8eecf025bce1d1e801fdaf8d8140d691bd4e60658997e15f497598b9b",
+      "crates/ferrum-silver/src/ast/position.rs": "2063a8f3dd020482cd71b2cf19601930e304fe7fcc7ea466c2e293e700a3bf62",
+      "crates/ferrum-silicon/src/common/io/mod.rs": "2063324221053dc5514dadc7fbac6500491b833a9a1a4fc07b9ce1d16dcaab8c",
+      "crates/ferrum-silicon/src/common/io/package.rs": "209d56c3b7eca582d53a1b49c8710a946247af54ade832e59af72588b8690520",
+      "crates/ferrum-silicon/src/common/package.rs": "2fe33c59b92643364c781122a36d7731b7ca8c7b610d969bbd8c847a97e44fde",
+      "crates/ferrum-silicon/src/config.rs": "ed1045222d40240b8172ff8f24e115f6cb64ecd4d317af792d247e4248cf8b00",
+      "crates/ferrum-silicon/src/common/config/package.rs": "f4e72ffff7d389b97841a6626fba3b4dcf285843d869e65532b2d58e1173ea1a",
+      "crates/ferrum-silicon/src/common/config/mod.rs": "9d16b4ac29fcd48c89a2e5d0715cf244e000c706c2f6af4bb63aa89eb55f6fe0",
+      "crates/ferrum-silver/src/cfg/edge.rs": "79c425d3c857d24f10e6e38c37a69ac5c0468067ea6d70d66f4ac01adb7f99c7",
+      "crates/ferrum-silver/src/verifier/mod.rs": "1c8c101e357243ce2a8f3bec41f3b9864b7ced0b156703898e354e5e1dc73bae",
+      "crates/ferrum-silver/src/verifier/verifier.rs": "53e2d7c88c707dc30153305dc2549521e714f9dad968582eedd820ad3310ea80",
+      "crates/ferrum-silver/src/verifier/verification_result.rs": "440b2893dc7516ce7f60ef25b408a7a1625f84967804fad1cf3fc0f1ff8ee6af",
+      "crates/ferrum-silver/src/verifier/counterexample.rs": "228eaa543fc6d2cf2378c7fbd0cd1943f7959efd2f3ee8da4a0577939b3973a9",
+      "crates/ferrum-silver/src/verifier/model_parser.rs": "b26b4611dee083e26acf60fec89055aa1714ae0f74320a365dfd47ecac960dbf",
+      "crates/ferrum-silver/src/verifier/verification_error.rs": "07402ae2d17bf2af9d72a238696c2cdd483eebb732369bcf2118866f704f181a",
+      "crates/ferrum-silicon/src/logger/records/scoping/open_scope_record.rs": "206645d76a0dcfe216cca3194649cdf05ab7feaa657cdaeef2272b085a7b4691",
+      "crates/ferrum-silicon/src/logger/records/scoping/mod.rs": "93190500cabf624881963675c12a2f07926c6a4ff31400e12a2d3e920e0a6694",
+      "crates/ferrum-silicon/src/logger/records/scoping/close_scope_record.rs": "ec5cc5f465237ddf49ca7e11e3d84e2f5a8c53cfcb63c34f78fd5e9553729f82",
+      "crates/ferrum-silicon/src/logger/records/scoping/scoping_record.rs": "1e8dd0c6351edc5c1745b95fb93edbe214e93d835843e98d2465e9374326d2d1",
+      "crates/ferrum-silver/src/cfg/utility/cfg_simplifier.rs": "6bb0e03cac4e4d328fb286931ae1c8032464a2298aea0febcfa84fcc39895323",
+      "crates/ferrum-silver/src/cfg/utility/mod.rs": "53d3efcb07f3f28855a00e31f13b618077424bc8a4217810166fdb8699074f08",
+      "crates/ferrum-silver/src/cfg/utility/loop_detector.rs": "96ff1c1bc6f38f971a86b5d4a59f6adb110fd7c8f1a2244b1b090c97301d5e92",
+      "crates/ferrum-silver/src/cfg/utility/dominators.rs": "31f13ef5002ce5f335beecad84ed9408ef193055cba6ed59907017fa1fe05cd6",
+      "crates/ferrum-silver/src/ast/utility/chopper/chopper.rs": "d78015147053275ab9dfc55f52dc8571d446ba9c31cd205aeffa862e938cd9fc",
+      "crates/ferrum-silver/src/ast/utility/chopper/mod.rs": "b25102b18d76e5e61e2a7d473500871321fbe34783ad74484492511b198e567d"
+    }
+  },
+  "standalone": {
+    "allocation-append-separate": {
+      "manifest": {
+        "case": "append",
+        "input": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+        "input_sha256": "12c6fc8389c13ee35fc6c09e0ab3759fe259940702748d0b3928e295e3822528",
+        "binary_sha256": "55312fda1a6b4172f377da58fd75b9e6ae3c232b1160fcbcba7b3df1a72ba5f6",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "99f35414eadd7f636195bfb0bd7754afb8c503f83b4b590988b94d559cfb4f32",
+        "command": [
+          "taskset",
+          "-c",
+          "8-11",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-append-separate/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--separateMethodSolver",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr"
+        ],
+        "started": 1793418451.6803842,
+        "load": [
+          10.02685546875,
+          7.9658203125,
+          5.85693359375
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "8-11",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-append-separate/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--separateMethodSolver",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr"
+        ],
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 5.743230177031364,
+        "records": [
+          {
+            "backend_warnings": [],
+            "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+            "configuration_warnings": [],
+            "errors": [
+              {
+                "id": "fold.failed:assertion.false",
+                "message": "Folding List(this) might fail. Assertion (forall i: Int ::\n  { this.nodes[i].next }\n  0 <= i && i < |this.nodes| ==>\n  (this.nodes[i] in this.nodes) &&\n  (i < |this.nodes| - 1 ?\n    this.nodes[i].next == this.nodes[i + 1] :\n    this.nodes[i].next == null)) might not hold. (linked-list-qp-append.vpr@60.2--60.22)\n",
+                "position": "linked-list-qp-append.vpr@60.2--60.22"
+              }
+            ],
+            "outcome": "failure",
+            "phase": "verification",
+            "warnings": []
+          }
+        ],
+        "raw_output": "@@COMPAT@@{\"backend_warnings\":[],\"case\":\"/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr\",\"configuration_warnings\":[],\"errors\":[{\"id\":\"fold.failed:assertion.false\",\"message\":\"Folding List(this) might fail. Assertion (forall i: Int ::\\n  { this.nodes[i].next }\\n  0 <= i && i < |this.nodes| ==>\\n  (this.nodes[i] in this.nodes) &&\\n  (i < |this.nodes| - 1 ?\\n    this.nodes[i].next == this.nodes[i + 1] :\\n    this.nodes[i].next == null)) might not hold. (linked-list-qp-append.vpr@60.2--60.22)\\n\",\"position\":\"linked-list-qp-append.vpr@60.2--60.22\"}],\"outcome\":\"failure\",\"phase\":\"verification\",\"warnings\":[]}\n"
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/allocation-append-separate/streams/1556705-357370718198567",
+          "issues": [],
+          "input_sha256": "b6660012157cd8b92e1596fbf945192a65875defc7998ae574732af98cecc6fb",
+          "output_sha256": "c9c568864f0f20fe97754de328cc27b2da3704377e2cbbd1db5682ba8e1884fd",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 303,
+            "declare-datatypes": 1,
+            "declare-sort": 13,
+            "declare-const": 165,
+            "declare-fun": 158,
+            "assert": 1778,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 12,
+            "check-sat": 210,
+            "push": 344,
+            "pop": 343
+          },
+          "response_count": 3331
+        },
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/allocation-append-separate/streams/1556728-357371070449669",
+          "issues": [],
+          "input_sha256": "be754a4fe9ba4296596654352204c2b77b0e53edf6f51caff786078ac7b9ea26",
+          "output_sha256": "7a2a726ee6f42547406131a4b44c65962506fdddae0bbc299e60e39733e4460d",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 19,
+            "declare-datatypes": 1,
+            "declare-sort": 13,
+            "declare-const": 31,
+            "declare-fun": 157,
+            "assert": 516,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 51,
+            "push": 149,
+            "pop": 149
+          },
+          "response_count": 1094
+        }
+      ]
+    },
+    "trigger-append-separate": {
+      "manifest": {
+        "case": "append",
+        "input": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+        "input_sha256": "12c6fc8389c13ee35fc6c09e0ab3759fe259940702748d0b3928e295e3822528",
+        "binary_sha256": "52199a798f9ccfb66059058c63d3f36a7f4489fac77ae32704d852e42b14b0e3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "e4742567318243f0341b1dee31e8e3b1affface6ebe567ce1c6f73d3a6e7557f",
+        "command": [
+          "taskset",
+          "-c",
+          "4-7",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-append-separate/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--separateMethodSolver",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr"
+        ],
+        "started": 1793418225.5487971,
+        "load": [
+          2.490234375,
+          4.65673828125,
+          4.40673828125
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "4-7",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-append-separate/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--separateMethodSolver",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr"
+        ],
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 1.4263903429964557,
+        "records": [
+          {
+            "backend_warnings": [],
+            "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+            "configuration_warnings": [],
+            "errors": [],
+            "outcome": "verified",
+            "phase": "verification",
+            "warnings": []
+          }
+        ],
+        "raw_output": "@@COMPAT@@{\"backend_warnings\":[],\"case\":\"/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr\",\"configuration_warnings\":[],\"errors\":[],\"outcome\":\"verified\",\"phase\":\"verification\",\"warnings\":[]}\n"
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/trigger-append-separate/streams/1508185-357144200128585",
+          "issues": [],
+          "input_sha256": "b94326c6cce8eda0d4a13c19ea7fd0d3b6129bd393357e621b2fb0fc7faf3d0e",
+          "output_sha256": "79fad748f68510c29058179b67f814baf424a982b4bac50c116e9ffcd5c65c02",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 83,
+            "declare-datatypes": 1,
+            "declare-sort": 13,
+            "declare-const": 68,
+            "declare-fun": 164,
+            "assert": 796,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 14,
+            "check-sat": 107,
+            "push": 270,
+            "pop": 269
+          },
+          "response_count": 1789
+        },
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/trigger-append-separate/streams/1508198-357144252808838",
+          "issues": [],
+          "input_sha256": "d3de835240b6966fa48b20c7fdd696c23a31efcc5e94eb1d89a61cc84f7f8adf",
+          "output_sha256": "7a2a726ee6f42547406131a4b44c65962506fdddae0bbc299e60e39733e4460d",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 19,
+            "declare-datatypes": 1,
+            "declare-sort": 13,
+            "declare-const": 31,
+            "declare-fun": 157,
+            "assert": 516,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 51,
+            "push": 149,
+            "pop": 149
+          },
+          "response_count": 1094
+        }
+      ]
+    },
+    "trigger-append-default": {
+      "manifest": {
+        "case": "append",
+        "input": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+        "input_sha256": "12c6fc8389c13ee35fc6c09e0ab3759fe259940702748d0b3928e295e3822528",
+        "binary_sha256": "52199a798f9ccfb66059058c63d3f36a7f4489fac77ae32704d852e42b14b0e3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "e4742567318243f0341b1dee31e8e3b1affface6ebe567ce1c6f73d3a6e7557f",
+        "command": [
+          "taskset",
+          "-c",
+          "0-3",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-append-default/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr"
+        ],
+        "started": 1793418225.597623,
+        "load": [
+          2.490234375,
+          4.65673828125,
+          4.40673828125
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "0-3",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-append-default/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr"
+        ],
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 30.21430563501781,
+        "records": [
+          {
+            "backend_warnings": [
+              "timeout verification terminated: Cleanup(Service(Cleanup(Service(Cleanup(Context(Decider(Prover(SourceProtocol { prover_id: \"main\", message: \"Interaction with prover yielded null. This might indicate that the prover crashed.\" }))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))",
+              "timeout cleanup failed: Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))"
+            ],
+            "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+            "configuration_warnings": [],
+            "errors": [
+              {
+                "id": "timeout.error",
+                "message": "Timeout occurred after 30 second(s)",
+                "position": "<no position>"
+              }
+            ],
+            "outcome": "verifier_timeout",
+            "phase": "verification",
+            "warnings": []
+          }
+        ],
+        "raw_output": "An exception was thrown while verifying method `append`.\n@@COMPAT@@{\"backend_warnings\":[\"timeout verification terminated: Cleanup(Service(Cleanup(Service(Cleanup(Context(Decider(Prover(SourceProtocol { prover_id: \\\"main\\\", message: \\\"Interaction with prover yielded null. This might indicate that the prover crashed.\\\" }))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))\",\"timeout cleanup failed: Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))\"],\"case\":\"/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr\",\"configuration_warnings\":[],\"errors\":[{\"id\":\"timeout.error\",\"message\":\"Timeout occurred after 30 second(s)\",\"position\":\"<no position>\"}],\"outcome\":\"failure\",\"phase\":\"verification\",\"warnings\":[]}\n"
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/trigger-append-default/streams/1508196-357144225790161",
+          "issues": [
+            "Missing response to command 1628 check-sat"
+          ],
+          "input_sha256": "add6b2ca2bb8936f09c92ee168a7730559bbfb45f4029782f303a8ea0b9f552f",
+          "output_sha256": "7d0a6afc35b73f359766a2aef2434e4c371af0eef48b41be8939b0f770f43556",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 47,
+            "declare-datatypes": 1,
+            "declare-sort": 13,
+            "declare-const": 60,
+            "declare-fun": 161,
+            "assert": 714,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 7,
+            "check-sat": 94,
+            "push": 266,
+            "pop": 262
+          },
+          "response_count": 1628
+        }
+      ]
+    },
+    "trigger-append-cache": {
+      "manifest": {
+        "case": "append",
+        "input": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+        "input_sha256": "12c6fc8389c13ee35fc6c09e0ab3759fe259940702748d0b3928e295e3822528",
+        "binary_sha256": "52199a798f9ccfb66059058c63d3f36a7f4489fac77ae32704d852e42b14b0e3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "e4742567318243f0341b1dee31e8e3b1affface6ebe567ce1c6f73d3a6e7557f",
+        "command": [
+          "taskset",
+          "-c",
+          "8-11",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-append-cache/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--separateMethodSolver",
+          "--disableCaches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr"
+        ],
+        "started": 1793418273.1455977,
+        "load": [
+          7.01025390625,
+          5.43408203125,
+          4.6787109375
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "8-11",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-append-cache/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--separateMethodSolver",
+          "--disableCaches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr"
+        ],
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 31.47450154100079,
+        "records": [
+          {
+            "backend_warnings": [
+              "timeout verification terminated: Worker(Worker(Cleanup(Service(Cleanup(Service(Cleanup(Context(Decider(Prover(SourceProtocol { prover_id: \"worker_0\", message: \"Interaction with prover yielded null. This might indicate that the prover crashed.\" }))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))",
+              "timeout cleanup failed: [Worker(Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" }))))]"
+            ],
+            "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+            "configuration_warnings": [],
+            "errors": [
+              {
+                "id": "timeout.error",
+                "message": "Timeout occurred after 30 second(s)",
+                "position": "<no position>"
+              }
+            ],
+            "outcome": "verifier_timeout",
+            "phase": "verification",
+            "warnings": []
+          }
+        ],
+        "raw_output": "An exception was thrown while verifying method `append`.\n@@COMPAT@@{\"backend_warnings\":[\"timeout verification terminated: Worker(Worker(Cleanup(Service(Cleanup(Service(Cleanup(Context(Decider(Prover(SourceProtocol { prover_id: \\\"worker_0\\\", message: \\\"Interaction with prover yielded null. This might indicate that the prover crashed.\\\" }))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))\",\"timeout cleanup failed: [Worker(Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" }))))]\"],\"case\":\"/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr\",\"configuration_warnings\":[],\"errors\":[{\"id\":\"timeout.error\",\"message\":\"Timeout occurred after 30 second(s)\",\"position\":\"<no position>\"}],\"outcome\":\"failure\",\"phase\":\"verification\",\"warnings\":[]}\n"
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/trigger-append-cache/streams/1517001-357192180952004",
+          "issues": [
+            "Missing response to command 972 check-sat"
+          ],
+          "input_sha256": "b046852bd2188b316c8e71ce840cdcdebd7dba9d377b8c1d901477bbb738c0d7",
+          "output_sha256": "98c771ce950bcba2d2aacb7112abdcd6dbd9be74ee6fee4a853a48ddb847c158",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 43,
+            "declare-datatypes": 1,
+            "declare-sort": 13,
+            "declare-const": 40,
+            "declare-fun": 150,
+            "assert": 440,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 7,
+            "check-sat": 44,
+            "push": 118,
+            "pop": 113
+          },
+          "response_count": 972
+        },
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/trigger-append-cache/streams/1517096-357192575783102",
+          "issues": [],
+          "input_sha256": "28f60f389ee55f1f0dba57e3183657de1233842fee9c86212f7fee8f27a02cb5",
+          "output_sha256": "1608ac1d0a848f592b547c39f508aa261fa957329adff60633c70c59934ccf53",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 19,
+            "declare-datatypes": 1,
+            "declare-sort": 13,
+            "declare-const": 30,
+            "declare-fun": 155,
+            "assert": 500,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 51,
+            "push": 149,
+            "pop": 149
+          },
+          "response_count": 1075
+        }
+      ]
+    },
+    "trigger-append-old-cache": {
+      "manifest": {
+        "case": "append",
+        "input": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+        "input_sha256": "12c6fc8389c13ee35fc6c09e0ab3759fe259940702748d0b3928e295e3822528",
+        "binary_sha256": "52199a798f9ccfb66059058c63d3f36a7f4489fac77ae32704d852e42b14b0e3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "99f35414eadd7f636195bfb0bd7754afb8c503f83b4b590988b94d559cfb4f32",
+        "command": [
+          "taskset",
+          "-c",
+          "0-3",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-append-old-cache/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--separateMethodSolver",
+          "--disableCaches=false",
+          "--snapshotSummaryOnlyTriggers=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr"
+        ],
+        "started": 1793418337.1922243,
+        "load": [
+          15.04736328125,
+          8.1396484375,
+          5.66357421875
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "0-3",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-append-old-cache/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--separateMethodSolver",
+          "--disableCaches=false",
+          "--snapshotSummaryOnlyTriggers=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr"
+        ],
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 30.375203691015486,
+        "records": [
+          {
+            "backend_warnings": [
+              "timeout verification terminated: Worker(Worker(Cleanup(Service(Cleanup(Service(Cleanup(Context(Decider(Prover(SourceProtocol { prover_id: \"worker_0\", message: \"Interaction with prover yielded null. This might indicate that the prover crashed.\" }))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))",
+              "timeout cleanup failed: [Worker(Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" }))))]"
+            ],
+            "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+            "configuration_warnings": [],
+            "errors": [
+              {
+                "id": "timeout.error",
+                "message": "Timeout occurred after 30 second(s)",
+                "position": "<no position>"
+              }
+            ],
+            "outcome": "verifier_timeout",
+            "phase": "verification",
+            "warnings": []
+          }
+        ],
+        "raw_output": "An exception was thrown while verifying method `append`.\n@@COMPAT@@{\"backend_warnings\":[\"timeout verification terminated: Worker(Worker(Cleanup(Service(Cleanup(Service(Cleanup(Context(Decider(Prover(SourceProtocol { prover_id: \\\"worker_0\\\", message: \\\"Interaction with prover yielded null. This might indicate that the prover crashed.\\\" }))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))\",\"timeout cleanup failed: [Worker(Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" }))))]\"],\"case\":\"/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr\",\"configuration_warnings\":[],\"errors\":[{\"id\":\"timeout.error\",\"message\":\"Timeout occurred after 30 second(s)\",\"position\":\"<no position>\"}],\"outcome\":\"failure\",\"phase\":\"verification\",\"warnings\":[]}\n"
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/trigger-append-old-cache/streams/1529752-357255874609065",
+          "issues": [
+            "Missing response to command 972 check-sat"
+          ],
+          "input_sha256": "b046852bd2188b316c8e71ce840cdcdebd7dba9d377b8c1d901477bbb738c0d7",
+          "output_sha256": "98c771ce950bcba2d2aacb7112abdcd6dbd9be74ee6fee4a853a48ddb847c158",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 43,
+            "declare-datatypes": 1,
+            "declare-sort": 13,
+            "declare-const": 40,
+            "declare-fun": 150,
+            "assert": 440,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 7,
+            "check-sat": 44,
+            "push": 118,
+            "pop": 113
+          },
+          "response_count": 972
+        },
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/trigger-append-old-cache/streams/1529813-357255941748623",
+          "issues": [],
+          "input_sha256": "28f60f389ee55f1f0dba57e3183657de1233842fee9c86212f7fee8f27a02cb5",
+          "output_sha256": "1608ac1d0a848f592b547c39f508aa261fa957329adff60633c70c59934ccf53",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 19,
+            "declare-datatypes": 1,
+            "declare-sort": 13,
+            "declare-const": 30,
+            "declare-fun": 155,
+            "assert": 500,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 51,
+            "push": 149,
+            "pop": 149
+          },
+          "response_count": 1075
+        }
+      ]
+    },
+    "trigger-append-wrong": {
+      "manifest": {
+        "case": "/tmp/ferrum-order-trigger-fix/append-wrong.vpr",
+        "input": "/tmp/ferrum-order-trigger-fix/append-wrong.vpr",
+        "input_sha256": "d6d40289141490a4735632db6a977409b62476b829d458618a240f4053855157",
+        "binary_sha256": "52199a798f9ccfb66059058c63d3f36a7f4489fac77ae32704d852e42b14b0e3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "e4742567318243f0341b1dee31e8e3b1affface6ebe567ce1c6f73d3a6e7557f",
+        "command": [
+          "taskset",
+          "-c",
+          "0-3",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-append-wrong/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--separateMethodSolver",
+          "--disableCaches=false",
+          "--",
+          "/tmp/ferrum-order-trigger-fix/append-wrong.vpr"
+        ],
+        "started": 1793418273.2874231,
+        "load": [
+          7.01025390625,
+          5.43408203125,
+          4.6787109375
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "0-3",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-append-wrong/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--separateMethodSolver",
+          "--disableCaches=false",
+          "--",
+          "/tmp/ferrum-order-trigger-fix/append-wrong.vpr"
+        ],
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 30.832975940022152,
+        "records": [
+          {
+            "backend_warnings": [
+              "timeout verification terminated: Worker(Worker(Cleanup(Service(Cleanup(Service(Cleanup(Context(Decider(Prover(SourceProtocol { prover_id: \"worker_0\", message: \"Interaction with prover yielded null. This might indicate that the prover crashed.\" }))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))",
+              "timeout cleanup failed: [Worker(Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" }))))]"
+            ],
+            "case": "/tmp/ferrum-order-trigger-fix/append-wrong.vpr",
+            "configuration_warnings": [],
+            "errors": [
+              {
+                "id": "timeout.error",
+                "message": "Timeout occurred after 30 second(s)",
+                "position": "<no position>"
+              }
+            ],
+            "outcome": "verifier_timeout",
+            "phase": "verification",
+            "warnings": []
+          }
+        ],
+        "raw_output": "An exception was thrown while verifying method `append`.\n@@COMPAT@@{\"backend_warnings\":[\"timeout verification terminated: Worker(Worker(Cleanup(Service(Cleanup(Service(Cleanup(Context(Decider(Prover(SourceProtocol { prover_id: \\\"worker_0\\\", message: \\\"Interaction with prover yielded null. This might indicate that the prover crashed.\\\" }))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))\",\"timeout cleanup failed: [Worker(Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" }))))]\"],\"case\":\"/tmp/ferrum-order-trigger-fix/append-wrong.vpr\",\"configuration_warnings\":[],\"errors\":[{\"id\":\"timeout.error\",\"message\":\"Timeout occurred after 30 second(s)\",\"position\":\"<no position>\"}],\"outcome\":\"failure\",\"phase\":\"verification\",\"warnings\":[]}\n"
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/trigger-append-wrong/streams/1517027-357192329277121",
+          "issues": [
+            "Missing response to command 974 check-sat"
+          ],
+          "input_sha256": "f1d872b5d988023cc8755eb5e6b289ef4cc0ddd0176f9e14dd23708aec43eb5e",
+          "output_sha256": "4de1cf2545ddfe4a35f282f968d2b393b29a4f0ed60ffd508ae12572856a5360",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 43,
+            "declare-datatypes": 1,
+            "declare-sort": 13,
+            "declare-const": 41,
+            "declare-fun": 150,
+            "assert": 441,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 7,
+            "check-sat": 44,
+            "push": 118,
+            "pop": 113
+          },
+          "response_count": 974
+        },
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/trigger-append-wrong/streams/1517121-357192542226481",
+          "issues": [],
+          "input_sha256": "4f48ad69b3e4c562f2476bb2bf209a1499ae11610a4d01ff0797b816a2d00cd2",
+          "output_sha256": "1608ac1d0a848f592b547c39f508aa261fa957329adff60633c70c59934ccf53",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 19,
+            "declare-datatypes": 1,
+            "declare-sort": 13,
+            "declare-const": 30,
+            "declare-fun": 155,
+            "assert": 500,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 51,
+            "push": 149,
+            "pop": 149
+          },
+          "response_count": 1075
+        }
+      ]
+    },
+    "trigger-append-wrong-nocache": {
+      "manifest": {
+        "case": "/tmp/ferrum-order-trigger-fix/append-wrong.vpr",
+        "input": "/tmp/ferrum-order-trigger-fix/append-wrong.vpr",
+        "input_sha256": "d6d40289141490a4735632db6a977409b62476b829d458618a240f4053855157",
+        "binary_sha256": "52199a798f9ccfb66059058c63d3f36a7f4489fac77ae32704d852e42b14b0e3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "99f35414eadd7f636195bfb0bd7754afb8c503f83b4b590988b94d559cfb4f32",
+        "command": [
+          "taskset",
+          "-c",
+          "8-11",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-append-wrong-nocache/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--separateMethodSolver",
+          "--",
+          "/tmp/ferrum-order-trigger-fix/append-wrong.vpr"
+        ],
+        "started": 1793418337.1818678,
+        "load": [
+          15.04736328125,
+          8.1396484375,
+          5.66357421875
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "8-11",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-append-wrong-nocache/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--separateMethodSolver",
+          "--",
+          "/tmp/ferrum-order-trigger-fix/append-wrong.vpr"
+        ],
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 2.686802954005543,
+        "records": [
+          {
+            "backend_warnings": [],
+            "case": "/tmp/ferrum-order-trigger-fix/append-wrong.vpr",
+            "configuration_warnings": [],
+            "errors": [
+              {
+                "id": "postcondition.violated:assertion.false",
+                "message": "Postcondition of append might not hold. Assertion itemAt(this, length(this) - 1) == elem might not hold. (append-wrong.vpr@42.11--42.49)\n",
+                "position": "append-wrong.vpr@42.11--42.49"
+              }
+            ],
+            "outcome": "failure",
+            "phase": "verification",
+            "warnings": []
+          }
+        ],
+        "raw_output": "@@COMPAT@@{\"backend_warnings\":[],\"case\":\"/tmp/ferrum-order-trigger-fix/append-wrong.vpr\",\"configuration_warnings\":[],\"errors\":[{\"id\":\"postcondition.violated:assertion.false\",\"message\":\"Postcondition of append might not hold. Assertion itemAt(this, length(this) - 1) == elem might not hold. (append-wrong.vpr@42.11--42.49)\\n\",\"position\":\"append-wrong.vpr@42.11--42.49\"}],\"outcome\":\"failure\",\"phase\":\"verification\",\"warnings\":[]}\n"
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/trigger-append-wrong-nocache/streams/1529750-357255902612057",
+          "issues": [],
+          "input_sha256": "2802e4448b3d7cece4d2a5261393fc17828cdf8ebb64e11a773da2c3988f179d",
+          "output_sha256": "bbd15fd567fd5b66c6b4c9ab2ec526c6070374aacae7c144e18ab874ea9f487a",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 67,
+            "declare-datatypes": 1,
+            "declare-sort": 13,
+            "declare-const": 53,
+            "declare-fun": 158,
+            "assert": 624,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 12,
+            "check-sat": 81,
+            "push": 190,
+            "pop": 189
+          },
+          "response_count": 1392
+        },
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/trigger-append-wrong-nocache/streams/1529820-357256008324820",
+          "issues": [],
+          "input_sha256": "861a9c5d768aad9c732a4c8bdf142fac8537a4334719ff95e5de4b2def02aedc",
+          "output_sha256": "7a2a726ee6f42547406131a4b44c65962506fdddae0bbc299e60e39733e4460d",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 19,
+            "declare-datatypes": 1,
+            "declare-sort": 13,
+            "declare-const": 31,
+            "declare-fun": 157,
+            "assert": 516,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 51,
+            "push": 149,
+            "pop": 149
+          },
+          "response_count": 1094
+        }
+      ]
+    },
+    "trigger-graph": {
+      "manifest": {
+        "case": "graph",
+        "input": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+        "input_sha256": "54173914a5789a79c2b3022e2e9f9d9dfb598b046dfb25a426f4047352dc1894",
+        "binary_sha256": "52199a798f9ccfb66059058c63d3f36a7f4489fac77ae32704d852e42b14b0e3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "e4742567318243f0341b1dee31e8e3b1affface6ebe567ce1c6f73d3a6e7557f",
+        "command": [
+          "taskset",
+          "-c",
+          "8-11",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-graph/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr"
+        ],
+        "started": 1793418225.54182,
+        "load": [
+          2.490234375,
+          4.65673828125,
+          4.40673828125
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "8-11",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-graph/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr"
+        ],
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 30.174646012019366,
+        "records": [
+          {
+            "backend_warnings": [
+              "timeout verification terminated: Cleanup(Service(Cleanup(Service(Cleanup(callback: Service(Decider(Prover(SourceProtocol { prover_id: \"main\", message: \"Interaction with prover yielded null. This might indicate that the prover crashed.\" }))); adapter: Context(Cleanup(Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))",
+              "timeout cleanup failed: Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \"Broken pipe\" })))"
+            ],
+            "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+            "configuration_warnings": [],
+            "errors": [
+              {
+                "id": "timeout.error",
+                "message": "Timeout occurred after 30 second(s)",
+                "position": "<no position>"
+              }
+            ],
+            "outcome": "verifier_timeout",
+            "phase": "verification",
+            "warnings": []
+          }
+        ],
+        "raw_output": "An exception was thrown while verifying method `trav_rec`.\n@@COMPAT@@{\"backend_warnings\":[\"timeout verification terminated: Cleanup(Service(Cleanup(Service(Cleanup(callback: Service(Decider(Prover(SourceProtocol { prover_id: \\\"main\\\", message: \\\"Interaction with prover yielded null. This might indicate that the prover crashed.\\\" }))); adapter: Context(Cleanup(Context(Cleanup(Context(ContinuationAbort); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))); cleanup: Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))\",\"timeout cleanup failed: Decider(Prover(Io(Os { code: 32, kind: BrokenPipe, message: \\\"Broken pipe\\\" })))\"],\"case\":\"/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr\",\"configuration_warnings\":[],\"errors\":[{\"id\":\"timeout.error\",\"message\":\"Timeout occurred after 30 second(s)\",\"position\":\"<no position>\"}],\"outcome\":\"failure\",\"phase\":\"verification\",\"warnings\":[]}\n"
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/trigger-graph/streams/1508178-357144178175195",
+          "issues": [
+            "Missing response to command 2397 check-sat"
+          ],
+          "input_sha256": "abb82996495819c389c9a4504f306940b41e4295ef6990937b709bfad7d60efa",
+          "output_sha256": "cf21ead7790edc499e1d9600d5e2d4832901e9f2e09ffa3ab88831b35309657e",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 71,
+            "declare-datatypes": 1,
+            "declare-sort": 9,
+            "declare-const": 129,
+            "declare-fun": 112,
+            "assert": 1087,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 15,
+            "check-sat": 153,
+            "push": 411,
+            "pop": 406
+          },
+          "response_count": 2397
+        }
+      ]
+    },
+    "allocation-quickselect": {
+      "manifest": {
+        "case": "quickselect",
+        "input": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+        "input_sha256": "bbe165e4ec1039e40caf42e3fb74f251eb25971d1de49605629d1ebf0b6e87c6",
+        "binary_sha256": "55312fda1a6b4172f377da58fd75b9e6ae3c232b1160fcbcba7b3df1a72ba5f6",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "99f35414eadd7f636195bfb0bd7754afb8c503f83b4b590988b94d559cfb4f32",
+        "command": [
+          "taskset",
+          "-c",
+          "4-7",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-quickselect/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr"
+        ],
+        "started": 1793418481.726148,
+        "load": [
+          11.32275390625,
+          8.54296875,
+          6.1201171875
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "4-7",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-quickselect/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr"
+        ],
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 9.726144702988677,
+        "records": [
+          {
+            "backend_warnings": [],
+            "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+            "configuration_warnings": [],
+            "errors": [],
+            "outcome": "verified",
+            "phase": "verification",
+            "warnings": []
+          }
+        ],
+        "raw_output": "@@COMPAT@@{\"backend_warnings\":[],\"case\":\"/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr\",\"configuration_warnings\":[],\"errors\":[],\"outcome\":\"verified\",\"phase\":\"verification\",\"warnings\":[]}\n"
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/allocation-quickselect/streams/1562141-357400425729074",
+          "issues": [],
+          "input_sha256": "e76a03121925445ad0ad145e0aef4bf588e9103fe424be68072d58508a9729e8",
+          "output_sha256": "9c85c671dab4c074de21e4f60ade412831a2cc508bec1e65f3ce2fa39cdf2be0",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 383,
+            "declare-datatypes": 1,
+            "declare-sort": 9,
+            "declare-const": 396,
+            "declare-fun": 215,
+            "assert": 3218,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 53,
+            "check-sat": 924,
+            "push": 2148,
+            "pop": 2148
+          },
+          "response_count": 9499
+        }
+      ]
+    },
+    "trigger-quickselect-cpu4": {
+      "manifest": {
+        "case": "quickselect",
+        "input": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+        "input_sha256": "bbe165e4ec1039e40caf42e3fb74f251eb25971d1de49605629d1ebf0b6e87c6",
+        "binary_sha256": "52199a798f9ccfb66059058c63d3f36a7f4489fac77ae32704d852e42b14b0e3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "e4742567318243f0341b1dee31e8e3b1affface6ebe567ce1c6f73d3a6e7557f",
+        "command": [
+          "taskset",
+          "-c",
+          "4-7",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-quickselect-cpu4/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr"
+        ],
+        "started": 1793418250.7161508,
+        "load": [
+          3.62255859375,
+          4.73583984375,
+          4.43896484375
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "4-7",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-quickselect-cpu4/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr"
+        ],
+        "exit_code": 0,
+        "outcome": "completed",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 11.730887164012529,
+        "records": [
+          {
+            "backend_warnings": [],
+            "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+            "configuration_warnings": [],
+            "errors": [],
+            "outcome": "verified",
+            "phase": "verification",
+            "warnings": []
+          }
+        ],
+        "raw_output": "@@COMPAT@@{\"backend_warnings\":[],\"case\":\"/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr\",\"configuration_warnings\":[],\"errors\":[],\"outcome\":\"verified\",\"phase\":\"verification\",\"warnings\":[]}\n"
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/trigger-quickselect-cpu4/streams/1512811-357169912653050",
+          "issues": [],
+          "input_sha256": "e76a03121925445ad0ad145e0aef4bf588e9103fe424be68072d58508a9729e8",
+          "output_sha256": "9c85c671dab4c074de21e4f60ade412831a2cc508bec1e65f3ce2fa39cdf2be0",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 383,
+            "declare-datatypes": 1,
+            "declare-sort": 9,
+            "declare-const": 396,
+            "declare-fun": 215,
+            "assert": 3218,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 53,
+            "check-sat": 924,
+            "push": 2148,
+            "pop": 2148
+          },
+          "response_count": 9499
+        }
+      ]
+    },
+    "trigger-quickselect": {
+      "manifest": {
+        "case": "quickselect",
+        "input": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+        "input_sha256": "bbe165e4ec1039e40caf42e3fb74f251eb25971d1de49605629d1ebf0b6e87c6",
+        "binary_sha256": "52199a798f9ccfb66059058c63d3f36a7f4489fac77ae32704d852e42b14b0e3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "e4742567318243f0341b1dee31e8e3b1affface6ebe567ce1c6f73d3a6e7557f",
+        "command": [
+          "taskset",
+          "-c",
+          "12-15",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-quickselect/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr"
+        ],
+        "started": 1793418225.5487876,
+        "load": [
+          2.490234375,
+          4.65673828125,
+          4.40673828125
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "12-15",
+          "/tmp/ferrum-order-trigger-fix/trigger-compat",
+          "/tmp/ferrum-order-trigger-fix/trigger-quickselect/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--",
+          "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr"
+        ],
+        "exit_code": 1,
+        "outcome": "process_error",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 0.051304341992363334,
+        "records": [],
+        "raw_output": "taskset: failed to set pid 1508180's affinity: Invalid argument\n"
+      },
+      "streams": []
+    },
+    "allocation-nested": {
+      "manifest": {
+        "case": "nested",
+        "input": "/home/will/wk/exp/ferrum/tools/performance/fixtures/mut_element_nested_pass.vpr",
+        "input_sha256": "9fbeab0cc9dc824772c9c5bfa06765a62998ca1141a56151b15f25068e38b3e7",
+        "binary_sha256": "55312fda1a6b4172f377da58fd75b9e6ae3c232b1160fcbcba7b3df1a72ba5f6",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "e4742567318243f0341b1dee31e8e3b1affface6ebe567ce1c6f73d3a6e7557f",
+        "command": [
+          "taskset",
+          "-c",
+          "4-7",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-nested/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--disableCaches=false",
+          "--",
+          "/home/will/wk/exp/ferrum/tools/performance/fixtures/mut_element_nested_pass.vpr"
+        ],
+        "started": 1793418293.1112623,
+        "load": [
+          11.3671875,
+          6.5263671875,
+          5.05419921875
+        ]
+      },
+      "result": {
+        "command": [
+          "taskset",
+          "-c",
+          "4-7",
+          "/tmp/ferrum-order-trigger-fix/allocation-compat",
+          "/tmp/ferrum-order-trigger-fix/allocation-nested/z3-relay",
+          "--timeout",
+          "30",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--disableCaches=false",
+          "--",
+          "/home/will/wk/exp/ferrum/tools/performance/fixtures/mut_element_nested_pass.vpr"
+        ],
+        "exit_code": -9,
+        "outcome": "harness_timeout",
+        "protocol_errors": [],
+        "cleanup_pending": [],
+        "wall_seconds": 65.38317412300967,
+        "records": [],
+        "raw_output": ""
+      },
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-order-trigger-fix/allocation-nested/streams/1520792-357211940047048",
+          "issues": [],
+          "input_sha256": "49dc0c8bb294c248f3651ae4a8d0247116830b40139a371964caf32c31bfb1e7",
+          "output_sha256": "5a9ef28e3f7b9389d32735a12ba0c2f1f619649bf956f60e63c1204df1287531",
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 13,
+            "declare-datatypes": 1,
+            "declare-sort": 3,
+            "declare-const": 2,
+            "declare-fun": 2,
+            "assert": 2,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4
+          },
+          "response_count": 31
+        }
+      ]
+    }
+  },
+  "direct_prusti": {
+    "trigger-prusti-nested": {
+      "result": {
+        "runner_sha256": "798e2b16612f170f031aa1831a2476d816f831eca908156d568ace63504b8fb7",
+        "server_cpu_s": {
+          "user_s": 1.56,
+          "system_s": 0.09,
+          "child_user_s": 0.27,
+          "child_system_s": 0.13
+        },
+        "case": "mut_element_nested_pass",
+        "server": "/tmp/ferrum-order-trigger-fix/trigger-server",
+        "server_sha256": "e94e0f5763e3feb906ed8c9ffeec10842453dcb2210fdfe523d365087949243f",
+        "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+        "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_nested_pass.rs",
+        "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+        "command": [
+          "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+          "--locked",
+          "--offline",
+          "--bin",
+          "mut_element_nested_pass"
+        ],
+        "environment_overrides": {
+          "PRUSTI_VERIFY_MODE": "verify",
+          "PRUSTI_VIPER_BACKEND": "Ferrum",
+          "PRUSTI_CHECK_OVERFLOWS": "true",
+          "PRUSTI_CHECK_PANICS": "true",
+          "PRUSTI_NO_VERIFY_DEPS": "true",
+          "PRUSTI_ENABLE_CACHE": "false",
+          "FERRUM_BENCH_PHASES": "1",
+          "FERRUM_BENCH_INTERNAL_CACHES": "on",
+          "PRUSTI_LOG": "info",
+          "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+          "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false",
+          "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+          "PRUSTI_LOG_DIR": "/tmp/ferrum-order-trigger-fix/trigger-prusti-nested/verifier",
+          "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+          "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+          "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+          "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+          "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-order-trigger-fix/trigger-prusti-nested/smt",
+          "PRUSTI_SERVER_ADDRESS": "127.0.0.1:36901"
+        },
+        "profile": false,
+        "instructions": false,
+        "trace": true,
+        "exit": 0,
+        "timed_out": false,
+        "wall_s": 5.49,
+        "client_user_s": 0.49,
+        "client_system_s": 0.26,
+        "phase_ns": {
+          "Rust to VIR encoding": [
+            340985336
+          ],
+          "VIR conversion": [
+            32142324
+          ],
+          "backend verification": [
+            4358380223
+          ]
+        },
+        "classification": "valid",
+        "dependency_check": {
+          "valid": true,
+          "events": [
+            {
+              "action": "Checking",
+              "package": "stdlib_iterator_spec",
+              "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+            }
+          ]
+        },
+        "timer_complete": true,
+        "client_cleanup": true,
+        "host_before": {
+          "wall_time_unix_ns": 1793418528707344643,
+          "monotonic_ns": 357447269568131,
+          "load_average": [
+            8.7607421875,
+            8.33544921875,
+            6.1796875
+          ],
+          "memory_available": "MemAvailable:   16296212 kB"
+        },
+        "host_after": {
+          "wall_time_unix_ns": 1793418534535470188,
+          "monotonic_ns": 357453097693731,
+          "load_average": [
+            8.29931640625,
+            8.24658203125,
+            6.16259765625
+          ],
+          "memory_available": "MemAvailable:   16010148 kB"
+        },
+        "service_cleanup": {
+          "command": [
+            "taskset",
+            "--cpu-list",
+            "0,1,2,3",
+            "/tmp/ferrum-order-trigger-fix/trigger-server",
+            "--port",
+            "36901"
+          ],
+          "leader_exit": -15,
+          "stopped": true,
+          "cleanup_pending": [],
+          "error": null
+        }
+      },
+      "audit": {
+        "streams": [
+          {
+            "capture": "/tmp/ferrum-order-trigger-fix/trigger-prusti-nested/smt/1572442-357448238733076",
+            "queries": 1111,
+            "input_sha256": "815174c6f969f6d6d03d2f5287c7240ccfb1683381f55232adcb9e675ca93950",
+            "output_sha256": "0f6d03c4c58d15a529194c392d35ead22942c8525730dc4a90b16a53d57bd73e",
+            "commands": {
+              "get-info": 1,
+              "set-option": 2230,
+              "declare-datatypes": 1,
+              "declare-sort": 48,
+              "declare-const": 573,
+              "declare-fun": 506,
+              "assert": 3951,
+              "define-sort": 1,
+              "define-const": 2,
+              "define-fun": 60,
+              "check-sat": 1111,
+              "push": 2774,
+              "pop": 2774
+            },
+            "replay": {
+              "command": [
+                "taskset",
+                "--cpu-list",
+                "0,1,2,3",
+                "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+                "-smt2",
+                "-in"
+              ],
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_s": 4.967794694995973,
+              "user_cpu_s": 4.907297,
+              "system_cpu_s": 0.053992,
+              "input_sha256": "af686410a56989fa6e6db402ceb876695576dd36c613810aec2670d58418b239",
+              "stdout_sha256": "ee98b58739d49e78418cdcb6520a387b178bb38f454663839a1fcfa781802625",
+              "statistics": {
+                "added-eqs": "574521",
+                "arith-eq-adapter": "60875",
+                "arith-assume-eqs": "1512",
+                "arith-bound-propagations-lp": "10583",
+                "arith-conflicts": "1054",
+                "arith-diseq": "7522",
+                "arith-fixed-eqs": "29603",
+                "arith-lower": "57352",
+                "arith-make-feasible": "23154",
+                "arith-max-columns": "584",
+                "arith-max-rows": "281",
+                "arith-offset-eqs": "5346",
+                "arith-upper": "68230",
+                "conflicts": "12823",
+                "datatype-accessor-ax": "13901",
+                "datatype-constructor-ax": "62523",
+                "datatype-occurs-check": "47152",
+                "datatype-splits": "30819",
+                "decisions": "85936",
+                "del-clause": "152310",
+                "final-checks": "1897",
+                "interface-eqs": "756",
+                "max-generation": "6",
+                "max-memory": "26.22",
+                "memory": "25.37",
+                "minimized-lits": "780",
+                "mk-bool-var": "328642",
+                "mk-clause": "152310",
+                "num-allocs": "1219202083",
+                "num-checks": "1110",
+                "propagations": "105846",
+                "quant-instantiations": "11509",
+                "rlimit-count": "4681002"
+              },
+              "original_response_prefix_equal": true,
+              "stderr": ""
+            }
+          }
+        ],
+        "instantiations": 11509,
+        "resources": 4681002,
+        "checks": 1111
+      }
+    },
+    "trigger-prusti-nested-old": {
+      "result": {
+        "runner_sha256": "798e2b16612f170f031aa1831a2476d816f831eca908156d568ace63504b8fb7",
+        "server_cpu_s": {
+          "user_s": 2.75,
+          "system_s": 0.24,
+          "child_user_s": 0.46,
+          "child_system_s": 0.24
+        },
+        "case": "mut_element_nested_pass",
+        "server": "/tmp/ferrum-order-trigger-fix/trigger-server",
+        "server_sha256": "e94e0f5763e3feb906ed8c9ffeec10842453dcb2210fdfe523d365087949243f",
+        "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+        "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_nested_pass.rs",
+        "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+        "command": [
+          "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+          "--locked",
+          "--offline",
+          "--bin",
+          "mut_element_nested_pass"
+        ],
+        "environment_overrides": {
+          "PRUSTI_VERIFY_MODE": "verify",
+          "PRUSTI_VIPER_BACKEND": "Ferrum",
+          "PRUSTI_CHECK_OVERFLOWS": "true",
+          "PRUSTI_CHECK_PANICS": "true",
+          "PRUSTI_NO_VERIFY_DEPS": "true",
+          "PRUSTI_ENABLE_CACHE": "false",
+          "FERRUM_BENCH_PHASES": "1",
+          "FERRUM_BENCH_INTERNAL_CACHES": "on",
+          "PRUSTI_LOG": "info",
+          "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+          "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --snapshotSummaryOnlyTriggers=false",
+          "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+          "PRUSTI_LOG_DIR": "/tmp/ferrum-order-trigger-fix/trigger-prusti-nested-old/verifier",
+          "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+          "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+          "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+          "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+          "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-order-trigger-fix/trigger-prusti-nested-old/smt",
+          "PRUSTI_SERVER_ADDRESS": "127.0.0.1:53269"
+        },
+        "profile": false,
+        "instructions": false,
+        "trace": true,
+        "exit": 0,
+        "timed_out": false,
+        "wall_s": 21.21,
+        "client_user_s": 1.61,
+        "client_system_s": 0.44,
+        "phase_ns": {
+          "Rust to VIR encoding": [
+            1060989492
+          ],
+          "VIR conversion": [
+            64942453
+          ],
+          "backend verification": [
+            18764841846
+          ]
+        },
+        "classification": "valid",
+        "dependency_check": {
+          "valid": true,
+          "events": [
+            {
+              "action": "Checking",
+              "package": "stdlib_iterator_spec",
+              "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+            }
+          ]
+        },
+        "timer_complete": true,
+        "client_cleanup": true,
+        "host_before": {
+          "wall_time_unix_ns": 1793418565037606402,
+          "monotonic_ns": 357483599830589,
+          "load_average": [
+            6.1337890625,
+            7.7275390625,
+            6.0556640625
+          ],
+          "memory_available": "MemAvailable:   16099364 kB"
+        },
+        "host_after": {
+          "wall_time_unix_ns": 1793418586851831128,
+          "monotonic_ns": 357505414055014,
+          "load_average": [
+            5.4912109375,
+            7.4833984375,
+            6.0107421875
+          ],
+          "memory_available": "MemAvailable:   15935216 kB"
+        },
+        "service_cleanup": {
+          "command": [
+            "taskset",
+            "--cpu-list",
+            "0,1,2,3",
+            "/tmp/ferrum-order-trigger-fix/trigger-server",
+            "--port",
+            "53269"
+          ],
+          "leader_exit": -15,
+          "stopped": true,
+          "cleanup_pending": [],
+          "error": null
+        }
+      },
+      "audit": {
+        "streams": [
+          {
+            "capture": "/tmp/ferrum-order-trigger-fix/trigger-prusti-nested-old/smt/1579625-357485789848379",
+            "queries": 1111,
+            "input_sha256": "54e76cb7063e81b7798ab7761c3a406f45baa76b7f215e7c451efb2520f60a47",
+            "output_sha256": "0f6d03c4c58d15a529194c392d35ead22942c8525730dc4a90b16a53d57bd73e",
+            "commands": {
+              "get-info": 1,
+              "set-option": 2230,
+              "declare-datatypes": 1,
+              "declare-sort": 48,
+              "declare-const": 573,
+              "declare-fun": 506,
+              "assert": 3951,
+              "define-sort": 1,
+              "define-const": 2,
+              "define-fun": 60,
+              "check-sat": 1111,
+              "push": 2774,
+              "pop": 2774
+            },
+            "replay": {
+              "command": [
+                "taskset",
+                "--cpu-list",
+                "0,1,2,3",
+                "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+                "-smt2",
+                "-in"
+              ],
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_s": 10.805580601969268,
+              "user_cpu_s": 10.740574,
+              "system_cpu_s": 0.053013,
+              "input_sha256": "a3dddf1e57419b8cebb13fa8c8eeab38242d2229ba0c7668ce5a4c49f661428f",
+              "stdout_sha256": "4f25db85ccb2afc60174f0826d9a7aaba53c5ff39a377f7276a792a2a5956ab7",
+              "statistics": {
+                "added-eqs": "2194385",
+                "arith-eq-adapter": "142416",
+                "arith-assume-eqs": "2018",
+                "arith-bound-propagations-lp": "136824",
+                "arith-conflicts": "2120",
+                "arith-diseq": "87538",
+                "arith-fixed-eqs": "89037",
+                "arith-lower": "163722",
+                "arith-make-feasible": "83895",
+                "arith-max-columns": "1029",
+                "arith-max-rows": "587",
+                "arith-offset-eqs": "62471",
+                "arith-upper": "200742",
+                "conflicts": "15030",
+                "datatype-accessor-ax": "49827",
+                "datatype-constructor-ax": "199787",
+                "datatype-occurs-check": "157059",
+                "datatype-splits": "112504",
+                "decisions": "234087",
+                "del-clause": "752059",
+                "final-checks": "3307",
+                "interface-eqs": "1009",
+                "max-generation": "21",
+                "max-memory": "33.40",
+                "memory": "31.55",
+                "minimized-lits": "2975",
+                "mk-bool-var": "1126901",
+                "mk-clause": "752059",
+                "num-allocs": "13986551506.00",
+                "num-checks": "1110",
+                "propagations": "340404",
+                "quant-instantiations": "181264",
+                "rlimit-count": "18540052"
+              },
+              "original_response_prefix_equal": true,
+              "stderr": ""
+            }
+          }
+        ],
+        "instantiations": 181264,
+        "resources": 18540052,
+        "checks": 1111
+      }
+    }
+  },
+  "direct_prusti_comparison": {
+    "changed_commands": [
+      2722,
+      2723,
+      2858,
+      2859,
+      3480,
+      3481,
+      3556,
+      3557,
+      4008,
+      4009,
+      4010,
+      4364,
+      4365,
+      4366,
+      5089,
+      5090,
+      5091,
+      5092,
+      5240,
+      5241,
+      5242,
+      5243,
+      5932,
+      5933,
+      5934,
+      5935,
+      6010,
+      6011,
+      6012,
+      6013,
+      6476,
+      6477,
+      6478,
+      6479,
+      6480,
+      6834,
+      6835,
+      6836,
+      6837,
+      6838,
+      7597,
+      7598,
+      7599,
+      7600,
+      7601,
+      7602,
+      7760,
+      7761,
+      7762,
+      7763,
+      7764,
+      8958,
+      8959,
+      8960,
+      8961,
+      8962,
+      9316,
+      9317,
+      9318,
+      9319,
+      9320,
+      10103,
+      10104,
+      10105,
+      10106,
+      10107,
+      10108,
+      10254,
+      10255,
+      10256,
+      10257,
+      10258,
+      10948,
+      10949,
+      10950,
+      10951,
+      11026,
+      11027,
+      11028,
+      11029,
+      11492,
+      11493,
+      11494,
+      11495,
+      11496,
+      11850,
+      11851,
+      11852,
+      11853,
+      11854,
+      12270,
+      12271,
+      12272,
+      12273,
+      12274,
+      12275,
+      13360,
+      13361,
+      13362,
+      13363,
+      13364,
+      13365,
+      13382,
+      13383,
+      13384,
+      13385,
+      13386,
+      13401,
+      13402,
+      13403,
+      13404,
+      13405,
+      13406,
+      13423,
+      13424,
+      13425,
+      13426,
+      13427,
+      13442,
+      13443,
+      13444,
+      13445,
+      13446,
+      13447,
+      13464,
+      13465,
+      13466,
+      13467,
+      13482,
+      13483,
+      13484,
+      13485,
+      13502,
+      13503,
+      13518,
+      13519
+    ],
+    "only_removed_original_lookup_patterns": true,
+    "response_streams_identical": true,
+    "prior_optimized_input_and_output_byte_identical": true,
+    "prior_capture": "/tmp/ferrum-solver-work-0e1bf91/trigger-nested-trace/smt/3739685-347152422053340",
+    "cache_enabled_append_prefixes_identical": true,
+    "quickselect_complete_streams_identical": true
+  },
+  "checks": {
+    "unit": {
+      "file": "trigger-unit-all.log",
+      "sha256": "01077be61f648c76e8138b9a2d1d5fbd5259bf15556ef264d1e68cc60eb377e1"
+    },
+    "policy_unit": {
+      "file": "trigger-unit-build.log",
+      "sha256": "12f0e90ddedf5341e097d1999b168b8e11f3c8f1af35ceb92a7803c586394610"
+    },
+    "real_z3": {
+      "file": "trigger-integration-final.log",
+      "sha256": "3f3a8fc27596745cf2ac5330771f56851c940267ddf027c4be36183bf7ccb62e"
+    },
+    "workspace_native_z3": {
+      "file": "trigger-workspace-check.log",
+      "sha256": "c8d83e80b175b583fdded85c6efdf5e0c7508c50868f87e02608f3fb71799f24"
+    }
+  },
+  "regression_fixture_sha256": "c87f84b4d5d45c7f91f06587b4b4a288897b6355b9c4634f87d58106cd7d10fc",
+  "limitations": [
+    "No fresh full stdlib matrix.",
+    "Append retained-solver and cache-on variants still timeout.",
+    "Graph-marking still times out.",
+    "Timings are single traced observations on a shared host."
+  ],
+  "evidence": {
+    "archive": "porting/evidence/snapshot-trigger-refinement/observations.tar.gz",
+    "sha256": "ea4e4c8a0154fb1e1c84f59b52c910c9325d315886ffe189bd0eb7e6f1036320",
+    "files": 222,
+    "bytes": 9054646
+  }
+}

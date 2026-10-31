@@ -9,7 +9,10 @@ The [timeout follow-up](timeout-followup.md) at current runtime `2df948c`
 revisits the 15 previously inconclusive entries. It identifies a snapshot-trigger
 proof-completeness difference on linked-list append and nondeterministic
 allocation-disjointness assumption order. The [allocation fix](allocation-order.md)
-now restores reproducible assumptions; trigger completeness remains open. The
+now restores reproducible assumptions. The [trigger refinement](snapshot-trigger-refinement.md)
+restores the provable linked-list configuration while preserving the optimization
+for resources absent from heap-dependent triggers. Other timeout configurations
+remain unresolved. The
 older broad comparison below does not establish parity for the new trigger default.
 
 The measured runtime checkpoint is `afdf10c`. All five requested stages are

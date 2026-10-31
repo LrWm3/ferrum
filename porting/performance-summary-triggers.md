@@ -23,7 +23,10 @@ previous trigger policy, and `--disableISCTriggers` takes precedence.
 The later [timeout follow-up](timeout-followup.md) identifies a concrete
 completeness limitation on linked-list append: with a separate method solver,
 older triggers verify while summary-only triggers return incomplete quantifiers.
-That case was outside the sampled Prusti workload and remains unresolved.
+The subsequent [refinement](snapshot-trigger-refinement.md) retains both lookup
+directions for resources used in heap-dependent triggers and restores that
+provable configuration. Retained-solver and cache-enabled variants still time
+out with either policy. The original measurements below predate this refinement.
 Trigger selection can affect whether a proof succeeds within its limits even
 with unchanged formulas. The bounded passing/failing checks below justify
 trying the option on more workloads; they do not establish compatibility with

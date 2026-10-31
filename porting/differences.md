@@ -14,6 +14,19 @@ randomization without attempting to reproduce Scala's incidental hash order.
 The [allocation validation](allocation-order.md) records unit coverage, positive
 and negative controls, and three identical captured solver prefixes.
 
+## Selective snapshot-summary triggers
+
+Unlike pinned Silicon, Ferrum defaults to omitting the original-chunk lookup
+trigger from snapshot-summary value axioms for resources that are not used in
+heap-dependent quantifier triggers. Resources used by such triggers retain
+both source lookup alternatives. Formula bodies, permission/domain guards and
+resource-trigger definitions are unchanged. This is a deliberate solver-work
+optimization, with proof completeness dependent on trigger selection; it is
+not a general compatibility guarantee. `--snapshotSummaryOnlyTriggers=false`
+restores the source policy, and `--disableISCTriggers` takes precedence.
+See the [initial measurement](performance-summary-triggers.md) and
+[refinement](snapshot-trigger-refinement.md).
+
 ## Dominator label update
 
 Silver `cfg/utility/Dominators.scala` evaluates `label(index) == ancestorLabel`

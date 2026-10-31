@@ -144,8 +144,8 @@ pub struct Config {
     pub enable_temp_directory: bool,
     pub disable_value_map_caching: bool,
     pub disable_isc_triggers: bool,
-    /// Trigger snapshot value definitions only on the
-    /// summarising map lookup. Logical axioms and permission checks are unchanged.
+    /// Prefer summary-map lookup triggers except for resources used in heap-dependent
+    /// triggers, which retain both lookup directions. Logical axioms are unchanged.
     pub snapshot_summary_only_triggers: bool,
     /// Experiment: instantiate permission summaries at concrete lookups when safe.
     pub ground_permission_summaries: bool,

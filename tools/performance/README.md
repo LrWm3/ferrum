@@ -48,8 +48,12 @@ the pool regardless of this switch. This is a Ferrum-only experimental option,
 so do not pass it to the JVM comparison driver.
 
 `--snapshotSummaryOnlyTriggers` is a Ferrum-only setting, enabled by default.
-It keeps snapshot-map value axioms unchanged but triggers them only on lookups
-of the summarising map, omitting the alternative trigger on each original chunk map.
+It keeps snapshot-map value axioms unchanged but usually triggers them only on
+lookups of the summarising map, omitting the alternative trigger on each original
+chunk map. Resources used in heap-dependent quantifier triggers retain both
+lookup directions: pruning them can prevent otherwise provable folds and
+postconditions. The [trigger refinement](../../porting/snapshot-trigger-refinement.md)
+records the linked-list regression and the remaining solver/cache limitations.
 Permission checks, domain axioms and resource-trigger axioms are unchanged.
 Use `--snapshotSummaryOnlyTriggers=false` to restore the alternative trigger on
 original chunk-map lookups; `--disableISCTriggers` still takes precedence. This
