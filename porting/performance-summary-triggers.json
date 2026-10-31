@@ -1,0 +1,5162 @@
+{
+  "runtime": "783bd7e5995d2493cb9526d345d31c7cfb66fab6",
+  "raw_root": "/tmp/ferrum-solver-work-0e1bf91",
+  "preparation": {
+    "prusti_source": "a59ed917c1c3c4c4ca6ff1de12ad20d48491d021",
+    "pcg": "c18a51899e37e0fa67f9b5f17f7d518ef2f5518c",
+    "source_template": "/tmp/ferrum-stage5-prusti-inputs/source",
+    "build_source": "/tmp/ferrum-direct-profile-49d3737/source",
+    "source_changes": [
+      "prusti-ferrum/Cargo.toml: path dependencies to current Ferrum",
+      "Cargo.lock: matching path dependency resolution"
+    ],
+    "toolchain": "nightly-2026-08-15",
+    "profile": "dev, Ferrum packages opt-level=1",
+    "preceding_runtime_reference": "4cda819",
+    "capture_exception": "Initial separate-nested-trace used the preserved 4cda819 server; all other correctness captures and all timing profiles use 783bd7e.",
+    "build_command": "cargo build --locked --offline -p prusti-server --no-default-features --features ferrum --bin prusti-server-driver",
+    "inherited_preparation_artifacts": {
+      "/tmp/ferrum-direct-profile-49d3737/baseline-server": "d816c04d1e0b734197dc40d3d80cc90d64baf5913147088aa7f3aa536fdc50eb",
+      "/tmp/ferrum-direct-profile-49d3737/source/Cargo.lock": "be2f194c41cc012883eb23c7203fa6c34503476a6eccb87dbe026292a97957e6",
+      "/tmp/ferrum-direct-profile-49d3737/source/prusti-ferrum/Cargo.toml": "5923ec2b77f3170bf8e9a396736ecc14f09c0fcd1b2034863789386f4a9eb443",
+      "/tmp/ferrum-direct-profile-49d3737/run_direct.py": "fa5bc6b2ca685e2616f109c76df64c5b21b3a49ce3795e3348b0b7e464e63a0a",
+      "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765"
+    }
+  },
+  "controls": {
+    "workers": 1,
+    "branch_parallelism": false,
+    "outer_result_cache": false,
+    "internal_caches": true,
+    "saturation_weights": [
+      1,
+      0.5,
+      0.4,
+      0,
+      0
+    ],
+    "solver_resource_policy": "unchanged defaults",
+    "cpu_affinity": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "backend_timeout_s": 60,
+    "client_timeout_s": 100,
+    "offline_timeout_s": 45,
+    "service": "fresh per trial, startup excluded from request timer",
+    "scope": "frozen direct Prusti fixture set; not latest stdlib verification matrix"
+  },
+  "profiles": {
+    "default": "",
+    "trigger": "--snapshotSummaryOnlyTriggers",
+    "separate": "--separateMethodSolver",
+    "combined": "--snapshotSummaryOnlyTriggers --separateMethodSolver"
+  },
+  "offline_trigger_screen": {
+    "command": [
+      "taskset",
+      "--cpu-list",
+      "0,1,2,3",
+      "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+      "-smt2",
+      "-in"
+    ],
+    "exit": 0,
+    "timed_out": false,
+    "wall_s": 2.8075283090001903,
+    "changed_definitions": 136,
+    "source_sha256": "54e76cb7063e81b7798ab7761c3a406f45baa76b7f215e7c451efb2520f60a47",
+    "candidate_sha256": "7dfe2c02692c4828d9cbfe92f75799895c0e1d1155e8554d3754cc4b00958bad",
+    "response_count": 14033,
+    "original_response_count": 14032,
+    "original_responses_equal": true,
+    "response_differences": [],
+    "statistics": {
+      "added-eqs": "574521",
+      "arith-eq-adapter": "60875",
+      "arith-assume-eqs": "1512",
+      "arith-bound-propagations-lp": "10583",
+      "arith-conflicts": "1054",
+      "arith-diseq": "7522",
+      "arith-fixed-eqs": "29603",
+      "arith-lower": "57352",
+      "arith-make-feasible": "23154",
+      "arith-max-columns": "584",
+      "arith-max-rows": "281",
+      "arith-offset-eqs": "5346",
+      "arith-upper": "68230",
+      "conflicts": "12823",
+      "datatype-accessor-ax": "13901",
+      "datatype-constructor-ax": "62523",
+      "datatype-occurs-check": "47152",
+      "datatype-splits": "30819",
+      "decisions": "85936",
+      "del-clause": "152310",
+      "final-checks": "1897",
+      "interface-eqs": "756",
+      "max-generation": "6",
+      "max-memory": "26.22",
+      "memory": "25.37",
+      "minimized-lits": "780",
+      "mk-bool-var": "328642",
+      "mk-clause": "152310",
+      "num-allocs": "1219202083",
+      "num-checks": "1110",
+      "propagations": "105846",
+      "quant-instantiations": "11509",
+      "rlimit-count": "4681002"
+    }
+  },
+  "solver_audits": [
+    {
+      "name": "default-nested-trace-fixed",
+      "case": "mut_element_nested_pass",
+      "mode": "default",
+      "raw_audit_sha256": "54f1c1fae08260f2e7f4a23ebcdf027a5d0addaa393c4e24c569fce3784f475b",
+      "streams": [
+        {
+          "capture": "/tmp/ferrum-solver-work-0e1bf91/default-nested-trace-fixed/smt/3786018-347372033347568",
+          "queries": 1111,
+          "input_sha256": "54e76cb7063e81b7798ab7761c3a406f45baa76b7f215e7c451efb2520f60a47",
+          "output_sha256": "0f6d03c4c58d15a529194c392d35ead22942c8525730dc4a90b16a53d57bd73e",
+          "commands": {
+            "get-info": 1,
+            "set-option": 2230,
+            "declare-datatypes": 1,
+            "declare-sort": 48,
+            "declare-const": 573,
+            "declare-fun": 506,
+            "assert": 3951,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 60,
+            "check-sat": 1111,
+            "push": 2774,
+            "pop": 2774
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 23.626076904009096,
+            "user_cpu_s": 23.350822,
+            "system_cpu_s": 0.11087999999999999,
+            "input_sha256": "a3dddf1e57419b8cebb13fa8c8eeab38242d2229ba0c7668ce5a4c49f661428f",
+            "stdout_sha256": "4f25db85ccb2afc60174f0826d9a7aaba53c5ff39a377f7276a792a2a5956ab7",
+            "statistics": {
+              "added-eqs": "2194385",
+              "arith-eq-adapter": "142416",
+              "arith-assume-eqs": "2018",
+              "arith-bound-propagations-lp": "136824",
+              "arith-conflicts": "2120",
+              "arith-diseq": "87538",
+              "arith-fixed-eqs": "89037",
+              "arith-lower": "163722",
+              "arith-make-feasible": "83895",
+              "arith-max-columns": "1029",
+              "arith-max-rows": "587",
+              "arith-offset-eqs": "62471",
+              "arith-upper": "200742",
+              "conflicts": "15030",
+              "datatype-accessor-ax": "49827",
+              "datatype-constructor-ax": "199787",
+              "datatype-occurs-check": "157059",
+              "datatype-splits": "112504",
+              "decisions": "234087",
+              "del-clause": "752059",
+              "final-checks": "3307",
+              "interface-eqs": "1009",
+              "max-generation": "21",
+              "max-memory": "33.40",
+              "memory": "31.55",
+              "minimized-lits": "2975",
+              "mk-bool-var": "1126901",
+              "mk-clause": "752059",
+              "num-allocs": "13986551506.00",
+              "num-checks": "1110",
+              "propagations": "340404",
+              "quant-instantiations": "181264",
+              "rlimit-count": "18540052"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "instantiations": 181264,
+      "resources": 18540052,
+      "checks": 1111
+    },
+    {
+      "name": "combined-nested-trace",
+      "case": "mut_element_nested_pass",
+      "mode": "combined",
+      "raw_audit_sha256": "c36ea5c2e1e6675cd2e01c3f82b2773e43d15f97d3ef17125d0fabe7e960aa2d",
+      "streams": [
+        {
+          "capture": "combined-nested-trace/smt/3755694-347233983259238",
+          "queries": 1090,
+          "input_sha256": "cf269cfbc375948887a0fba1753cf0b2b77ab6faead5f3f5060c2b843e318006",
+          "output_sha256": "dd774955c5dfd426ddaa0e42b06ad20d5b49365a0c41b7593e6f03ffda025728",
+          "commands": {
+            "get-info": 1,
+            "set-option": 2188,
+            "declare-datatypes": 1,
+            "declare-sort": 48,
+            "declare-const": 520,
+            "declare-fun": 430,
+            "assert": 3802,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 60,
+            "check-sat": 1090,
+            "push": 2699,
+            "pop": 2698
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 6.194979349966161,
+            "user_cpu_s": 6.106434,
+            "system_cpu_s": 0.07196899999999999,
+            "input_sha256": "b951292270473b1eaab928b07d3c4efcd14e442e1d902456ea58e3d26aad1065",
+            "stdout_sha256": "7564dd544d0a9ed2dfff62702334a6eae018c9ca567bccfcf7b8394afe842704",
+            "statistics": {
+              "added-eqs": "571291",
+              "arith-eq-adapter": "58876",
+              "arith-assume-eqs": "1298",
+              "arith-bound-propagations-lp": "6926",
+              "arith-conflicts": "958",
+              "arith-diseq": "7464",
+              "arith-fixed-eqs": "30410",
+              "arith-lower": "55507",
+              "arith-make-feasible": "22268",
+              "arith-max-columns": "549",
+              "arith-max-rows": "274",
+              "arith-offset-eqs": "7464",
+              "arith-upper": "65283",
+              "conflicts": "12715",
+              "datatype-accessor-ax": "15578",
+              "datatype-constructor-ax": "61556",
+              "datatype-occurs-check": "45829",
+              "datatype-splits": "30567",
+              "decisions": "84140",
+              "del-clause": "166514",
+              "final-checks": "1773",
+              "interface-eqs": "649",
+              "max-generation": "6",
+              "max-memory": "26.27",
+              "memory": "25.42",
+              "minimized-lits": "536",
+              "mk-bool-var": "345082",
+              "mk-clause": "166514",
+              "num-allocs": "1270369322",
+              "num-checks": "1089",
+              "propagations": "103692",
+              "quant-instantiations": "11038",
+              "rlimit-count": "4632891"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        },
+        {
+          "capture": "combined-nested-trace/smt/3755698-347234032936089",
+          "queries": 22,
+          "input_sha256": "8b4a593ffd409af1b2052865b59b1d7a45e7c5a371c86e6b289fb69c7b11fa45",
+          "output_sha256": "c456cec34c86e58c787378c150303f8c0fd5591b88e04a36bc4cebafcfd177d2",
+          "commands": {
+            "get-info": 1,
+            "set-option": 60,
+            "declare-datatypes": 1,
+            "declare-sort": 48,
+            "declare-const": 80,
+            "declare-fun": 494,
+            "assert": 770,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 22,
+            "push": 76,
+            "pop": 76
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 0.09395527403103188,
+            "user_cpu_s": 0.06919300000000028,
+            "system_cpu_s": 0.016804,
+            "input_sha256": "73c100f5dc9f88e477413e1e48f5369a1dfd135616aec0867e0650748d9cf6e3",
+            "stdout_sha256": "e7046c1eb03f571c85c02b5d1ec06477502b11ff6d83136a49a6b57ccc51f40c",
+            "statistics": {
+              "added-eqs": "168",
+              "arith-eq-adapter": "3",
+              "arith-lower": "4",
+              "arith-make-feasible": "21",
+              "arith-max-columns": "14",
+              "arith-upper": "6",
+              "conflicts": "4",
+              "datatype-accessor-ax": "23",
+              "del-clause": "10",
+              "final-checks": "14",
+              "max-generation": "4",
+              "max-memory": "18.62",
+              "memory": "18.36",
+              "mk-bool-var": "717",
+              "mk-clause": "10",
+              "num-allocs": "747258",
+              "num-checks": "21",
+              "propagations": "3",
+              "quant-instantiations": "58",
+              "rlimit-count": "205708"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "instantiations": 11096,
+      "resources": 4838599,
+      "checks": 1112
+    },
+    {
+      "name": "default-array-trace-fixed",
+      "case": "mut_element_array_pass",
+      "mode": "default",
+      "raw_audit_sha256": "396c136442194f65dccf82932ec2c6296396a6f5e30849ddc1449aff99f0b863",
+      "streams": [
+        {
+          "capture": "/tmp/ferrum-solver-work-0e1bf91/default-array-trace-fixed/smt/3789712-347390636876473",
+          "queries": 406,
+          "input_sha256": "fcc5ec42862a226d1b0620c1aa83d03fe3849f21901b49556ea920fac3f20882",
+          "output_sha256": "c25630a4b09e05dd8210b78911ff92849001358595b21d20be20380b3fa2cce8",
+          "commands": {
+            "get-info": 1,
+            "set-option": 821,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 447,
+            "declare-fun": 490,
+            "assert": 2222,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 27,
+            "check-sat": 406,
+            "push": 1105,
+            "pop": 1105
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 0.439893500006292,
+            "user_cpu_s": 0.403421,
+            "system_cpu_s": 0.027958999999999998,
+            "input_sha256": "6011424d7c5e57cdfb7cf315f565d21bc35c7cf0e62f52873fff40a94ab1a15d",
+            "stdout_sha256": "c5fb48766a1a160d46724deac1fce685e3d5d09a64e92f154b8613e4ba088e2e",
+            "statistics": {
+              "added-eqs": "30338",
+              "arith-eq-adapter": "2254",
+              "arith-assume-eqs": "4",
+              "arith-bound-propagations-lp": "336",
+              "arith-conflicts": "129",
+              "arith-diseq": "1122",
+              "arith-fixed-eqs": "1426",
+              "arith-lower": "2347",
+              "arith-make-feasible": "1531",
+              "arith-max-columns": "120",
+              "arith-max-rows": "42",
+              "arith-offset-eqs": "20",
+              "arith-upper": "1944",
+              "conflicts": "1166",
+              "datatype-accessor-ax": "524",
+              "datatype-constructor-ax": "3836",
+              "datatype-occurs-check": "5026",
+              "datatype-splits": "3591",
+              "decisions": "5751",
+              "del-clause": "6014",
+              "final-checks": "287",
+              "interface-eqs": "2",
+              "max-generation": "5",
+              "max-memory": "20.92",
+              "memory": "20.82",
+              "minimized-lits": "21",
+              "mk-bool-var": "15965",
+              "mk-clause": "6014",
+              "num-allocs": "13520122",
+              "num-checks": "405",
+              "propagations": "3818",
+              "quant-instantiations": "1337",
+              "rlimit-count": "613017"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "instantiations": 1337,
+      "resources": 613017,
+      "checks": 406
+    },
+    {
+      "name": "separate-array-trace",
+      "case": "mut_element_array_pass",
+      "mode": "separate",
+      "raw_audit_sha256": "c4fea9421d7bb1a86931c527865feb9215c7f4328bce16263cdccf363642ed6a",
+      "streams": [
+        {
+          "capture": "/tmp/ferrum-solver-work-0e1bf91/separate-array-trace/smt/3758578-347247252726960",
+          "queries": 395,
+          "input_sha256": "baa5254eb2f368b06fd03ff44af875b078591fe31b927d64cea6cca5658a573e",
+          "output_sha256": "099af03cdfad86f3b5ed84ae606f3ea2a6c916c8f80344dbbcdd062677c27fd7",
+          "commands": {
+            "get-info": 1,
+            "set-option": 799,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 398,
+            "declare-fun": 424,
+            "assert": 2133,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 27,
+            "check-sat": 395,
+            "push": 1051,
+            "pop": 1050
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 0.43284512002719566,
+            "user_cpu_s": 0.39749599999999996,
+            "system_cpu_s": 0.025030999999999998,
+            "input_sha256": "c853d78f93d00ae9031f56879c09e76fa076f217b2bd7489eb72ed24ce734a9e",
+            "stdout_sha256": "7d60000957663e8981b150704a3dabc1d5f8bca099f48ff0a7361afef33659ca",
+            "statistics": {
+              "added-eqs": "29940",
+              "arith-eq-adapter": "2230",
+              "arith-assume-eqs": "4",
+              "arith-bound-propagations-lp": "322",
+              "arith-conflicts": "129",
+              "arith-diseq": "1107",
+              "arith-fixed-eqs": "1413",
+              "arith-lower": "2327",
+              "arith-make-feasible": "1503",
+              "arith-max-columns": "120",
+              "arith-max-rows": "42",
+              "arith-offset-eqs": "21",
+              "arith-upper": "1919",
+              "conflicts": "1165",
+              "datatype-accessor-ax": "518",
+              "datatype-constructor-ax": "3836",
+              "datatype-occurs-check": "5026",
+              "datatype-splits": "3591",
+              "decisions": "5742",
+              "del-clause": "5771",
+              "final-checks": "277",
+              "interface-eqs": "2",
+              "max-generation": "5",
+              "max-memory": "20.92",
+              "memory": "20.77",
+              "minimized-lits": "21",
+              "mk-bool-var": "15656",
+              "mk-clause": "5771",
+              "num-allocs": "13901050",
+              "num-checks": "394",
+              "propagations": "3716",
+              "quant-instantiations": "1265",
+              "rlimit-count": "608701"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        },
+        {
+          "capture": "/tmp/ferrum-solver-work-0e1bf91/separate-array-trace/smt/3758582-347247294622576",
+          "queries": 12,
+          "input_sha256": "0a71a5b0cb775e293a9f36c2806ffe530c136a97fc469d69b62ff31c33aae00e",
+          "output_sha256": "4bcf4c9216a5107a7cee3d05b8f055e89ea544ff741c2b725157df6efe216cd5",
+          "commands": {
+            "get-info": 1,
+            "set-option": 40,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 80,
+            "declare-fun": 484,
+            "assert": 726,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 12,
+            "push": 55,
+            "pop": 55
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 0.08731121598975733,
+            "user_cpu_s": 0.05053400000000002,
+            "system_cpu_s": 0.009908,
+            "input_sha256": "b8afd63a4907864f065b9efae01f65f2b7cc935bbf4d4bc8aba812f5f24a1063",
+            "stdout_sha256": "af69c13cfe7c45d5eda52830c5e80b0d6e1cc80fbb8016908b20ad2d7a205a08",
+            "statistics": {
+              "added-eqs": "57",
+              "arith-eq-adapter": "3",
+              "arith-lower": "3",
+              "arith-make-feasible": "13",
+              "arith-max-columns": "14",
+              "arith-upper": "3",
+              "conflicts": "1",
+              "datatype-accessor-ax": "6",
+              "del-clause": "5",
+              "final-checks": "10",
+              "max-generation": "4",
+              "max-memory": "18.70",
+              "memory": "18.48",
+              "mk-bool-var": "648",
+              "mk-clause": "5",
+              "num-allocs": "898125",
+              "num-checks": "11",
+              "propagations": "2",
+              "quant-instantiations": "15",
+              "rlimit-count": "210332"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "instantiations": 1280,
+      "resources": 819033,
+      "checks": 407
+    },
+    {
+      "name": "trigger-array-trace",
+      "case": "mut_element_array_pass",
+      "mode": "trigger",
+      "raw_audit_sha256": "67a568b0721b99dc433a7af603da5e6887d06e1f1ced279d3f9009fa3be43189",
+      "streams": [
+        {
+          "capture": "/tmp/ferrum-solver-work-0e1bf91/trigger-array-trace/smt/3759592-347251067844371",
+          "queries": 406,
+          "input_sha256": "3a430a8bf8c4275f5de4803f1d73d0cb456e43e24375e1c3aa2a3d5f1c37086d",
+          "output_sha256": "c25630a4b09e05dd8210b78911ff92849001358595b21d20be20380b3fa2cce8",
+          "commands": {
+            "get-info": 1,
+            "set-option": 821,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 447,
+            "declare-fun": 490,
+            "assert": 2222,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 27,
+            "check-sat": 406,
+            "push": 1105,
+            "pop": 1105
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 0.465421836997848,
+            "user_cpu_s": 0.424743,
+            "system_cpu_s": 0.028914,
+            "input_sha256": "d49faad3d329d18577d750b6aebf4400782535563d12be2c109277799067e844",
+            "stdout_sha256": "fcb739b16ece95f74db18995a0799597fe0b676d1cdc800d84bf668a54b60016",
+            "statistics": {
+              "added-eqs": "28017",
+              "arith-eq-adapter": "2038",
+              "arith-assume-eqs": "6",
+              "arith-bound-propagations-lp": "336",
+              "arith-conflicts": "126",
+              "arith-diseq": "1134",
+              "arith-fixed-eqs": "1367",
+              "arith-lower": "1996",
+              "arith-make-feasible": "1222",
+              "arith-max-columns": "118",
+              "arith-max-rows": "42",
+              "arith-offset-eqs": "33",
+              "arith-upper": "1588",
+              "conflicts": "1026",
+              "datatype-accessor-ax": "520",
+              "datatype-constructor-ax": "3744",
+              "datatype-occurs-check": "4939",
+              "datatype-splits": "3516",
+              "decisions": "5340",
+              "del-clause": "5706",
+              "final-checks": "286",
+              "interface-eqs": "3",
+              "max-generation": "5",
+              "max-memory": "20.88",
+              "memory": "20.70",
+              "minimized-lits": "24",
+              "mk-bool-var": "14346",
+              "mk-clause": "5706",
+              "num-allocs": "13650322",
+              "num-checks": "405",
+              "propagations": "3587",
+              "quant-instantiations": "867",
+              "rlimit-count": "569924"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "instantiations": 867,
+      "resources": 569924,
+      "checks": 406
+    },
+    {
+      "name": "combined-array-trace",
+      "case": "mut_element_array_pass",
+      "mode": "combined",
+      "raw_audit_sha256": "2344f4cea15229f520e600cbae40f27dd4dedeea949e81ffed9062ec5a2dcd7c",
+      "streams": [
+        {
+          "capture": "/tmp/ferrum-solver-work-0e1bf91/combined-array-trace/smt/3760349-347254438426882",
+          "queries": 395,
+          "input_sha256": "e3799b83b35534c6863da50a49d5339dd70f1b2075912be12853855a373b436e",
+          "output_sha256": "099af03cdfad86f3b5ed84ae606f3ea2a6c916c8f80344dbbcdd062677c27fd7",
+          "commands": {
+            "get-info": 1,
+            "set-option": 799,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 398,
+            "declare-fun": 424,
+            "assert": 2133,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 27,
+            "check-sat": 395,
+            "push": 1051,
+            "pop": 1050
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 0.37197303597349674,
+            "user_cpu_s": 0.335416,
+            "system_cpu_s": 0.026032,
+            "input_sha256": "e21bd7b1fbc12c02bcdd60594190c98824835745f1f279723933f4421c20d868",
+            "stdout_sha256": "13d69748f95e00724b703be1e9348c3f3f4293a83feb1a59275a36c3ca7d742e",
+            "statistics": {
+              "added-eqs": "27975",
+              "arith-eq-adapter": "2038",
+              "arith-assume-eqs": "6",
+              "arith-bound-propagations-lp": "336",
+              "arith-conflicts": "126",
+              "arith-diseq": "1134",
+              "arith-fixed-eqs": "1365",
+              "arith-lower": "1996",
+              "arith-make-feasible": "1212",
+              "arith-max-columns": "118",
+              "arith-max-rows": "42",
+              "arith-offset-eqs": "33",
+              "arith-upper": "1587",
+              "conflicts": "1025",
+              "datatype-accessor-ax": "514",
+              "datatype-constructor-ax": "3744",
+              "datatype-occurs-check": "4939",
+              "datatype-splits": "3516",
+              "decisions": "5340",
+              "del-clause": "5699",
+              "final-checks": "276",
+              "interface-eqs": "3",
+              "max-generation": "5",
+              "max-memory": "20.90",
+              "memory": "20.71",
+              "minimized-lits": "24",
+              "mk-bool-var": "14313",
+              "mk-clause": "5699",
+              "num-allocs": "13056910",
+              "num-checks": "394",
+              "propagations": "3584",
+              "quant-instantiations": "855",
+              "rlimit-count": "567344"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        },
+        {
+          "capture": "/tmp/ferrum-solver-work-0e1bf91/combined-array-trace/smt/3760372-347254476845228",
+          "queries": 12,
+          "input_sha256": "0a71a5b0cb775e293a9f36c2806ffe530c136a97fc469d69b62ff31c33aae00e",
+          "output_sha256": "4bcf4c9216a5107a7cee3d05b8f055e89ea544ff741c2b725157df6efe216cd5",
+          "commands": {
+            "get-info": 1,
+            "set-option": 40,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 80,
+            "declare-fun": 484,
+            "assert": 726,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 12,
+            "push": 55,
+            "pop": 55
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 0.0855446020141244,
+            "user_cpu_s": 0.045399999999999996,
+            "system_cpu_s": 0.011843,
+            "input_sha256": "b8afd63a4907864f065b9efae01f65f2b7cc935bbf4d4bc8aba812f5f24a1063",
+            "stdout_sha256": "af69c13cfe7c45d5eda52830c5e80b0d6e1cc80fbb8016908b20ad2d7a205a08",
+            "statistics": {
+              "added-eqs": "57",
+              "arith-eq-adapter": "3",
+              "arith-lower": "3",
+              "arith-make-feasible": "13",
+              "arith-max-columns": "14",
+              "arith-upper": "3",
+              "conflicts": "1",
+              "datatype-accessor-ax": "6",
+              "del-clause": "5",
+              "final-checks": "10",
+              "max-generation": "4",
+              "max-memory": "18.70",
+              "memory": "18.48",
+              "mk-bool-var": "648",
+              "mk-clause": "5",
+              "num-allocs": "898125",
+              "num-checks": "11",
+              "propagations": "2",
+              "quant-instantiations": "15",
+              "rlimit-count": "210332"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "instantiations": 870,
+      "resources": 777676,
+      "checks": 407
+    },
+    {
+      "name": "default-wrong-trace-fixed",
+      "case": "mut_element_array_wrong",
+      "mode": "default",
+      "raw_audit_sha256": "c284338b8cc6dff799b7defddcac62d070fe0afc1162e96ab5c1084d3a317e55",
+      "streams": [
+        {
+          "capture": "/tmp/ferrum-solver-work-0e1bf91/default-wrong-trace-fixed/smt/3790338-347392813056647",
+          "queries": 475,
+          "input_sha256": "cd324f064b5dbd376f1ae600fe523a35caf86801e760d893b4049f3f173fd359",
+          "output_sha256": "5b37688fcc99a137467ad37705c6b3e10afd0ab5849a57ec0bbf98d9e0f8c60d",
+          "commands": {
+            "get-info": 1,
+            "set-option": 959,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 429,
+            "declare-fun": 488,
+            "assert": 2252,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 24,
+            "check-sat": 475,
+            "push": 1147,
+            "pop": 1147
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 1.0397387410048395,
+            "user_cpu_s": 0.9047029999999999,
+            "system_cpu_s": 0.046828999999999996,
+            "input_sha256": "fb9b9430593d83a2b363ec7ba03a24ada9af81c7b908a3b545cb505d905e455e",
+            "stdout_sha256": "5930fde9ded020504c59e16a0122051683825739d5862d58be98060d098ca4bf",
+            "statistics": {
+              "added-eqs": "55665",
+              "arith-eq-adapter": "3300",
+              "arith-assume-eqs": "2",
+              "arith-bound-propagations-lp": "410",
+              "arith-conflicts": "97",
+              "arith-diseq": "1407",
+              "arith-fixed-eqs": "2786",
+              "arith-lower": "3652",
+              "arith-make-feasible": "1823",
+              "arith-max-columns": "109",
+              "arith-max-rows": "35",
+              "arith-offset-eqs": "19",
+              "arith-upper": "2985",
+              "conflicts": "1121",
+              "datatype-accessor-ax": "779",
+              "datatype-constructor-ax": "8019",
+              "datatype-occurs-check": "10656",
+              "datatype-splits": "7923",
+              "decisions": "10511",
+              "del-clause": "7722",
+              "final-checks": "490",
+              "interface-eqs": "1",
+              "max-generation": "5",
+              "max-memory": "20.80",
+              "memory": "20.51",
+              "minimized-lits": "15",
+              "mk-bool-var": "23757",
+              "mk-clause": "7722",
+              "num-allocs": "67667274",
+              "num-checks": "474",
+              "propagations": "4930",
+              "quant-instantiations": "1609",
+              "rlimit-count": "774833"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "instantiations": 1609,
+      "resources": 774833,
+      "checks": 475
+    },
+    {
+      "name": "separate-wrong-trace",
+      "case": "mut_element_array_wrong",
+      "mode": "separate",
+      "raw_audit_sha256": "40062cf37a2bcebede857c956f54269627d9f41f023fd6db0d3666ecfdb2beb9",
+      "streams": [
+        {
+          "capture": "/tmp/ferrum-solver-work-0e1bf91/separate-wrong-trace/smt/3761975-347260749104579",
+          "queries": 464,
+          "input_sha256": "4f5d54630c9362159365fd9f2a538bdb788e3e3add870a026c279b3b54d69eca",
+          "output_sha256": "d2495983a8a75388ba089001b7ce1618cbdc6e83e79362573506519ce12b033e",
+          "commands": {
+            "get-info": 1,
+            "set-option": 937,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 380,
+            "declare-fun": 422,
+            "assert": 2163,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 24,
+            "check-sat": 464,
+            "push": 1093,
+            "pop": 1092
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 0.6555712459958158,
+            "user_cpu_s": 0.6198319999999999,
+            "system_cpu_s": 0.022955999999999997,
+            "input_sha256": "69548c7d0caa6e6ce86403f68873b10e978b8b9a0ff48c31cdd10810cdebf903",
+            "stdout_sha256": "736552e0539c495c7257b44592579683f3ccb14ec3f74922cb74921be6aafc49",
+            "statistics": {
+              "added-eqs": "55623",
+              "arith-eq-adapter": "3300",
+              "arith-assume-eqs": "2",
+              "arith-bound-propagations-lp": "410",
+              "arith-conflicts": "97",
+              "arith-diseq": "1407",
+              "arith-fixed-eqs": "2784",
+              "arith-lower": "3652",
+              "arith-make-feasible": "1813",
+              "arith-max-columns": "109",
+              "arith-max-rows": "35",
+              "arith-offset-eqs": "19",
+              "arith-upper": "2984",
+              "conflicts": "1120",
+              "datatype-accessor-ax": "773",
+              "datatype-constructor-ax": "8019",
+              "datatype-occurs-check": "10656",
+              "datatype-splits": "7923",
+              "decisions": "10511",
+              "del-clause": "7715",
+              "final-checks": "480",
+              "interface-eqs": "1",
+              "max-generation": "5",
+              "max-memory": "20.80",
+              "memory": "20.51",
+              "minimized-lits": "15",
+              "mk-bool-var": "23724",
+              "mk-clause": "7715",
+              "num-allocs": "66176895",
+              "num-checks": "463",
+              "propagations": "4927",
+              "quant-instantiations": "1597",
+              "rlimit-count": "772251"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        },
+        {
+          "capture": "/tmp/ferrum-solver-work-0e1bf91/separate-wrong-trace/smt/3762022-347260797528252",
+          "queries": 12,
+          "input_sha256": "0a71a5b0cb775e293a9f36c2806ffe530c136a97fc469d69b62ff31c33aae00e",
+          "output_sha256": "4bcf4c9216a5107a7cee3d05b8f055e89ea544ff741c2b725157df6efe216cd5",
+          "commands": {
+            "get-info": 1,
+            "set-option": 40,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 80,
+            "declare-fun": 484,
+            "assert": 726,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 12,
+            "push": 55,
+            "pop": 55
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 0.08471236401237547,
+            "user_cpu_s": 0.04219700000000004,
+            "system_cpu_s": 0.012056000000000004,
+            "input_sha256": "b8afd63a4907864f065b9efae01f65f2b7cc935bbf4d4bc8aba812f5f24a1063",
+            "stdout_sha256": "af69c13cfe7c45d5eda52830c5e80b0d6e1cc80fbb8016908b20ad2d7a205a08",
+            "statistics": {
+              "added-eqs": "57",
+              "arith-eq-adapter": "3",
+              "arith-lower": "3",
+              "arith-make-feasible": "13",
+              "arith-max-columns": "14",
+              "arith-upper": "3",
+              "conflicts": "1",
+              "datatype-accessor-ax": "6",
+              "del-clause": "5",
+              "final-checks": "10",
+              "max-generation": "4",
+              "max-memory": "18.70",
+              "memory": "18.48",
+              "mk-bool-var": "648",
+              "mk-clause": "5",
+              "num-allocs": "898125",
+              "num-checks": "11",
+              "propagations": "2",
+              "quant-instantiations": "15",
+              "rlimit-count": "210332"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "instantiations": 1612,
+      "resources": 982583,
+      "checks": 476
+    },
+    {
+      "name": "trigger-wrong-trace",
+      "case": "mut_element_array_wrong",
+      "mode": "trigger",
+      "raw_audit_sha256": "77801fba31c5e710e294dc9d5449e47c7b573c9c63835397de4de87e099fbf00",
+      "streams": [
+        {
+          "capture": "/tmp/ferrum-solver-work-0e1bf91/trigger-wrong-trace/smt/3763128-347265192755840",
+          "queries": 475,
+          "input_sha256": "107b675ba6e3b0e1939c50e47dd88fefd7ef7cb8c34246d189f48a40ca36b9e6",
+          "output_sha256": "5b37688fcc99a137467ad37705c6b3e10afd0ab5849a57ec0bbf98d9e0f8c60d",
+          "commands": {
+            "get-info": 1,
+            "set-option": 959,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 429,
+            "declare-fun": 488,
+            "assert": 2252,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 24,
+            "check-sat": 475,
+            "push": 1147,
+            "pop": 1147
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 0.5682246640208177,
+            "user_cpu_s": 0.536172,
+            "system_cpu_s": 0.021966,
+            "input_sha256": "16d15c8bbb9ebd559682d087264623e3f12277428b0c05ba64bdf77eccc81a6f",
+            "stdout_sha256": "d6e4aa8a6c549efce7893827328b69ac0fe5b47092f4f0664789058fcb1160a1",
+            "statistics": {
+              "added-eqs": "52682",
+              "arith-eq-adapter": "3028",
+              "arith-assume-eqs": "4",
+              "arith-bound-propagations-lp": "414",
+              "arith-conflicts": "97",
+              "arith-diseq": "1424",
+              "arith-fixed-eqs": "2737",
+              "arith-lower": "3191",
+              "arith-make-feasible": "1414",
+              "arith-max-columns": "107",
+              "arith-max-rows": "35",
+              "arith-offset-eqs": "30",
+              "arith-upper": "2525",
+              "conflicts": "949",
+              "datatype-accessor-ax": "775",
+              "datatype-constructor-ax": "7869",
+              "datatype-occurs-check": "10495",
+              "datatype-splits": "7780",
+              "decisions": "9962",
+              "del-clause": "7608",
+              "final-checks": "489",
+              "interface-eqs": "2",
+              "max-generation": "5",
+              "max-memory": "20.66",
+              "memory": "20.47",
+              "minimized-lits": "17",
+              "mk-bool-var": "21968",
+              "mk-clause": "7608",
+              "num-allocs": "65041956",
+              "num-checks": "474",
+              "propagations": "4719",
+              "quant-instantiations": "1012",
+              "rlimit-count": "714805"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "instantiations": 1012,
+      "resources": 714805,
+      "checks": 475
+    },
+    {
+      "name": "combined-wrong-trace",
+      "case": "mut_element_array_wrong",
+      "mode": "combined",
+      "raw_audit_sha256": "cfeff3e31b9e26f8f6af9c2d9165d001deb9b8ccb5daf751fdd12e5778ce2099",
+      "streams": [
+        {
+          "capture": "/tmp/ferrum-solver-work-0e1bf91/combined-wrong-trace/smt/3764117-347269150886610",
+          "queries": 464,
+          "input_sha256": "4a30f974997f0ced1398bb259be7a71f69f44b663c145040033108fa0017efa6",
+          "output_sha256": "d2495983a8a75388ba089001b7ce1618cbdc6e83e79362573506519ce12b033e",
+          "commands": {
+            "get-info": 1,
+            "set-option": 937,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 380,
+            "declare-fun": 422,
+            "assert": 2163,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 24,
+            "check-sat": 464,
+            "push": 1093,
+            "pop": 1092
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 0.5703054830082692,
+            "user_cpu_s": 0.533735,
+            "system_cpu_s": 0.023031,
+            "input_sha256": "81b94692a8f992ba43374ba3d436788bb4a6c809fe67bc9189bae7dd8cfde077",
+            "stdout_sha256": "d2f7e0f60567426525d8bdb04bf8218bf415945b7dadf59b31a509ea730ce997",
+            "statistics": {
+              "added-eqs": "52640",
+              "arith-eq-adapter": "3028",
+              "arith-assume-eqs": "4",
+              "arith-bound-propagations-lp": "414",
+              "arith-conflicts": "97",
+              "arith-diseq": "1424",
+              "arith-fixed-eqs": "2735",
+              "arith-lower": "3191",
+              "arith-make-feasible": "1404",
+              "arith-max-columns": "107",
+              "arith-max-rows": "35",
+              "arith-offset-eqs": "30",
+              "arith-upper": "2524",
+              "conflicts": "948",
+              "datatype-accessor-ax": "769",
+              "datatype-constructor-ax": "7869",
+              "datatype-occurs-check": "10495",
+              "datatype-splits": "7780",
+              "decisions": "9962",
+              "del-clause": "7601",
+              "final-checks": "479",
+              "interface-eqs": "2",
+              "max-generation": "5",
+              "max-memory": "20.65",
+              "memory": "20.46",
+              "minimized-lits": "17",
+              "mk-bool-var": "21935",
+              "mk-clause": "7601",
+              "num-allocs": "62669240",
+              "num-checks": "463",
+              "propagations": "4716",
+              "quant-instantiations": "1000",
+              "rlimit-count": "712225"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        },
+        {
+          "capture": "/tmp/ferrum-solver-work-0e1bf91/combined-wrong-trace/smt/3764133-347269206314420",
+          "queries": 12,
+          "input_sha256": "0a71a5b0cb775e293a9f36c2806ffe530c136a97fc469d69b62ff31c33aae00e",
+          "output_sha256": "4bcf4c9216a5107a7cee3d05b8f055e89ea544ff741c2b725157df6efe216cd5",
+          "commands": {
+            "get-info": 1,
+            "set-option": 40,
+            "declare-datatypes": 1,
+            "declare-sort": 50,
+            "declare-const": 80,
+            "declare-fun": 484,
+            "assert": 726,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 12,
+            "push": 55,
+            "pop": 55
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 0.052787888038437814,
+            "user_cpu_s": 0.042140999999999984,
+            "system_cpu_s": 0.009031,
+            "input_sha256": "b8afd63a4907864f065b9efae01f65f2b7cc935bbf4d4bc8aba812f5f24a1063",
+            "stdout_sha256": "af69c13cfe7c45d5eda52830c5e80b0d6e1cc80fbb8016908b20ad2d7a205a08",
+            "statistics": {
+              "added-eqs": "57",
+              "arith-eq-adapter": "3",
+              "arith-lower": "3",
+              "arith-make-feasible": "13",
+              "arith-max-columns": "14",
+              "arith-upper": "3",
+              "conflicts": "1",
+              "datatype-accessor-ax": "6",
+              "del-clause": "5",
+              "final-checks": "10",
+              "max-generation": "4",
+              "max-memory": "18.70",
+              "memory": "18.48",
+              "mk-bool-var": "648",
+              "mk-clause": "5",
+              "num-allocs": "898125",
+              "num-checks": "11",
+              "propagations": "2",
+              "quant-instantiations": "15",
+              "rlimit-count": "210332"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "instantiations": 1015,
+      "resources": 922557,
+      "checks": 476
+    },
+    {
+      "name": "separate-nested-trace",
+      "case": "mut_element_nested_pass",
+      "mode": "separate",
+      "raw_audit_sha256": "a69f30f34b7f1fc114857afe927a29e5434bdbccac7ef7d80e38805a5daa4b5d",
+      "streams": [
+        {
+          "capture": "separate-nested-trace/smt/3667959-346779267207039",
+          "queries": 1090,
+          "input_sha256": "528922fa2e17473d11ffb9635e00c57dbc86dcecb8bb630894cb9917fbd7ce18",
+          "output_sha256": "dd774955c5dfd426ddaa0e42b06ad20d5b49365a0c41b7593e6f03ffda025728",
+          "commands": {
+            "get-info": 1,
+            "set-option": 2188,
+            "declare-datatypes": 1,
+            "declare-sort": 48,
+            "declare-const": 520,
+            "declare-fun": 430,
+            "assert": 3802,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 60,
+            "check-sat": 1090,
+            "push": 2699,
+            "pop": 2698
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 16.706061028002296,
+            "user_cpu_s": 16.391992,
+            "system_cpu_s": 0.116793,
+            "input_sha256": "891872d16a43d49716b6cad800dff92b83867911effa1592359124c98feb892b",
+            "stdout_sha256": "ba2ab182b9fd974bf71646507ba11a0a95e4a2b0468cfe2cf4b117dda91c6745",
+            "statistics": {
+              "added-eqs": "1400627",
+              "arith-eq-adapter": "97601",
+              "arith-assume-eqs": "2432",
+              "arith-bound-propagations-lp": "90132",
+              "arith-conflicts": "1948",
+              "arith-diseq": "59495",
+              "arith-fixed-eqs": "66327",
+              "arith-lower": "110850",
+              "arith-make-feasible": "78038",
+              "arith-max-columns": "957",
+              "arith-max-rows": "540",
+              "arith-offset-eqs": "29402",
+              "arith-upper": "150894",
+              "conflicts": "14615",
+              "datatype-accessor-ax": "41267",
+              "datatype-constructor-ax": "142134",
+              "datatype-occurs-check": "171301",
+              "datatype-splits": "130217",
+              "decisions": "191592",
+              "del-clause": "495468",
+              "final-checks": "3012",
+              "interface-eqs": "1215",
+              "max-generation": "21",
+              "max-memory": "32.01",
+              "memory": "30.35",
+              "minimized-lits": "1771",
+              "mk-bool-var": "799624",
+              "mk-clause": "495468",
+              "num-allocs": "7312745085.00",
+              "num-checks": "1089",
+              "propagations": "238510",
+              "quant-instantiations": "137841",
+              "rlimit-count": "14684656"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        },
+        {
+          "capture": "separate-nested-trace/smt/3667963-346779295746450",
+          "queries": 22,
+          "input_sha256": "8b4a593ffd409af1b2052865b59b1d7a45e7c5a371c86e6b289fb69c7b11fa45",
+          "output_sha256": "c456cec34c86e58c787378c150303f8c0fd5591b88e04a36bc4cebafcfd177d2",
+          "commands": {
+            "get-info": 1,
+            "set-option": 60,
+            "declare-datatypes": 1,
+            "declare-sort": 48,
+            "declare-const": 80,
+            "declare-fun": 494,
+            "assert": 770,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 22,
+            "push": 76,
+            "pop": 76
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 0.09498264704598114,
+            "user_cpu_s": 0.06301799999999957,
+            "system_cpu_s": 0.014230000000000007,
+            "input_sha256": "73c100f5dc9f88e477413e1e48f5369a1dfd135616aec0867e0650748d9cf6e3",
+            "stdout_sha256": "e7046c1eb03f571c85c02b5d1ec06477502b11ff6d83136a49a6b57ccc51f40c",
+            "statistics": {
+              "added-eqs": "168",
+              "arith-eq-adapter": "3",
+              "arith-lower": "4",
+              "arith-make-feasible": "21",
+              "arith-max-columns": "14",
+              "arith-upper": "6",
+              "conflicts": "4",
+              "datatype-accessor-ax": "23",
+              "del-clause": "10",
+              "final-checks": "14",
+              "max-generation": "4",
+              "max-memory": "18.62",
+              "memory": "18.36",
+              "mk-bool-var": "717",
+              "mk-clause": "10",
+              "num-allocs": "747258",
+              "num-checks": "21",
+              "propagations": "3",
+              "quant-instantiations": "58",
+              "rlimit-count": "205708"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "instantiations": 137899,
+      "resources": 14890364,
+      "checks": 1112
+    },
+    {
+      "name": "trigger-nested-trace",
+      "case": "mut_element_nested_pass",
+      "mode": "trigger",
+      "raw_audit_sha256": "c1809d6e1ab506aebda09d6a7752fc2afe3587423968709d763be3fa9da20000",
+      "streams": [
+        {
+          "capture": "trigger-nested-trace/smt/3739685-347152422053340",
+          "queries": 1111,
+          "input_sha256": "815174c6f969f6d6d03d2f5287c7240ccfb1683381f55232adcb9e675ca93950",
+          "output_sha256": "0f6d03c4c58d15a529194c392d35ead22942c8525730dc4a90b16a53d57bd73e",
+          "commands": {
+            "get-info": 1,
+            "set-option": 2230,
+            "declare-datatypes": 1,
+            "declare-sort": 48,
+            "declare-const": 573,
+            "declare-fun": 506,
+            "assert": 3951,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 60,
+            "check-sat": 1111,
+            "push": 2774,
+            "pop": 2774
+          },
+          "replay": {
+            "command": [
+              "taskset",
+              "--cpu-list",
+              "0,1,2,3",
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "exit_code": 0,
+            "timed_out": false,
+            "wall_s": 5.599716042983346,
+            "user_cpu_s": 5.519256,
+            "system_cpu_s": 0.065967,
+            "input_sha256": "af686410a56989fa6e6db402ceb876695576dd36c613810aec2670d58418b239",
+            "stdout_sha256": "ee98b58739d49e78418cdcb6520a387b178bb38f454663839a1fcfa781802625",
+            "statistics": {
+              "added-eqs": "574521",
+              "arith-eq-adapter": "60875",
+              "arith-assume-eqs": "1512",
+              "arith-bound-propagations-lp": "10583",
+              "arith-conflicts": "1054",
+              "arith-diseq": "7522",
+              "arith-fixed-eqs": "29603",
+              "arith-lower": "57352",
+              "arith-make-feasible": "23154",
+              "arith-max-columns": "584",
+              "arith-max-rows": "281",
+              "arith-offset-eqs": "5346",
+              "arith-upper": "68230",
+              "conflicts": "12823",
+              "datatype-accessor-ax": "13901",
+              "datatype-constructor-ax": "62523",
+              "datatype-occurs-check": "47152",
+              "datatype-splits": "30819",
+              "decisions": "85936",
+              "del-clause": "152310",
+              "final-checks": "1897",
+              "interface-eqs": "756",
+              "max-generation": "6",
+              "max-memory": "26.22",
+              "memory": "25.37",
+              "minimized-lits": "780",
+              "mk-bool-var": "328642",
+              "mk-clause": "152310",
+              "num-allocs": "1219202083",
+              "num-checks": "1110",
+              "propagations": "105846",
+              "quant-instantiations": "11509",
+              "rlimit-count": "4681002"
+            },
+            "original_response_prefix_equal": true,
+            "stderr": ""
+          }
+        }
+      ],
+      "instantiations": 11509,
+      "resources": 4681002,
+      "checks": 1111
+    }
+  ],
+  "correctness_trials": [
+    {
+      "case": "mut_element_nested_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 19.11,
+      "server_cpu_s": {
+        "user_s": 2.8400000000000003,
+        "system_s": 0.21,
+        "child_user_s": 0.44,
+        "child_system_s": 0.21
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          872897748
+        ],
+        "VIR conversion": [
+          66325981
+        ],
+        "backend verification": [
+          17043251831
+        ]
+      },
+      "trace": true,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "33467"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "default-nested-trace-fixed",
+      "mode": "default",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/default-nested-trace-fixed/result.json",
+      "raw_result_sha256": "9ae00395210b811cc957632adb4923137a07a9c13d5df6d87d730b3ab671595a",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 12.1,
+      "server_cpu_s": {
+        "user_s": 3.27,
+        "system_s": 0.26,
+        "child_user_s": 0.59,
+        "child_system_s": 0.28
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          1110190776
+        ],
+        "VIR conversion": [
+          64942805
+        ],
+        "backend verification": [
+          9416157072
+        ]
+      },
+      "trace": true,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "56127"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "combined-nested-trace",
+      "mode": "combined",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/combined-nested-trace/result.json",
+      "raw_result_sha256": "7c94c86f926221bffc692342631fc6186a382cdd1f529f504f81c07237567853",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 1.51,
+      "server_cpu_s": {
+        "user_s": 0.51,
+        "system_s": 0.05,
+        "child_user_s": 0.09,
+        "child_system_s": 0.04
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          138262991
+        ],
+        "VIR conversion": [
+          8880777
+        ],
+        "backend verification": [
+          854088819
+        ]
+      },
+      "trace": true,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "49787"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "default-array-trace-fixed",
+      "mode": "default",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/default-array-trace-fixed/result.json",
+      "raw_result_sha256": "d60c8adfaebc58e85ecc57eb4625dc60c59f0072d7423f3e554fcaeef547d43f",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 2.74,
+      "server_cpu_s": {
+        "user_s": 0.88,
+        "system_s": 0.1,
+        "child_user_s": 0.21,
+        "child_system_s": 0.11
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          206324535
+        ],
+        "VIR conversion": [
+          12454583
+        ],
+        "backend verification": [
+          1695665610
+        ]
+      },
+      "trace": true,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "40893"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "separate-array-trace",
+      "mode": "separate",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/separate-array-trace/result.json",
+      "raw_result_sha256": "83ab29c3ed853bb156b53fda632c2266617e6e4e297ec3199f0a9408907f0d72",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 2.46,
+      "server_cpu_s": {
+        "user_s": 0.83,
+        "system_s": 0.08,
+        "child_user_s": 0.17,
+        "child_system_s": 0.07
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          328401223
+        ],
+        "VIR conversion": [
+          11508740
+        ],
+        "backend verification": [
+          1411868607
+        ]
+      },
+      "trace": true,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "35509"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "trigger-array-trace",
+      "mode": "trigger",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/trigger-array-trace/result.json",
+      "raw_result_sha256": "c0ad110a1322162e81bbd88bd43a5e3851505fc79f0129a3a1db3d95ef93ffa9",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 2.81,
+      "server_cpu_s": {
+        "user_s": 0.88,
+        "system_s": 0.11,
+        "child_user_s": 0.23,
+        "child_system_s": 0.11
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          250579778
+        ],
+        "VIR conversion": [
+          10644551
+        ],
+        "backend verification": [
+          1740693656
+        ]
+      },
+      "trace": true,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "56789"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "combined-array-trace",
+      "mode": "combined",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/combined-array-trace/result.json",
+      "raw_result_sha256": "732c3d5e7253c75567523e2a1fdcc04f7b80db25cc4c1d8d3bd4d7605d91feaa",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_wrong",
+      "classification": "valid",
+      "exit": 101,
+      "timed_out": false,
+      "wall_s": 1.76,
+      "server_cpu_s": {
+        "user_s": 0.54,
+        "system_s": 0.06,
+        "child_user_s": 0.11,
+        "child_system_s": 0.04
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          184117417
+        ],
+        "VIR conversion": [
+          7969489
+        ],
+        "backend verification": [
+          1066754572
+        ]
+      },
+      "trace": true,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "e5f50a76c80ee2f33d504dafa4eb35612c519e789565685ce542251058cfca79",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "43709"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "default-wrong-trace-fixed",
+      "mode": "default",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/default-wrong-trace-fixed/result.json",
+      "raw_result_sha256": "e9b173044d0de9fc8c3477563570c4845acab31fc76afd390e0a753c431662c4",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_wrong",
+      "classification": "valid",
+      "exit": 101,
+      "timed_out": false,
+      "wall_s": 3.5,
+      "server_cpu_s": {
+        "user_s": 1.02,
+        "system_s": 0.14,
+        "child_user_s": 0.28,
+        "child_system_s": 0.15
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          259107952
+        ],
+        "VIR conversion": [
+          14032100
+        ],
+        "backend verification": [
+          2332929524
+        ]
+      },
+      "trace": true,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "e5f50a76c80ee2f33d504dafa4eb35612c519e789565685ce542251058cfca79",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "58551"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "separate-wrong-trace",
+      "mode": "separate",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/separate-wrong-trace/result.json",
+      "raw_result_sha256": "ed7c731df3bb237965a60cc87be58275165b0c92f44c061d99f4f55f0f095d1b",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_wrong",
+      "classification": "valid",
+      "exit": 101,
+      "timed_out": false,
+      "wall_s": 2.77,
+      "server_cpu_s": {
+        "user_s": 0.88,
+        "system_s": 0.08,
+        "child_user_s": 0.2,
+        "child_system_s": 0.09
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          223389592
+        ],
+        "VIR conversion": [
+          12867280
+        ],
+        "backend verification": [
+          1754732492
+        ]
+      },
+      "trace": true,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "e5f50a76c80ee2f33d504dafa4eb35612c519e789565685ce542251058cfca79",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "39973"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "trigger-wrong-trace",
+      "mode": "trigger",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/trigger-wrong-trace/result.json",
+      "raw_result_sha256": "9ae4444ce56bd3c8908ec0e65b7cbbdc152e48cea9057e7f3b484dbf73bdba61",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_wrong",
+      "classification": "valid",
+      "exit": 101,
+      "timed_out": false,
+      "wall_s": 3.5,
+      "server_cpu_s": {
+        "user_s": 1.01,
+        "system_s": 0.13,
+        "child_user_s": 0.27,
+        "child_system_s": 0.13
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          378846072
+        ],
+        "VIR conversion": [
+          16684805
+        ],
+        "backend verification": [
+          2141190285
+        ]
+      },
+      "trace": true,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "e5f50a76c80ee2f33d504dafa4eb35612c519e789565685ce542251058cfca79",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "34451"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "combined-wrong-trace",
+      "mode": "combined",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/combined-wrong-trace/result.json",
+      "raw_result_sha256": "0f8fc11073258383c678054d1f94153f5f591527f01f2c5cac47645374e2de2a",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_nested_frame_wrong",
+      "classification": "valid",
+      "exit": 101,
+      "timed_out": false,
+      "wall_s": 22.46,
+      "server_cpu_s": {
+        "user_s": 1.75,
+        "system_s": 0.18,
+        "child_user_s": 19.69,
+        "child_system_s": 0.07
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          239260664
+        ],
+        "VIR conversion": [
+          36181920
+        ],
+        "backend verification": [
+          21448198694
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "58a9bcba73605e4b51e146dfbdcccfab051128cd2fa139af3fef20d069c38394",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "39293"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "default-mut_element_nested_frame_wrong-fixed",
+      "mode": "default",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/default-mut_element_nested_frame_wrong-fixed/result.json",
+      "raw_result_sha256": "750379a94987802fdc16f25aeb9eea10e4c0dfa7deb2f0bf778332a15ab4aa3d",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_nested_frame_wrong",
+      "classification": "valid",
+      "exit": 101,
+      "timed_out": false,
+      "wall_s": 15.8,
+      "server_cpu_s": {
+        "user_s": 3.1300000000000003,
+        "system_s": 0.22,
+        "child_user_s": 10.91,
+        "child_system_s": 0.13
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          660607079
+        ],
+        "VIR conversion": [
+          77570939
+        ],
+        "backend verification": [
+          13870311885
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "58a9bcba73605e4b51e146dfbdcccfab051128cd2fa139af3fef20d069c38394",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "46009"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "trigger-mut_element_nested_frame_wrong",
+      "mode": "trigger",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/trigger-mut_element_nested_frame_wrong/result.json",
+      "raw_result_sha256": "5679d76459c821f4e630dd0fd326029357ee50fb9035d00b8b3a191a25675cdc",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_option_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 4.3,
+      "server_cpu_s": {
+        "user_s": 1.19,
+        "system_s": 0.13,
+        "child_user_s": 1.6,
+        "child_system_s": 0.05
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          712244235
+        ],
+        "VIR conversion": [
+          18698998
+        ],
+        "backend verification": [
+          2768762369
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "27acdac9db654e0944064a9eba246337c1b7d12710596a9d7ffbb14dbac4674d",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "45323"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "default-mut_element_option_pass-fixed",
+      "mode": "default",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/default-mut_element_option_pass-fixed/result.json",
+      "raw_result_sha256": "a294a8b46379999a8394759fe7940922155e18811a6d8b3ab4bd0d8862026eb4",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_option_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 2.66,
+      "server_cpu_s": {
+        "user_s": 0.76,
+        "system_s": 0.08,
+        "child_user_s": 0.95,
+        "child_system_s": 0.04
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          416123855
+        ],
+        "VIR conversion": [
+          11563383
+        ],
+        "backend verification": [
+          1694482578
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "27acdac9db654e0944064a9eba246337c1b7d12710596a9d7ffbb14dbac4674d",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "39321"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "trigger-mut_element_option_pass",
+      "mode": "trigger",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/trigger-mut_element_option_pass/result.json",
+      "raw_result_sha256": "0f1739d36de5bc9fe0854307fa68a11888c2214dbcbb1bc5f3fff0e6cf8d87d7",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_pair_merged_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 2.31,
+      "server_cpu_s": {
+        "user_s": 0.82,
+        "system_s": 0.09,
+        "child_user_s": 0.82,
+        "child_system_s": 0.03
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          155631050
+        ],
+        "VIR conversion": [
+          12301964
+        ],
+        "backend verification": [
+          1616579599
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "c4547640e8f9174964887814429292236cb4ca22191d4a78e1f75e20c70c598c",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "41401"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "default-mut_element_pair_merged_pass",
+      "mode": "default",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/default-mut_element_pair_merged_pass/result.json",
+      "raw_result_sha256": "beb14d290e7bcc979f6101ed3d3b6751bac68cfa47babf2fe0ee8d2d27de1a72",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_pair_merged_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 2.32,
+      "server_cpu_s": {
+        "user_s": 0.84,
+        "system_s": 0.09,
+        "child_user_s": 0.7,
+        "child_system_s": 0.03
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          238496647
+        ],
+        "VIR conversion": [
+          11644058
+        ],
+        "backend verification": [
+          1529936268
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "c4547640e8f9174964887814429292236cb4ca22191d4a78e1f75e20c70c598c",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "50743"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "trigger-mut_element_pair_merged_pass",
+      "mode": "trigger",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/trigger-mut_element_pair_merged_pass/result.json",
+      "raw_result_sha256": "73877f9d0652b02f6abd0541149f57a5a88f4a3ed19f5282ab1987275ff3ed78",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_replace_false",
+      "classification": "valid",
+      "exit": 101,
+      "timed_out": false,
+      "wall_s": 1.02,
+      "server_cpu_s": {
+        "user_s": 0.35,
+        "system_s": 0.04,
+        "child_user_s": 0.16,
+        "child_system_s": 0.01
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          58506034
+        ],
+        "VIR conversion": [
+          5317484
+        ],
+        "backend verification": [
+          498642416
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "48f0a33d94f773f97f8b6443d0984565249e230485a2d51ad87215e13cd6527d",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "46485"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "default-mut_element_replace_false",
+      "mode": "default",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/default-mut_element_replace_false/result.json",
+      "raw_result_sha256": "0e05f9c07e2f7dfb293186ca5fef29701fed3fbf1034f84cb7b02667e8f89604",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_replace_false",
+      "classification": "valid",
+      "exit": 101,
+      "timed_out": false,
+      "wall_s": 1.04,
+      "server_cpu_s": {
+        "user_s": 0.36,
+        "system_s": 0.04,
+        "child_user_s": 0.16,
+        "child_system_s": 0.01
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          56690452
+        ],
+        "VIR conversion": [
+          5652489
+        ],
+        "backend verification": [
+          502429087
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "48f0a33d94f773f97f8b6443d0984565249e230485a2d51ad87215e13cd6527d",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "58927"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "trigger-mut_element_replace_false",
+      "mode": "trigger",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/trigger-mut_element_replace_false/result.json",
+      "raw_result_sha256": "3cf2a4f14081dff6485d7b808658c028dd3833a385b5eb26cb89fd06c8ad5836",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_native_shared_ref_next_wrong",
+      "classification": "unexpected_result",
+      "exit": 101,
+      "timed_out": false,
+      "wall_s": 5.4,
+      "server_cpu_s": {
+        "user_s": 1.88,
+        "system_s": 0.13,
+        "child_user_s": 1.14,
+        "child_system_s": 0.05
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          1713608297
+        ],
+        "VIR conversion": [
+          24924238
+        ],
+        "backend verification": [
+          2940492942
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "215052b1a77d1be4823d7dc32ff4ca9c8c99e53972727724fdc17ce88deba869",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "44441"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "default-mut_native_shared_ref_next_wrong",
+      "mode": "default",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/default-mut_native_shared_ref_next_wrong/result.json",
+      "raw_result_sha256": "98f894c28066dbcd6e4a7ada4878ee2ad2c18c5ed90b95b7b5960ccb2d3c5d97",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid",
+      "oracle_correction": "Initial expected source line 9 was wrong; assertion is on line 8. Original records preserved, no rerun."
+    },
+    {
+      "case": "mut_native_shared_ref_next_wrong",
+      "classification": "unexpected_result",
+      "exit": 101,
+      "timed_out": false,
+      "wall_s": 5.7,
+      "server_cpu_s": {
+        "user_s": 1.96,
+        "system_s": 0.13,
+        "child_user_s": 1.17,
+        "child_system_s": 0.07
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          1842598211
+        ],
+        "VIR conversion": [
+          24023359
+        ],
+        "backend verification": [
+          3053687081
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "215052b1a77d1be4823d7dc32ff4ca9c8c99e53972727724fdc17ce88deba869",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "48583"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "trigger-mut_native_shared_ref_next_wrong",
+      "mode": "trigger",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/trigger-mut_native_shared_ref_next_wrong/result.json",
+      "raw_result_sha256": "c74d0521daf2da60f0d5617bc4ce44e57781f3252ed601d4011945da8dbff732",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid",
+      "oracle_correction": "Initial expected source line 9 was wrong; assertion is on line 8. Original records preserved, no rerun."
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 10.71,
+      "server_cpu_s": {
+        "user_s": 1.76,
+        "system_s": 0.16,
+        "child_user_s": 0.28,
+        "child_system_s": 0.13
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          281585046
+        ],
+        "VIR conversion": [
+          36711027
+        ],
+        "backend verification": [
+          9635645594
+        ]
+      },
+      "trace": true,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "server": "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+      "server_sha256": "b432617c5c8ac7670b5a8eff4ad572f3f8563246d04615409efbd51899adf1dd",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+          "--port",
+          "34611"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "separate-nested-trace",
+      "mode": "separate",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/separate-nested-trace/result.json",
+      "raw_result_sha256": "288364a6cb38daafe614f09221dfd3bc7bcea78b0cfaadcf50cde91693015e68",
+      "runtime": "4cda819",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 13.96,
+      "server_cpu_s": {
+        "user_s": 3.54,
+        "system_s": 0.28,
+        "child_user_s": 0.59,
+        "child_system_s": 0.34
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          1004229326
+        ],
+        "VIR conversion": [
+          67945503
+        ],
+        "backend verification": [
+          11228358838
+        ]
+      },
+      "trace": true,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "45687"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "trigger-nested-trace",
+      "mode": "trigger",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/trigger-nested-trace/result.json",
+      "raw_result_sha256": "df62385832d059b8f5c7835172557ad30aab6380bda5a7a91e7456d66040098d",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    }
+  ],
+  "invalid_setup_trials": [
+    {
+      "name": "default-array-trace",
+      "classification": "invalid_backend",
+      "raw_result_sha256": "705161da430a80f18aad28f42a7c62105ebbf9725975d1e4c45a5fcd4b3d18d1",
+      "reason": "Trailing blank argument for empty profile; backend did not perform a valid verification.",
+      "replacement": "default-array-trace-fixed"
+    },
+    {
+      "name": "default-mut_element_nested_frame_wrong",
+      "classification": "invalid_backend",
+      "raw_result_sha256": "480f107cbf01b22bce67a46880e5f6e55d553c1057a33543564d2f13445a1c8b",
+      "reason": "Trailing blank argument for empty profile; backend did not perform a valid verification.",
+      "replacement": "default-mut_element_nested_frame_wrong-fixed"
+    },
+    {
+      "name": "default-mut_element_option_pass",
+      "classification": "invalid_backend",
+      "raw_result_sha256": "2c857f3b6a8bdcbf215f6ee228208bc8e42285e5c106ee8259e0e8ba9861d206",
+      "reason": "Trailing blank argument for empty profile; backend did not perform a valid verification.",
+      "replacement": "default-mut_element_option_pass-fixed"
+    },
+    {
+      "name": "default-nested-trace",
+      "classification": "invalid_backend",
+      "raw_result_sha256": "7bda0ca580c13b0fd5db5864bd2fe97c59409160275fef041badb024ab360049",
+      "reason": "Trailing blank argument for empty profile; backend did not perform a valid verification.",
+      "replacement": "default-nested-trace-fixed"
+    },
+    {
+      "name": "default-wrong-trace",
+      "classification": "invalid_backend",
+      "raw_result_sha256": "6d58a98d0c7dad96bad47dc72a7012cc9d59ec035462353adbc0bc3d568df3b4",
+      "reason": "Trailing blank argument for empty profile; backend did not perform a valid verification.",
+      "replacement": "default-wrong-trace-fixed"
+    }
+  ],
+  "timing_schedule": [
+    {
+      "name": "timing-mut_element_nested_pass-1-default",
+      "case": "mut_element_nested_pass",
+      "mode": "default"
+    },
+    {
+      "name": "timing-mut_element_nested_pass-2-trigger",
+      "case": "mut_element_nested_pass",
+      "mode": "trigger"
+    },
+    {
+      "name": "timing-mut_element_nested_pass-3-separate",
+      "case": "mut_element_nested_pass",
+      "mode": "separate"
+    },
+    {
+      "name": "timing-mut_element_nested_pass-4-combined",
+      "case": "mut_element_nested_pass",
+      "mode": "combined"
+    },
+    {
+      "name": "timing-mut_element_nested_pass-5-combined",
+      "case": "mut_element_nested_pass",
+      "mode": "combined"
+    },
+    {
+      "name": "timing-mut_element_nested_pass-6-separate",
+      "case": "mut_element_nested_pass",
+      "mode": "separate"
+    },
+    {
+      "name": "timing-mut_element_nested_pass-7-trigger",
+      "case": "mut_element_nested_pass",
+      "mode": "trigger"
+    },
+    {
+      "name": "timing-mut_element_nested_pass-8-default",
+      "case": "mut_element_nested_pass",
+      "mode": "default"
+    },
+    {
+      "name": "timing-mut_element_array_pass-1-default",
+      "case": "mut_element_array_pass",
+      "mode": "default"
+    },
+    {
+      "name": "timing-mut_element_array_pass-2-trigger",
+      "case": "mut_element_array_pass",
+      "mode": "trigger"
+    },
+    {
+      "name": "timing-mut_element_array_pass-3-separate",
+      "case": "mut_element_array_pass",
+      "mode": "separate"
+    },
+    {
+      "name": "timing-mut_element_array_pass-4-combined",
+      "case": "mut_element_array_pass",
+      "mode": "combined"
+    },
+    {
+      "name": "timing-mut_element_array_pass-5-combined",
+      "case": "mut_element_array_pass",
+      "mode": "combined"
+    },
+    {
+      "name": "timing-mut_element_array_pass-6-separate",
+      "case": "mut_element_array_pass",
+      "mode": "separate"
+    },
+    {
+      "name": "timing-mut_element_array_pass-7-trigger",
+      "case": "mut_element_array_pass",
+      "mode": "trigger"
+    },
+    {
+      "name": "timing-mut_element_array_pass-8-default",
+      "case": "mut_element_array_pass",
+      "mode": "default"
+    }
+  ],
+  "timing_trials": [
+    {
+      "case": "mut_element_nested_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 13.01,
+      "server_cpu_s": {
+        "user_s": 1.74,
+        "system_s": 0.13,
+        "child_user_s": 10.39,
+        "child_system_s": 0.08
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          217575924
+        ],
+        "VIR conversion": [
+          37008486
+        ],
+        "backend verification": [
+          12042437912
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "44235"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_nested_pass-1-default",
+      "mode": "default",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_nested_pass-1-default/result.json",
+      "raw_result_sha256": "64baa3642dcc01f0ae3c9db016eb12824115ff11acb7aa94a8d4a6464713d726",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 5.34,
+      "server_cpu_s": {
+        "user_s": 1.68,
+        "system_s": 0.12,
+        "child_user_s": 2.76,
+        "child_system_s": 0.05
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          300154133
+        ],
+        "VIR conversion": [
+          36262965
+        ],
+        "backend verification": [
+          4323088890
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "43057"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_nested_pass-2-trigger",
+      "mode": "trigger",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_nested_pass-2-trigger/result.json",
+      "raw_result_sha256": "b3201372f65b432eafe2750fc2e3d9c9428dbab985f57715dc90a4370ee7ea6b",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 9.61,
+      "server_cpu_s": {
+        "user_s": 1.69,
+        "system_s": 0.13,
+        "child_user_s": 7.08,
+        "child_system_s": 0.07
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          209477578
+        ],
+        "VIR conversion": [
+          38082389
+        ],
+        "backend verification": [
+          8664711032
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "34737"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_nested_pass-3-separate",
+      "mode": "separate",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_nested_pass-3-separate/result.json",
+      "raw_result_sha256": "46f1e5d92fc6473d2a6fcb1d68a2f0c8952d1de9babdf7cf174bff91bc884147",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 5.11,
+      "server_cpu_s": {
+        "user_s": 1.63,
+        "system_s": 0.13,
+        "child_user_s": 2.61,
+        "child_system_s": 0.06
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          260376941
+        ],
+        "VIR conversion": [
+          37670850
+        ],
+        "backend verification": [
+          4115010343
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "57083"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_nested_pass-4-combined",
+      "mode": "combined",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_nested_pass-4-combined/result.json",
+      "raw_result_sha256": "3167786a951f48a41a40e87a213091459d8952eae0b86e2b6fce166422f15fed",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 5.19,
+      "server_cpu_s": {
+        "user_s": 1.66,
+        "system_s": 0.13,
+        "child_user_s": 2.68,
+        "child_system_s": 0.06
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          248450567
+        ],
+        "VIR conversion": [
+          37672066
+        ],
+        "backend verification": [
+          4207023062
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "37299"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_nested_pass-5-combined",
+      "mode": "combined",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_nested_pass-5-combined/result.json",
+      "raw_result_sha256": "2670de4505565e52c4d80fb163f343fd43d8ce1090574b5ac1721023fab10b93",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 14.53,
+      "server_cpu_s": {
+        "user_s": 2.51,
+        "system_s": 0.19,
+        "child_user_s": 10.57,
+        "child_system_s": 0.11
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          519730617
+        ],
+        "VIR conversion": [
+          63977816
+        ],
+        "backend verification": [
+          12881915522
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "43149"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_nested_pass-6-separate",
+      "mode": "separate",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_nested_pass-6-separate/result.json",
+      "raw_result_sha256": "3be8fc3f76dc707c16bcb0250ac8a331740ff0fc87bed0952d6a7af8f8072d5b",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 6.76,
+      "server_cpu_s": {
+        "user_s": 2.11,
+        "system_s": 0.17,
+        "child_user_s": 3.65,
+        "child_system_s": 0.07
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          291779801
+        ],
+        "VIR conversion": [
+          50420684
+        ],
+        "backend verification": [
+          5623643165
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "44973"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_nested_pass-7-trigger",
+      "mode": "trigger",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_nested_pass-7-trigger/result.json",
+      "raw_result_sha256": "02f22a96bc4876aff29ca707d67756485fde131b54992897faea0c2a8f04fefd",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 16.09,
+      "server_cpu_s": {
+        "user_s": 2.11,
+        "system_s": 0.16,
+        "child_user_s": 12.91,
+        "child_system_s": 0.09
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          267007471
+        ],
+        "VIR conversion": [
+          48396362
+        ],
+        "backend verification": [
+          14929867611
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "43057"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_nested_pass-8-default",
+      "mode": "default",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_nested_pass-8-default/result.json",
+      "raw_result_sha256": "e4979df11c1a54a0400293d63593cca7ac183ed219e0be312b5c3a8d42a49d67",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 1.8,
+      "server_cpu_s": {
+        "user_s": 0.67,
+        "system_s": 0.08,
+        "child_user_s": 0.33,
+        "child_system_s": 0.03
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          230032289
+        ],
+        "VIR conversion": [
+          10477029
+        ],
+        "backend verification": [
+          985102268
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "46353"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_array_pass-1-default",
+      "mode": "default",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_array_pass-1-default/result.json",
+      "raw_result_sha256": "90512e108c1af3a554a1dbb6d95ef963e2b2503857765ec27ad426fbc83ad1a4",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 1.63,
+      "server_cpu_s": {
+        "user_s": 0.62,
+        "system_s": 0.07,
+        "child_user_s": 0.31,
+        "child_system_s": 0.03
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          171904454
+        ],
+        "VIR conversion": [
+          9527194
+        ],
+        "backend verification": [
+          916137267
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "60355"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_array_pass-2-trigger",
+      "mode": "trigger",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_array_pass-2-trigger/result.json",
+      "raw_result_sha256": "b785e5b1e50e5d9214cd754789f4f935ad78cb233fd4ed6ee14ac1472e654921",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 1.78,
+      "server_cpu_s": {
+        "user_s": 0.63,
+        "system_s": 0.08,
+        "child_user_s": 0.36,
+        "child_system_s": 0.03
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          184528486
+        ],
+        "VIR conversion": [
+          9417377
+        ],
+        "backend verification": [
+          982352732
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "54117"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_array_pass-3-separate",
+      "mode": "separate",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_array_pass-3-separate/result.json",
+      "raw_result_sha256": "8e3f70291daef5ea55e3a410bd2f0478401507a036e147ebf1329d2d09c5cd8a",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 1.65,
+      "server_cpu_s": {
+        "user_s": 0.59,
+        "system_s": 0.08,
+        "child_user_s": 0.31,
+        "child_system_s": 0.03
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          198749340
+        ],
+        "VIR conversion": [
+          9627686
+        ],
+        "backend verification": [
+          897706226
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "39637"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_array_pass-4-combined",
+      "mode": "combined",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_array_pass-4-combined/result.json",
+      "raw_result_sha256": "0501a7a16367256ca51f331a31ffce882e715aa414ae29965e967e0139fe015a",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 1.41,
+      "server_cpu_s": {
+        "user_s": 0.48,
+        "system_s": 0.06,
+        "child_user_s": 0.25,
+        "child_system_s": 0.02
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          171464412
+        ],
+        "VIR conversion": [
+          7575036
+        ],
+        "backend verification": [
+          719612593
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "37543"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_array_pass-5-combined",
+      "mode": "combined",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_array_pass-5-combined/result.json",
+      "raw_result_sha256": "0e98739ed65d75854821f853a258319ec56596d68d07b1093af226abb54983c5",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 1.34,
+      "server_cpu_s": {
+        "user_s": 0.46,
+        "system_s": 0.06,
+        "child_user_s": 0.25,
+        "child_system_s": 0.02
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          159825901
+        ],
+        "VIR conversion": [
+          8153751
+        ],
+        "backend verification": [
+          703126813
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "53467"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_array_pass-6-separate",
+      "mode": "separate",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_array_pass-6-separate/result.json",
+      "raw_result_sha256": "89cdcea2847bc852e5dfef49ed291c37ce92827218112c56092a0a49c3441497",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 1.3,
+      "server_cpu_s": {
+        "user_s": 0.48,
+        "system_s": 0.05,
+        "child_user_s": 0.23,
+        "child_system_s": 0.02
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          135108675
+        ],
+        "VIR conversion": [
+          7835972
+        ],
+        "backend verification": [
+          684373699
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "39207"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_array_pass-7-trigger",
+      "mode": "trigger",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_array_pass-7-trigger/result.json",
+      "raw_result_sha256": "458135ef0731d53fd756ab79be086e0d63c5904d71a62ce5f5b0dc814e0f97af",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    },
+    {
+      "case": "mut_element_array_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 1.28,
+      "server_cpu_s": {
+        "user_s": 0.44,
+        "system_s": 0.06,
+        "child_user_s": 0.22,
+        "child_system_s": 0.02
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          135259350
+        ],
+        "VIR conversion": [
+          7681631
+        ],
+        "backend verification": [
+          659227455
+        ]
+      },
+      "trace": false,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+      "server_sha256": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/trigger-server",
+          "--port",
+          "44555"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "timing-mut_element_array_pass-8-default",
+      "mode": "default",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/timing-mut_element_array_pass-8-default/result.json",
+      "raw_result_sha256": "655b0108ab510aa2e38a3d90a7958ad364cc4410d47cc47edf942a8f4cf46d10",
+      "runtime": "783bd7e",
+      "reviewed_classification": "valid"
+    }
+  ],
+  "timing_summary": [
+    {
+      "case": "mut_element_nested_pass",
+      "mode": "default",
+      "trials": [
+        "timing-mut_element_nested_pass-1-default",
+        "timing-mut_element_nested_pass-8-default"
+      ],
+      "request_wall_s": {
+        "observations": [
+          13.01,
+          16.09
+        ],
+        "median": 14.55
+      },
+      "backend_wall_s": {
+        "observations": [
+          12.042437912,
+          14.929867611
+        ],
+        "median": 13.486152761500001
+      },
+      "solver_cpu_s": {
+        "observations": [
+          10.47,
+          13.0
+        ],
+        "median": 11.735
+      },
+      "native_cpu_s": {
+        "observations": [
+          1.87,
+          2.27
+        ],
+        "median": 2.0700000000000003
+      }
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "mode": "trigger",
+      "trials": [
+        "timing-mut_element_nested_pass-2-trigger",
+        "timing-mut_element_nested_pass-7-trigger"
+      ],
+      "request_wall_s": {
+        "observations": [
+          5.34,
+          6.76
+        ],
+        "median": 6.05
+      },
+      "backend_wall_s": {
+        "observations": [
+          4.32308889,
+          5.623643165
+        ],
+        "median": 4.9733660275
+      },
+      "solver_cpu_s": {
+        "observations": [
+          2.8099999999999996,
+          3.7199999999999998
+        ],
+        "median": 3.2649999999999997
+      },
+      "native_cpu_s": {
+        "observations": [
+          1.7999999999999998,
+          2.28
+        ],
+        "median": 2.04
+      }
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "mode": "separate",
+      "trials": [
+        "timing-mut_element_nested_pass-3-separate",
+        "timing-mut_element_nested_pass-6-separate"
+      ],
+      "request_wall_s": {
+        "observations": [
+          9.61,
+          14.53
+        ],
+        "median": 12.07
+      },
+      "backend_wall_s": {
+        "observations": [
+          8.664711032,
+          12.881915522
+        ],
+        "median": 10.773313277
+      },
+      "solver_cpu_s": {
+        "observations": [
+          7.15,
+          10.68
+        ],
+        "median": 8.915
+      },
+      "native_cpu_s": {
+        "observations": [
+          1.8199999999999998,
+          2.6999999999999997
+        ],
+        "median": 2.26
+      }
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "mode": "combined",
+      "trials": [
+        "timing-mut_element_nested_pass-4-combined",
+        "timing-mut_element_nested_pass-5-combined"
+      ],
+      "request_wall_s": {
+        "observations": [
+          5.11,
+          5.19
+        ],
+        "median": 5.15
+      },
+      "backend_wall_s": {
+        "observations": [
+          4.115010343,
+          4.207023062
+        ],
+        "median": 4.1610167024999996
+      },
+      "solver_cpu_s": {
+        "observations": [
+          2.67,
+          2.74
+        ],
+        "median": 2.705
+      },
+      "native_cpu_s": {
+        "observations": [
+          1.7599999999999998,
+          1.79
+        ],
+        "median": 1.775
+      }
+    },
+    {
+      "case": "mut_element_array_pass",
+      "mode": "default",
+      "trials": [
+        "timing-mut_element_array_pass-1-default",
+        "timing-mut_element_array_pass-8-default"
+      ],
+      "request_wall_s": {
+        "observations": [
+          1.8,
+          1.28
+        ],
+        "median": 1.54
+      },
+      "backend_wall_s": {
+        "observations": [
+          0.985102268,
+          0.659227455
+        ],
+        "median": 0.8221648615
+      },
+      "solver_cpu_s": {
+        "observations": [
+          0.36,
+          0.24
+        ],
+        "median": 0.3
+      },
+      "native_cpu_s": {
+        "observations": [
+          0.75,
+          0.5
+        ],
+        "median": 0.625
+      }
+    },
+    {
+      "case": "mut_element_array_pass",
+      "mode": "trigger",
+      "trials": [
+        "timing-mut_element_array_pass-2-trigger",
+        "timing-mut_element_array_pass-7-trigger"
+      ],
+      "request_wall_s": {
+        "observations": [
+          1.63,
+          1.3
+        ],
+        "median": 1.4649999999999999
+      },
+      "backend_wall_s": {
+        "observations": [
+          0.916137267,
+          0.684373699
+        ],
+        "median": 0.8002554829999999
+      },
+      "solver_cpu_s": {
+        "observations": [
+          0.33999999999999997,
+          0.25
+        ],
+        "median": 0.295
+      },
+      "native_cpu_s": {
+        "observations": [
+          0.69,
+          0.53
+        ],
+        "median": 0.61
+      }
+    },
+    {
+      "case": "mut_element_array_pass",
+      "mode": "separate",
+      "trials": [
+        "timing-mut_element_array_pass-3-separate",
+        "timing-mut_element_array_pass-6-separate"
+      ],
+      "request_wall_s": {
+        "observations": [
+          1.78,
+          1.34
+        ],
+        "median": 1.56
+      },
+      "backend_wall_s": {
+        "observations": [
+          0.982352732,
+          0.703126813
+        ],
+        "median": 0.8427397725
+      },
+      "solver_cpu_s": {
+        "observations": [
+          0.39,
+          0.27
+        ],
+        "median": 0.33
+      },
+      "native_cpu_s": {
+        "observations": [
+          0.71,
+          0.52
+        ],
+        "median": 0.615
+      }
+    },
+    {
+      "case": "mut_element_array_pass",
+      "mode": "combined",
+      "trials": [
+        "timing-mut_element_array_pass-4-combined",
+        "timing-mut_element_array_pass-5-combined"
+      ],
+      "request_wall_s": {
+        "observations": [
+          1.65,
+          1.41
+        ],
+        "median": 1.5299999999999998
+      },
+      "backend_wall_s": {
+        "observations": [
+          0.897706226,
+          0.719612593
+        ],
+        "median": 0.8086594095
+      },
+      "solver_cpu_s": {
+        "observations": [
+          0.33999999999999997,
+          0.27
+        ],
+        "median": 0.305
+      },
+      "native_cpu_s": {
+        "observations": [
+          0.6699999999999999,
+          0.54
+        ],
+        "median": 0.605
+      }
+    }
+  ],
+  "cache_investigation": {
+    "trial": {
+      "case": "mut_element_nested_pass",
+      "classification": "valid",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 12.53,
+      "server_cpu_s": {
+        "user_s": 1.61,
+        "system_s": 0.12,
+        "child_user_s": 0.23,
+        "child_system_s": 0.12
+      },
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          208927063
+        ],
+        "VIR conversion": [
+          33660133
+        ],
+        "backend verification": [
+          11537852613
+        ]
+      },
+      "trace": true,
+      "profile": false,
+      "instructions": false,
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "server": "/tmp/ferrum-solver-work-0e1bf91/cache-diagnostic-server",
+      "server_sha256": "878157a8c54a23b79b7952946d781426c878c14cd893405ab4df7ee946a0e52e",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-solver-work-0e1bf91/cache-diagnostic-server",
+          "--port",
+          "59779"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "cache-nested-trace",
+      "mode": "diagnostic-default",
+      "raw_result": "/tmp/ferrum-solver-work-0e1bf91/cache-nested-trace/result.json",
+      "raw_result_sha256": "5c6061c3e1ff09fca362adb81d82675f867ebd1b48583bc5571e12fb2f34c4f3",
+      "runtime": "783bd7e + cache-diagnostic.patch",
+      "reviewed_classification": "valid"
+    },
+    "cache_behavior_changed": false,
+    "diagnostic_input_and_output_equal_baseline": true,
+    "operation_counts": {
+      "get": 73,
+      "insert": 46
+    },
+    "candidate_count": 27,
+    "all_candidates_exact_key_and_domain": true,
+    "summary_axioms": 136,
+    "distinct_maps": 32,
+    "exact_repeated_axioms": 0,
+    "matching_pairs": [
+      {
+        "old": 277,
+        "new": 580,
+        "old_in_cache": false,
+        "current_cache_size": 1
+      },
+      {
+        "old": 286,
+        "new": 577,
+        "old_in_cache": false,
+        "current_cache_size": 2
+      },
+      {
+        "old": 303,
+        "new": 306,
+        "old_in_cache": false,
+        "current_cache_size": 4
+      },
+      {
+        "old": 314,
+        "new": 320,
+        "old_in_cache": false,
+        "current_cache_size": 6
+      },
+      {
+        "old": 345,
+        "new": 574,
+        "old_in_cache": false,
+        "current_cache_size": 7
+      },
+      {
+        "old": 356,
+        "new": 571,
+        "old_in_cache": false,
+        "current_cache_size": 9
+      },
+      {
+        "old": 372,
+        "new": 375,
+        "old_in_cache": false,
+        "current_cache_size": 11
+      },
+      {
+        "old": 383,
+        "new": 389,
+        "old_in_cache": false,
+        "current_cache_size": 13
+      },
+      {
+        "old": 414,
+        "new": 568,
+        "old_in_cache": false,
+        "current_cache_size": 14
+      },
+      {
+        "old": 423,
+        "new": 565,
+        "old_in_cache": false,
+        "current_cache_size": 15
+      },
+      {
+        "old": 445,
+        "new": 451,
+        "old_in_cache": false,
+        "current_cache_size": 18
+      },
+      {
+        "old": 476,
+        "new": 562,
+        "old_in_cache": false,
+        "current_cache_size": 19
+      },
+      {
+        "old": 485,
+        "new": 559,
+        "old_in_cache": false,
+        "current_cache_size": 20
+      },
+      {
+        "old": 502,
+        "new": 505,
+        "old_in_cache": false,
+        "current_cache_size": 22
+      },
+      {
+        "old": 513,
+        "new": 519,
+        "old_in_cache": false,
+        "current_cache_size": 24
+      },
+      {
+        "old": 526,
+        "new": 556,
+        "old_in_cache": false,
+        "current_cache_size": 25
+      }
+    ],
+    "matching_pair_contexts": [
+      {
+        "left": "sm@277@main",
+        "right": "sm@580@main",
+        "left_kinds": {
+          "Val": 2
+        },
+        "right_kinds": {
+          "Val": 2
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243
+        ],
+        "right_scope": [
+          0,
+          77,
+          243
+        ]
+      },
+      {
+        "left": "sm@286@main",
+        "right": "sm@577@main",
+        "left_kinds": {
+          "Val": 2
+        },
+        "right_kinds": {
+          "Val": 2
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243,
+          304
+        ],
+        "right_scope": [
+          0,
+          77,
+          243,
+          304
+        ]
+      },
+      {
+        "left": "sm@303@main",
+        "right": "sm@306@main",
+        "left_kinds": {
+          "Val": 2
+        },
+        "right_kinds": {
+          "Val": 2
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243,
+          304,
+          327
+        ],
+        "right_scope": [
+          0,
+          77,
+          243,
+          304,
+          327
+        ]
+      },
+      {
+        "left": "sm@314@main",
+        "right": "sm@320@main",
+        "left_kinds": {
+          "Val": 3
+        },
+        "right_kinds": {
+          "Val": 3
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466
+        ],
+        "right_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466
+        ]
+      },
+      {
+        "left": "sm@345@main",
+        "right": "sm@574@main",
+        "left_kinds": {
+          "Val": 4
+        },
+        "right_kinds": {
+          "Val": 4
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676
+        ],
+        "right_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676
+        ]
+      },
+      {
+        "left": "sm@356@main",
+        "right": "sm@571@main",
+        "left_kinds": {
+          "Val": 4
+        },
+        "right_kinds": {
+          "Val": 4
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839
+        ],
+        "right_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839
+        ]
+      },
+      {
+        "left": "sm@372@main",
+        "right": "sm@375@main",
+        "left_kinds": {
+          "Val": 4
+        },
+        "right_kinds": {
+          "Val": 4
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864
+        ],
+        "right_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864
+        ]
+      },
+      {
+        "left": "sm@383@main",
+        "right": "sm@389@main",
+        "left_kinds": {
+          "Val": 5
+        },
+        "right_kinds": {
+          "Val": 5
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015
+        ],
+        "right_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015
+        ]
+      },
+      {
+        "left": "sm@414@main",
+        "right": "sm@568@main",
+        "left_kinds": {
+          "Val": 6
+        },
+        "right_kinds": {
+          "Val": 6
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227
+        ],
+        "right_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227
+        ]
+      },
+      {
+        "left": "sm@423@main",
+        "right": "sm@565@main",
+        "left_kinds": {
+          "Val": 5
+        },
+        "right_kinds": {
+          "Val": 5
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227,
+          1396
+        ],
+        "right_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227,
+          1396
+        ]
+      },
+      {
+        "left": "sm@445@main",
+        "right": "sm@451@main",
+        "left_kinds": {
+          "Val": 5
+        },
+        "right_kinds": {
+          "Val": 5
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227,
+          1396,
+          1423,
+          1569
+        ],
+        "right_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227,
+          1396,
+          1423,
+          1569
+        ]
+      },
+      {
+        "left": "sm@476@main",
+        "right": "sm@562@main",
+        "left_kinds": {
+          "Val": 6
+        },
+        "right_kinds": {
+          "Val": 6
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227,
+          1396,
+          1423,
+          1569,
+          1781
+        ],
+        "right_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227,
+          1396,
+          1423,
+          1569,
+          1781
+        ]
+      },
+      {
+        "left": "sm@485@main",
+        "right": "sm@559@main",
+        "left_kinds": {
+          "Val": 5
+        },
+        "right_kinds": {
+          "Val": 5
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227,
+          1396,
+          1423,
+          1569,
+          1781,
+          1954
+        ],
+        "right_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227,
+          1396,
+          1423,
+          1569,
+          1781,
+          1954
+        ]
+      },
+      {
+        "left": "sm@502@main",
+        "right": "sm@505@main",
+        "left_kinds": {
+          "Val": 4
+        },
+        "right_kinds": {
+          "Val": 4
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227,
+          1396,
+          1423,
+          1569,
+          1781,
+          1954,
+          1979
+        ],
+        "right_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227,
+          1396,
+          1423,
+          1569,
+          1781,
+          1954,
+          1979
+        ]
+      },
+      {
+        "left": "sm@513@main",
+        "right": "sm@519@main",
+        "left_kinds": {
+          "Val": 5
+        },
+        "right_kinds": {
+          "Val": 5
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227,
+          1396,
+          1423,
+          1569,
+          1781,
+          1954,
+          1979,
+          2129
+        ],
+        "right_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227,
+          1396,
+          1423,
+          1569,
+          1781,
+          1954,
+          1979,
+          2129
+        ]
+      },
+      {
+        "left": "sm@526@main",
+        "right": "sm@556@main",
+        "left_kinds": {
+          "Val": 6
+        },
+        "right_kinds": {
+          "Val": 6
+        },
+        "all_definition_bodies_equal": true,
+        "left_scope_is_ancestor": true,
+        "left_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227,
+          1396,
+          1423,
+          1569,
+          1781,
+          1954,
+          1979,
+          2129,
+          2341
+        ],
+        "right_scope": [
+          0,
+          77,
+          243,
+          304,
+          327,
+          466,
+          676,
+          839,
+          864,
+          1015,
+          1227,
+          1396,
+          1423,
+          1569,
+          1781,
+          1954,
+          1979,
+          2129,
+          2341
+        ]
+      }
+    ],
+    "conclusion": "All 16 previous matching maps were absent from the current cache. Key relaxation alone cannot help these pairs. Reuse across restored states needs a scope/context-aware design; no cache behavior change shipped."
+  },
+  "validation": {
+    "silicon_unit_tests": {
+      "passed": 305,
+      "failed": 0,
+      "ignored": 43
+    },
+    "workspace_check": "cargo +1.89.0 check --workspace --all-targets --features native-z3",
+    "default_nested_input_equal_previous_runtime": true,
+    "trigger_nested_all_original_responses_equal": true,
+    "diagnostic_patch_restored": true
+  },
+  "artifact_sha256": {
+    "/home/will/wk/exp/ferrum/tools/performance/prusti/run.py": "88f36a6661d7337f3ed71452eddfda32beeec8fc0ee2ffa05536c242bfc52968",
+    "/home/will/wk/exp/ferrum/tools/performance/prusti/service_supervisor.py": "3c52bfc84bafd4a44433b2e96bb3c2cb372d54da92c40125f8e558247b9817cd",
+    "/home/will/wk/exp/ferrum/tools/performance/smt/analyze_trace.py": "bb151f43a095a87aa0f4d49733dd7d839bbf86c9a754dfc740461cff0370336b",
+    "/home/will/wk/exp/ferrum/tools/performance/smt/run_saturation.py": "c4677dc67a9d06dd41c158de0a49c274ea61f8f6e9762dbdb959ff99bc2e5f76",
+    "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py": "81bafd46d1d7a77bdc3b8ad96fbbde1c4461c4a15caf26e955f7ea3977d1b82d",
+    "/tmp/ferrum-solver-work-0e1bf91/analyze_summaries.py": "4b634543badcfae618864cc7e2896965e9f6b23a10947cc65a9afd64171c8527",
+    "/tmp/ferrum-solver-work-0e1bf91/audit-controls.log": "8569408f7a9a5ac322bb6cd6afa80164535b61184d9debc459d421e9983a0933",
+    "/tmp/ferrum-solver-work-0e1bf91/audit_controls.py": "09490e81652710985ddc92fe3a4880fbb056f02b8990f34bbbfbc02dac7dd43b",
+    "/tmp/ferrum-solver-work-0e1bf91/audit_trial.py": "a38c74dcf4e64a3a547a1147ed4d8aeba68d376b65e6f876d3f6471f92757fca",
+    "/tmp/ferrum-solver-work-0e1bf91/build-cache-diagnostic.log": "e34a0643075a66c2384d031dc0078b31edab539aee0057c2be68f55b130ab91b",
+    "/tmp/ferrum-solver-work-0e1bf91/build-trigger.log": "9e96754a1e0e1dacc707f1bcfd5823a9b5d5845ea92413860a9ef00f9a7b42bb",
+    "/tmp/ferrum-solver-work-0e1bf91/cache-diagnostic-run.log": "8e33fb0161e519c8715737f9c789dad04ec33da318fd6224d58f416b6ef1fe86",
+    "/tmp/ferrum-solver-work-0e1bf91/cache-diagnostic-server": "878157a8c54a23b79b7952946d781426c878c14cd893405ab4df7ee946a0e52e",
+    "/tmp/ferrum-solver-work-0e1bf91/cache-diagnostic.patch": "bccd24fb7bdd69b8fb89aa33332d4be33d9d72dcfbb32eb9e49098888462aa06",
+    "/tmp/ferrum-solver-work-0e1bf91/cache-events.json": "28e676c5f0c8400cfaf68398de40ab633ce0fc5f94dc0f772c575e576a7fc9d8",
+    "/tmp/ferrum-solver-work-0e1bf91/cache-pair-analysis.json": "1ccf97ba6cd9e8fcb975e8e147db1b7b44c907bb75dac74e32fd965db6e34da4",
+    "/tmp/ferrum-solver-work-0e1bf91/check-trigger.log": "4140b5dce5e6f5c4f4b5d56d52cdf4e6c662763f4cb5e77b8702eadcf552fc7e",
+    "/tmp/ferrum-solver-work-0e1bf91/collect_evidence.py": "dc0cd1765126ffa73729e53affb51c3ebbb754e1ce34ae401c97234ae1a0b3e2",
+    "/tmp/ferrum-solver-work-0e1bf91/corrected-defaults.log": "dea2289af204a1423cc1e08c041a7a0b38803d1628c85296be4b0453a042e153",
+    "/tmp/ferrum-solver-work-0e1bf91/retry_invalid_defaults.py": "37d4a0efac63f6c05ef79598d614259eb2e3f8890c7ff0819d5f2c41f1b37581",
+    "/tmp/ferrum-solver-work-0e1bf91/run_direct.py": "798e2b16612f170f031aa1831a2476d816f831eca908156d568ace63504b8fb7",
+    "/tmp/ferrum-solver-work-0e1bf91/run_direct_before_empty_option_fix.py": "af2f6050214a4eb2a8893fb56d6603113b062a5d853a6871d1b565564aeeceb7",
+    "/tmp/ferrum-solver-work-0e1bf91/run_direct_initial.py": "7c9fcea08a9f4bed609a4f2d1757dae9014ba5fab017f24e82007f088dbe4637",
+    "/tmp/ferrum-solver-work-0e1bf91/screen-preflight-error.txt": "26bc1738acfeb2531f14ceb5abb074c8cb339c40d8a14c2c80f6a0f087d6c7d4",
+    "/tmp/ferrum-solver-work-0e1bf91/screen_trigger.py": "6ecc32434d43a0b52e406de1b69229826135be27548fd1eeba0cb0b28387d454",
+    "/tmp/ferrum-solver-work-0e1bf91/summary-contexts.json": "d25517e13151287149b7ac9615210c5587060133b6a0b5da26a8a0d962e17390",
+    "/tmp/ferrum-solver-work-0e1bf91/summary-only.json": "5b8579382a0e817ba10c03f352db23d26ed4cdd1a41ee52eefebdd965915e387",
+    "/tmp/ferrum-solver-work-0e1bf91/summary-reuse-analysis.json": "d291acba7e733658bd032650004ee6e5ee96cb1d687937cbb7c487b16f9c3021",
+    "/tmp/ferrum-solver-work-0e1bf91/summary_contexts.py": "6baf804ab051ba419db66f46668dafd7298b24ef4d39fe2c13d93ac357e45738",
+    "/tmp/ferrum-solver-work-0e1bf91/time_profiles.py": "1f6b252d4b6a4892726642071240df90dafb8402c194e32f22554b2e977e3feb",
+    "/tmp/ferrum-solver-work-0e1bf91/timing-complete.json": "d9fc73e110112b7fcf9699b64d7992c07a48bb7d2d3bfc917e2cf82fd1dd883e",
+    "/tmp/ferrum-solver-work-0e1bf91/timing-progress.json": "d9fc73e110112b7fcf9699b64d7992c07a48bb7d2d3bfc917e2cf82fd1dd883e",
+    "/tmp/ferrum-solver-work-0e1bf91/timing-schedule.json": "49581bd3534e2c8119d911e5d587fce0e75b44ad9784204554de3d693bcf09d7",
+    "/tmp/ferrum-solver-work-0e1bf91/timing.log": "3b057f72ca839328954aed7c050283f928e07ad5169b398482ec996a868e203c",
+    "/tmp/ferrum-solver-work-0e1bf91/trigger-server": "459a6b67ea835f8cd7e623e0c772162f3e9bf4eb89c300fa781cde82f981a6b0",
+    "/tmp/ferrum-solver-work-0e1bf91/unit-tests.log": "1e415ccc8f9be949ce1594a607b2976b6ad2b8ed74cfd117843d00bab3c6dc89",
+    "/tmp/ferrum-solver-work-0e1bf91/validate.py": "809bb7042290a580fd665a615a30533bb278552c5e6320e6cb35ab6edecbaa87",
+    "/tmp/ferrum-solver-work-0e1bf91/validation-complete.json": "79c40cbac8aa02dab0bea19c23c7863bf31a8655c886235ff052ecceb24d573a",
+    "/tmp/ferrum-solver-work-0e1bf91/validation-progress.json": "f1c8689ee7a893bb3abc784c432017e0bed290df8db5c97d59db3a5fbd97ba86",
+    "/tmp/ferrum-solver-work-0e1bf91/validation-schedule.json": "a225a2d62f100a5aab462e7bd73aa44e1d644902576fe88ef1f0ade8cd5f0d83",
+    "/tmp/ferrum-solver-work-0e1bf91/validation.log": "616e9905d7445474c8412a6e72bff9b38910289f88d9caad9931babdc569fb18"
+  }
+}

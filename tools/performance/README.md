@@ -56,6 +56,9 @@ reduce quantifier expansion but may also make proofs stop succeeding, so compare
 both passing and expected-failing inputs before selecting it for a workload.
 It can be combined with `--separateMethodSolver`, but measure the combination
 separately rather than assuming the individual improvements add together.
+The [direct-Prusti trigger experiment](../../porting/performance-summary-triggers.md)
+records the initial nested-case improvement, smaller controls, separate-solver
+interaction and remaining snapshot-cache reuse investigation.
 
 ## Run paired backend measurements
 
