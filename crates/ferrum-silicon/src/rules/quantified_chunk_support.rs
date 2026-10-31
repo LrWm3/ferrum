@@ -696,7 +696,7 @@ pub trait SnapshotSummaryFreshener<P, D, J>: SnapshotMapFreshener<P, D, J> {
     fn fresh_summary_binder(&mut self) -> Result<Term, Self::Error>;
     fn next_snapshot_summary_id(&mut self) -> u64;
     fn snapshot_summary_only_triggers(&self) -> bool {
-        false
+        true
     }
 }
 #[derive(Debug)]
@@ -1020,7 +1020,7 @@ pub fn summarise_snapshot_map<P, D, J: Clone + PartialEq, F: SnapshotSummaryFres
         } else if freshener.snapshot_summary_only_triggers() {
             // Keep the full axiom, but avoid activating it on every lookup of
             // an old chunk map. Those lookups can otherwise fan out through
-            // many summaries. This opt-in policy may affect proof completeness.
+            // many summaries. Trigger selection may affect proof completeness.
             vec![Trigger {
                 terms: vec![summary_lookup.clone()],
             }]

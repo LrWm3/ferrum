@@ -144,7 +144,7 @@ pub struct Config {
     pub enable_temp_directory: bool,
     pub disable_value_map_caching: bool,
     pub disable_isc_triggers: bool,
-    /// Ferrum experiment: trigger snapshot value definitions only on the
+    /// Trigger snapshot value definitions only on the
     /// summarising map lookup. Logical axioms and permission checks are unchanged.
     pub snapshot_summary_only_triggers: bool,
     pub disable_chunk_order_heuristics: bool,
@@ -219,7 +219,7 @@ impl Default for Config {
             enable_temp_directory: false,
             disable_value_map_caching: false,
             disable_isc_triggers: false,
-            snapshot_summary_only_triggers: false,
+            snapshot_summary_only_triggers: true,
             disable_chunk_order_heuristics: false,
             enable_predicate_triggers_on_inhale: false,
             disable_caches: false,
@@ -849,18 +849,22 @@ mod tests {
         )
     }
     #[test]
-    fn snapshot_summary_triggers_are_opt_in() {
-        assert!(!parse(&[]).unwrap().snapshot_summary_only_triggers);
+    fn snapshot_summary_triggers_are_enabled_by_default() {
+        let default = parse(&[]).unwrap();
+        assert!(default.snapshot_summary_only_triggers);
+        let options =
+            crate::verifier::native_context::NativeOptions::from_config(&default).unwrap();
+        assert!(options.snapshot_summary_only_triggers);
         let config = parse(&["--snapshotSummaryOnlyTriggers", "--disableISCTriggers"]).unwrap();
         assert!(config.snapshot_summary_only_triggers);
         assert!(config.disable_isc_triggers);
         let options = crate::verifier::native_context::NativeOptions::from_config(&config).unwrap();
         assert!(options.snapshot_summary_only_triggers);
-        assert!(
-            !parse(&["--snapshotSummaryOnlyTriggers=false"])
-                .unwrap()
-                .snapshot_summary_only_triggers
-        );
+        let disabled = parse(&["--snapshotSummaryOnlyTriggers=false"]).unwrap();
+        assert!(!disabled.snapshot_summary_only_triggers);
+        let options =
+            crate::verifier::native_context::NativeOptions::from_config(&disabled).unwrap();
+        assert!(!options.snapshot_summary_only_triggers);
         assert!(parse(&["--snapshotSummaryOnlyTriggers=invalid"]).is_err());
     }
     #[test]

@@ -17,10 +17,13 @@ is used. The quantified formulas, permission/domain guards, domain axioms and
 resource-trigger axioms are unchanged. This deliberately differs from the
 pinned Silicon trigger policy; it is not a correction of a porting mismatch.
 
-The option defaults to false, and `--disableISCTriggers` takes precedence.
+At the time of these measurements the option defaulted to false. It has since
+been enabled by default; `--snapshotSummaryOnlyTriggers=false` restores the
+previous trigger policy, and `--disableISCTriggers` takes precedence.
 Trigger selection can affect whether a proof succeeds within its limits even
 with unchanged formulas. The bounded passing/failing checks below justify
-trying the option on more workloads; they do not justify enabling it globally.
+trying the option on more workloads; they do not establish compatibility with
+the full stdlib matrix.
 
 The runs use actual Rust input through `cargo-prusti`, VIR and the native
 VIR-to-Silver AST adapter. Prusti source/client/adapter and fixtures are frozen
@@ -32,7 +35,7 @@ use the isolated source at `/tmp/ferrum-direct-profile-49d3737/source`,
 optimization level 1. All four timing profiles use the same frozen production
 server. The initial nested separate-solver capture reused the preserved
 `4cda819` server, before the trigger implementation was built. All other
-correctness captures use `783bd7e`; the new trigger option defaults off.
+correctness captures use `783bd7e`, when the new trigger option defaulted off.
 
 Controls are one worker, branch parallelism off, internal caches on, Prusti's
 outer result cache off, the existing resource-bound policy and saturation

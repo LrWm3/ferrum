@@ -117,7 +117,6 @@ diagnostics, phase and cleanup data, binary and log hashes, and trace audit.
 Raw logs and the isolated preparation/runner scripts are under
 `/tmp/ferrum-trigger-sample-13cfa`.
 
-This sample supports trying the option on the stdlib branch, but is not yet a
-reason to change Ferrum's global default: the two prefix cases need a longer
-paired run, the shared failures need baseline investigation, and the rest of
-the stdlib matrix remains untested with this option.
+After this sample, the option was enabled by default. The two prefix cases
+still need a longer paired run, the shared failures need baseline investigation,
+and the rest of the stdlib matrix remains untested with this option.

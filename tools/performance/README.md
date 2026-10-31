@@ -47,13 +47,13 @@ the single-context path; multiple workers or branch parallelism already select
 the pool regardless of this switch. This is a Ferrum-only experimental option,
 so do not pass it to the JVM comparison driver.
 
-`--snapshotSummaryOnlyTriggers` is a separate Ferrum-only experiment. It keeps
-snapshot-map value axioms unchanged but triggers them only on lookups of the
-summarising map, omitting the alternative trigger on each original chunk map.
+`--snapshotSummaryOnlyTriggers` is a Ferrum-only setting, enabled by default.
+It keeps snapshot-map value axioms unchanged but triggers them only on lookups
+of the summarising map, omitting the alternative trigger on each original chunk map.
 Permission checks, domain axioms and resource-trigger axioms are unchanged.
-The default is false; `--disableISCTriggers` still takes precedence. This can
-reduce quantifier expansion but may also make proofs stop succeeding, so compare
-both passing and expected-failing inputs before selecting it for a workload.
+Use `--snapshotSummaryOnlyTriggers=false` to restore the alternative trigger on
+original chunk-map lookups; `--disableISCTriggers` still takes precedence. This
+setting can reduce quantifier expansion but may affect whether proofs succeed.
 It can be combined with `--separateMethodSolver`, but measure the combination
 separately rather than assuming the individual improvements add together.
 The [direct-Prusti trigger experiment](../../porting/performance-summary-triggers.md)
