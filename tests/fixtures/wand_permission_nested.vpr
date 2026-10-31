@@ -1,0 +1,13 @@
+// Permission-map definitions must also survive nested package scopes.
+field f: Int
+method m(x: Ref, y: Ref, b: Bool)
+  requires acc(y.f)
+  ensures b ==> acc(y.f)
+{
+  package true --* (b ==> acc(y.f)) {
+    package (forall r: Ref :: r == x && b ==> acc(r.f)) --* true {
+      if (perm(x.f) == none) { exhale acc(y.f) }
+    }
+  }
+  apply true --* (b ==> acc(y.f))
+}

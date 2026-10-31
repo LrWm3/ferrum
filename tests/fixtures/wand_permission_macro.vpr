@@ -1,0 +1,11 @@
+// Unused snapshot parameters must not hide permission-map definitions.
+field f: Int
+method m(x: Ref, y: Ref, b: Bool)
+  requires acc(y.f)
+  ensures b ==> acc(y.f)
+{
+  package (forall r: Ref :: r == x && b ==> acc(r.f)) --* true {
+    exhale acc(x.f, b ? 1/2 : none)
+    if (perm(x.f) == none) { exhale acc(y.f) }
+  }
+}

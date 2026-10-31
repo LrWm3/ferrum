@@ -24069,12 +24069,19 @@ where
                     definitions.iter().cloned(),
                     Some(&debug),
                     false,
-                    false,
+                    permission_map,
                 )
                 .map_err(NativeError::Decider)
         } else {
             for definition in definitions {
-                self.assume_term(definition)?;
+                // Permission maps define the sum of the current chunk permissions.
+                // Keep these definitions when a wand proof's local scope closes:
+                // its residual heap can still contain branches guarded by perm().
+                self.checkpoint()?;
+                self.base
+                    .decider
+                    .assume([(definition.clone(), None)], false, permission_map)
+                    .map_err(NativeError::Decider)?;
             }
             Ok(())
         }
@@ -28480,7 +28487,7 @@ mod worker_analysis_contract_tests {
                 WandHeapServices, WandPackageServices, WandPackagingFinalization,
             },
             predicate_supporter::PredicateTreeServices,
-            quantified_chunk_support::CompleteQuantifiedChunkSolver,
+            quantified_chunk_support::{CompleteQuantifiedChunkSolver, SummaryEmission},
         };
         use crate::{
             config::Config, decider::z3_prover_std_io, state::terms::TermOptions,
@@ -28513,7 +28520,7 @@ mod worker_analysis_contract_tests {
         );
         worker.context.start(None, &[]).unwrap();
         let mut terms = Vec::new();
-        for _ in 0..8 {
+        for _ in 0..10 {
             terms.push(
                 worker
                     .context
@@ -28551,6 +28558,23 @@ mod worker_analysis_contract_tests {
             .context
             .assume_predicate_contents(&[terms[7].clone()])
             .unwrap();
+        worker
+            .context
+            .assume_summary_definitions(&[terms[8].clone()], false, false, true)
+            .unwrap();
+        worker
+            .context
+            .assume_summary_definitions(&[terms[9].clone()], false, false, false)
+            .unwrap();
+        let definitions = worker
+            .context
+            .base
+            .decider
+            .pcs
+            .recorded()
+            .defining_assumptions();
+        assert!(definitions.contains(&terms[8]));
+        assert!(!definitions.contains(&terms[9]));
         let recorded = worker.context.base.decider.pcs.recorded().assumption_exps();
         for (name, term) in [
             "havoc new axiom",
@@ -28561,6 +28585,8 @@ mod worker_analysis_contract_tests {
             "Heap Triggers (true)",
             "Snapshots",
             "Assumption from unfolded predicate body",
+            "value definitions",
+            "Definitional axioms for snapshot map values",
         ]
         .into_iter()
         .zip(terms)

@@ -2611,7 +2611,19 @@ pub fn remove_quantified_permissions<
             crate::supporters::functions::function_recorder::FunctionRecorder::Noop
         ) && services.removal_macros_enabled()
         {
-            let args: Vec<_> = codomain_vars.iter().chain(&additional).cloned().collect();
+            // An unused wand snapshot parameter makes a pure permission definition
+            // appear LHS-dependent. Packaging then discards definitions involving
+            // this macro, even though its value is independent of that snapshot.
+            // Keep uncertain dependencies conservatively if traversal is unsupported.
+            let args: Vec<_> = codomain_vars
+                .iter()
+                .chain(
+                    additional
+                        .iter()
+                        .filter(|arg| body.contains(arg).unwrap_or(true)),
+                )
+                .cloned()
+                .collect();
             let (taken, declaration) = services
                 .fresh_permission_macro(&args, &body)
                 .map_err(QuantifiedRemovalError::Service)?;

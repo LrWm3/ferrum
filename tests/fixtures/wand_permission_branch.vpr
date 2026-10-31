@@ -1,0 +1,10 @@
+// Reduced from Prusti mutable-slice replacement permission failures.
+field f: Int
+method m(x: Ref, y: Ref, b: Bool)
+  requires acc(y.f)
+  ensures b ==> acc(y.f)
+{
+  package (forall r: Ref :: r == x && b ==> acc(r.f)) --* true {
+    if (perm(x.f) == none) { exhale acc(y.f) }
+  }
+}
