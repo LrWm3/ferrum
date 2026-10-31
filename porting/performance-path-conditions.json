@@ -1,0 +1,2626 @@
+{
+  "runtime_baseline": "49d3737",
+  "runtime_candidate": "4cda819",
+  "preparation": {
+    "ferrum": "49d37379b07a3a16ddf0d3fbcb6afa879a3bb1f4",
+    "prusti_source": "a59ed917c1c3c4c4ca6ff1de12ad20d48491d021",
+    "pcg": "c18a51899e37e0fa67f9b5f17f7d518ef2f5518c",
+    "source_template": "/tmp/ferrum-stage5-prusti-inputs/source",
+    "source_changes": [
+      "prusti-ferrum/Cargo.toml: path dependencies to current Ferrum",
+      "Cargo.lock: matching path dependency resolution"
+    ],
+    "build_command": "cargo +nightly-2026-08-15 build --offline -p prusti-server --no-default-features --features ferrum --bin prusti-server-driver",
+    "artifacts": {
+      "/tmp/ferrum-direct-profile-49d3737/baseline-server": "d816c04d1e0b734197dc40d3d80cc90d64baf5913147088aa7f3aa536fdc50eb",
+      "/tmp/ferrum-direct-profile-49d3737/source/Cargo.lock": "be2f194c41cc012883eb23c7203fa6c34503476a6eccb87dbe026292a97957e6",
+      "/tmp/ferrum-direct-profile-49d3737/source/prusti-ferrum/Cargo.toml": "5923ec2b77f3170bf8e9a396736ecc14f09c0fcd1b2034863789386f4a9eb443",
+      "/tmp/ferrum-direct-profile-49d3737/run_direct.py": "fa5bc6b2ca685e2616f109c76df64c5b21b3a49ce3795e3348b0b7e464e63a0a",
+      "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765"
+    },
+    "notes": [
+      "Fresh compiler invocation through frozen Prusti client and fixture; current native backend uses direct VIR-to-Silver AST adapter in server.",
+      "Only server process tree is sampled; client encoding phases are logged separately.",
+      "Shared host, so small wall-clock differences are not strong evidence."
+    ]
+  },
+  "comparison_duration": {
+    "wall_s": 112.8934098869795,
+    "trials": 11
+  },
+  "schedule": [
+    {
+      "name": "nested-0-baseline",
+      "variant": "baseline",
+      "case": "mut_element_nested_pass",
+      "extra": []
+    },
+    {
+      "name": "nested-1-candidate",
+      "variant": "candidate",
+      "case": "mut_element_nested_pass",
+      "extra": []
+    },
+    {
+      "name": "nested-2-candidate",
+      "variant": "candidate",
+      "case": "mut_element_nested_pass",
+      "extra": []
+    },
+    {
+      "name": "nested-3-baseline",
+      "variant": "baseline",
+      "case": "mut_element_nested_pass",
+      "extra": []
+    },
+    {
+      "name": "array-0-baseline",
+      "variant": "baseline",
+      "case": "mut_element_array_pass",
+      "extra": []
+    },
+    {
+      "name": "array-1-candidate",
+      "variant": "candidate",
+      "case": "mut_element_array_pass",
+      "extra": []
+    },
+    {
+      "name": "array-2-candidate",
+      "variant": "candidate",
+      "case": "mut_element_array_pass",
+      "extra": []
+    },
+    {
+      "name": "array-3-baseline",
+      "variant": "baseline",
+      "case": "mut_element_array_pass",
+      "extra": []
+    },
+    {
+      "name": "baseline-negative-trace",
+      "variant": "baseline",
+      "case": "mut_element_array_wrong",
+      "extra": [
+        "--trace"
+      ]
+    },
+    {
+      "name": "candidate-negative-trace",
+      "variant": "candidate",
+      "case": "mut_element_array_wrong",
+      "extra": [
+        "--trace"
+      ]
+    },
+    {
+      "name": "candidate-profile",
+      "variant": "candidate",
+      "case": "mut_element_nested_pass",
+      "extra": [
+        "--profile"
+      ]
+    }
+  ],
+  "trials": [
+    {
+      "server_cpu_s": {
+        "user_s": 2.39,
+        "system_s": 0.18,
+        "child_user_s": 13.06,
+        "child_system_s": 0.07
+      },
+      "case": "mut_element_nested_pass",
+      "server": "/tmp/ferrum-direct-profile-49d3737/baseline-server",
+      "server_sha256": "d816c04d1e0b734197dc40d3d80cc90d64baf5913147088aa7f3aa536fdc50eb",
+      "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_nested_pass.rs",
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "command": [
+        "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "--locked",
+        "--offline",
+        "--bin",
+        "mut_element_nested_pass"
+      ],
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-direct-profile-49d3737/nested-0-baseline/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:49613"
+      },
+      "profile": false,
+      "trace": false,
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 16.57,
+      "client_user_s": 0.5,
+      "client_system_s": 0.24,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          245409425
+        ],
+        "VIR conversion": [
+          50666314
+        ],
+        "backend verification": [
+          15417434496
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "host_before": {
+        "wall_time_unix_ns": 1793406318136075938,
+        "monotonic_ns": 345236698299441,
+        "load_average": [
+          8.57958984375,
+          11.07470703125,
+          6.60400390625
+        ],
+        "memory_available": "MemAvailable:   17154452 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793406335511324365,
+        "monotonic_ns": 345254073548636,
+        "load_average": [
+          7.908203125,
+          10.80810546875,
+          6.58935546875
+        ],
+        "memory_available": "MemAvailable:   16530004 kB"
+      },
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-direct-profile-49d3737/baseline-server",
+          "--port",
+          "49613"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "nested-0-baseline",
+      "variant": "baseline"
+    },
+    {
+      "server_cpu_s": {
+        "user_s": 2.91,
+        "system_s": 0.19,
+        "child_user_s": 17.26,
+        "child_system_s": 0.13
+      },
+      "case": "mut_element_nested_pass",
+      "server": "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+      "server_sha256": "b432617c5c8ac7670b5a8eff4ad572f3f8563246d04615409efbd51899adf1dd",
+      "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_nested_pass.rs",
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "command": [
+        "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "--locked",
+        "--offline",
+        "--bin",
+        "mut_element_nested_pass"
+      ],
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-direct-profile-49d3737/nested-1-candidate/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:51803"
+      },
+      "profile": false,
+      "trace": false,
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 21.72,
+      "client_user_s": 0.86,
+      "client_system_s": 0.38,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          497473457
+        ],
+        "VIR conversion": [
+          62059112
+        ],
+        "backend verification": [
+          20042471793
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "host_before": {
+        "wall_time_unix_ns": 1793406336057626864,
+        "monotonic_ns": 345254619850766,
+        "load_average": [
+          7.67529296875,
+          10.71142578125,
+          6.58056640625
+        ],
+        "memory_available": "MemAvailable:   16799504 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793406358397557221,
+        "monotonic_ns": 345276959781227,
+        "load_average": [
+          6.8134765625,
+          10.32275390625,
+          6.54052734375
+        ],
+        "memory_available": "MemAvailable:   16053464 kB"
+      },
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+          "--port",
+          "51803"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "nested-1-candidate",
+      "variant": "candidate"
+    },
+    {
+      "server_cpu_s": {
+        "user_s": 2.59,
+        "system_s": 0.21,
+        "child_user_s": 15.85,
+        "child_system_s": 0.12
+      },
+      "case": "mut_element_nested_pass",
+      "server": "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+      "server_sha256": "b432617c5c8ac7670b5a8eff4ad572f3f8563246d04615409efbd51899adf1dd",
+      "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_nested_pass.rs",
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "command": [
+        "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "--locked",
+        "--offline",
+        "--bin",
+        "mut_element_nested_pass"
+      ],
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-direct-profile-49d3737/nested-2-candidate/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:34495"
+      },
+      "profile": false,
+      "trace": false,
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 19.98,
+      "client_user_s": 0.82,
+      "client_system_s": 0.38,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          446625607
+        ],
+        "VIR conversion": [
+          52106260
+        ],
+        "backend verification": [
+          18448346091
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "host_before": {
+        "wall_time_unix_ns": 1793406358894051719,
+        "monotonic_ns": 345277456275762,
+        "load_average": [
+          6.8134765625,
+          10.32275390625,
+          6.54052734375
+        ],
+        "memory_available": "MemAvailable:   16314428 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793406379339856441,
+        "monotonic_ns": 345297902080445,
+        "load_average": [
+          6.45166015625,
+          10.01025390625,
+          6.5185546875
+        ],
+        "memory_available": "MemAvailable:   16026480 kB"
+      },
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+          "--port",
+          "34495"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "nested-2-candidate",
+      "variant": "candidate"
+    },
+    {
+      "server_cpu_s": {
+        "user_s": 2.75,
+        "system_s": 0.21,
+        "child_user_s": 15.61,
+        "child_system_s": 0.13
+      },
+      "case": "mut_element_nested_pass",
+      "server": "/tmp/ferrum-direct-profile-49d3737/baseline-server",
+      "server_sha256": "d816c04d1e0b734197dc40d3d80cc90d64baf5913147088aa7f3aa536fdc50eb",
+      "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_nested_pass.rs",
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "command": [
+        "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "--locked",
+        "--offline",
+        "--bin",
+        "mut_element_nested_pass"
+      ],
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-direct-profile-49d3737/nested-3-baseline/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:52199"
+      },
+      "profile": false,
+      "trace": false,
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 19.62,
+      "client_user_s": 0.62,
+      "client_system_s": 0.3,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          304517676
+        ],
+        "VIR conversion": [
+          50839860
+        ],
+        "backend verification": [
+          18357991601
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "host_before": {
+        "wall_time_unix_ns": 1793406379705932337,
+        "monotonic_ns": 345298268156164,
+        "load_average": [
+          6.45166015625,
+          10.01025390625,
+          6.5185546875
+        ],
+        "memory_available": "MemAvailable:   16253672 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793406399705165608,
+        "monotonic_ns": 345318267389347,
+        "load_average": [
+          6.00830078125,
+          9.68310546875,
+          6.4853515625
+        ],
+        "memory_available": "MemAvailable:   15993148 kB"
+      },
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-direct-profile-49d3737/baseline-server",
+          "--port",
+          "52199"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "nested-3-baseline",
+      "variant": "baseline"
+    },
+    {
+      "server_cpu_s": {
+        "user_s": 0.5,
+        "system_s": 0.06,
+        "child_user_s": 0.25,
+        "child_system_s": 0.02
+      },
+      "case": "mut_element_array_pass",
+      "server": "/tmp/ferrum-direct-profile-49d3737/baseline-server",
+      "server_sha256": "d816c04d1e0b734197dc40d3d80cc90d64baf5913147088aa7f3aa536fdc50eb",
+      "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_array_pass.rs",
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "command": [
+        "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "--locked",
+        "--offline",
+        "--bin",
+        "mut_element_array_pass"
+      ],
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-direct-profile-49d3737/array-0-baseline/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:35903"
+      },
+      "profile": false,
+      "trace": false,
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 1.41,
+      "client_user_s": 0.34,
+      "client_system_s": 0.26,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          143731750
+        ],
+        "VIR conversion": [
+          7803568
+        ],
+        "backend verification": [
+          746481091
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "host_before": {
+        "wall_time_unix_ns": 1793406400024580555,
+        "monotonic_ns": 345318586804429,
+        "load_average": [
+          6.00830078125,
+          9.68310546875,
+          6.4853515625
+        ],
+        "memory_available": "MemAvailable:   16271308 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793406401763914956,
+        "monotonic_ns": 345320326138954,
+        "load_average": [
+          5.68701171875,
+          9.55517578125,
+          6.4609375
+        ],
+        "memory_available": "MemAvailable:   16171068 kB"
+      },
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-direct-profile-49d3737/baseline-server",
+          "--port",
+          "35903"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "array-0-baseline",
+      "variant": "baseline"
+    },
+    {
+      "server_cpu_s": {
+        "user_s": 0.5,
+        "system_s": 0.05,
+        "child_user_s": 0.26,
+        "child_system_s": 0.02
+      },
+      "case": "mut_element_array_pass",
+      "server": "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+      "server_sha256": "b432617c5c8ac7670b5a8eff4ad572f3f8563246d04615409efbd51899adf1dd",
+      "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_array_pass.rs",
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "command": [
+        "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "--locked",
+        "--offline",
+        "--bin",
+        "mut_element_array_pass"
+      ],
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-direct-profile-49d3737/array-1-candidate/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:48425"
+      },
+      "profile": false,
+      "trace": false,
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 1.52,
+      "client_user_s": 0.49,
+      "client_system_s": 0.26,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          276141143
+        ],
+        "VIR conversion": [
+          7972875
+        ],
+        "backend verification": [
+          735369667
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "host_before": {
+        "wall_time_unix_ns": 1793406402102806376,
+        "monotonic_ns": 345320665029936,
+        "load_average": [
+          5.68701171875,
+          9.55517578125,
+          6.4609375
+        ],
+        "memory_available": "MemAvailable:   16285896 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793406404001678806,
+        "monotonic_ns": 345322563902941,
+        "load_average": [
+          5.68701171875,
+          9.55517578125,
+          6.4609375
+        ],
+        "memory_available": "MemAvailable:   16107108 kB"
+      },
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+          "--port",
+          "48425"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "array-1-candidate",
+      "variant": "candidate"
+    },
+    {
+      "server_cpu_s": {
+        "user_s": 0.48,
+        "system_s": 0.05,
+        "child_user_s": 0.23,
+        "child_system_s": 0.02
+      },
+      "case": "mut_element_array_pass",
+      "server": "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+      "server_sha256": "b432617c5c8ac7670b5a8eff4ad572f3f8563246d04615409efbd51899adf1dd",
+      "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_array_pass.rs",
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "command": [
+        "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "--locked",
+        "--offline",
+        "--bin",
+        "mut_element_array_pass"
+      ],
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-direct-profile-49d3737/array-2-candidate/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:59027"
+      },
+      "profile": false,
+      "trace": false,
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 1.42,
+      "client_user_s": 0.43,
+      "client_system_s": 0.25,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          212573946
+        ],
+        "VIR conversion": [
+          7172816
+        ],
+        "backend verification": [
+          699441639
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "host_before": {
+        "wall_time_unix_ns": 1793406404340182978,
+        "monotonic_ns": 345322902406686,
+        "load_average": [
+          5.68701171875,
+          9.55517578125,
+          6.4609375
+        ],
+        "memory_available": "MemAvailable:   16242464 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793406406131720343,
+        "monotonic_ns": 345324693944229,
+        "load_average": [
+          5.3916015625,
+          9.4296875,
+          6.4365234375
+        ],
+        "memory_available": "MemAvailable:   16148844 kB"
+      },
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+          "--port",
+          "59027"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "array-2-candidate",
+      "variant": "candidate"
+    },
+    {
+      "server_cpu_s": {
+        "user_s": 0.5,
+        "system_s": 0.06,
+        "child_user_s": 0.25,
+        "child_system_s": 0.02
+      },
+      "case": "mut_element_array_pass",
+      "server": "/tmp/ferrum-direct-profile-49d3737/baseline-server",
+      "server_sha256": "d816c04d1e0b734197dc40d3d80cc90d64baf5913147088aa7f3aa536fdc50eb",
+      "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_array_pass.rs",
+      "source_sha256": "ac045a93ab50d632edf6d50a3326a3a6f65869a26991960cd280b5882928cbf5",
+      "command": [
+        "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "--locked",
+        "--offline",
+        "--bin",
+        "mut_element_array_pass"
+      ],
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-direct-profile-49d3737/array-3-baseline/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:33769"
+      },
+      "profile": false,
+      "trace": false,
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 1.4,
+      "client_user_s": 0.37,
+      "client_system_s": 0.23,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          168543913
+        ],
+        "VIR conversion": [
+          7463696
+        ],
+        "backend verification": [
+          756093002
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "host_before": {
+        "wall_time_unix_ns": 1793406406454482077,
+        "monotonic_ns": 345325016705729,
+        "load_average": [
+          5.3916015625,
+          9.4296875,
+          6.4365234375
+        ],
+        "memory_available": "MemAvailable:   16247880 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793406408185463433,
+        "monotonic_ns": 345326747687361,
+        "load_average": [
+          5.3916015625,
+          9.4296875,
+          6.4365234375
+        ],
+        "memory_available": "MemAvailable:   16197004 kB"
+      },
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-direct-profile-49d3737/baseline-server",
+          "--port",
+          "33769"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "array-3-baseline",
+      "variant": "baseline"
+    },
+    {
+      "server_cpu_s": {
+        "user_s": 0.58,
+        "system_s": 0.05,
+        "child_user_s": 0.1,
+        "child_system_s": 0.05
+      },
+      "case": "mut_element_array_wrong",
+      "server": "/tmp/ferrum-direct-profile-49d3737/baseline-server",
+      "server_sha256": "d816c04d1e0b734197dc40d3d80cc90d64baf5913147088aa7f3aa536fdc50eb",
+      "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_array_wrong.rs",
+      "source_sha256": "e5f50a76c80ee2f33d504dafa4eb35612c519e789565685ce542251058cfca79",
+      "command": [
+        "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "--locked",
+        "--offline",
+        "--bin",
+        "mut_element_array_wrong"
+      ],
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-direct-profile-49d3737/baseline-negative-trace/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-direct-profile-49d3737/baseline-negative-trace/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:58897"
+      },
+      "profile": false,
+      "trace": true,
+      "exit": 101,
+      "timed_out": false,
+      "wall_s": 1.8,
+      "client_user_s": 0.37,
+      "client_system_s": 0.26,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          186656377
+        ],
+        "VIR conversion": [
+          7951113
+        ],
+        "backend verification": [
+          1101677062
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "host_before": {
+        "wall_time_unix_ns": 1793406408474410822,
+        "monotonic_ns": 345327036634427,
+        "load_average": [
+          5.3916015625,
+          9.4296875,
+          6.4365234375
+        ],
+        "memory_available": "MemAvailable:   16333476 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793406410631057160,
+        "monotonic_ns": 345329193281100,
+        "load_average": [
+          5.3916015625,
+          9.4296875,
+          6.4365234375
+        ],
+        "memory_available": "MemAvailable:   16146628 kB"
+      },
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-direct-profile-49d3737/baseline-server",
+          "--port",
+          "58897"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "baseline-negative-trace",
+      "variant": "baseline"
+    },
+    {
+      "server_cpu_s": {
+        "user_s": 0.49,
+        "system_s": 0.06,
+        "child_user_s": 0.09,
+        "child_system_s": 0.05
+      },
+      "case": "mut_element_array_wrong",
+      "server": "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+      "server_sha256": "b432617c5c8ac7670b5a8eff4ad572f3f8563246d04615409efbd51899adf1dd",
+      "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_array_wrong.rs",
+      "source_sha256": "e5f50a76c80ee2f33d504dafa4eb35612c519e789565685ce542251058cfca79",
+      "command": [
+        "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "--locked",
+        "--offline",
+        "--bin",
+        "mut_element_array_wrong"
+      ],
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-direct-profile-49d3737/candidate-negative-trace/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-direct-profile-49d3737/candidate-negative-trace/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:41107"
+      },
+      "profile": false,
+      "trace": true,
+      "exit": 101,
+      "timed_out": false,
+      "wall_s": 1.7,
+      "client_user_s": 0.4,
+      "client_system_s": 0.25,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          215974663
+        ],
+        "VIR conversion": [
+          7239769
+        ],
+        "backend verification": [
+          985619510
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "host_before": {
+        "wall_time_unix_ns": 1793406410982321078,
+        "monotonic_ns": 345329544544763,
+        "load_average": [
+          5.35986328125,
+          9.35595703125,
+          6.4287109375
+        ],
+        "memory_available": "MemAvailable:   16234468 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793406413045586970,
+        "monotonic_ns": 345331607810918,
+        "load_average": [
+          5.35986328125,
+          9.35595703125,
+          6.4287109375
+        ],
+        "memory_available": "MemAvailable:   16115260 kB"
+      },
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+          "--port",
+          "41107"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "candidate-negative-trace",
+      "variant": "candidate"
+    },
+    {
+      "server_cpu_s": {
+        "user_s": 1.78,
+        "system_s": 0.13,
+        "child_user_s": 10.48,
+        "child_system_s": 0.08
+      },
+      "case": "mut_element_nested_pass",
+      "server": "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+      "server_sha256": "b432617c5c8ac7670b5a8eff4ad572f3f8563246d04615409efbd51899adf1dd",
+      "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+      "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+      "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_nested_pass.rs",
+      "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+      "command": [
+        "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "--locked",
+        "--offline",
+        "--bin",
+        "mut_element_nested_pass"
+      ],
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-direct-profile-49d3737/candidate-profile/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:54617"
+      },
+      "profile": true,
+      "trace": false,
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 13.23,
+      "client_user_s": 0.53,
+      "client_system_s": 0.24,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          301872366
+        ],
+        "VIR conversion": [
+          36273527
+        ],
+        "backend verification": [
+          12218121552
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "host_before": {
+        "wall_time_unix_ns": 1793406413697417513,
+        "monotonic_ns": 345332259641262,
+        "load_average": [
+          5.35986328125,
+          9.35595703125,
+          6.4287109375
+        ],
+        "memory_available": "MemAvailable:   16199456 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793406427317370223,
+        "monotonic_ns": 345345879594070,
+        "load_average": [
+          4.83642578125,
+          9.0439453125,
+          6.373046875
+        ],
+        "memory_available": "MemAvailable:   13137492 kB"
+      },
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+          "--port",
+          "54617"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "name": "candidate-profile",
+      "variant": "candidate"
+    }
+  ],
+  "pairs": [
+    {
+      "case": "mut_element_nested_pass",
+      "baseline": "nested-0-baseline",
+      "candidate": "nested-1-candidate",
+      "baseline_metrics": {
+        "backend_s": 15.417434496,
+        "request_wall_s": 16.57,
+        "native_cpu_s": 2.5700000000000003,
+        "solver_cpu_s": 13.13
+      },
+      "candidate_metrics": {
+        "backend_s": 20.042471793,
+        "request_wall_s": 21.72,
+        "native_cpu_s": 3.1,
+        "solver_cpu_s": 17.39
+      },
+      "candidate_over_baseline": {
+        "backend_s": 1.299987478344724,
+        "request_wall_s": 1.3108026554013277,
+        "native_cpu_s": 1.206225680933852,
+        "solver_cpu_s": 1.3244478293983244
+      }
+    },
+    {
+      "case": "mut_element_nested_pass",
+      "baseline": "nested-3-baseline",
+      "candidate": "nested-2-candidate",
+      "baseline_metrics": {
+        "backend_s": 18.357991601,
+        "request_wall_s": 19.62,
+        "native_cpu_s": 2.96,
+        "solver_cpu_s": 15.74
+      },
+      "candidate_metrics": {
+        "backend_s": 18.448346091,
+        "request_wall_s": 19.98,
+        "native_cpu_s": 2.8,
+        "solver_cpu_s": 15.969999999999999
+      },
+      "candidate_over_baseline": {
+        "backend_s": 1.0049218069146018,
+        "request_wall_s": 1.018348623853211,
+        "native_cpu_s": 0.9459459459459459,
+        "solver_cpu_s": 1.0146124523506987
+      }
+    },
+    {
+      "case": "mut_element_array_pass",
+      "baseline": "array-0-baseline",
+      "candidate": "array-1-candidate",
+      "baseline_metrics": {
+        "backend_s": 0.746481091,
+        "request_wall_s": 1.41,
+        "native_cpu_s": 0.56,
+        "solver_cpu_s": 0.27
+      },
+      "candidate_metrics": {
+        "backend_s": 0.735369667,
+        "request_wall_s": 1.52,
+        "native_cpu_s": 0.55,
+        "solver_cpu_s": 0.28
+      },
+      "candidate_over_baseline": {
+        "backend_s": 0.9851149290531727,
+        "request_wall_s": 1.0780141843971631,
+        "native_cpu_s": 0.9821428571428571,
+        "solver_cpu_s": 1.037037037037037
+      }
+    },
+    {
+      "case": "mut_element_array_pass",
+      "baseline": "array-3-baseline",
+      "candidate": "array-2-candidate",
+      "baseline_metrics": {
+        "backend_s": 0.756093002,
+        "request_wall_s": 1.4,
+        "native_cpu_s": 0.56,
+        "solver_cpu_s": 0.27
+      },
+      "candidate_metrics": {
+        "backend_s": 0.699441639,
+        "request_wall_s": 1.42,
+        "native_cpu_s": 0.53,
+        "solver_cpu_s": 0.25
+      },
+      "candidate_over_baseline": {
+        "backend_s": 0.9250735519967159,
+        "request_wall_s": 1.0142857142857142,
+        "native_cpu_s": 0.9464285714285714,
+        "solver_cpu_s": 0.9259259259259258
+      }
+    }
+  ],
+  "query_parity": {
+    "nested": {
+      "baseline": {
+        "folder": "/tmp/ferrum-direct-profile-49d3737/baseline-trace/smt/3276980-344782718999957",
+        "metadata": {
+          "argv": [
+            "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+            "-smt2",
+            "-in"
+          ],
+          "proxy_pid": 3276980,
+          "solver_pid": 3276981,
+          "started_monotonic_ns": 344782719152543,
+          "started_wall_ns": 1793405864157297691,
+          "capture_format": "persist-before-forward-v2",
+          "forwarded_ns_boundary": "forwarding start, recorded before write"
+        },
+        "issues": [],
+        "command_counts": {
+          "get-info": 1,
+          "set-option": 2230,
+          "declare-datatypes": 1,
+          "declare-sort": 48,
+          "declare-const": 573,
+          "declare-fun": 506,
+          "assert": 3951,
+          "define-sort": 1,
+          "define-const": 2,
+          "define-fun": 60,
+          "check-sat": 1111,
+          "push": 2774,
+          "pop": 2774
+        },
+        "response_count": 14032,
+        "forall_count": 928,
+        "exists_count": 6,
+        "pattern_count": 1023,
+        "input_bytes": 4413684,
+        "output_bytes": 110830,
+        "input_sha256": "54e76cb7063e81b7798ab7761c3a406f45baa76b7f215e7c451efb2520f60a47",
+        "output_sha256": "0f6d03c4c58d15a529194c392d35ead22942c8525730dc4a90b16a53d57bd73e",
+        "queries": 1111
+      },
+      "candidate": {
+        "folder": "/tmp/ferrum-direct-profile-49d3737/candidate-trace/smt/3355227-345171758218102",
+        "metadata": {
+          "argv": [
+            "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+            "-smt2",
+            "-in"
+          ],
+          "proxy_pid": 3355227,
+          "solver_pid": 3355245,
+          "started_monotonic_ns": 345171758477196,
+          "started_wall_ns": 1793406253197062721,
+          "capture_format": "persist-before-forward-v2",
+          "forwarded_ns_boundary": "forwarding start, recorded before write"
+        },
+        "issues": [],
+        "command_counts": {
+          "get-info": 1,
+          "set-option": 2230,
+          "declare-datatypes": 1,
+          "declare-sort": 48,
+          "declare-const": 573,
+          "declare-fun": 506,
+          "assert": 3951,
+          "define-sort": 1,
+          "define-const": 2,
+          "define-fun": 60,
+          "check-sat": 1111,
+          "push": 2774,
+          "pop": 2774
+        },
+        "response_count": 14032,
+        "forall_count": 928,
+        "exists_count": 6,
+        "pattern_count": 1023,
+        "input_bytes": 4413684,
+        "output_bytes": 110830,
+        "input_sha256": "54e76cb7063e81b7798ab7761c3a406f45baa76b7f215e7c451efb2520f60a47",
+        "output_sha256": "0f6d03c4c58d15a529194c392d35ead22942c8525730dc4a90b16a53d57bd73e",
+        "queries": 1111
+      },
+      "exact_equal": {
+        "stdin": true,
+        "stdout": true
+      }
+    },
+    "negative": {
+      "baseline": {
+        "folder": "/tmp/ferrum-direct-profile-49d3737/baseline-negative-trace/smt/3388022-345327668558123",
+        "metadata": {
+          "argv": [
+            "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+            "-smt2",
+            "-in"
+          ],
+          "proxy_pid": 3388022,
+          "solver_pid": 3388059,
+          "started_monotonic_ns": 345327668654147,
+          "started_wall_ns": 1793406409106671454,
+          "capture_format": "persist-before-forward-v2",
+          "forwarded_ns_boundary": "forwarding start, recorded before write"
+        },
+        "issues": [],
+        "command_counts": {
+          "get-info": 1,
+          "set-option": 959,
+          "declare-datatypes": 1,
+          "declare-sort": 50,
+          "declare-const": 429,
+          "declare-fun": 488,
+          "assert": 2252,
+          "define-sort": 1,
+          "define-const": 2,
+          "define-fun": 24,
+          "check-sat": 475,
+          "push": 1147,
+          "pop": 1147
+        },
+        "response_count": 6976,
+        "forall_count": 682,
+        "exists_count": 7,
+        "pattern_count": 745,
+        "input_bytes": 1020006,
+        "output_bytes": 55248,
+        "input_sha256": "cd324f064b5dbd376f1ae600fe523a35caf86801e760d893b4049f3f173fd359",
+        "output_sha256": "5b37688fcc99a137467ad37705c6b3e10afd0ab5849a57ec0bbf98d9e0f8c60d",
+        "queries": 475
+      },
+      "candidate": {
+        "folder": "/tmp/ferrum-direct-profile-49d3737/candidate-negative-trace/smt/3388711-345330202140023",
+        "metadata": {
+          "argv": [
+            "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+            "-smt2",
+            "-in"
+          ],
+          "proxy_pid": 3388711,
+          "solver_pid": 3388712,
+          "started_monotonic_ns": 345330202246786,
+          "started_wall_ns": 1793406411640276592,
+          "capture_format": "persist-before-forward-v2",
+          "forwarded_ns_boundary": "forwarding start, recorded before write"
+        },
+        "issues": [],
+        "command_counts": {
+          "get-info": 1,
+          "set-option": 959,
+          "declare-datatypes": 1,
+          "declare-sort": 50,
+          "declare-const": 429,
+          "declare-fun": 488,
+          "assert": 2252,
+          "define-sort": 1,
+          "define-const": 2,
+          "define-fun": 24,
+          "check-sat": 475,
+          "push": 1147,
+          "pop": 1147
+        },
+        "response_count": 6976,
+        "forall_count": 682,
+        "exists_count": 7,
+        "pattern_count": 745,
+        "input_bytes": 1020006,
+        "output_bytes": 55248,
+        "input_sha256": "cd324f064b5dbd376f1ae600fe523a35caf86801e760d893b4049f3f173fd359",
+        "output_sha256": "5b37688fcc99a137467ad37705c6b3e10afd0ab5849a57ec0bbf98d9e0f8c60d",
+        "queries": 475
+      },
+      "exact_equal": {
+        "stdin": true,
+        "stdout": true
+      }
+    }
+  },
+  "profiles": {
+    "baseline": {
+      "process_samples": {
+        "baseline-server": 10,
+        "prusti-verifica": 161,
+        "z3": 958
+      },
+      "native_self_top": [
+        [
+          "malloc (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          12
+        ],
+        [
+          "_int_malloc (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          10
+        ],
+        [
+          "ferrum_silver::ast::utility::nodes::subnodes (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          8
+        ],
+        [
+          "_int_free (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          8
+        ],
+        [
+          "<*const ()>::is_aligned_to (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          7
+        ],
+        [
+          "__memcmp_avx2_movbe (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          6
+        ],
+        [
+          "<ferrum_silver::ast::expression::ExpKind as core::cmp::PartialEq>::eq (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          5
+        ],
+        [
+          "<alloc::vec::Vec<ferrum_silicon::state::terms::Term> as core::clone::Clone>::clone (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          5
+        ],
+        [
+          "<core::iter::adapters::cloned::Cloned<core::slice::iter::Iter<ferrum_silver::ast::expression::Exp>> as core::iter::traits::iterator::Iterator>::fold::<(), core::iter::adapters::map::map_fold<ferrum_silver::ast::expression::Exp, ferrum_silver::ast::utility::nodes::Node, (), ferrum_silver::ast::utility::nodes::Node::Exp, core::iter::traits::iterator::Iterator::for_each::call<ferrum_silver::ast::utility::nodes::Node, <alloc::vec::Vec<ferrum_silver::ast::utility::nodes::Node>>::extend_trusted<core::iter::adapters::map::Map<core::iter::adapters::cloned::Cloned<core::slice::iter::Iter<ferrum_silver::ast::expression::Exp>>, ferrum_silver::ast::utility::nodes::Node::Exp>>::{closure#0}>::{closure#0}>::{closure#0}> (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          4
+        ],
+        [
+          "<alloc::raw_vec::RawVecInner>::deallocate (/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/lib/librustc_driver-71d1c25d9e8c90fa.so)",
+          4
+        ],
+        [
+          "<usize as core::cmp::Ord>::min (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          3
+        ],
+        [
+          "core::intrinsics::rotate_left::<u64> (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          3
+        ],
+        [
+          "core::ptr::copy_nonoverlapping::precondition_check (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          3
+        ],
+        [
+          "core::hash::sip::u8to64_le (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          3
+        ],
+        [
+          "<alloc::raw_vec::RawVecInner>::with_capacity_in (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          3
+        ],
+        [
+          "malloc_consolidate (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          3
+        ],
+        [
+          "core::ub_checks::maybe_is_nonoverlapping::runtime (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          2
+        ],
+        [
+          "<hashbrown::raw::RawTable<(alloc::string::String, ferrum_silver::ast::utility::consistency::check_identifiers::Entry)>>::clone_from_impl (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          2
+        ],
+        [
+          "cfree@GLIBC_2.2.5 (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          2
+        ],
+        [
+          "unlink_chunk.isra.0 (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          2
+        ],
+        [
+          "<hashbrown::map::HashMap<ferrum_silver::ast::type::Type, (), std::hash::random::RandomState>>::insert (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          2
+        ],
+        [
+          "<core::hash::sip::Hasher<core::hash::sip::Sip13Rounds> as core::hash::Hasher>::write (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          2
+        ],
+        [
+          "core::ptr::drop_glue::<alloc::vec::Vec<ferrum_silicon::state::terms::Term>> (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          2
+        ],
+        [
+          "<alloc::vec::Vec<ferrum_silicon::decider::path_conditions::Layer> as core::clone::Clone>::clone (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          2
+        ],
+        [
+          "<core::iter::adapters::cloned::Cloned<core::slice::iter::Iter<indexmap::Bucket<ferrum_silicon::state::terms::Term, ()>>> as core::iter::traits::iterator::Iterator>::fold::<(), core::iter::traits::iterator::Iterator::for_each::call<indexmap::Bucket<ferrum_silicon::state::terms::Term, ()>, <alloc::vec::Vec<indexmap::Bucket<ferrum_silicon::state::terms::Term, ()>>>::extend_trusted<core::iter::adapters::cloned::Cloned<core::slice::iter::Iter<indexmap::Bucket<ferrum_silicon::state::terms::Term, ()>>>>::{closure#0}>::{closure#0}> (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          2
+        ],
+        [
+          "core::ptr::drop_glue::<alloc::vec::Vec<indexmap::Bucket<ferrum_silicon::state::terms::Term, ()>>> (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          2
+        ],
+        [
+          "realloc (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          2
+        ],
+        [
+          "__memmove_avx_unaligned_erms (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          2
+        ],
+        [
+          "<core::option::Option<vir::context::VirCtxt>>::as_ref (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          1
+        ],
+        [
+          "<<&mut bincode::de::Deserializer<_, _> as serde_core::de::Deserializer>::deserialize_tuple::Access<bincode::de::read::SliceReader, bincode::config::WithOtherLimit<bincode::config::WithOtherTrailing<bincode::config::WithOtherIntEncoding<bincode::config::DefaultOptions, bincode::config::int::FixintEncoding>, bincode::config::trailing::AllowTrailing>, bincode::config::limit::Infinite>> as serde_core::de::SeqAccess>::next_element_seed::<core::marker::PhantomData<<<vir::data::AdtDestructorData<_, _> as serde_core::de::Deserialize>::deserialize::__Visitor<_, _> as serde_core::de::Visitor>::visit_seq::__DeserializeWith<vir::type::Dyn, vir::type::Dyn>>> (/tmp/ferrum-direct-profile-49d3737/baseline-server)",
+          1
+        ]
+      ],
+      "perf_log": "[ perf record: Woken up 290 times to write data ]\n[ perf record: Captured and wrote 72.607 MB /tmp/ferrum-direct-profile-49d3737/baseline-profile/perf.data (1129 samples) ]\n",
+      "trial": {
+        "case": "mut_element_nested_pass",
+        "server": "/tmp/ferrum-direct-profile-49d3737/baseline-server",
+        "server_sha256": "d816c04d1e0b734197dc40d3d80cc90d64baf5913147088aa7f3aa536fdc50eb",
+        "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+        "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_nested_pass.rs",
+        "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+        "command": [
+          "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+          "--locked",
+          "--offline",
+          "--bin",
+          "mut_element_nested_pass"
+        ],
+        "environment_overrides": {
+          "PRUSTI_VERIFY_MODE": "verify",
+          "PRUSTI_VIPER_BACKEND": "Ferrum",
+          "PRUSTI_CHECK_OVERFLOWS": "true",
+          "PRUSTI_CHECK_PANICS": "true",
+          "PRUSTI_NO_VERIFY_DEPS": "true",
+          "PRUSTI_ENABLE_CACHE": "false",
+          "FERRUM_BENCH_PHASES": "1",
+          "FERRUM_BENCH_INTERNAL_CACHES": "on",
+          "PRUSTI_LOG": "info",
+          "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+          "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+          "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+          "PRUSTI_LOG_DIR": "/tmp/ferrum-direct-profile-49d3737/baseline-profile/verifier",
+          "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+          "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+          "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+          "PRUSTI_SERVER_ADDRESS": "127.0.0.1:47517"
+        },
+        "profile": true,
+        "trace": false,
+        "exit": 0,
+        "timed_out": false,
+        "wall_s": 12.55,
+        "client_user_s": 0.41,
+        "client_system_s": 0.26,
+        "phase_ns": {
+          "Rust to VIR encoding": [
+            262342585
+          ],
+          "VIR conversion": [
+            34773562
+          ],
+          "backend verification": [
+            11479617222
+          ]
+        },
+        "classification": "valid",
+        "dependency_check": {
+          "valid": true,
+          "events": [
+            {
+              "action": "Checking",
+              "package": "stdlib_iterator_spec",
+              "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+            }
+          ]
+        },
+        "timer_complete": true,
+        "client_cleanup": true,
+        "host_before": {
+          "wall_time_unix_ns": 1793405831198050627,
+          "monotonic_ns": 344749760274465,
+          "load_average": [
+            4.04345703125,
+            4.3369140625,
+            2.8125
+          ],
+          "memory_available": "MemAvailable:   17795512 kB"
+        },
+        "host_after": {
+          "wall_time_unix_ns": 1793405844094394594,
+          "monotonic_ns": 344762656618424,
+          "load_average": [
+            3.9755859375,
+            4.31005859375,
+            2.8203125
+          ],
+          "memory_available": "MemAvailable:   17344772 kB"
+        },
+        "service_cleanup": {
+          "command": [
+            "taskset",
+            "--cpu-list",
+            "0,1,2,3",
+            "/tmp/ferrum-direct-profile-49d3737/baseline-server",
+            "--port",
+            "47517"
+          ],
+          "leader_exit": -15,
+          "stopped": true,
+          "cleanup_pending": [],
+          "error": null
+        }
+      }
+    },
+    "candidate": {
+      "process_samples": {
+        "candidate-serve": 10,
+        "prusti-verifica": 167,
+        "z3": 1032
+      },
+      "native_self_top": [
+        [
+          "_int_free (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          11
+        ],
+        [
+          "malloc (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          11
+        ],
+        [
+          "_int_malloc (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          9
+        ],
+        [
+          "<ferrum_silver::ast::expression::ExpKind as core::cmp::PartialEq>::eq (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          8
+        ],
+        [
+          "malloc_consolidate (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          4
+        ],
+        [
+          "<alloc::vec::Vec<ferrum_silicon::state::terms::Term> as core::clone::Clone>::clone (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          4
+        ],
+        [
+          "core::ptr::drop_glue::<alloc::vec::Vec<ferrum_silicon::state::terms::Term>> (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          4
+        ],
+        [
+          "<core::hash::sip::Hasher<core::hash::sip::Sip13Rounds> as core::hash::Hasher>::write (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          3
+        ],
+        [
+          "__memmove_avx_unaligned_erms (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          3
+        ],
+        [
+          "ferrum_silver::ast::utility::nodes::subnodes (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          3
+        ],
+        [
+          "__memcmp_avx2_movbe (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          3
+        ],
+        [
+          "core::intrinsics::rotate_left::<u64> (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          3
+        ],
+        [
+          "<core::hash::sip::Sip13Rounds as core::hash::sip::Sip>::d_rounds (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          3
+        ],
+        [
+          "realloc (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          3
+        ],
+        [
+          "<ferrum_silicon::decider::term_to_smt_lib2_converter::TermToSmtLib2Converter>::convert_term_on_stack (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          3
+        ],
+        [
+          "<alloc::string::String as core::clone::Clone>::clone (/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/lib/librustc_driver-71d1c25d9e8c90fa.so)",
+          3
+        ],
+        [
+          "core::ptr::copy_nonoverlapping::precondition_check (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          2
+        ],
+        [
+          "<core::ops::control_flow::ControlFlow<()> as core::cmp::PartialEq>::eq (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          2
+        ],
+        [
+          "<ferrum_silver::ast::utility::nodes::Node>::typ (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          2
+        ],
+        [
+          "core::hash::sip::u8to64_le (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          2
+        ],
+        [
+          "core::hint::assert_unchecked::precondition_check (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          2
+        ],
+        [
+          "<alloc::vec::Vec<u8> as core::cmp::PartialEq>::eq (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          2
+        ],
+        [
+          "<core::hash::sip::Sip13Rounds as core::hash::sip::Sip>::c_rounds (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          2
+        ],
+        [
+          "<alloc::vec::Vec<(alloc::string::String, alloc::sync::Arc<ferrum_silicon::verifier::native_context::NativeFunctionData>)> as core::clone::Clone>::clone (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          2
+        ],
+        [
+          "<ferrum_silicon::state::chunks::QuantifiedPredicateChunk as core::clone::Clone>::clone (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          2
+        ],
+        [
+          "clock_gettime@@GLIBC_2.17 (/usr/lib/x86_64-linux-gnu/libc.so.6)",
+          2
+        ],
+        [
+          "<*const ()>::is_aligned_to (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          2
+        ],
+        [
+          "core::ptr::drop_glue::<ferrum_silicon::rules::quantified_chunk_support::SnapshotMapDefinition> (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          2
+        ],
+        [
+          "bumpalo::round_up_to (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          1
+        ],
+        [
+          "vir::context::with_vcx::<<<vir::gendata::FuncAppGenData<(), !> as serde_core::de::Deserialize>::deserialize::DataVisitor as serde_core::de::Visitor>::visit_seq<<&mut bincode::de::Deserializer<_, _> as serde_core::de::Deserializer>::deserialize_tuple::Access<bincode::de::read::SliceReader, bincode::config::WithOtherLimit<bincode::config::WithOtherTrailing<bincode::config::WithOtherIntEncoding<bincode::config::DefaultOptions, bincode::config::int::FixintEncoding>, bincode::config::trailing::AllowTrailing>, bincode::config::limit::Infinite>>>::{closure#1}, &[&vir::gendata::ExprGenData<(), !, vir::type::Dyn>]> (/tmp/ferrum-direct-profile-49d3737/candidate-server)",
+          1
+        ]
+      ],
+      "perf_log": "[ perf record: Woken up 314 times to write data ]\n[ perf record: Captured and wrote 78.538 MB /tmp/ferrum-direct-profile-49d3737/candidate-profile/perf.data (1209 samples) ]\n",
+      "trial": {
+        "server_cpu_s": {
+          "user_s": 1.78,
+          "system_s": 0.13,
+          "child_user_s": 10.48,
+          "child_system_s": 0.08
+        },
+        "case": "mut_element_nested_pass",
+        "server": "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+        "server_sha256": "b432617c5c8ac7670b5a8eff4ad572f3f8563246d04615409efbd51899adf1dd",
+        "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+        "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_nested_pass.rs",
+        "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+        "command": [
+          "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+          "--locked",
+          "--offline",
+          "--bin",
+          "mut_element_nested_pass"
+        ],
+        "environment_overrides": {
+          "PRUSTI_VERIFY_MODE": "verify",
+          "PRUSTI_VIPER_BACKEND": "Ferrum",
+          "PRUSTI_CHECK_OVERFLOWS": "true",
+          "PRUSTI_CHECK_PANICS": "true",
+          "PRUSTI_NO_VERIFY_DEPS": "true",
+          "PRUSTI_ENABLE_CACHE": "false",
+          "FERRUM_BENCH_PHASES": "1",
+          "FERRUM_BENCH_INTERNAL_CACHES": "on",
+          "PRUSTI_LOG": "info",
+          "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+          "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+          "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+          "PRUSTI_LOG_DIR": "/tmp/ferrum-direct-profile-49d3737/candidate-profile/verifier",
+          "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+          "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+          "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+          "PRUSTI_SERVER_ADDRESS": "127.0.0.1:54617"
+        },
+        "profile": true,
+        "trace": false,
+        "exit": 0,
+        "timed_out": false,
+        "wall_s": 13.23,
+        "client_user_s": 0.53,
+        "client_system_s": 0.24,
+        "phase_ns": {
+          "Rust to VIR encoding": [
+            301872366
+          ],
+          "VIR conversion": [
+            36273527
+          ],
+          "backend verification": [
+            12218121552
+          ]
+        },
+        "classification": "valid",
+        "dependency_check": {
+          "valid": true,
+          "events": [
+            {
+              "action": "Checking",
+              "package": "stdlib_iterator_spec",
+              "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+            }
+          ]
+        },
+        "timer_complete": true,
+        "client_cleanup": true,
+        "host_before": {
+          "wall_time_unix_ns": 1793406413697417513,
+          "monotonic_ns": 345332259641262,
+          "load_average": [
+            5.35986328125,
+            9.35595703125,
+            6.4287109375
+          ],
+          "memory_available": "MemAvailable:   16199456 kB"
+        },
+        "host_after": {
+          "wall_time_unix_ns": 1793406427317370223,
+          "monotonic_ns": 345345879594070,
+          "load_average": [
+            4.83642578125,
+            9.0439453125,
+            6.373046875
+          ],
+          "memory_available": "MemAvailable:   13137492 kB"
+        },
+        "service_cleanup": {
+          "command": [
+            "taskset",
+            "--cpu-list",
+            "0,1,2,3",
+            "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+            "--port",
+            "54617"
+          ],
+          "leader_exit": -15,
+          "stopped": true,
+          "cleanup_pending": [],
+          "error": null
+        }
+      }
+    }
+  },
+  "checks": {
+    "tests-candidate.log": {
+      "path": "/tmp/ferrum-direct-profile-49d3737/tests-candidate.log",
+      "sha256": "85ac897a9f438bf77bae41f617b00c831ea4aa025af86c584188f93e21dc9eda",
+      "tail": "test verifier::native_preamble::multiset_tests::mixed_sequence_set_axioms_include_both_sorts ... ok\ntest verifier::native_preamble::multiset_tests::mixed_map_collection_arguments_include_induced_set_sorts ... ok\ntest verifier::native_preamble::tests::fresh_analyses_emit_identical_domain_and_collection_preambles ... ok\n\ntest result: ok. 303 passed; 0 failed; 43 ignored; 0 measured; 0 filtered out; finished in 0.89s\n"
+    },
+    "check-candidate.log": {
+      "path": "/tmp/ferrum-direct-profile-49d3737/check-candidate.log",
+      "sha256": "655fd3d6284dbcb4197309a80e77199f8ed05a53072c62b54c32a57c20e8f1b6",
+      "tail": "    Checking ferrum-silicon v0.1.0 (/home/will/wk/exp/ferrum/crates/ferrum-silicon)\n    Checking ferrum v0.1.0 (/home/will/wk/exp/ferrum)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 22.70s"
+    },
+    "build-baseline.log": {
+      "path": "/tmp/ferrum-direct-profile-49d3737/build-baseline.log",
+      "sha256": "2cb65a78d5e0859504b5fde28633a5a3647bb5c171482360efa995f61e377eba",
+      "tail": "   Compiling ferrum v0.1.0 (/home/will/wk/exp/ferrum)\n   Compiling prusti-ferrum v0.1.0 (/tmp/ferrum-direct-profile-49d3737/source/prusti-ferrum)\n   Compiling prusti-server v0.1.0 (/tmp/ferrum-direct-profile-49d3737/source/prusti-server)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 41s\nwarning: the following packages contain code that will be rejected by a future version of Rust: nix v0.30.1\nnote: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`"
+    },
+    "build-candidate.log": {
+      "path": "/tmp/ferrum-direct-profile-49d3737/build-candidate.log",
+      "sha256": "412fc2086cd1251c67242df147f5ec96f23a35e868676cb6c109fb42d9b7b656",
+      "tail": "   Compiling ferrum v0.1.0 (/home/will/wk/exp/ferrum)\n   Compiling prusti-ferrum v0.1.0 (/tmp/ferrum-direct-profile-49d3737/source/prusti-ferrum)\n   Compiling prusti-server v0.1.0 (/tmp/ferrum-direct-profile-49d3737/source/prusti-server)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 07s\nwarning: the following packages contain code that will be rejected by a future version of Rust: nix v0.30.1\nnote: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`"
+    },
+    "test_counts": {
+      "passed": 303,
+      "failed": 0,
+      "ignored": 43
+    }
+  },
+  "nested_replay": {
+    "command": [
+      "taskset",
+      "--cpu-list",
+      "0,1,2,3",
+      "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+      "-smt2",
+      "-in"
+    ],
+    "exit_code": 0,
+    "timed_out": false,
+    "wall_s": 10.468196560977958,
+    "user_cpu_s": 10.359244,
+    "system_cpu_s": 0.064982,
+    "input_sha256": "a3dddf1e57419b8cebb13fa8c8eeab38242d2229ba0c7668ce5a4c49f661428f",
+    "stdout_sha256": "4f25db85ccb2afc60174f0826d9a7aaba53c5ff39a377f7276a792a2a5956ab7",
+    "statistics": {
+      "added-eqs": "2194385",
+      "arith-eq-adapter": "142416",
+      "arith-assume-eqs": "2018",
+      "arith-bound-propagations-lp": "136824",
+      "arith-conflicts": "2120",
+      "arith-diseq": "87538",
+      "arith-fixed-eqs": "89037",
+      "arith-lower": "163722",
+      "arith-make-feasible": "83895",
+      "arith-max-columns": "1029",
+      "arith-max-rows": "587",
+      "arith-offset-eqs": "62471",
+      "arith-upper": "200742",
+      "conflicts": "15030",
+      "datatype-accessor-ax": "49827",
+      "datatype-constructor-ax": "199787",
+      "datatype-occurs-check": "157059",
+      "datatype-splits": "112504",
+      "decisions": "234087",
+      "del-clause": "752059",
+      "final-checks": "3307",
+      "interface-eqs": "1009",
+      "max-generation": "21",
+      "max-memory": "33.40",
+      "memory": "31.55",
+      "minimized-lits": "2975",
+      "mk-bool-var": "1126901",
+      "mk-clause": "752059",
+      "num-allocs": "13986551506.00",
+      "num-checks": "1110",
+      "propagations": "340404",
+      "quant-instantiations": "181264",
+      "rlimit-count": "18540052"
+    },
+    "original_response_prefix_equal": true,
+    "stderr": ""
+  },
+  "artifacts": {
+    "build-candidate.log": "412fc2086cd1251c67242df147f5ec96f23a35e868676cb6c109fb42d9b7b656",
+    "nested-0-baseline.out": "ff5fa6e8f0780d2dab834c04e8b94abd9f302f179ab3a444fbf05651551c6dcb",
+    "comparison.log": "a7a2dba68bdb9ad7c308267e0966da15c93e3ba59946933b6798be2594a50bda",
+    "tests-candidate.log": "85ac897a9f438bf77bae41f617b00c831ea4aa025af86c584188f93e21dc9eda",
+    "array-2-candidate.out": "446faca642a4de9c4b729e29ae882207b2f33960f639e1adc223fc6761bd17b4",
+    "candidate-trace.out": "1d3f44a043288aa1416dc4fcda8eff5057aac68cf011ed36c237acce3d263b59",
+    "collect.py": "58055dafa2fc6f439f2eb5eaece2b046589dbb22828286be1ce6f7afc73f6e7a",
+    "compare.py": "09ae3f6a408bd10767e655d3e0618df11f3cfe0370f025ada653fd56729066d3",
+    "candidate-profile.out": "1f1a55bd2fdf186bd0046489a9a17dcd91b41ebed34af60105e8571b2677e115",
+    "candidate-negative-trace.out": "d2937c3baa98e30322826a6bcf589923653383eadd424faae8a9dd22ad8f6042",
+    "array-3-baseline.out": "70581a7750e2f09ef3de2ced4a73b1b1d97b665dc47af39ad470420ce36168e4",
+    "schedule.json": "cfcb4469ffa75b955e94d744272a68636266d5573e0763f34c1f6cb95253c9b5",
+    "baseline-instructions.out": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "array-0-baseline.out": "1cd631f5573f0aa44bec2590bac1ee4a335f473c0e5c320ead1e3ba5c631aa16",
+    "nested-1-candidate.out": "d3aa5d3d82a96ddb43696fc7f5b56d86a9fb55ec6d06302f6e0c0ffe9a7126c3",
+    "baseline-negative-trace.out": "11a4365d0e2398db884a5e260458aaed2bece4f96acb440d9483466dae7cbcf5",
+    "preparation.json": "530a0313d77d07bd911b825f58de66b32752e89f4bbdaeb5166f9d551e824e01",
+    "check-candidate.log": "655fd3d6284dbcb4197309a80e77199f8ed05a53072c62b54c32a57c20e8f1b6",
+    "build-baseline.log": "2cb65a78d5e0859504b5fde28633a5a3647bb5c171482360efa995f61e377eba",
+    "summarize_profile.py": "7d93dd2e39dc208a970b2107614fc63917359669726f89058217662a743b4e9e",
+    "nested-3-baseline.out": "665863c878633f688a6ec3819e47a303e8b67c141cd4cb7edbd8b9e3512bd621",
+    "candidate.patch": "1b4637ff2f2546b2c1cb1cc72a9e37635e0611fe84005c12eeb650b665160ae7",
+    "baseline-profile.out": "3eeb07d96fab2e9c5e4a3a35cdd192650a7877c3ae821b7458279b0c2f24faea",
+    "nested-2-candidate.out": "87e8de1c77ec71e859978716a18c203282aaf824e6f3cf080b23f888f2a746f5",
+    "nested-query-parity.json": "ba78bd23d8333a6b807b0a20ceeca27ed24702209ed2aa11a0f1bdd369a34faa",
+    "baseline-trace.out": "27e1d1bec733f533f6aef794950a3231e7216b7b8fb425fc4648f47dbe2e9e6e",
+    "run_direct.py": "87fa7f2ba1d693ab30cefdcb5a429af4740e8efdc833c5f527640c293a0a62b7",
+    "array-1-candidate.out": "dbd5e70ba25dc57c04eb54fbab4ec0937ec8a0e52520493065a859a86b217406",
+    "comparison-complete.json": "fa68e936e111db0202a8f3b2558896ef94fcd94fec66275fdd8102d3245ac71d",
+    "baseline-instructions/client.time": "c5f33e2a0ce80a8fee04b917f3fc61d72d1ab1e39cf2a099d726600f7fe6520a",
+    "baseline-instructions/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "baseline-instructions/server.log": "8ec97ed2078bc8be0fe453027542e252fb4aebc0cd2e47b6c58d51df20acd292",
+    "baseline-instructions/clean.time": "eaffa1532c3d4d4187610ec6a3468c5508696acbdba952385f5b2ac7efb9e808",
+    "baseline-instructions/clean.session.json": "ba31ff8546453af877edfead1c80367784061ab76d76797309a835a63ab945b5",
+    "baseline-instructions/perf.log": "0cc9a24bf38eae2ad3d3b8bb0dd14791bae8604afac76252ad6299d1776be14e",
+    "array-2-candidate/client.time": "1fa4c3e78a369794553c19f639e4f2cded4f290e673c8f3b3a7ba755f973a264",
+    "array-2-candidate/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "array-2-candidate/server.log": "06ecfa2040e4d175a01fe5b77dc84d79d62ca2888bfd4481b1fa51394f322715",
+    "array-2-candidate/result.json": "05de629ed04405cdfc43d4dbfbf75c721da569686c87ce93927ba4a8b9d18122",
+    "array-2-candidate/clean.time": "8e493ee5b3c28379c97c2cea275a3665caf8cf49f949becaff4aabb5603670fb",
+    "array-2-candidate/clean.session.json": "f4dd75a7dfd8354593b6b6326f0c5749c1da34ee3a3c68357ac74f0625a9c762",
+    "array-2-candidate/client.session.json": "070666c9a7ee03ff711f9cc5d8d54d4ec8ee35e8acb2934478dcf5a5ddbcdbb1",
+    "array-2-candidate/client.log": "39491e361ab21a9aae3888683aaa33ffd5ce372d7b2bf3378c3d9b3d66e4980c",
+    "array-2-candidate/cleanup.json": "eb34847521be94ea098691d554db56459818f820dbfd9bb80982007485502634",
+    "baseline-negative-trace/client.time": "c3e8463e949c43c00471f77949ec04fb46bed173df727a38383f8b7ad310ce9e",
+    "baseline-negative-trace/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "baseline-negative-trace/server.log": "698d68e05ca5cf1923a43b9bace07fd98328cef89355083f494f0c854f8101ac",
+    "baseline-negative-trace/result.json": "8edd992b3d2e0ccf81590d9d437186bb0cbaad6d1c81cae3385b5072e35fc3f5",
+    "baseline-negative-trace/clean.time": "86e40b112a66bd54a77ac4bf5cd050fd5dbc9d94de27a3dbd7aa88266abdf8b7",
+    "baseline-negative-trace/clean.session.json": "fc8e3e20dcd22e0b9183ab736bf68c9cf6ab1d0f2080b994c75d94e72656f805",
+    "baseline-negative-trace/client.session.json": "3066053e96cff632b45b2e053fd6743ec999cc050639253db4df5f61d432b5b0",
+    "baseline-negative-trace/client.log": "c109b5457d53bbe855f352de85d297411704dd13ea5bc41c8c27013b5838a1f0",
+    "baseline-negative-trace/cleanup.json": "4b4731eeb90ee68cecb87befa4fca7ae779ddd9954a2ca1e4ba651145ceb5cd5",
+    "array-3-baseline/client.time": "164a762f272202f4fbd4f983e18b12833bb2dd2692498eee51effb8291ac6b89",
+    "array-3-baseline/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "array-3-baseline/server.log": "6dba43cfd1db1ec7c5bfe06c89cd90e35282da4a080fd0b9f003a0a4287f38c1",
+    "array-3-baseline/result.json": "73c16873543ab5f4924ce004d86005747b9be6297520881941445ed9de44be17",
+    "array-3-baseline/clean.time": "bf2d4dca4134b5502fe2fdbb7fb5442937caa5b706eebe278168ddfa9cea722b",
+    "array-3-baseline/clean.session.json": "74bcfd768dc8621d1707907e8d5aef835292c10112e09ce195c1e3380bb32b19",
+    "array-3-baseline/client.session.json": "68a670c4afa39bbbd3f766c19340e4eb040d9b57d10cd5599d96546ec964615e",
+    "array-3-baseline/client.log": "9179278897d7ce1c2dfb16065951ed168a3cb939ba55ea4121bd051ad9c05709",
+    "array-3-baseline/cleanup.json": "f56fe3a962ccb3f51fe71ad18b14878805eba4e5b6da9ac6c41a69716ffec85f",
+    "nested-2-candidate/client.time": "094594e88da19dab91af3102731032232e2d9e9d70d5eb4ab5fcb8ce7b7c05b7",
+    "nested-2-candidate/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "nested-2-candidate/server.log": "e6d0dfd4ad43846ff687fa7f07aa5a23e37b153a021ac3ac4eb623851acae6af",
+    "nested-2-candidate/result.json": "839364630e0ea447c268b2613f9c729061c4656d54a52dd18274293800350858",
+    "nested-2-candidate/clean.time": "82521a137d82fefc15233bdf8792b5fe934904760ceb658249883cfe189ad604",
+    "nested-2-candidate/clean.session.json": "9a91ad9bb762a21c37b4ee1886fe5b6af7e93488d489c202b91bb61b1bf9ce98",
+    "nested-2-candidate/client.session.json": "9ad5e05ef9fb0a37bc608e2ffffd4d5ba2028a6be4f569e2d573a463ebd850f3",
+    "nested-2-candidate/client.log": "a1d21acf9255b44aa089833ac13237c258ade99440060fc9dac3e86a51eca0f3",
+    "nested-2-candidate/cleanup.json": "e3def5da7f4c9ff0c456fdcbcc07c2923dcb7908c010f1dc18d7eb6ff8d11da0",
+    "nested-1-candidate/client.time": "f25fa14fdbc504a34381df456c48a55125b3a7e126a3e2a066ca7067a6ea5941",
+    "nested-1-candidate/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "nested-1-candidate/server.log": "d6a78b9e03301153ba9f2192184ffa3dfe58b7e43c063c65d891b61f37ef0cdc",
+    "nested-1-candidate/result.json": "0e0bbb190ad8df76a928e390b41ca7864f446acb29c80eb0d5451c49d4136444",
+    "nested-1-candidate/clean.time": "f1dfed4a137873cb7e847b6e9b6206ea2e99a30eded1fc5c5634ed8218a0f47c",
+    "nested-1-candidate/clean.session.json": "9ac3b54b67e65833cc118d1377c5c90f6091a5e416ac5dbb08e5735e953a18fa",
+    "nested-1-candidate/client.session.json": "b48e68fd63053f6864beade1b25ff400d66b4ef0d4646d51927c807f7d749bd0",
+    "nested-1-candidate/client.log": "8dae663527c03395c719d7e9c2d519d2c24733fa429fb1a7eccfc8625970d697",
+    "nested-1-candidate/cleanup.json": "fddea33d77a31f4981c0a9343a08045e32a77b0d40e3ede493f33b7f56316c74",
+    "candidate-profile/client.time": "ea07e7c5ecc10340548f69bf645f9005a9e3d6eddc7d2bc64d4f1d5999a3d93b",
+    "candidate-profile/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "candidate-profile/server.log": "92ad646022876e4cf91c7e6212e5ce9513910e0ddad1d2a4ed63a328719e2afd",
+    "candidate-profile/result.json": "01726a594cd36fbeb461cb82c3e2c541d92dec8212bd74847ae6967370d7222f",
+    "candidate-profile/clean.time": "8cad0f8465181a6d28d73a432b2b4dfca7cd4dd63f67ca459a6602f573b23e5a",
+    "candidate-profile/clean.session.json": "95a6148f646b0548ad40c6471666f26c04e2fda565a9d5825e892fa27d699185",
+    "candidate-profile/perf.log": "4f98cf3ea5d895aaaea1d385a3b839eadb1fddcbfecc7ad413096a9a1c1d955e",
+    "candidate-profile/client.session.json": "f43b801f854070c2f31ee93304a46ab2a630eef8eccc65f72033cbcfaf1d5201",
+    "candidate-profile/client.log": "90676dbd044f67b5edbc8e66b31698f149078fdbc18b4d1866bf2decda9b33e8",
+    "candidate-profile/cleanup.json": "4575c6eb9b090a0563b873900edf65f31c12bb5e1bf678588b1a39d556e836d3",
+    "baseline-profile/client.time": "f248585e27609187c157bf5a3d69068860f305092bf1f5a543826b419b6e4b9a",
+    "baseline-profile/stacks.summary.json": "e85130bf09577c1c38ea6bd46bcd1ed633adccdfb1452ec2fd01522740bc2ce2",
+    "baseline-profile/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "baseline-profile/server.log": "cfa95ece7a2d18cb63d28d7f0f9a014fb0f310c2314b9dcc5b61a6f8813fbf91",
+    "baseline-profile/result.json": "29f9030aa2a61db6ef3754673a4a3f37d482a03b5b45f0fe6650a17764df9dfe",
+    "baseline-profile/clean.time": "eae617b1a92908f9870d8291abcde3df9015fdc1591f99dde5fd2a20c116fbf3",
+    "baseline-profile/unwind-stacks.summary.json": "d0e6fdf57e48196ce061f49979994f0b94e7b105399f5c5fcf9761013a0027f0",
+    "baseline-profile/unwind.log": "45139ad45b801e5e09a184fd0e5b7ef08e0a39f91472852d212851d03a43742b",
+    "baseline-profile/ip-perf.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "baseline-profile/clean.session.json": "e0e4552d83bb74149d92e1d7b2dac78e4cd57c3126f875f19fefeb6cbbe4a5bd",
+    "baseline-profile/perf.log": "c647e2ef9d3f358e287f9c1b788341f0bbbbe0090a645cfaf6a83e133845fd51",
+    "baseline-profile/perf-script.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "baseline-profile/client.session.json": "9ca5394068863e1df2ddd2426e06fb26d0ffec32b88d40b8a74282bc6f5ed232",
+    "baseline-profile/client.log": "d4256c6cc03b56447669800c83855e5f35613bda744cb0930617f4aa69a602a9",
+    "baseline-profile/ip-summary.json": "230c242d903b66200fb831aaf04c47bab98ebecd18d9c01ac33cb3ef2fc19bc1",
+    "baseline-profile/cleanup.json": "7571651c75fe9c787a2cbb49f19be3c6c493246c56f5698918fad785b06c3699",
+    "candidate-trace/client.time": "44350fccfb9d47342fe3de74dcacc354a2b4987dd53cf88b92fa6db893adc9b7",
+    "candidate-trace/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "candidate-trace/server.log": "87d5f73c27aa609ddc81aaa326c8b0b5a29ec8497867c1650ec8a37c137370be",
+    "candidate-trace/result.json": "77c4a2f3a94cbe0bceb988615d488bcebfa456e4516d605f535e9cbff7dc84d0",
+    "candidate-trace/clean.time": "61eedd96f03a63a1cbd95fb0873f11002d5f4e35a36489a012d31633ccf03453",
+    "candidate-trace/clean.session.json": "0de01451095645ef3dab3c99090e0911b6db5bfe2981aa2d0257918eac228fe7",
+    "candidate-trace/client.session.json": "b43b8bab25e6519d25ada154cdfdcc541bac1b41bb9b4253684b71061fb7daee",
+    "candidate-trace/client.log": "609a56d7766cb237f0869e5242c1c2f05051eedc1f3410dab3cded2ffb2e6974",
+    "candidate-trace/cleanup.json": "8ba09b49448da2eb1ce8e7b55945f20aa2e5a501b04831ff7781a15d3d36556b",
+    "array-0-baseline/client.time": "94c297394c11c1c81609a64cb0910065f09db99705b1a9961ef9af76155e7a89",
+    "array-0-baseline/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "array-0-baseline/server.log": "7d769c92f403fd3cb74236bcbdb1450d7755ce9957f428f9311ad8b939b0dfc8",
+    "array-0-baseline/result.json": "427208743d6092f380928df402c42305b125310ae368892612f13641a7cf65ff",
+    "array-0-baseline/clean.time": "a4caac834f23a617222cfd57a9445e9a605648b63971d18cdf69229a4c1b229a",
+    "array-0-baseline/clean.session.json": "ed5bd7d6f9c3cf8f0c7fdb74d78194f104308841cb1fcb30e149f3e2a5349db8",
+    "array-0-baseline/client.session.json": "653c02a565e68c02df04d710778b51a7615196002e92f61cf027a131e8be6abc",
+    "array-0-baseline/client.log": "e6c81a23664be63bbf5f878950de91afdd4619369b6ac93df36e05e8b46fe84a",
+    "array-0-baseline/cleanup.json": "537dbf6c9b85e3188006b65d52516bd220e090da99a52d185761694d7f21fa77",
+    "nested-3-baseline/client.time": "b36e4c708fdf556d784b4a4e4aa758ce7249af10b38f529659a2a74b41c5dd2e",
+    "nested-3-baseline/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "nested-3-baseline/server.log": "fccf48da3daa9ac24ba5e36de9a60e2c13dfcf045bf631acd4e901ffb75b3c01",
+    "nested-3-baseline/result.json": "108757c13357efd614c24e6157e795920776f25df14e5a32f38b164fba124c57",
+    "nested-3-baseline/clean.time": "4d0100bb4faf57b1475016a5981039b2274d945e38f1d4e7c52ac9c62c1da028",
+    "nested-3-baseline/clean.session.json": "29d646cef399ffb65075ef400309b959de0d9ced77bee666ebbb62576f389088",
+    "nested-3-baseline/client.session.json": "1df8fc56add8066471f59e75a7b4c4d8adcb433c4deea97d7e1933481f09cee2",
+    "nested-3-baseline/client.log": "f626b4ef91e80d0012b35dadf3f86f365aa26ea11baa46f7831b28b68b2e04fa",
+    "nested-3-baseline/cleanup.json": "0f7b50baa571b8cced3cafb020bd66e3fd85a8e3d5296d2575f2dd32c39afe10",
+    "nested-0-baseline/client.time": "d2603d804d81b7952e981aa0bb97bd57bc255727a9ea117cc34111287e95d245",
+    "nested-0-baseline/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "nested-0-baseline/server.log": "f51e2b8f603e26012125f8cbe402e8a02eb1113cb321e67053a2aa87207dfa98",
+    "nested-0-baseline/result.json": "d11b8b980633bfb650875020ff79c42bf54ce91cca3584aad88338609ac04aac",
+    "nested-0-baseline/clean.time": "fc280f06dfd31c28e2eb1056a8a79a76b339d930d1f6ed88b048e5ae173036a6",
+    "nested-0-baseline/clean.session.json": "20942c11bbf29a90818a71f8bface0d36aaa6b9b6a195fb4643c9833d156f12d",
+    "nested-0-baseline/client.session.json": "950736a6393ed6268d15c44068f8d2e2685b2dabff93b38f17c5a06c53d4e307",
+    "nested-0-baseline/client.log": "717b03e857b1d9e4d0cde76833572f34cf63443b2db0ec8649d1244c87929d4b",
+    "nested-0-baseline/cleanup.json": "67952fc8d5a4108f24fa087306151928db93d73fde062ecd89ba8d00c9e8d1df",
+    "candidate-negative-trace/client.time": "9f1ee8795f51f58a4bb830572465328917d323b91448abdc89b02c7bd42403fe",
+    "candidate-negative-trace/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "candidate-negative-trace/server.log": "141ff4b9f2872faee71999c54bddd4f3debdac2b1ce5b28a972c090b8cd8cdd7",
+    "candidate-negative-trace/result.json": "3c8b0896441e0dd966e3907494a491ae7e42d67beb602269eae675bbaf70778b",
+    "candidate-negative-trace/clean.time": "6032b1370dbfaa1c398e7e7728483048d6744b2eb4287d5a293c6b57eff1ddf0",
+    "candidate-negative-trace/clean.session.json": "e7963fbe79bb1a87b83e6592f7e458909c371c48e5824362b7619a607343ad02",
+    "candidate-negative-trace/client.session.json": "3044f90a77cc5c023e023a827b609de63f09864bfad6f59223b6191e244bdf75",
+    "candidate-negative-trace/client.log": "0603b7b1d8f43baf6e8d5d7e492fd7c559ded09c9798a21bc54b78370a5dc690",
+    "candidate-negative-trace/cleanup.json": "e9983e19cc81c826da32b8105ff13c94bf5c6e09cedee9fe592df582020ac79e",
+    "array-1-candidate/client.time": "f59a73f3002a1f9444c1f574d4dd89946fdef7931b91788c9358c3fe58e33ebe",
+    "array-1-candidate/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "array-1-candidate/server.log": "603556e20ea8c024810ea5906ddcc4849776b08c428351a0a9baed4204e5565f",
+    "array-1-candidate/result.json": "4e5f66efb93f661b3258feb7e79ca23258bb53ca4a92c79e721233abfb963e17",
+    "array-1-candidate/clean.time": "c2541df2f5172445eb709fe09a2fbf7ba65bda59794e7b7a1a8c476e9ea5522f",
+    "array-1-candidate/clean.session.json": "a099545d8502cb0cf7856d357c667989dfece2d0d1c3c9ca9e9ecea0baea9a8b",
+    "array-1-candidate/client.session.json": "eb9b2b8c0d195c4475adffb7118bb234195fcac440bf0a6ed6aeaa7453aa375d",
+    "array-1-candidate/client.log": "35f57046b45e1ba0213b637d9a13b32bca23909b17719d6edd4be65d2751770f",
+    "array-1-candidate/cleanup.json": "73e162efc6bc3a2341cb44d1bc9fe63efad35ebadc707af4a11521e601a8c25f",
+    "baseline-trace/client.time": "d577d2b7ead7bc3081a69197476a3d720f27a2f8d5903baf2626dcc7405ccc8b",
+    "baseline-trace/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "baseline-trace/server.log": "895c1ba34c92f3ab9caaf8fd72cd09352a16daa5e0ecdf4e039f978f6657f4a3",
+    "baseline-trace/result.json": "d34cca0e56d75d7f4de00c8a9e58a2f661b590c4c56ec327bddd2f50e67b0a1a",
+    "baseline-trace/clean.time": "13aabba3371e71691cf39ec90613e50e7fc97e2c729d7cb1f2a2baca9a042fde",
+    "baseline-trace/clean.session.json": "02eade9162858a4053bd4607cf85a24aef406edbbcb5540ccf0fae1b0b3cc93f",
+    "baseline-trace/client.session.json": "76c2222780128ebae155fa99414563c84e3319dc35fece6fbd24adcbbebd3e3e",
+    "baseline-trace/client.log": "c446c9df625e040caf41eb3581ee134865544a8f7bfebda13008f108ca9fc8de",
+    "baseline-trace/cleanup.json": "319fb9bc45da06f41076cc0fb40971b5d62dc936747aba1a4c7d20bdf16fb383",
+    "baseline-negative-trace/smt/3388022-345327668558123/analysis.json": "c687ed5124f158a8682f4840f30bdc64a7362dff47db1d28e1d42200a97f5711",
+    "baseline-negative-trace/smt/3388022-345327668558123/stdout.bin": "5b37688fcc99a137467ad37705c6b3e10afd0ab5849a57ec0bbf98d9e0f8c60d",
+    "baseline-negative-trace/smt/3388022-345327668558123/stderr.bin": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "baseline-negative-trace/smt/3388022-345327668558123/stdin.bin": "cd324f064b5dbd376f1ae600fe523a35caf86801e760d893b4049f3f173fd359",
+    "baseline-negative-trace/smt/3388022-345327668558123/chunks.jsonl": "59da5a133c1c34d2d000b29495226d81704b7b28c1e1e946d8b964827ac7ef2a",
+    "baseline-negative-trace/smt/3388022-345327668558123/metadata.json": "d0092ffa414321aff930b9c917ee6a3ab1270291d6d66a64add456a692b3978c",
+    "candidate-trace/smt/3355227-345171758218102/analysis.json": "0703064200407aaa5c69f741218135873863c5d326b850d8a31d5ff3b9670aa3",
+    "candidate-trace/smt/3355227-345171758218102/stdout.bin": "0f6d03c4c58d15a529194c392d35ead22942c8525730dc4a90b16a53d57bd73e",
+    "candidate-trace/smt/3355227-345171758218102/stderr.bin": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "candidate-trace/smt/3355227-345171758218102/stdin.bin": "54e76cb7063e81b7798ab7761c3a406f45baa76b7f215e7c451efb2520f60a47",
+    "candidate-trace/smt/3355227-345171758218102/chunks.jsonl": "046ecd532d0904557645b417c8f407a1ca8646eee843dcc07d9effed1affc3ea",
+    "candidate-trace/smt/3355227-345171758218102/metadata.json": "7d3b31c17924e1e0c1424defcb4a8e26e0cbff94814c3bd0071ab1e0cd1a84ad",
+    "candidate-negative-trace/smt/3388711-345330202140023/analysis.json": "5b6046b0178a848c3fc7877c8404e0068b84ecec022dc3519db448751dca9b39",
+    "candidate-negative-trace/smt/3388711-345330202140023/stdout.bin": "5b37688fcc99a137467ad37705c6b3e10afd0ab5849a57ec0bbf98d9e0f8c60d",
+    "candidate-negative-trace/smt/3388711-345330202140023/stderr.bin": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "candidate-negative-trace/smt/3388711-345330202140023/stdin.bin": "cd324f064b5dbd376f1ae600fe523a35caf86801e760d893b4049f3f173fd359",
+    "candidate-negative-trace/smt/3388711-345330202140023/chunks.jsonl": "10fd7f0759f60eed37d26884c8ea5065597ca899b7f9c1d61e6a8095c5eadd04",
+    "candidate-negative-trace/smt/3388711-345330202140023/metadata.json": "12cc9ed478ab6d15fbbb051d6cf2b7ac6afe63347b7b9216381920ce36ee48b5",
+    "baseline-trace/smt/3276980-344782718999957/analysis.json": "7966998e6ff4e5eb68aec61c2c801985a9ab27b26936469edaf734f1b39a013a",
+    "baseline-trace/smt/3276980-344782718999957/stdout.bin": "0f6d03c4c58d15a529194c392d35ead22942c8525730dc4a90b16a53d57bd73e",
+    "baseline-trace/smt/3276980-344782718999957/stderr.bin": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "baseline-trace/smt/3276980-344782718999957/stdin.bin": "54e76cb7063e81b7798ab7761c3a406f45baa76b7f215e7c451efb2520f60a47",
+    "baseline-trace/smt/3276980-344782718999957/chunks.jsonl": "dfb194cb9eb4cada3df1667c532233d4986d231263e19a52fdf3956459699483",
+    "baseline-trace/smt/3276980-344782718999957/metadata.json": "8265280ddece8647d9f918cec8a1b2da80e644be818f04cd3b32fa8a1fab8456",
+    "baseline-trace/smt/3276980-344782718999957/offline/input.smt2": "a3dddf1e57419b8cebb13fa8c8eeab38242d2229ba0c7668ce5a4c49f661428f",
+    "baseline-trace/smt/3276980-344782718999957/offline/stdout.bin": "4f25db85ccb2afc60174f0826d9a7aaba53c5ff39a377f7276a792a2a5956ab7",
+    "baseline-trace/smt/3276980-344782718999957/offline/result.json": "2e040b1d41a9a5ce1fa07f97bb280dc7f07c22a3794a8df85ca839d3793035ae",
+    "baseline-trace/smt/3276980-344782718999957/offline/stderr.bin": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "baseline-instructions/perf.data": "72adca82ad914b1d9a2bcc59809e0dbc7cb2738a1c99d4ea9eff2993313ab952",
+    "baseline-instructions/events.txt": "a0f428f272204ab599d583f2aa8038cc883b5139ed85eacb7197de182694ece7",
+    "baseline-instructions/result.json": "edc0eee50cfc25e4e58ebe1276d24894cddfce3f51d6e5bf2109f140ba68b1bf",
+    "baseline-instructions/client.session.json": "f6a3251132449b7d5209714e10ad883281585d84fc34d1553cf4767b6c09ad48",
+    "baseline-instructions/client.log": "ea949f12e9d44595bf31104d03048535e2e19ddbf67356879b95f334c277d134",
+    "baseline-instructions/cleanup.json": "9d561712c4c03c119f5a5ee12b79352e1326993307c831de9a57c1cd07f763f7",
+    "candidate-instructions/client.time": "fba31e2af4232b6adfae13260645fc93d0eab6c1fcc4b7b8dcbe7ed86efb9ee7",
+    "candidate-instructions/perf.data": "6653a24149a91b03e5549365288c4c3bca2c634065a6fdf53f007f3624d0ea54",
+    "candidate-instructions/clean.log": "a4046b2b676911f4002081545176ec92a9b46090faab030a46b54b6fb158f70f",
+    "candidate-instructions/server.log": "9cc9f9d051588e27ad3b2bed9a2f1f81a430f0624dd3296b075d788a3a628f84",
+    "candidate-instructions/events.txt": "07a78a537435bcf93c298d12f900f3657175765dbcdb36b0585cb8a438da6cc6",
+    "candidate-instructions/result.json": "203dfcfc63dcfc57745202691ddd5706f2022f4d4bf6979381c54538686d6563",
+    "candidate-instructions/clean.time": "0b79d55fc2d624334bce5036bd8f7e02e8e3dccbe84e73ed8ddd1aa939391746",
+    "candidate-instructions/clean.session.json": "7d6968a81462016901363c5857e1175bcdfaa80955bab462045599f51841e25b",
+    "candidate-instructions/perf.log": "6bcadc8f0f0511c8988bd8d6375e96e5155d065e30bd3ef5c38fda03648ab567",
+    "candidate-instructions/client.session.json": "ba52f8d8d3b9b0a4ca915b5b8359ceea1578f514e72ec5f716decb44e0d0c16e",
+    "candidate-instructions/client.log": "c929b6da7fd6f36d71dbd889c81a6b19b2fd717027fcaf5d135396d1e4169a1b",
+    "candidate-instructions/cleanup.json": "cedac5e37bd12176c194a40218ee83685294ad360c86c5977ca95de85c932e68",
+    "run_direct_v0.py": "fa5bc6b2ca685e2616f109c76df64c5b21b3a49ce3795e3348b0b7e464e63a0a",
+    "run_direct_v1.py": "9fb36f3c73c731685e8d9538ffa3b915e996b45fa57a03fb7d2de56048e97c01",
+    "run_direct_v2.py": "87fa7f2ba1d693ab30cefdcb5a429af4740e8efdc833c5f527640c293a0a62b7",
+    "instruction-comparison.json": "b0f22f5ff60aa83f7f1c5658b126092d37eb2968e4bf6ee809b99efd9c3875d9"
+  },
+  "current_runner_sha256": "87fa7f2ba1d693ab30cefdcb5a429af4740e8efdc833c5f527640c293a0a62b7",
+  "instruction_profiles": {
+    "baseline": {
+      "process_samples": {
+        "baseline-server": 1174,
+        "prusti-verifica": 12663,
+        "z3": 48475
+      },
+      "sampled_instructions": {
+        "baseline-server": 1174000000,
+        "prusti-verifica": 12663000000,
+        "z3": 48475000000
+      },
+      "events": {
+        "cpu_core/instructions/u: ": 62312
+      },
+      "result": {
+        "server_cpu_s": {
+          "user_s": 3.56,
+          "system_s": 0.3,
+          "child_user_s": 19.81,
+          "child_system_s": 0.18
+        },
+        "case": "mut_element_nested_pass",
+        "server": "/tmp/ferrum-direct-profile-49d3737/baseline-server",
+        "server_sha256": "d816c04d1e0b734197dc40d3d80cc90d64baf5913147088aa7f3aa536fdc50eb",
+        "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+        "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_nested_pass.rs",
+        "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+        "command": [
+          "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+          "--locked",
+          "--offline",
+          "--bin",
+          "mut_element_nested_pass"
+        ],
+        "environment_overrides": {
+          "PRUSTI_VERIFY_MODE": "verify",
+          "PRUSTI_VIPER_BACKEND": "Ferrum",
+          "PRUSTI_CHECK_OVERFLOWS": "true",
+          "PRUSTI_CHECK_PANICS": "true",
+          "PRUSTI_NO_VERIFY_DEPS": "true",
+          "PRUSTI_ENABLE_CACHE": "false",
+          "FERRUM_BENCH_PHASES": "1",
+          "FERRUM_BENCH_INTERNAL_CACHES": "on",
+          "PRUSTI_LOG": "info",
+          "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+          "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+          "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+          "PRUSTI_LOG_DIR": "/tmp/ferrum-direct-profile-49d3737/baseline-instructions/verifier",
+          "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+          "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+          "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+          "PRUSTI_SERVER_ADDRESS": "127.0.0.1:48185"
+        },
+        "profile": false,
+        "instructions": true,
+        "trace": false,
+        "exit": 0,
+        "timed_out": false,
+        "wall_s": 24.86,
+        "client_user_s": 0.64,
+        "client_system_s": 0.33,
+        "phase_ns": {
+          "Rust to VIR encoding": [
+            324735088
+          ],
+          "VIR conversion": [
+            59624603
+          ],
+          "backend verification": [
+            23424047070
+          ]
+        },
+        "classification": "valid",
+        "dependency_check": {
+          "valid": true,
+          "events": [
+            {
+              "action": "Checking",
+              "package": "stdlib_iterator_spec",
+              "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+            }
+          ]
+        },
+        "timer_complete": true,
+        "client_cleanup": true,
+        "host_before": {
+          "wall_time_unix_ns": 1793406447418259641,
+          "monotonic_ns": 345365980483482,
+          "load_average": [
+            3.814453125,
+            8.5380859375,
+            6.2626953125
+          ],
+          "memory_available": "MemAvailable:   12289404 kB"
+        },
+        "host_after": {
+          "wall_time_unix_ns": 1793406472754063374,
+          "monotonic_ns": 345391316287265,
+          "load_average": [
+            4.8994140625,
+            8.40087890625,
+            6.27734375
+          ],
+          "memory_available": "MemAvailable:   11862772 kB"
+        },
+        "service_cleanup": {
+          "command": [
+            "taskset",
+            "--cpu-list",
+            "0,1,2,3",
+            "/tmp/ferrum-direct-profile-49d3737/baseline-server",
+            "--port",
+            "48185"
+          ],
+          "leader_exit": -15,
+          "stopped": true,
+          "cleanup_pending": [],
+          "error": null
+        }
+      },
+      "perf_log": "[ perf record: Woken up 9 times to write data ]\n[ perf record: Captured and wrote 2.382 MB /tmp/ferrum-direct-profile-49d3737/baseline-instructions/perf.data (62312 samples) ]\n"
+    },
+    "candidate": {
+      "process_samples": {
+        "candidate-serve": 1174,
+        "prusti-verifica": 11376,
+        "z3": 48479
+      },
+      "sampled_instructions": {
+        "candidate-serve": 1174000000,
+        "prusti-verifica": 11376000000,
+        "z3": 48479000000
+      },
+      "events": {
+        "cpu_core/instructions/u: ": 61029
+      },
+      "result": {
+        "server_cpu_s": {
+          "user_s": 2.8000000000000003,
+          "system_s": 0.3,
+          "child_user_s": 18.09,
+          "child_system_s": 0.17
+        },
+        "case": "mut_element_nested_pass",
+        "server": "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+        "server_sha256": "b432617c5c8ac7670b5a8eff4ad572f3f8563246d04615409efbd51899adf1dd",
+        "client": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+        "client_sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd",
+        "source": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_nested_pass.rs",
+        "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+        "command": [
+          "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+          "--locked",
+          "--offline",
+          "--bin",
+          "mut_element_nested_pass"
+        ],
+        "environment_overrides": {
+          "PRUSTI_VERIFY_MODE": "verify",
+          "PRUSTI_VIPER_BACKEND": "Ferrum",
+          "PRUSTI_CHECK_OVERFLOWS": "true",
+          "PRUSTI_CHECK_PANICS": "true",
+          "PRUSTI_NO_VERIFY_DEPS": "true",
+          "PRUSTI_ENABLE_CACHE": "false",
+          "FERRUM_BENCH_PHASES": "1",
+          "FERRUM_BENCH_INTERNAL_CACHES": "on",
+          "PRUSTI_LOG": "info",
+          "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+          "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1",
+          "PRUSTI_DUMP_VIPER_PROGRAM": "false",
+          "PRUSTI_LOG_DIR": "/tmp/ferrum-direct-profile-49d3737/candidate-instructions/verifier",
+          "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+          "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+          "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+          "PRUSTI_SERVER_ADDRESS": "127.0.0.1:40597"
+        },
+        "profile": false,
+        "instructions": true,
+        "trace": false,
+        "exit": 0,
+        "timed_out": false,
+        "wall_s": 22.51,
+        "client_user_s": 0.78,
+        "client_system_s": 0.33,
+        "phase_ns": {
+          "Rust to VIR encoding": [
+            407479613
+          ],
+          "VIR conversion": [
+            62358822
+          ],
+          "backend verification": [
+            21005248686
+          ]
+        },
+        "classification": "valid",
+        "dependency_check": {
+          "valid": true,
+          "events": [
+            {
+              "action": "Checking",
+              "package": "stdlib_iterator_spec",
+              "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+            }
+          ]
+        },
+        "timer_complete": true,
+        "client_cleanup": true,
+        "host_before": {
+          "wall_time_unix_ns": 1793406473570170401,
+          "monotonic_ns": 345392132394514,
+          "load_average": [
+            4.8994140625,
+            8.40087890625,
+            6.27734375
+          ],
+          "memory_available": "MemAvailable:   12110692 kB"
+        },
+        "host_after": {
+          "wall_time_unix_ns": 1793406496771387778,
+          "monotonic_ns": 345415333612154,
+          "load_average": [
+            4.94970703125,
+            8.12744140625,
+            6.24267578125
+          ],
+          "memory_available": "MemAvailable:   12049384 kB"
+        },
+        "service_cleanup": {
+          "command": [
+            "taskset",
+            "--cpu-list",
+            "0,1,2,3",
+            "/tmp/ferrum-direct-profile-49d3737/candidate-server",
+            "--port",
+            "40597"
+          ],
+          "leader_exit": -15,
+          "stopped": true,
+          "cleanup_pending": [],
+          "error": null
+        }
+      },
+      "perf_log": "[ perf record: Woken up 7 times to write data ]\n[ perf record: Captured and wrote 2.333 MB /tmp/ferrum-direct-profile-49d3737/candidate-instructions/perf.data (61029 samples) ]\n"
+    }
+  },
+  "instruction_profiles_note": "Hardware instruction sampling at a fixed period of 1,000,000 user instructions, including inherited threads and solver processes. Counts are estimates with partial periods omitted, not exact retired-instruction totals. Both profiles used cpu_core/instructions/u; no lost-sample warning was emitted.",
+  "instruction_ratios": {
+    "worker": 0.898365316275764,
+    "native_total": 0.906988509069885,
+    "solver": 1.000082516761217,
+    "all": 0.9794100654769546
+  },
+  "limitations": [
+    "Frozen Prusti a59ed917c client, adapter and Rust fixture; only Ferrum runtime changed. This is not a fresh matrix on the current stdlib branch.",
+    "Shared host with substantial timing variation. Two pairs establish no reliable end-to-end latency improvement.",
+    "Fresh service per request; request wall time starts after socket readiness and excludes service startup.",
+    "Native CPU is process user+system time; solver CPU is reaped child user+system time on untraced trials. Both vary with host clock speed and scheduling.",
+    "CPU profiles sampled only the server tree, excluding the client. Rust worker DWARF stacks failed to unwind, so native instruction-pointer samples were used for attribution. Z3 stacks were recovered.",
+    "Instruction sampling uses one run per binary; unchanged solver instruction count corroborates the change in native work, but does not establish a broad performance result.",
+    "43 opt-in Silicon unit tests were not run. Direct-Prusti correctness was checked on the selected cases only."
+  ],
+  "harness_versions": {
+    "v0": {
+      "path": "/tmp/ferrum-direct-profile-49d3737/run_direct_v0.py",
+      "sha256": "fa5bc6b2ca685e2616f109c76df64c5b21b3a49ce3795e3348b0b7e464e63a0a"
+    },
+    "v1": {
+      "path": "/tmp/ferrum-direct-profile-49d3737/run_direct_v1.py",
+      "sha256": "9fb36f3c73c731685e8d9538ffa3b915e996b45fa57a03fb7d2de56048e97c01"
+    },
+    "v2": {
+      "path": "/tmp/ferrum-direct-profile-49d3737/run_direct_v2.py",
+      "sha256": "87fa7f2ba1d693ab30cefdcb5a429af4740e8efdc833c5f527640c293a0a62b7"
+    }
+  },
+  "harness_version_usage": {
+    "v0": "Initial CPU profile and nested SMT captures",
+    "v1": "ABBA timings, negative SMT captures, candidate CPU profile; adds /proc CPU counters",
+    "v2": "Instruction profiles; adds hardware instruction sampling"
+  },
+  "raw_root": "/tmp/ferrum-direct-profile-49d3737"
+}
