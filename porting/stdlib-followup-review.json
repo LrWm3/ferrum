@@ -1,0 +1,1274 @@
+{
+  "date": "2026-10-31",
+  "artifact_root": "/tmp/ferrum-stdlib-followup-ba666a7",
+  "runtime_fixes": [
+    "09a28fb",
+    "0e048a420c081f4c442dd04277bb016346de4e10"
+  ],
+  "prusti_matrix_backend": "afdf10c",
+  "prusti_candidate_backend": "85fc9d8534cc325834feb31293b8d642db1511bd",
+  "prusti_candidate_source": "d2678d5c0 plus dependency-only upgrade, frozen checkpoint349",
+  "not_a_performance_comparison": "Copied dependencies rebuild under the isolated source path; strict dependency-event gate fails. Concurrent builds and verification also affect timings.",
+  "prusti_runs": [
+    {
+      "case": "vec_lookup_range_pass",
+      "source": "/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_borrow_spec/src/bin/vec_lookup_range_pass.rs",
+      "source_sha256": "d0874a0cf40b9e55d93f94109123bfb2f904ebd7ca762841744e44b983356db3",
+      "server_sha256": "8fb26e2efd39aa67f5b8f0175bcc22cd58227ee2de9f8ac1d75a3a20b8afcff6",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "driver_sha256": "8b040a3fb36198837657a25b22b6c31b2bffdf6cef86995d784c015c6b8f69ff",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 60.68,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          1563131208
+        ],
+        "VIR conversion": [
+          191753681
+        ],
+        "backend verification": [
+          53758897350
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": false,
+        "events": [
+          {
+            "action": "Compiling",
+            "package": "prusti-specs",
+            "line": "Compiling prusti-specs v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-specs)"
+          },
+          {
+            "action": "Compiling",
+            "package": "prusti-contracts-proc-macros",
+            "line": "Compiling prusti-contracts-proc-macros v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-contracts-proc-macros)"
+          },
+          {
+            "action": "Checking",
+            "package": "prusti-contracts",
+            "line": "Checking prusti-contracts v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-contracts)"
+          },
+          {
+            "action": "Checking",
+            "package": "borrow_specs",
+            "line": "Checking borrow_specs v0.1.0 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_borrow_spec/specs)"
+          },
+          {
+            "action": "Checking",
+            "package": "stdlib_borrow_spec",
+            "line": "Checking stdlib_borrow_spec v0.1.0 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_borrow_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "4-7",
+          "/tmp/prusti-stdlib-matrix349-bin/debug/prusti-server-driver",
+          "--port",
+          "46195"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=180 --numberOfParallelVerifiers 1 --parallelizeBranches=false --checkTimeout 100 --proverEnableTimeBounds",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_ASSERT_TIMEOUT": "30000",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-followup-ba666a7/range-prusti-full-before/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-stdlib-followup-ba666a7/range-prusti-full-before/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:46195"
+      },
+      "label": "range-prusti-full-before",
+      "result_sha256": "2861e4eedd0f37abbcaa934dc16edbc8f6356916b260ac26a13eaa6ae46804a4",
+      "client_log_sha256": "6ad687be0e1817ec500a1529383f3ab6519f91ab3431139824d86a9a3ccec721",
+      "verification_errors": [],
+      "viper_sha256": "189185fad73e105383a701d97443909f4c12c742e9f87d49b2475de4e4fa887a"
+    },
+    {
+      "case": "inclusive_wrong_frame",
+      "source": "/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_borrow_spec/src/bin/inclusive_wrong_frame.rs",
+      "source_sha256": "031d2ee7d5aa6d834f9787a0f01a9eac975234819910e1e1687e226efcc3d2eb",
+      "server_sha256": "8fb26e2efd39aa67f5b8f0175bcc22cd58227ee2de9f8ac1d75a3a20b8afcff6",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "driver_sha256": "8b040a3fb36198837657a25b22b6c31b2bffdf6cef86995d784c015c6b8f69ff",
+      "exit": 101,
+      "timed_out": false,
+      "wall_s": 60.02,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          712135060
+        ],
+        "VIR conversion": [
+          166108751
+        ],
+        "backend verification": [
+          55432778746
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": false,
+        "events": [
+          {
+            "action": "Compiling",
+            "package": "prusti-specs",
+            "line": "Compiling prusti-specs v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-specs)"
+          },
+          {
+            "action": "Compiling",
+            "package": "prusti-contracts-proc-macros",
+            "line": "Compiling prusti-contracts-proc-macros v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-contracts-proc-macros)"
+          },
+          {
+            "action": "Checking",
+            "package": "prusti-contracts",
+            "line": "Checking prusti-contracts v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-contracts)"
+          },
+          {
+            "action": "Checking",
+            "package": "borrow_specs",
+            "line": "Checking borrow_specs v0.1.0 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_borrow_spec/specs)"
+          },
+          {
+            "action": "Checking",
+            "package": "stdlib_borrow_spec",
+            "line": "Checking stdlib_borrow_spec v0.1.0 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_borrow_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "4-7",
+          "/tmp/prusti-stdlib-matrix349-bin/debug/prusti-server-driver",
+          "--port",
+          "55897"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=180 --numberOfParallelVerifiers 1 --parallelizeBranches=false --checkTimeout 100 --proverEnableTimeBounds",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_ASSERT_TIMEOUT": "30000",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-followup-ba666a7/inclusive-prusti-before/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/ferrum/tools/performance/smt/trace_z3_v2.py",
+        "FERRUM_SMT_REAL_Z3": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "FERRUM_SMT_TRACE_ROOT": "/tmp/ferrum-stdlib-followup-ba666a7/inclusive-prusti-before/smt",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:55897"
+      },
+      "label": "inclusive-prusti-before",
+      "result_sha256": "4d0b61236cd9d1e27a7979bf64d17e4f55db74724d0980a84e60a0c15483e579",
+      "client_log_sha256": "aaf4ce699d0b10960583b92fa2095f5db79fd1827e27c28fbc794d896a69f50d",
+      "verification_errors": [
+        "error: [Prusti: verification error] assertion might not hold"
+      ],
+      "viper_sha256": "740d218632baf3df90ef60e309c2a6cb38197164b4eab70c4ac5800943ee045f"
+    },
+    {
+      "case": "inclusive_wrong_frame",
+      "source": "/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_borrow_spec/src/bin/inclusive_wrong_frame.rs",
+      "source_sha256": "031d2ee7d5aa6d834f9787a0f01a9eac975234819910e1e1687e226efcc3d2eb",
+      "server_sha256": "8fb26e2efd39aa67f5b8f0175bcc22cd58227ee2de9f8ac1d75a3a20b8afcff6",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "driver_sha256": "8b040a3fb36198837657a25b22b6c31b2bffdf6cef86995d784c015c6b8f69ff",
+      "exit": 101,
+      "timed_out": false,
+      "wall_s": 52.48,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          3542927289
+        ],
+        "VIR conversion": [
+          715699384
+        ],
+        "backend verification": [
+          32432612666
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": false,
+        "events": [
+          {
+            "action": "Compiling",
+            "package": "prusti-specs",
+            "line": "Compiling prusti-specs v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-specs)"
+          },
+          {
+            "action": "Compiling",
+            "package": "prusti-contracts-proc-macros",
+            "line": "Compiling prusti-contracts-proc-macros v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-contracts-proc-macros)"
+          },
+          {
+            "action": "Checking",
+            "package": "prusti-contracts",
+            "line": "Checking prusti-contracts v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-contracts)"
+          },
+          {
+            "action": "Checking",
+            "package": "borrow_specs",
+            "line": "Checking borrow_specs v0.1.0 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_borrow_spec/specs)"
+          },
+          {
+            "action": "Checking",
+            "package": "stdlib_borrow_spec",
+            "line": "Checking stdlib_borrow_spec v0.1.0 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_borrow_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "4-7",
+          "/tmp/prusti-stdlib-matrix349-bin/debug/prusti-server-driver",
+          "--port",
+          "60669"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=180 --numberOfParallelVerifiers 1 --parallelizeBranches=false --checkTimeout 100 --proverEnableTimeBounds",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_ASSERT_TIMEOUT": "30000",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-followup-ba666a7/inclusive-prusti-repeat/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:60669"
+      },
+      "label": "inclusive-prusti-repeat",
+      "result_sha256": "e815c81ffcaa1488012bb03958625536ee7b2cf23dde318d07fb52dd2289c82b",
+      "client_log_sha256": "2d2e1be17aab097f4b311e3c8f50725888db6ab96d553a52b1e9c458fd43edd5",
+      "verification_errors": [
+        "error: [Prusti: verification error] assertion might not hold"
+      ],
+      "viper_sha256": "740d218632baf3df90ef60e309c2a6cb38197164b4eab70c4ac5800943ee045f"
+    },
+    {
+      "case": "mut_element_replace_pass",
+      "source": "/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_replace_pass.rs",
+      "source_sha256": "09bb105cab1cf7816388b1b638f5e1dd53085d2249c70ab8e8be118c22c6407e",
+      "server_sha256": "8fb26e2efd39aa67f5b8f0175bcc22cd58227ee2de9f8ac1d75a3a20b8afcff6",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "driver_sha256": "8b040a3fb36198837657a25b22b6c31b2bffdf6cef86995d784c015c6b8f69ff",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 36.29,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          1129851720
+        ],
+        "VIR conversion": [
+          82420700
+        ],
+        "backend verification": [
+          19891274771
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": false,
+        "events": [
+          {
+            "action": "Compiling",
+            "package": "prusti-specs",
+            "line": "Compiling prusti-specs v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-specs)"
+          },
+          {
+            "action": "Compiling",
+            "package": "prusti-contracts-proc-macros",
+            "line": "Compiling prusti-contracts-proc-macros v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-contracts-proc-macros)"
+          },
+          {
+            "action": "Checking",
+            "package": "prusti-contracts",
+            "line": "Checking prusti-contracts v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-contracts)"
+          },
+          {
+            "action": "Checking",
+            "package": "iterator_specs",
+            "line": "Checking iterator_specs v0.1.0 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/specs)"
+          },
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "8-11",
+          "/tmp/prusti-stdlib-matrix349-bin/debug/prusti-server-driver",
+          "--port",
+          "58683"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --checkTimeout 100 --proverEnableTimeBounds",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_ASSERT_TIMEOUT": "30000",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-followup-ba666a7/replace-prusti-current/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:58683"
+      },
+      "label": "replace-prusti-current",
+      "result_sha256": "eab91146102ab8c5dc1676607445c332cd8c2d2d81a50d63233a2c8303af23b9",
+      "client_log_sha256": "f7a67c50bc3469024f21d9e4a6b7ebbfc190965e209f9d27f7daa83cb499a2ac",
+      "verification_errors": [],
+      "viper_sha256": "09faa924d3208306acbb328556233eece89b53ce9b3937f700ee258f983f83a6"
+    },
+    {
+      "case": "mut_element_replace_return_pass",
+      "source": "/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_replace_return_pass.rs",
+      "source_sha256": "78a6d0f34f18063b042ff3bb88d1dabddfb62f6f4439367b786159813466df54",
+      "server_sha256": "8fb26e2efd39aa67f5b8f0175bcc22cd58227ee2de9f8ac1d75a3a20b8afcff6",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "driver_sha256": "8b040a3fb36198837657a25b22b6c31b2bffdf6cef86995d784c015c6b8f69ff",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 18.88,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          74370016
+        ],
+        "VIR conversion": [
+          37356687
+        ],
+        "backend verification": [
+          3220251480
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": false,
+        "events": [
+          {
+            "action": "Compiling",
+            "package": "prusti-specs",
+            "line": "Compiling prusti-specs v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-specs)"
+          },
+          {
+            "action": "Compiling",
+            "package": "prusti-contracts-proc-macros",
+            "line": "Compiling prusti-contracts-proc-macros v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-contracts-proc-macros)"
+          },
+          {
+            "action": "Checking",
+            "package": "prusti-contracts",
+            "line": "Checking prusti-contracts v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-contracts)"
+          },
+          {
+            "action": "Checking",
+            "package": "iterator_specs",
+            "line": "Checking iterator_specs v0.1.0 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/specs)"
+          },
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "8-11",
+          "/tmp/prusti-stdlib-matrix349-bin/debug/prusti-server-driver",
+          "--port",
+          "47921"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --checkTimeout 100 --proverEnableTimeBounds",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_ASSERT_TIMEOUT": "30000",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-followup-ba666a7/replace-return-prusti-retry/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:47921"
+      },
+      "label": "replace-return-prusti-retry",
+      "result_sha256": "e0debd6c8030675ca494fbaccd874cb384a4a3426f71aa35f78afab52d73bf92",
+      "client_log_sha256": "212c3979c2055a96c42d1ab9afd02da9a836fa441cc877165e9567c57087e2ba",
+      "verification_errors": [],
+      "viper_sha256": "8ab30a026ce02f2e3d08de95465edec4998eecb9fe5bd0cc8d59f8204999660b"
+    },
+    {
+      "case": "mut_element_replace_false",
+      "source": "/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_replace_false.rs",
+      "source_sha256": "48f0a33d94f773f97f8b6443d0984565249e230485a2d51ad87215e13cd6527d",
+      "server_sha256": "8fb26e2efd39aa67f5b8f0175bcc22cd58227ee2de9f8ac1d75a3a20b8afcff6",
+      "client_sha256": "490f60b6ddb8092b145b2b7513675e73893d2ce445693f3495a2440446640b08",
+      "driver_sha256": "8b040a3fb36198837657a25b22b6c31b2bffdf6cef86995d784c015c6b8f69ff",
+      "exit": 101,
+      "timed_out": false,
+      "wall_s": 17.06,
+      "phase_ns": {
+        "Rust to VIR encoding": [
+          123267438
+        ],
+        "VIR conversion": [
+          32691723
+        ],
+        "backend verification": [
+          1850898379
+        ]
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": false,
+        "events": [
+          {
+            "action": "Compiling",
+            "package": "prusti-specs",
+            "line": "Compiling prusti-specs v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-specs)"
+          },
+          {
+            "action": "Compiling",
+            "package": "prusti-contracts-proc-macros",
+            "line": "Compiling prusti-contracts-proc-macros v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-contracts-proc-macros)"
+          },
+          {
+            "action": "Checking",
+            "package": "prusti-contracts",
+            "line": "Checking prusti-contracts v0.3.1 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-contracts/prusti-contracts)"
+          },
+          {
+            "action": "Checking",
+            "package": "iterator_specs",
+            "line": "Checking iterator_specs v0.1.0 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/specs)"
+          },
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-stdlib-followup-ba666a7/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "timer_complete": true,
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "8-11",
+          "/tmp/prusti-stdlib-matrix349-bin/debug/prusti-server-driver",
+          "--port",
+          "39943"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "environment_overrides": {
+        "PRUSTI_VERIFY_MODE": "verify",
+        "PRUSTI_VIPER_BACKEND": "Ferrum",
+        "PRUSTI_CHECK_OVERFLOWS": "true",
+        "PRUSTI_CHECK_PANICS": "true",
+        "PRUSTI_NO_VERIFY_DEPS": "true",
+        "PRUSTI_ENABLE_CACHE": "false",
+        "FERRUM_BENCH_PHASES": "1",
+        "FERRUM_BENCH_INTERNAL_CACHES": "on",
+        "PRUSTI_LOG": "info",
+        "PRUSTI_CARGO_PATH": "/home/will/.rustup/toolchains/nightly-2026-08-15-x86_64-unknown-linux-gnu/bin/cargo",
+        "PRUSTI_EXTRA_VERIFIER_ARGS": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --checkTimeout 100 --proverEnableTimeBounds",
+        "PRUSTI_DUMP_VIPER_PROGRAM": "true",
+        "PRUSTI_ASSERT_TIMEOUT": "30000",
+        "PRUSTI_LOG_DIR": "/tmp/ferrum-stdlib-followup-ba666a7/replace-false-prusti-current/verifier",
+        "PRUSTI_VIPER_HOME": "/home/will/wk/exp/prusti-stdlib/viper_tools/backends",
+        "PRUSTI_JAVA_HOME": "/tmp/ferrum-jdk17",
+        "PRUSTI_SMT_SOLVER_PATH": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "PRUSTI_SERVER_ADDRESS": "127.0.0.1:39943"
+      },
+      "label": "replace-false-prusti-current",
+      "result_sha256": "15914c9f1f2dee87fda043e68621a74862268cd98506a43fbf2a69e0b4864567",
+      "client_log_sha256": "355d2578c6860db634ad4f00728ca6dc5aa51c7ba6935ecb46fe054405d7a6a7",
+      "verification_errors": [
+        "error: [Prusti: verification error] assertion might not hold"
+      ],
+      "viper_sha256": "04f701590b8aa7e4cdba1d179ef178ec2c378c5a678a7283039d736746788eb9"
+    }
+  ],
+  "replays": {
+    "range-helper-before": {
+      "manifest": {
+        "case": "/tmp/ferrum-stdlib-followup-ba666a7/range.vpr",
+        "input": "/tmp/ferrum-stdlib-followup-ba666a7/range.vpr",
+        "input_sha256": "e8ca140b562ead418465ec0f1265259e18981f1d6bc185a7794b853a8b133c56",
+        "binary_sha256": "ec5d16747ec6721139f382eec5e75a80205e5965c04501440c8a7f12f7126ea7",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "99f35414eadd7f636195bfb0bd7754afb8c503f83b4b590988b94d559cfb4f32",
+        "command": [
+          "taskset",
+          "-c",
+          "4-7",
+          "/tmp/ferrum-stdlib-followup-ba666a7/before-compat",
+          "/tmp/ferrum-stdlib-followup-ba666a7/range-helper-before/z3-relay",
+          "--timeout",
+          "90",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--disableCaches=false",
+          "--enableMoreCompleteExhale",
+          "--disableTerminationPlugin",
+          "--assertTimeout=30000",
+          "--checkTimeout=100",
+          "--proverEnableTimeBounds",
+          "--includeMethods=resource_unpack_aggregate_3379c9af52ac4b15",
+          "--proverConfigArgs",
+          "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+          "--",
+          "/tmp/ferrum-stdlib-followup-ba666a7/range.vpr"
+        ],
+        "started": 1793474255.9298618,
+        "load": [
+          3.53955078125,
+          3.41064453125,
+          2.84521484375
+        ]
+      },
+      "exit_code": -9,
+      "outcome": "harness_timeout",
+      "cleanup_pending": [],
+      "wall_seconds": 125.08433965803124,
+      "records": [],
+      "protocol_errors": []
+    },
+    "range-full-after": {
+      "manifest": {
+        "case": "/tmp/ferrum-stdlib-followup-ba666a7/range.vpr",
+        "input": "/tmp/ferrum-stdlib-followup-ba666a7/range.vpr",
+        "input_sha256": "e8ca140b562ead418465ec0f1265259e18981f1d6bc185a7794b853a8b133c56",
+        "binary_sha256": "23759f7545c2a291f455502a346e733ea549a6bab1d2865383c576e8c3b1a82e",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "99f35414eadd7f636195bfb0bd7754afb8c503f83b4b590988b94d559cfb4f32",
+        "command": [
+          "taskset",
+          "-c",
+          "4-7",
+          "/tmp/ferrum-stdlib-followup-ba666a7/after-compat",
+          "/tmp/ferrum-stdlib-followup-ba666a7/range-full-after/z3-relay",
+          "--timeout",
+          "180",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--disableCaches=false",
+          "--enableMoreCompleteExhale",
+          "--disableTerminationPlugin",
+          "--assertTimeout=30000",
+          "--checkTimeout=100",
+          "--proverEnableTimeBounds",
+          "--proverConfigArgs",
+          "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+          "--",
+          "/tmp/ferrum-stdlib-followup-ba666a7/range.vpr"
+        ],
+        "started": 1793474896.3314552,
+        "load": [
+          8.2421875,
+          6.24560546875,
+          4.3955078125
+        ]
+      },
+      "exit_code": -15,
+      "outcome": "process_error",
+      "cleanup_pending": [],
+      "wall_seconds": 191.114682740008,
+      "records": [],
+      "protocol_errors": []
+    },
+    "range-full-shared": {
+      "manifest": {
+        "case": "/tmp/ferrum-stdlib-followup-ba666a7/range.vpr",
+        "input": "/tmp/ferrum-stdlib-followup-ba666a7/range.vpr",
+        "input_sha256": "e8ca140b562ead418465ec0f1265259e18981f1d6bc185a7794b853a8b133c56",
+        "binary_sha256": "3c654494c2bd4ad6afa0f1877ad02b0e651e239b5c7af2b4f9bb36506c51e4a0",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "99f35414eadd7f636195bfb0bd7754afb8c503f83b4b590988b94d559cfb4f32",
+        "command": [
+          "taskset",
+          "-c",
+          "4-7",
+          "/tmp/ferrum-stdlib-followup-ba666a7/shared-compat",
+          "/tmp/ferrum-stdlib-followup-ba666a7/range-full-shared/z3-relay",
+          "--timeout",
+          "180",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--disableCaches=false",
+          "--enableMoreCompleteExhale",
+          "--disableTerminationPlugin",
+          "--assertTimeout=30000",
+          "--checkTimeout=100",
+          "--proverEnableTimeBounds",
+          "--proverConfigArgs",
+          "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+          "--",
+          "/tmp/ferrum-stdlib-followup-ba666a7/range.vpr"
+        ],
+        "started": 1793475355.1241357,
+        "load": [
+          13.0615234375,
+          11.22802734375,
+          7.4892578125
+        ]
+      },
+      "exit_code": 0,
+      "outcome": "completed",
+      "cleanup_pending": [],
+      "wall_seconds": 99.74890605302062,
+      "records": [
+        {
+          "backend_warnings": [
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (range.vpr@2450.11--2450.62) during the axiomatisation of function f_$lt$std$col$$col$ops$col$$col$Range$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_6_Tuple_unreachable(s_Bool_type(), s_Bool_type(), s_Ref_immutable_type(s_prusti_contracts$col$$col$Ghost_type(T$0)), s_prusti_contracts$col$$col$Ghost_type(T$0), s_Ref_immutable_type(T$0), s_Ref_immutable_type(T$0)) (range.vpr@2368.11--2370.37) during the axiomatisation of function f_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (range.vpr@2374.11--2374.62) during the axiomatisation of function f_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_std$col$$col$option$col$$col$Option_unreachable(T$0) (range.vpr@2953.9--2953.63) during the axiomatisation of function p_std$col$$col$option$col$$col$Option_snap. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (range.vpr@2411.11--2411.62) during the axiomatisation of function cf_$lt$std$col$$col$ops$col$$col$Range$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_6_Tuple_unreachable(s_Bool_type(), s_Bool_type(), s_Ref_immutable_type(s_prusti_contracts$col$$col$Ghost_type(T$0)), s_prusti_contracts$col$$col$Ghost_type(T$0), s_Ref_immutable_type(T$0), s_Ref_immutable_type(T$0)) (range.vpr@2333.11--2335.37) during the axiomatisation of function cf_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (range.vpr@2339.11--2339.62) during the axiomatisation of function cf_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (range.vpr@2270.13--2270.64) during the axiomatisation of function cf_$lt$std$col$$col$vec$col$$col$Vec$lt$T$com$$sp$A$gt$$sp$as$sp$std$col$$col$ops$col$$col$Index$lt$I$gt$$gt$$col$$col$index. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value."
+          ],
+          "case": "/tmp/ferrum-stdlib-followup-ba666a7/range.vpr",
+          "configuration_warnings": [],
+          "errors": [],
+          "outcome": "verified",
+          "phase": "verification",
+          "warnings": [
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2809.60--2809.65)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2811.62--2811.67)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2816.44--2816.49)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2821.46--2821.51)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2827.36--2827.41)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2832.65--2832.70)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2834.67--2834.72)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2843.74--2843.79)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2845.76--2845.81)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2852.74--2852.79)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2854.76--2854.81)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2862.63--2862.68)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2864.65--2864.70)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2871.64--2871.69)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2873.66--2873.71)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2879.47--2879.52)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2883.49--2883.54)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2888.71--2888.76)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2890.73--2890.78)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2895.88--2895.93)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2897.90--2897.95)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2902.36--2902.41)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2904.38--2904.43)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2908.49--2908.54)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2912.36--2912.41)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2916.33--2916.38)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2918.35--2918.40)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2927.42--2927.47)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2931.44--2931.49)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2941.66--2941.71)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2943.68--2943.73)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2946.80--2946.85)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2951.82--2951.87)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2957.35--2957.40)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2959.37--2959.42)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2963.64--2963.69)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2965.66--2965.71)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2972.30--2972.35)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2974.32--2974.37)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2978.60--2978.65)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2980.62--2980.67)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2985.43--2985.48)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2987.45--2987.50)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2997.31--2997.36)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@2999.33--2999.38)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3003.29--3003.34)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3013.89--3013.94)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3018.89--3018.94)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3022.93--3022.98)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3028.95--3028.100)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3034.31--3034.36)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3038.33--3038.38)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3047.68--3047.73)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3050.68--3050.73)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3068.70--3068.75)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3080.53--3080.58)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3083.53--3083.58)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3092.53--3092.58)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3095.53--3095.58)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3113.69--3113.74)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (range.vpr@3116.69--3116.74)",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (range.vpr@2450.11--2450.62) during the axiomatisation of function f_$lt$std$col$$col$ops$col$$col$Range$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_6_Tuple_unreachable(s_Bool_type(), s_Bool_type(), s_Ref_immutable_type(s_prusti_contracts$col$$col$Ghost_type(T$0)), s_prusti_contracts$col$$col$Ghost_type(T$0), s_Ref_immutable_type(T$0), s_Ref_immutable_type(T$0)) (range.vpr@2368.11--2370.37) during the axiomatisation of function f_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (range.vpr@2374.11--2374.62) during the axiomatisation of function f_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_std$col$$col$option$col$$col$Option_unreachable(T$0) (range.vpr@2953.9--2953.63) during the axiomatisation of function p_std$col$$col$option$col$$col$Option_snap. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (range.vpr@2411.11--2411.62) during the axiomatisation of function cf_$lt$std$col$$col$ops$col$$col$Range$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_6_Tuple_unreachable(s_Bool_type(), s_Bool_type(), s_Ref_immutable_type(s_prusti_contracts$col$$col$Ghost_type(T$0)), s_prusti_contracts$col$$col$Ghost_type(T$0), s_Ref_immutable_type(T$0), s_Ref_immutable_type(T$0)) (range.vpr@2333.11--2335.37) during the axiomatisation of function cf_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (range.vpr@2339.11--2339.62) during the axiomatisation of function cf_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (range.vpr@2270.13--2270.64) during the axiomatisation of function cf_$lt$std$col$$col$vec$col$$col$Vec$lt$T$com$$sp$A$gt$$sp$as$sp$std$col$$col$ops$col$$col$Index$lt$I$gt$$gt$$col$$col$index. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value."
+          ]
+        }
+      ],
+      "protocol_errors": []
+    },
+    "inclusive-full-shared": {
+      "manifest": {
+        "case": "/tmp/ferrum-stdlib-followup-ba666a7/inclusive-wrong.vpr",
+        "input": "/tmp/ferrum-stdlib-followup-ba666a7/inclusive-wrong.vpr",
+        "input_sha256": "740d218632baf3df90ef60e309c2a6cb38197164b4eab70c4ac5800943ee045f",
+        "binary_sha256": "3c654494c2bd4ad6afa0f1877ad02b0e651e239b5c7af2b4f9bb36506c51e4a0",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "runner_sha256": "99f35414eadd7f636195bfb0bd7754afb8c503f83b4b590988b94d559cfb4f32",
+        "command": [
+          "taskset",
+          "-c",
+          "8-11",
+          "/tmp/ferrum-stdlib-followup-ba666a7/shared-compat",
+          "/tmp/ferrum-stdlib-followup-ba666a7/inclusive-full-shared/z3-relay",
+          "--timeout",
+          "180",
+          "--numberOfParallelVerifiers=1",
+          "--parallelizeBranches=false",
+          "--disableCaches=false",
+          "--enableMoreCompleteExhale",
+          "--disableTerminationPlugin",
+          "--assertTimeout=30000",
+          "--checkTimeout=100",
+          "--proverEnableTimeBounds",
+          "--proverConfigArgs",
+          "smt.qi.eager_threshold=1000 model.partial=false smt.arith.solver=6",
+          "--",
+          "/tmp/ferrum-stdlib-followup-ba666a7/inclusive-wrong.vpr"
+        ],
+        "started": 1793475356.139168,
+        "load": [
+          13.0615234375,
+          11.22802734375,
+          7.4892578125
+        ]
+      },
+      "exit_code": 0,
+      "outcome": "completed",
+      "cleanup_pending": [],
+      "wall_seconds": 151.83173132996308,
+      "records": [
+        {
+          "backend_warnings": [
+            "Could not resolve expression s_4_Tuple_unreachable(s_Bool_type(), s_Bool_type(), s_Bool_type(), s_UInt_usize_type()) (inclusive-wrong.vpr@1449.19--1450.39) during the axiomatisation of function f_$lt$std$col$$col$ops$col$$col$RangeInclusive$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (inclusive-wrong.vpr@1485.11--1485.62) during the axiomatisation of function f_$lt$std$col$$col$ops$col$$col$RangeInclusive$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (inclusive-wrong.vpr@1505.11--1505.62) during the axiomatisation of function f_$lt$std$col$$col$ops$col$$col$RangeInclusive$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_6_Tuple_unreachable(s_Bool_type(), s_Bool_type(), s_Ref_immutable_type(s_prusti_contracts$col$$col$Ghost_type(T$0)), s_prusti_contracts$col$$col$Ghost_type(T$0), s_Ref_immutable_type(T$0), s_Ref_immutable_type(T$0)) (inclusive-wrong.vpr@1291.11--1293.37) during the axiomatisation of function f_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (inclusive-wrong.vpr@1297.11--1297.62) during the axiomatisation of function f_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_std$col$$col$option$col$$col$Option_unreachable(T$0) (inclusive-wrong.vpr@1811.9--1811.63) during the axiomatisation of function p_std$col$$col$option$col$$col$Option_snap. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_4_Tuple_unreachable(s_Bool_type(), s_Bool_type(), s_Bool_type(), s_UInt_usize_type()) (inclusive-wrong.vpr@1344.19--1345.39) during the axiomatisation of function cf_$lt$std$col$$col$ops$col$$col$RangeInclusive$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (inclusive-wrong.vpr@1380.11--1380.62) during the axiomatisation of function cf_$lt$std$col$$col$ops$col$$col$RangeInclusive$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (inclusive-wrong.vpr@1400.11--1400.62) during the axiomatisation of function cf_$lt$std$col$$col$ops$col$$col$RangeInclusive$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_6_Tuple_unreachable(s_Bool_type(), s_Bool_type(), s_Ref_immutable_type(s_prusti_contracts$col$$col$Ghost_type(T$0)), s_prusti_contracts$col$$col$Ghost_type(T$0), s_Ref_immutable_type(T$0), s_Ref_immutable_type(T$0)) (inclusive-wrong.vpr@1256.11--1258.37) during the axiomatisation of function cf_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (inclusive-wrong.vpr@1262.11--1262.62) during the axiomatisation of function cf_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value."
+          ],
+          "case": "/tmp/ferrum-stdlib-followup-ba666a7/inclusive-wrong.vpr",
+          "configuration_warnings": [],
+          "errors": [
+            {
+              "id": "exhale.failed:assertion.false",
+              "message": "Exhale might fail. Assertion (mir_binop_Lt_UInt_usize_UInt_usize(s_UInt_usize_cons(2), s_UInt_usize_cons(3)) ?\n  mir_binop_Eq_UInt_usize_UInt_usize(get_s_Param_make_concrete_s_UInt_usize(indexed_resource_observation(s_Array_index(p_Array_snap(_1p,\n  s_UInt_usize_type(), s_UInt_usize_cons(3)), 2), 2)), s_UInt_usize_cons(9)) :\n  get_s_Param_make_concrete_s_Bool(get_s_2_Tuple_s_2_Tuple_0(s_2_Tuple_unreachable(s_Bool_type(),\n  s_UInt_usize_type())))) might not hold. (inclusive-wrong.vpr@4202.11--4206.97)\n",
+              "position": "inclusive-wrong.vpr@4202.11--4206.97"
+            }
+          ],
+          "outcome": "failure",
+          "phase": "verification",
+          "warnings": [
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1770.33--1770.38)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1772.35--1772.40)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1776.54--1776.59)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1780.41--1780.46)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1784.36--1784.41)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1789.36--1789.41)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1791.38--1791.43)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1799.66--1799.71)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1801.68--1801.73)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1804.80--1804.85)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1809.82--1809.87)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1815.35--1815.40)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1817.37--1817.42)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1826.42--1826.47)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1830.44--1830.49)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1836.49--1836.54)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1840.36--1840.41)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1844.73--1844.78)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1846.75--1846.80)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1854.30--1854.35)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1856.32--1856.37)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1860.47--1860.52)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1864.49--1864.54)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1869.44--1869.49)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1874.46--1874.51)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1880.43--1880.48)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1882.45--1882.50)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1894.89--1894.94)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1899.89--1899.94)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1902.93--1902.98)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1906.95--1906.100)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1915.31--1915.36)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1919.33--1919.38)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1930.68--1930.73)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1933.68--1933.73)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1951.70--1951.75)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1972.69--1972.74)",
+            "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (inclusive-wrong.vpr@1975.69--1975.74)",
+            "Could not resolve expression s_4_Tuple_unreachable(s_Bool_type(), s_Bool_type(), s_Bool_type(), s_UInt_usize_type()) (inclusive-wrong.vpr@1449.19--1450.39) during the axiomatisation of function f_$lt$std$col$$col$ops$col$$col$RangeInclusive$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (inclusive-wrong.vpr@1485.11--1485.62) during the axiomatisation of function f_$lt$std$col$$col$ops$col$$col$RangeInclusive$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (inclusive-wrong.vpr@1505.11--1505.62) during the axiomatisation of function f_$lt$std$col$$col$ops$col$$col$RangeInclusive$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_6_Tuple_unreachable(s_Bool_type(), s_Bool_type(), s_Ref_immutable_type(s_prusti_contracts$col$$col$Ghost_type(T$0)), s_prusti_contracts$col$$col$Ghost_type(T$0), s_Ref_immutable_type(T$0), s_Ref_immutable_type(T$0)) (inclusive-wrong.vpr@1291.11--1293.37) during the axiomatisation of function f_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (inclusive-wrong.vpr@1297.11--1297.62) during the axiomatisation of function f_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_std$col$$col$option$col$$col$Option_unreachable(T$0) (inclusive-wrong.vpr@1811.9--1811.63) during the axiomatisation of function p_std$col$$col$option$col$$col$Option_snap. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_4_Tuple_unreachable(s_Bool_type(), s_Bool_type(), s_Bool_type(), s_UInt_usize_type()) (inclusive-wrong.vpr@1344.19--1345.39) during the axiomatisation of function cf_$lt$std$col$$col$ops$col$$col$RangeInclusive$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (inclusive-wrong.vpr@1380.11--1380.62) during the axiomatisation of function cf_$lt$std$col$$col$ops$col$$col$RangeInclusive$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (inclusive-wrong.vpr@1400.11--1400.62) during the axiomatisation of function cf_$lt$std$col$$col$ops$col$$col$RangeInclusive$lt$usize$gt$$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_6_Tuple_unreachable(s_Bool_type(), s_Bool_type(), s_Ref_immutable_type(s_prusti_contracts$col$$col$Ghost_type(T$0)), s_prusti_contracts$col$$col$Ghost_type(T$0), s_Ref_immutable_type(T$0), s_Ref_immutable_type(T$0)) (inclusive-wrong.vpr@1256.11--1258.37) during the axiomatisation of function cf_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value.",
+            "Could not resolve expression s_2_Tuple_unreachable(s_Bool_type(), s_Bool_type()) (inclusive-wrong.vpr@1262.11--1262.62) during the axiomatisation of function cf_$lt$usize$sp$as$sp$std$col$$col$slice$col$$col$SliceIndex$lt$$lb$T$rb$$gt$$gt$$col$$col$get. This typically happens if the expression is on an infeasible path, i.e. is dead code. The unresolved expression will be replaced by a fresh symbol, i.e. an arbitrary value."
+          ]
+        }
+      ],
+      "protocol_errors": [],
+      "expected_obligation": "exhale of values[2] == 9 at Viper line 4202, corresponding to Rust assertion at line 11"
+    }
+  },
+  "adt_comparison": {
+    "before": {
+      "result_sha256": "ee30f97b2e34454372cb732718046c4fc3a48b05b9f6f712a523a907175e2273",
+      "outcome": "completed",
+      "cleanup_pending": [],
+      "wall_seconds": 2.3871140650007874
+    },
+    "after": {
+      "result_sha256": "12e4596968a60c97f1b38094f82cd4197ad25e5d2c02701666d0fc8067773d07",
+      "outcome": "completed",
+      "cleanup_pending": [],
+      "wall_seconds": 2.2700965459807776
+    },
+    "source": {
+      "result_sha256": "7983d75e02b6a52e26009a4378f362cd340293bca013927708731f5a7290dd91",
+      "outcome": "completed",
+      "cleanup_pending": [],
+      "wall_seconds": 31.491563818999566
+    },
+    "cases": [
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/destructors_1.vpr",
+        "sha256": "b1b51d978d8df1d9428c780a0161f7e16c95386001adf4247251b43bcf9619c0",
+        "outcome": "verified",
+        "errors": []
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/destructors_2.vpr",
+        "sha256": "b9c1e14a7f24d283fd83afc90ee091e7f0cca2c205d5bef5e6964449d4b56e53",
+        "outcome": "verified",
+        "errors": []
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/destructors_3.vpr",
+        "sha256": "927042569b284ebcffa7bd18265456c9466ba633189f7e3e0e5261c7f4f00411",
+        "outcome": "failure",
+        "errors": [
+          {
+            "id": "typechecker.error",
+            "message": "found incompatible type `List[Int]`, expected `Ref` (destructors_3.vpr@24.12--24.26)",
+            "position": "destructors_3.vpr@24.12--24.26"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "undefined adt field `right` when destructing, in adt `List` (destructors_3.vpr@27.12--27.32)",
+            "position": "destructors_3.vpr@27.12--27.32"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "found incompatible receiver type `<error>` when destructing adt field `value`, expected an adt (destructors_3.vpr@27.12--27.38)",
+            "position": "destructors_3.vpr@27.12--27.38"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "undefined adt field `right` when destructing, in adt `List` (destructors_3.vpr@30.12--30.32)",
+            "position": "destructors_3.vpr@30.12--30.32"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "found incompatible receiver type `<error>` when destructing adt field `value`, expected an adt (destructors_3.vpr@30.12--30.38)",
+            "position": "destructors_3.vpr@30.12--30.38"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "found incompatible receiver type `<error>` when destructing adt field `left`, expected an adt (destructors_3.vpr@30.12--30.43)",
+            "position": "destructors_3.vpr@30.12--30.43"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "found incompatible receiver type `DList[Int]` when destructing adt field `value`, expected an adt (destructors_3.vpr@33.12--33.34)",
+            "position": "destructors_3.vpr@33.12--33.34"
+          }
+        ]
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/destructors_4.vpr",
+        "sha256": "e21eec70c84821cb572814b6db9a9958de7c46df1631287c445f5adaf826b9d4",
+        "outcome": "failure",
+        "errors": [
+          {
+            "id": "typechecker.error",
+            "message": "undeclared field `dummy` (destructors_4.vpr@17.27--17.32)",
+            "position": "destructors_4.vpr@17.27--17.32"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "found incompatible receiver type `Int` when destructing adt field `right`, expected an adt (destructors_4.vpr@20.12--20.38)",
+            "position": "destructors_4.vpr@20.12--20.38"
+          }
+        ]
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/destructors_5.vpr",
+        "sha256": "19839d7c13745ebcfbeb3c9093e28175532e926c34e3677f1a6808d116f0476d",
+        "outcome": "failure",
+        "errors": [
+          {
+            "id": "assert.failed:assertion.false",
+            "message": "Assert might fail. Assertion (get_List_value((Nil(): List[Int])): Int) == 1 might not hold. (destructors_5.vpr@17.12--17.28)\n",
+            "position": "destructors_5.vpr@17.12--17.28"
+          },
+          {
+            "id": "assert.failed:assertion.false",
+            "message": "Assert might fail. Assertion (get_List_value((Cons(1, (Nil(): List[Int])): List[Int])): Int) == 2 might not hold. (destructors_5.vpr@23.12--23.37)\n",
+            "position": "destructors_5.vpr@23.12--23.37"
+          },
+          {
+            "id": "assert.failed:assertion.false",
+            "message": "Assert might fail. Assertion (get_List_tail((Cons(1, (Cons(1, (Nil(): List[Int])): List[Int])): List[Int])): List[Int]) ==\n(Nil(): List[Int]) might not hold. (destructors_5.vpr@29.12--29.49)\n",
+            "position": "destructors_5.vpr@29.12--29.49"
+          }
+        ]
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/destructors_6.vpr",
+        "sha256": "d291a4317d353504dc8b7d60205717a41e6f723f5b8699df1d6f920900358c80",
+        "outcome": "failure",
+        "errors": [
+          {
+            "id": "typechecker.error",
+            "message": "undeclared field `value` (destructors_6.vpr@17.11--17.16)",
+            "position": "destructors_6.vpr@17.11--17.16"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "found incompatible type `Int`, expected `<error>` (destructors_6.vpr@17.20--17.21)",
+            "position": "destructors_6.vpr@17.20--17.21"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "undeclared field `tail` (destructors_6.vpr@21.10--21.14)",
+            "position": "destructors_6.vpr@21.10--21.14"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "found incompatible type `List[Int]`, expected `<error>` (destructors_6.vpr@21.18--21.32)",
+            "position": "destructors_6.vpr@21.18--21.32"
+          }
+        ]
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/discriminators_1.vpr",
+        "sha256": "35725c37a536317a6f73e730a20f4710971adf728f48bc6acb2bb4973dfe2043",
+        "outcome": "verified",
+        "errors": []
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/discriminators_2.vpr",
+        "sha256": "648476bf2eac79807104568f867c3544ab360c10c8cc767e9a2978b00ffdfbb4",
+        "outcome": "failure",
+        "errors": [
+          {
+            "id": "typechecker.error",
+            "message": "type error (discriminators_2.vpr@19.12--19.23)",
+            "position": "discriminators_2.vpr@19.12--19.23"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "type error (discriminators_2.vpr@22.12--22.23)",
+            "position": "discriminators_2.vpr@22.12--22.23"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "type error (discriminators_2.vpr@25.12--25.38)",
+            "position": "discriminators_2.vpr@25.12--25.38"
+          }
+        ]
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/discriminators_3.vpr",
+        "sha256": "7ddc7a14e8795fd630c98fbbd95c9e2b868bfe5e9c49a9a3a8168a9817fc787e",
+        "outcome": "verified",
+        "errors": []
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/discriminators_4.vpr",
+        "sha256": "fbeae47b84a66372d3a1dfce0d5f24550cf09bc60d0b6b8a055d27e8384ee41b",
+        "outcome": "failure",
+        "errors": [
+          {
+            "id": "typechecker.error",
+            "message": "found incompatible type `List[Int]`, expected `Ref` (discriminators_4.vpr@13.12--13.16)",
+            "position": "discriminators_4.vpr@13.12--13.16"
+          }
+        ]
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/discriminators_5.vpr",
+        "sha256": "2123f1f84008b54f6310f9cd3c88f876d6e573cf460b323b34c13df9db215e34",
+        "outcome": "failure",
+        "errors": [
+          {
+            "id": "typechecker.error",
+            "message": "corresponding adt discriminator identifier `isNil` at discriminators_5.vpr@3.5 is shadowed at discriminators_5.vpr@8.7 (discriminators_5.vpr@3.5--3.8)",
+            "position": "discriminators_5.vpr@3.5--3.8"
+          }
+        ]
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/discriminators_6.vpr",
+        "sha256": "43a02a3c43bddda8790a63f129faf84bc3aa0cf2c95c43861218dd1980d2f85d",
+        "outcome": "failure",
+        "errors": [
+          {
+            "id": "typechecker.error",
+            "message": "corresponding adt discriminator identifier `isNil` at discriminators_6.vpr@3.5 is shadowed at discriminators_6.vpr@7.10 (discriminators_6.vpr@3.5--3.8)",
+            "position": "discriminators_6.vpr@3.5--3.8"
+          }
+        ]
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/discriminators_7.vpr",
+        "sha256": "764c718ea241606bcd257782e3820d50fb7c5b8c6795857692d9d96330749853",
+        "outcome": "failure",
+        "errors": [
+          {
+            "id": "typechecker.error",
+            "message": "undeclared field `isCons` (discriminators_7.vpr@19.10--19.16)",
+            "position": "discriminators_7.vpr@19.10--19.16"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "found incompatible type `Bool`, expected `<error>` (discriminators_7.vpr@19.20--19.24)",
+            "position": "discriminators_7.vpr@19.20--19.24"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "undeclared field `isNil` (discriminators_7.vpr@22.10--22.15)",
+            "position": "discriminators_7.vpr@22.10--22.15"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "found incompatible type `Bool`, expected `<error>` (discriminators_7.vpr@22.19--22.23)",
+            "position": "discriminators_7.vpr@22.19--22.23"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "undeclared field `isLeaf` (discriminators_7.vpr@25.10--25.16)",
+            "position": "discriminators_7.vpr@25.10--25.16"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "found incompatible type `Bool`, expected `<error>` (discriminators_7.vpr@25.20--25.24)",
+            "position": "discriminators_7.vpr@25.20--25.24"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "undeclared field `isLeaf` (discriminators_7.vpr@28.15--28.21)",
+            "position": "discriminators_7.vpr@28.15--28.21"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "found incompatible type `Bool`, expected `<error>` (discriminators_7.vpr@28.25--28.29)",
+            "position": "discriminators_7.vpr@28.25--28.29"
+          }
+        ]
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/constructors_1.vpr",
+        "sha256": "c4c401ef6c510278358e27f58fabec417b162cd066dd7ccb96b96c48b01500d6",
+        "outcome": "verified",
+        "errors": []
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/constructors_2.vpr",
+        "sha256": "047db95701544ff2032341d07a96b7cb0737dc7b982261d3ab45fea585f9ff95",
+        "outcome": "failure",
+        "errors": [
+          {
+            "id": "typechecker.error",
+            "message": "wrong number of arguments (constructors_2.vpr@10.14--10.70)",
+            "position": "constructors_2.vpr@10.14--10.70"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "wrong number of arguments (constructors_2.vpr@14.85--14.94)",
+            "position": "constructors_2.vpr@14.85--14.94"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "found incompatible type `List[Int]`, expected `List[Seq[Int]]` (constructors_2.vpr@18.14--18.28)",
+            "position": "constructors_2.vpr@18.14--18.28"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "found incompatible type `List[Set[Bool]]`, expected `List[Set[Int]]` (constructors_2.vpr@22.14--22.43)",
+            "position": "constructors_2.vpr@22.14--22.43"
+          }
+        ]
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/constructors_3.vpr",
+        "sha256": "bbd1b7d5fde0d91b4023468493b1e236e496a3ccd60dab30b1d9f77254d3ac85",
+        "outcome": "failure",
+        "errors": [
+          {
+            "id": "typechecker.error",
+            "message": "type error (constructors_3.vpr@15.14--15.29)",
+            "position": "constructors_3.vpr@15.14--15.29"
+          },
+          {
+            "id": "typechecker.error",
+            "message": "undeclared identifier `Nil` (constructors_3.vpr@19.37--19.40)",
+            "position": "constructors_3.vpr@19.37--19.40"
+          }
+        ]
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/example_1.vpr",
+        "sha256": "fc40266ff41699ad81b60911fca46455594f8e4d781aa4af740ec4576029ec26",
+        "outcome": "verified",
+        "errors": []
+      },
+      {
+        "file": "/tmp/ferrum-reference-silicon/silver/src/test/resources/adt/soundness_1.vpr",
+        "sha256": "fe425994cc5701a3575329e90f4c52b38d5eb8f01247d5f0fd05ead317dc3bd6",
+        "outcome": "failure",
+        "errors": [
+          {
+            "id": "assert.failed:assertion.false",
+            "message": "Assert might fail. Assertion false might not hold. (soundness_1.vpr@40.12--40.17)\n",
+            "position": "soundness_1.vpr@40.12--40.17"
+          }
+        ]
+      }
+    ],
+    "shared_result_sha256": "4ed737a0d37e87c33d81ce33ffbaacd32467b89e155397ad1e99b930aa07f84d",
+    "message_note": "Before/after native records identical; one existing line-wrapping difference from pinned Silicon in destructors_5.vpr."
+  },
+  "stopped_replay": {
+    "pid": 3913727,
+    "rss": "VmRSS:\t18785356 kB",
+    "time": 1793475085.778666,
+    "reason": "stop diagnostic replay after profiling excessive substitution-map copying",
+    "signal": "SIGTERM"
+  },
+  "range_full_shared_max_rss_kib": 1337388,
+  "validation": {
+    "silver_library_tests": 438,
+    "adt_regression": 1,
+    "substitution_candidate_tests": 2,
+    "workspace_check": "passed"
+  }
+}

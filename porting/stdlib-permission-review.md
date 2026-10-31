@@ -100,3 +100,7 @@ the trigger policy or its default.
 
 This targeted evidence does not replace the stdlib project's full backend
 upgrade qualification matrix.
+
+The [checkpoint349 follow-up](stdlib-followup-review.md) rechecks these
+replacement cases with the newer Prusti client, investigates the reported
+aggregate-helper instability, and records repairs for Viper-text replay.
