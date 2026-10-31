@@ -3587,7 +3587,7 @@ where
                     let mut state = state;
                     state.function_recorder = state.function_recorder.record_location_snapshot(
                         field_exp,
-                        self.base.decider.pcs.recorded().branch_conditions(),
+                        self.base.decider.pcs.branch_conditions(),
                         snapshot,
                     );
                     continuation(self, state, value)
@@ -5067,7 +5067,7 @@ where
             .map_err(NativeError::Decider)
     }
     fn branch_conditions(&self) -> Vec<Term> {
-        self.base.decider.pcs.recorded().branch_conditions()
+        self.base.decider.pcs.branch_conditions()
     }
     fn fresh_for_perm(
         &mut self,
@@ -11657,7 +11657,7 @@ where
         let value = factory.lookup(field.name.clone(), map.clone(), receiver.clone());
         state.function_recorder = state.function_recorder.record_location_snapshot(
             field_access.clone(),
-            self.base.decider.pcs.recorded().branch_conditions(),
+            self.base.decider.pcs.branch_conditions(),
             value.clone(),
         );
         if let Some(definition) = cached_definition {
@@ -12062,7 +12062,7 @@ where
         self.havoc_counter - 1
     }
     fn heap_branch_conditions(&self) -> Vec<Term> {
-        self.base.decider.pcs.recorded().branch_conditions()
+        self.base.decider.pcs.branch_conditions()
     }
     fn enable_predicate_triggers_on_inhale(&self) -> bool {
         self.options.enable_predicate_triggers_on_inhale
@@ -19620,7 +19620,7 @@ where
                         .function_recorder
                         .record_location_snapshot(
                             location,
-                            ctx.base.decider.pcs.recorded().branch_conditions(),
+                            ctx.base.decider.pcs.branch_conditions(),
                             snapshot.clone(),
                         )
                         .change_depth_by(1);

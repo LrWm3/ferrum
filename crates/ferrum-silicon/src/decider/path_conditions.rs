@@ -21,8 +21,8 @@ pub type Mark = i32;
 fn union<T: Clone + Eq + std::hash::Hash>(a: &OrderedSet<T>, b: &OrderedSet<T>) -> OrderedSet<T> {
     a.iter().chain(b.iter()).cloned().collect()
 }
-fn insert<T: Clone + Eq + std::hash::Hash>(set: &mut OrderedSet<T>, value: T) {
-    *set = set.incl(value);
+fn insert<T: Eq + std::hash::Hash>(set: &mut OrderedSet<T>, value: T) {
+    set.insert(value);
 }
 
 pub fn is_global(t: &Term) -> bool {
@@ -478,7 +478,7 @@ impl LayeredPathConditionStack {
         while self.layers.len() > target {
             let layer = self.layers.pop().expect("checked layer length");
             for term in &layer.assumptions() {
-                self.all_assumptions = self.all_assumptions.excl(term);
+                self.all_assumptions.remove(term);
             }
         }
         Ok(())
@@ -500,6 +500,14 @@ impl LayeredPathConditionStack {
         RecordedPathConditions {
             layers: self.layers.clone(),
         }
+    }
+    /// Read newest-first branch conditions without copying assumption layers.
+    pub fn branch_conditions(&self) -> Vec<Term> {
+        self.layers
+            .iter()
+            .rev()
+            .filter_map(|l| l.branch.clone())
+            .collect()
     }
     pub fn definitions_only(&self) -> Self {
         let mut result = self.clone();
@@ -652,5 +660,47 @@ mod tests {
         stack.add(&b).unwrap();
         let result = stack.recorded().conditionalized(&f);
         assert_eq!(result, vec![f.boolean(true), f.implies(a, b)]);
+    }
+
+    #[test]
+    fn owned_updates_leave_recorded_and_forked_paths_isolated() {
+        let f = factory();
+        let term = |name| f.var(Identifier::new(name), Sort::Bool, false);
+        let (a, b, c) = (term("a"), term("b"), term("c"));
+        let exp = Exp::new(ExpKind::TrueLit, Default::default());
+        let mut stack = LayeredPathConditionStack::new(false);
+        stack.add_definition(&a).unwrap();
+        stack
+            .set_branch_condition(a.clone(), (exp.clone(), None))
+            .unwrap();
+        stack.push_scope();
+        stack.add(&b).unwrap();
+        stack.set_branch_condition(b.clone(), (exp, None)).unwrap();
+        let recorded = stack.recorded();
+        let fork = stack.clone();
+        assert_eq!(stack.branch_conditions(), vec![b.clone(), a.clone()]);
+        assert_eq!(stack.branch_conditions(), recorded.branch_conditions());
+
+        stack.pop_scope().unwrap();
+        stack.add(&c).unwrap();
+        assert_eq!(stack.branch_conditions(), vec![a.clone()]);
+        assert!(!stack.contains(&b));
+        assert!(stack.contains(&c));
+        assert!(fork.contains(&b));
+        assert!(!fork.contains(&c));
+        assert_eq!(fork.branch_conditions(), vec![b.clone(), a.clone()]);
+        assert_eq!(
+            recorded.assumptions().into_iter().collect::<Vec<_>>(),
+            vec![b.clone(), a.clone()]
+        );
+        assert_eq!(
+            recorded
+                .defining_assumptions()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            vec![a]
+        );
+        assert!(recorded.contains(&b));
+        assert!(!recorded.contains(&c));
     }
 }

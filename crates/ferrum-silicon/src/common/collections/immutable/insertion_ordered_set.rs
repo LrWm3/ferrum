@@ -71,6 +71,14 @@ impl<E: Eq + Hash> InsertionOrderedSet<E> {
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &E> {
         self.elements.iter()
     }
+    /// Update an exclusively borrowed set without cloning its accumulated elements.
+    /// Previously cloned values keep their independent backing storage.
+    pub(crate) fn insert(&mut self, element: E) {
+        self.elements.insert(element);
+    }
+    pub(crate) fn remove(&mut self, element: &E) {
+        self.elements.shift_remove(element);
+    }
 }
 
 impl<E: Eq + Hash + Clone> InsertionOrderedSet<E> {
@@ -114,5 +122,70 @@ impl<E> IntoIterator for InsertionOrderedSet<E> {
     type IntoIter = indexmap::set::IntoIter<E>;
     fn into_iter(self) -> Self::IntoIter {
         self.elements.into_iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{cell::Cell, rc::Rc};
+
+    #[derive(Debug)]
+    struct Counted {
+        value: usize,
+        clones: Rc<Cell<usize>>,
+    }
+    impl Clone for Counted {
+        fn clone(&self) -> Self {
+            self.clones.set(self.clones.get() + 1);
+            Self {
+                value: self.value,
+                clones: self.clones.clone(),
+            }
+        }
+    }
+    impl PartialEq for Counted {
+        fn eq(&self, other: &Self) -> bool {
+            self.value == other.value
+        }
+    }
+    impl Eq for Counted {}
+    impl Hash for Counted {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            self.value.hash(state);
+        }
+    }
+
+    #[test]
+    fn owned_updates_preserve_order_and_snapshots_without_cloning_elements() {
+        let clones = Rc::new(Cell::new(0));
+        let value = |value| Counted {
+            value,
+            clones: clones.clone(),
+        };
+        let mut set = InsertionOrderedSet::new();
+        for i in 0..128 {
+            set.insert(value(i));
+        }
+        assert_eq!(clones.get(), 0, "growth must not copy the accumulated set");
+        let snapshot = set.clone();
+        clones.set(0);
+        set.insert(value(4)); // Reinsertion must leave the original entry in place.
+        set.remove(&value(5));
+        set.remove(&value(999));
+        set.insert(value(5));
+        assert_eq!(clones.get(), 0, "updates must not copy stored elements");
+        assert_eq!(
+            snapshot.iter().map(|v| v.value).collect::<Vec<_>>(),
+            (0..128).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            set.iter().map(|v| v.value).collect::<Vec<_>>(),
+            (0..128).filter(|i| *i != 5).chain([5]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            set, snapshot,
+            "set equality remains independent of insertion order"
+        );
     }
 }
