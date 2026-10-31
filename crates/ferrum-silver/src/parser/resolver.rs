@@ -1383,7 +1383,7 @@ fn check_expression_with_warnings(
                     match &declaration.read().expect("poisoned parse node").kind { PNodeKind::Declaration(d) => d.typ.substitute(&substitution), _ => return Err(TypeCheckError::Unsupported("ADT field declaration")) }
                 };
                 let bindings = [("#T0".into(), receiver_signature.substitute(&substitution)), ("#R".into(), result_type)].into_iter().collect();
-                check_operator(input, Some(vec![PTypeSubstitution::new(bindings, false)]), vec![receiver.clone()], expected, false, warn).map_err(|error| match error {
+                infer_operator(input, Some(vec![PTypeSubstitution::new(bindings, false)]), vec![receiver.clone()], vec![receiver_type], expected).map_err(|error| match error {
                     TypeCheckError::Unification(UnificationError::Mismatch { expression, .. }) if std::sync::Arc::ptr_eq(&expression, receiver.node()) => TypeCheckError::Positioned { node: input.node().clone(), message: "type error" },
                     other => other,
                 })?
@@ -1805,6 +1805,21 @@ fn check_operator(
     if !mismatches.is_empty() {
         return Err(TypeCheckError::Mismatches(mismatches));
     }
+    infer_operator(input, signatures, arguments, argument_types, expected)
+}
+
+/// Infer an operator from arguments checked in this traversal. ADT member
+/// resolution needs the receiver type before building its signature; checking
+/// that receiver again here doubles the work at every nested field access.
+/// Retain its substitutions so overload and contextual constraints are unchanged.
+fn infer_operator(
+    input: &PExpHandle,
+    signatures: Option<Vec<PTypeSubstitution>>,
+    arguments: Vec<PExpHandle>,
+    argument_types: Vec<PTypeHandle>,
+    expected: Option<&PTypeHandle>,
+) -> Result<(PTypeHandle, Vec<PTypeSubstitution>), TypeCheckError> {
+    debug_assert_eq!(arguments.len(), argument_types.len());
     let signatures = match signatures {
         Some(signatures) => signatures,
         None => input
