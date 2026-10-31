@@ -178,6 +178,7 @@ pub struct NativeOptions {
     pub disable_caches: bool,
     pub disable_isc_triggers: bool,
     pub snapshot_summary_only_triggers: bool,
+    pub ground_permission_summaries: bool,
     pub include_methods: regex::Regex,
     pub exclude_methods: regex::Regex,
     pub counterexample: Option<crate::rules::symbolic_execution_rules::CounterexampleKind>,
@@ -279,6 +280,7 @@ impl NativeOptions {
             disable_caches: config.disable_caches,
             disable_isc_triggers: config.disable_isc_triggers,
             snapshot_summary_only_triggers: config.snapshot_summary_only_triggers,
+            ground_permission_summaries: config.ground_permission_summaries,
             include_methods,
             exclude_methods,
             counterexample: config.frontend.counterexample.map(|value| {
@@ -11282,6 +11284,12 @@ where
         let factory = self.factory.clone();
         let trigger = state.heap_dependent_triggers.contains(resource);
         let cache_options = self.options.clone();
+        let ground_permissions = native_ground_permission_lookup(
+            &cache_options,
+            &state,
+            trigger,
+            self.base.decider.debug_mode,
+        );
         let (state, snapshot, permission) =
             crate::rules::quantified_chunk_support::heap_summarising_maps(
                 &factory,
@@ -11293,6 +11301,7 @@ where
                 &chunks,
                 None,
                 None,
+                ground_permissions.then_some(args),
                 trigger,
                 cache_options.disable_isc_triggers,
                 cache_options.disable_value_map_caching,
@@ -11500,6 +11509,12 @@ where
             (state, chunk.fvf_ref().clone(), total, None)
         } else {
             let cache_options = self.options.clone();
+            let ground_permissions = native_ground_permission_lookup(
+                &cache_options,
+                &state,
+                trigger,
+                self.base.decider.debug_mode,
+            );
             let (state, definition, permission) =
                 crate::rules::quantified_chunk_support::heap_summarising_maps(
                     &factory,
@@ -11511,6 +11526,7 @@ where
                     &chunks,
                     None,
                     None,
+                    ground_permissions.then_some(std::slice::from_ref(receiver)),
                     trigger,
                     cache_options.disable_isc_triggers,
                     cache_options.disable_value_map_caching,
@@ -26120,6 +26136,93 @@ where
     }
 }
 
+fn native_ground_permission_lookup<P, D, J>(
+    options: &NativeOptions,
+    state: &State<P, D, J>,
+    used_as_trigger: bool,
+    debugging: bool,
+) -> bool {
+    options.ground_permission_summaries
+        && !used_as_trigger
+        && !debugging
+        && !state.trigger_exp
+        && !state.record_possible_triggers
+        && !state.sm_domain_needed
+        && !state.is_in_package
+        && !state.exhale_ext
+        && !state.is_eval_in_old
+        && !state.under_join
+        && state.quantified_variables.is_empty()
+        && state.packaging_wand_snapshots.is_empty()
+        && matches!(state.function_recorder, FunctionRecorder::Noop)
+}
+
+#[cfg(test)]
+mod ground_permission_lookup_tests {
+    use super::*;
+    use crate::state::terms::{Sort, TermOptions};
+    use ferrum_silver::ast::program::Program;
+
+    #[test]
+    fn only_plain_non_quantified_lookups_are_specialized() {
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let program = Program::new(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Default::default(),
+        );
+        let mut state: State<(), (), ()> = State::new(
+            program,
+            Default::default(),
+            Default::default(),
+            (),
+            &factory,
+            false,
+            false,
+        );
+        let mut config = crate::config::Config::default();
+        let disabled = NativeOptions::from_config(&config).unwrap();
+        assert!(!native_ground_permission_lookup(
+            &disabled, &state, false, false
+        ));
+        config.ground_permission_summaries = true;
+        let enabled = NativeOptions::from_config(&config).unwrap();
+        assert!(native_ground_permission_lookup(
+            &enabled, &state, false, false
+        ));
+        assert!(!native_ground_permission_lookup(
+            &enabled, &state, true, false
+        ));
+        assert!(!native_ground_permission_lookup(
+            &enabled, &state, false, true
+        ));
+        state.quantified_variables.push((
+            factory.var(
+                crate::state::identifiers::Identifier::new("q"),
+                Sort::Int,
+                false,
+            ),
+            None,
+        ));
+        assert!(!native_ground_permission_lookup(
+            &enabled, &state, false, false
+        ));
+        state.quantified_variables.clear();
+        state.is_in_package = true;
+        assert!(!native_ground_permission_lookup(
+            &enabled, &state, false, false
+        ));
+    }
+}
+
 fn native_quantified_source(
     resource: &ResourceKey,
 ) -> crate::rules::quantified_chunk_support::SnapshotResource {
@@ -26187,6 +26290,7 @@ where
             source,
             std::slice::from_ref(receiver),
             &chunks,
+            None,
             None,
             None,
             trigger,

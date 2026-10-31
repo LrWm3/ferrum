@@ -1,0 +1,5481 @@
+{
+  "ferrum_base": "a82fe32",
+  "prusti_revision": "13cfa41842e4f1956cd0dffbfa414b24aa8049f5",
+  "pcg_revision": "c18a51899e37e0fa67f9b5f17f7d518ef2f5518c",
+  "sample_source": "/tmp/ferrum-trigger-sample-13cfa/source",
+  "measured_server_sha256": "1887fe312849f2741f1c527c5d5e20f4a8cfd40ffc4da80123b0d7f83a8263ae",
+  "final_server_sha256": "dc3a542dc3d63e595ffa1dcc91a4e2f86d5f1144837670b73f18e5e4370ecdd7",
+  "final_server_note": "After the measured build, the disabled path was changed to avoid cloning a vector. Final nested off/on SMT inputs and outputs match the measured build exactly.",
+  "flag": "--groundPermissionSummaries",
+  "default": false,
+  "configuration": "One worker, branch parallelism off, internal caches on, outer Prusti cache off, fresh server, server/solver CPU affinity 0-3.",
+  "limits": "60s verifier and 100s client; same settings in each pair.",
+  "timing_note": "Fresh, uninstrumented requests on a shared host. A Rust test build overlapped early timings but was pinned to CPUs 4-11; later repeat pairs ran after it finished.",
+  "raw_root": "/tmp/ferrum-next-solver-work",
+  "all_unit_tests": {
+    "passed": 308,
+    "failed": 0,
+    "ignored": 43,
+    "log_sha256": "ffae27127ebeebfcb42501c47bc6b7f047eb025d4125b77ff02d6c3e7dd248f0"
+  },
+  "offline_profile": {
+    "original_responses_equal": true,
+    "original_response_count": 14032,
+    "statistics": {
+      "added-eqs": "574521",
+      "arith-eq-adapter": "60875",
+      "arith-assume-eqs": "1512",
+      "arith-bound-propagations-lp": "10583",
+      "arith-conflicts": "1054",
+      "arith-diseq": "7522",
+      "arith-fixed-eqs": "29603",
+      "arith-lower": "57352",
+      "arith-make-feasible": "23154",
+      "arith-max-columns": "584",
+      "arith-max-rows": "281",
+      "arith-offset-eqs": "5346",
+      "arith-upper": "68230",
+      "conflicts": "12823",
+      "datatype-accessor-ax": "13901",
+      "datatype-constructor-ax": "62523",
+      "datatype-occurs-check": "47152",
+      "datatype-splits": "30819",
+      "decisions": "85936",
+      "del-clause": "152310",
+      "final-checks": "1897",
+      "interface-eqs": "756",
+      "max-generation": "6",
+      "max-memory": "26.22",
+      "memory": "25.37",
+      "minimized-lits": "780",
+      "mk-bool-var": "328642",
+      "mk-clause": "152310",
+      "num-allocs": "1213047208",
+      "num-checks": "1110",
+      "propagations": "105846",
+      "quant-instantiations": "11509",
+      "rlimit-count": "4681002"
+    },
+    "logged_instantiations": 11512,
+    "by_qid": [
+      [
+        "qp.resPrmSumDef10",
+        991
+      ],
+      [
+        "qp.resPrmSumDef27",
+        935
+      ],
+      [
+        "k!41",
+        804
+      ],
+      [
+        "qp.resPrmSumDef32",
+        763
+      ],
+      [
+        "qp.resPrmSumDef38",
+        753
+      ],
+      [
+        "qp.resPrmSumDef49",
+        707
+      ],
+      [
+        "qp.resPrmSumDef63",
+        630
+      ],
+      [
+        "indexed_p_Param-fctOfInv",
+        569
+      ],
+      [
+        "indexed_p_Param-invOfFct",
+        541
+      ],
+      [
+        "qp.resPrmSumDef70",
+        539
+      ],
+      [
+        "qp.resPrmSumDef76",
+        522
+      ],
+      [
+        "qp.resPrmSumDef91",
+        401
+      ],
+      [
+        "qp.resPrmSumDef136",
+        329
+      ],
+      [
+        "qp.resPrmSumDef104",
+        297
+      ],
+      [
+        "k!1359",
+        203
+      ],
+      [
+        "$Seq[Int]_prog.Seq_equal_def",
+        176
+      ],
+      [
+        "qp.resPrmSumDef129",
+        168
+      ],
+      [
+        "indexed_p_Param-aux",
+        165
+      ],
+      [
+        "$Seq[Int]_prog.Seq_equal_ext",
+        157
+      ],
+      [
+        "$Snap.$SnapTo$RefTo$Snap",
+        155
+      ],
+      [
+        "$Seq[s_Param]_prog.Seq_contains_trigger",
+        150
+      ],
+      [
+        "prog.s_Slice_ax_to_seq_index",
+        149
+      ],
+      [
+        "$Snap.$SnapToIntTo$Snap",
+        140
+      ],
+      [
+        "k!1358",
+        134
+      ],
+      [
+        "prog.l<noposition>",
+        96
+      ],
+      [
+        "quant-u-4",
+        84
+      ],
+      [
+        "qp.$PSF<indexed_p_Param>-validvar",
+        78
+      ],
+      [
+        "quant-u-70",
+        53
+      ],
+      [
+        "prog.s_Param_has_typ_own",
+        53
+      ],
+      [
+        "quant-u-5",
+        47
+      ],
+      [
+        "qp.resPrmSumDef17",
+        36
+      ],
+      [
+        "qp.resPrmSumDef7",
+        36
+      ],
+      [
+        "k!1347",
+        30
+      ],
+      [
+        "k!1339",
+        30
+      ],
+      [
+        "prog.s_Param_typ_variant_make_generic_s_Ref_mutable",
+        30
+      ],
+      [
+        "$Snap.$PSF<indexed_p_Param>To$SnapTo$PSF<indexed_p_Param>",
+        27
+      ],
+      [
+        "prog.s_Param_typ_variant_make_generic_s_0_Tuple",
+        19
+      ],
+      [
+        "$Snap.s_ParamTo$SnapTos_Param",
+        19
+      ],
+      [
+        "k!1346",
+        16
+      ],
+      [
+        "k!1337",
+        16
+      ],
+      [
+        "$Snap.$RefTo$SnapTo$Ref",
+        16
+      ],
+      [
+        "$Snap.$SnapToSeq<Int>To$Snap",
+        15
+      ],
+      [
+        "$Snap.$SnapToTypeTo$Snap",
+        15
+      ],
+      [
+        "quant-u-22",
+        13
+      ],
+      [
+        "quant-u-92",
+        10
+      ],
+      [
+        "quant-u-21",
+        10
+      ],
+      [
+        "quant-u-20",
+        10
+      ],
+      [
+        "quant-u-72",
+        10
+      ],
+      [
+        "quant-u-7",
+        10
+      ],
+      [
+        "quant-u-6",
+        10
+      ],
+      [
+        "$Snap.s_UInt_usizeTo$SnapTos_UInt_usize",
+        10
+      ],
+      [
+        "quant-u-97",
+        9
+      ],
+      [
+        "quant-u-96",
+        9
+      ],
+      [
+        "quant-u-26",
+        9
+      ],
+      [
+        "k!1366",
+        9
+      ],
+      [
+        "k!1365",
+        9
+      ],
+      [
+        "prog.std$col$$col$ptr$col$$col$Pointee_sized_metadata",
+        9
+      ],
+      [
+        "$Seq[Int]_prog.Seq_length_nonneg",
+        8
+      ],
+      [
+        "quant-u-85",
+        8
+      ],
+      [
+        "quant-u-16",
+        8
+      ],
+      [
+        "k!1338",
+        8
+      ],
+      [
+        "k!1334",
+        8
+      ],
+      [
+        "prog.s_Ref_mutable_Sized",
+        8
+      ],
+      [
+        "$Snap.s_UInt_u32To$SnapTos_UInt_u32",
+        8
+      ],
+      [
+        "quant-u-24",
+        7
+      ],
+      [
+        "qp.resPrmSumDef115",
+        6
+      ],
+      [
+        "qp.resPrmSumDef98",
+        6
+      ],
+      [
+        "quant-u-94",
+        5
+      ],
+      [
+        "quant-u-27",
+        5
+      ],
+      [
+        "quant-u-25",
+        5
+      ],
+      [
+        "quant-u-17",
+        5
+      ],
+      [
+        "k!1367",
+        5
+      ],
+      [
+        "k!1340",
+        5
+      ],
+      [
+        "qp.resPrmSumDef56",
+        4
+      ],
+      [
+        "qp.resPrmSumDef22",
+        4
+      ],
+      [
+        "quant-u-59",
+        4
+      ],
+      [
+        "quant-u-58",
+        4
+      ],
+      [
+        "quant-u-83",
+        4
+      ],
+      [
+        "quant-u-15",
+        4
+      ],
+      [
+        "quant-u-14",
+        4
+      ],
+      [
+        "quant-u-79",
+        4
+      ],
+      [
+        "quant-u-13",
+        4
+      ],
+      [
+        "quant-u-12",
+        4
+      ],
+      [
+        "k!1391",
+        4
+      ],
+      [
+        "k!1385",
+        4
+      ],
+      [
+        "k!1363",
+        4
+      ],
+      [
+        "prog.s_UInt_usize_ax_bounds",
+        4
+      ],
+      [
+        "prog.s_UInt_usize_ax_cons",
+        4
+      ],
+      [
+        "$Snap.BoolTo$SnapToBool",
+        4
+      ],
+      [
+        "$Seq[s_Param]_prog.Seq_length_nonneg",
+        3
+      ],
+      [
+        "qp.resPrmSumDef122",
+        3
+      ],
+      [
+        "qp.resPrmSumDef84",
+        3
+      ],
+      [
+        "quant-u-128",
+        3
+      ],
+      [
+        "quant-u-77",
+        3
+      ],
+      [
+        "quant-u-11",
+        3
+      ],
+      [
+        "quant-u-10",
+        3
+      ],
+      [
+        "k!1348",
+        3
+      ],
+      [
+        "k!1345",
+        3
+      ],
+      [
+        "k!1336",
+        3
+      ],
+      [
+        "prog.inhabited_Ref_mutable",
+        3
+      ],
+      [
+        "prog.s_Param_typ_def_make_generic_s_UInt_u32",
+        3
+      ],
+      [
+        "prog.s_Param_typ_def_make_generic_s_UInt_usize",
+        3
+      ],
+      [
+        "$Seq[Int]_prog.Seq_contains_trigger",
+        3
+      ],
+      [
+        "$Seq[Int]_prog.Seq_singleton_index",
+        3
+      ],
+      [
+        "$Seq[s_ResourceState]_prog.Seq_length_nonneg",
+        2
+      ],
+      [
+        "quant-u-132",
+        2
+      ],
+      [
+        "quant-u-63",
+        2
+      ],
+      [
+        "quant-u-62",
+        2
+      ],
+      [
+        "quant-u-23",
+        2
+      ],
+      [
+        "quant-u-66",
+        2
+      ],
+      [
+        "quant-u-1",
+        2
+      ],
+      [
+        "quant-u-0",
+        2
+      ],
+      [
+        "k!1396",
+        2
+      ],
+      [
+        "k!1392",
+        2
+      ],
+      [
+        "k!1388",
+        2
+      ],
+      [
+        "k!1386",
+        2
+      ],
+      [
+        "k!1364",
+        2
+      ],
+      [
+        "k!1362",
+        2
+      ],
+      [
+        "k!1361",
+        2
+      ],
+      [
+        "k!1360",
+        2
+      ],
+      [
+        "$Seq[s_Param]_prog.Seq_length_zero",
+        1
+      ],
+      [
+        "qp.resPrmSumDef143",
+        1
+      ],
+      [
+        "qp.resPrmSumDef110",
+        1
+      ],
+      [
+        "qp.resPrmSumDef149",
+        1
+      ],
+      [
+        "qp.resPrmSumDef156",
+        1
+      ],
+      [
+        "qp.resPrmSumDef162",
+        1
+      ],
+      [
+        "qp.resPrmSumDef169",
+        1
+      ],
+      [
+        "qp.resPrmSumDef44",
+        1
+      ],
+      [
+        "qp.resPrmSumDef174",
+        1
+      ],
+      [
+        "qp.resPrmSumDef179",
+        1
+      ],
+      [
+        "qp.resPrmSumDef14",
+        1
+      ],
+      [
+        "qp.resPrmSumDef182",
+        1
+      ],
+      [
+        "qp.resPrmSumDef185",
+        1
+      ],
+      [
+        "quant-u-130",
+        1
+      ],
+      [
+        "quant-u-61",
+        1
+      ],
+      [
+        "quant-u-60",
+        1
+      ],
+      [
+        "quant-u-29",
+        1
+      ],
+      [
+        "quant-u-28",
+        1
+      ],
+      [
+        "quant-u-81",
+        1
+      ],
+      [
+        "quant-u-76",
+        1
+      ],
+      [
+        "quant-u-75",
+        1
+      ],
+      [
+        "quant-u-9",
+        1
+      ],
+      [
+        "quant-u-8",
+        1
+      ],
+      [
+        "quant-u-68",
+        1
+      ],
+      [
+        "quant-u-3",
+        1
+      ],
+      [
+        "quant-u-2",
+        1
+      ],
+      [
+        "k!1344",
+        1
+      ],
+      [
+        "k!1335",
+        1
+      ],
+      [
+        "prog.inhabited_RawPtr_immutable",
+        1
+      ],
+      [
+        "prog.s_UInt_u32_ax_value",
+        1
+      ],
+      [
+        "prog.s_UInt_u32_ax_bounds",
+        1
+      ],
+      [
+        "prog.s_Param_typ_variant_make_generic_s_UInt_usize",
+        1
+      ],
+      [
+        "prog.s_Param_typ_variant_make_generic_s_Slice",
+        1
+      ],
+      [
+        "$Snap.$SnapTos_UInt_u32To$Snap",
+        1
+      ],
+      [
+        "$Snap.$SnapToBoolTo$Snap",
+        1
+      ],
+      [
+        "k!1401",
+        0
+      ],
+      [
+        "k!1384",
+        0
+      ],
+      [
+        "k!1354",
+        0
+      ],
+      [
+        "$Seq[s_ResourceState]_prog.Seq_length_zero",
+        0
+      ],
+      [
+        "$Seq[Int]_prog.Seq_length_zero",
+        0
+      ],
+      [
+        "quant-u-98",
+        0
+      ],
+      [
+        "k!1368",
+        0
+      ],
+      [
+        "k!1357",
+        0
+      ],
+      [
+        "k!1356",
+        0
+      ],
+      [
+        "k!1355",
+        0
+      ],
+      [
+        "k!1352",
+        0
+      ],
+      [
+        "prog.inhabited_Slice",
+        0
+      ],
+      [
+        "prog.s_UInt_u32_ax_cons",
+        0
+      ],
+      [
+        "prog.s_UInt_usize_ax_value",
+        0
+      ],
+      [
+        "prog.s_Slice_ax_to_seq_len",
+        0
+      ],
+      [
+        "prog.s_Param_typ_variant_make_generic_s_UInt_u32",
+        0
+      ],
+      [
+        "prog.s_Param_typ_def_make_generic_s_Ref_mutable",
+        0
+      ],
+      [
+        "prog.make_generic_s_0_Tuple_unit",
+        0
+      ],
+      [
+        "prog.s_Param_typ_def_make_generic_s_0_Tuple",
+        0
+      ],
+      [
+        "prog.s_Param_typ_def_make_generic_s_Slice",
+        0
+      ],
+      [
+        "$Seq[Int]_prog.Seq_singleton_length",
+        0
+      ],
+      [
+        "$Snap.$SnapTo$PSF<indexed_p_Param>To$Snap",
+        0
+      ],
+      [
+        "$Snap.Seq<Int>To$SnapToSeq<Int>",
+        0
+      ],
+      [
+        "$Snap.TypeTo$SnapToType",
+        0
+      ],
+      [
+        "$Snap.$SnapTos_ParamTo$Snap",
+        0
+      ],
+      [
+        "$Snap.$SnapTos_UInt_usizeTo$Snap",
+        0
+      ],
+      [
+        "$Snap.IntTo$SnapToInt",
+        0
+      ]
+    ]
+  },
+  "threshold_sweep": [
+    {
+      "threshold": 1000,
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 4.851930167991668,
+      "response_count": 14033,
+      "original_responses_equal": true,
+      "response_difference_count": 0,
+      "first_difference_indices": [],
+      "statistics": {
+        "added-eqs": "574521",
+        "arith-eq-adapter": "60875",
+        "arith-assume-eqs": "1512",
+        "arith-bound-propagations-lp": "10583",
+        "arith-conflicts": "1054",
+        "arith-diseq": "7522",
+        "arith-fixed-eqs": "29603",
+        "arith-lower": "57352",
+        "arith-make-feasible": "23154",
+        "arith-max-columns": "584",
+        "arith-max-rows": "281",
+        "arith-offset-eqs": "5346",
+        "arith-upper": "68230",
+        "conflicts": "12823",
+        "datatype-accessor-ax": "13901",
+        "datatype-constructor-ax": "62523",
+        "datatype-occurs-check": "47152",
+        "datatype-splits": "30819",
+        "decisions": "85936",
+        "del-clause": "152310",
+        "final-checks": "1897",
+        "interface-eqs": "756",
+        "max-generation": "6",
+        "max-memory": "26.22",
+        "memory": "25.37",
+        "minimized-lits": "780",
+        "mk-bool-var": "328642",
+        "mk-clause": "152310",
+        "num-allocs": "1219202083",
+        "num-checks": "1110",
+        "propagations": "105846",
+        "quant-instantiations": "11509",
+        "rlimit-count": "4681002"
+      },
+      "parse_error": null
+    },
+    {
+      "threshold": 10,
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 4.741843461000826,
+      "response_count": 14033,
+      "original_responses_equal": true,
+      "response_difference_count": 0,
+      "first_difference_indices": [],
+      "statistics": {
+        "added-eqs": "574521",
+        "arith-eq-adapter": "60875",
+        "arith-assume-eqs": "1512",
+        "arith-bound-propagations-lp": "10583",
+        "arith-conflicts": "1054",
+        "arith-diseq": "7522",
+        "arith-fixed-eqs": "29603",
+        "arith-lower": "57352",
+        "arith-make-feasible": "23154",
+        "arith-max-columns": "584",
+        "arith-max-rows": "281",
+        "arith-offset-eqs": "5346",
+        "arith-upper": "68230",
+        "conflicts": "12823",
+        "datatype-accessor-ax": "13901",
+        "datatype-constructor-ax": "62523",
+        "datatype-occurs-check": "47152",
+        "datatype-splits": "30819",
+        "decisions": "85936",
+        "del-clause": "152310",
+        "final-checks": "1897",
+        "interface-eqs": "756",
+        "max-generation": "6",
+        "max-memory": "26.22",
+        "memory": "25.37",
+        "minimized-lits": "780",
+        "mk-bool-var": "328642",
+        "mk-clause": "152310",
+        "num-allocs": "1219202083",
+        "num-checks": "1110",
+        "propagations": "105846",
+        "quant-instantiations": "11509",
+        "rlimit-count": "4681002"
+      },
+      "parse_error": null
+    },
+    {
+      "threshold": 100,
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 4.698512669012416,
+      "response_count": 14033,
+      "original_responses_equal": true,
+      "response_difference_count": 0,
+      "first_difference_indices": [],
+      "statistics": {
+        "added-eqs": "574521",
+        "arith-eq-adapter": "60875",
+        "arith-assume-eqs": "1512",
+        "arith-bound-propagations-lp": "10583",
+        "arith-conflicts": "1054",
+        "arith-diseq": "7522",
+        "arith-fixed-eqs": "29603",
+        "arith-lower": "57352",
+        "arith-make-feasible": "23154",
+        "arith-max-columns": "584",
+        "arith-max-rows": "281",
+        "arith-offset-eqs": "5346",
+        "arith-upper": "68230",
+        "conflicts": "12823",
+        "datatype-accessor-ax": "13901",
+        "datatype-constructor-ax": "62523",
+        "datatype-occurs-check": "47152",
+        "datatype-splits": "30819",
+        "decisions": "85936",
+        "del-clause": "152310",
+        "final-checks": "1897",
+        "interface-eqs": "756",
+        "max-generation": "6",
+        "max-memory": "26.22",
+        "memory": "25.37",
+        "minimized-lits": "780",
+        "mk-bool-var": "328642",
+        "mk-clause": "152310",
+        "num-allocs": "1219202083",
+        "num-checks": "1110",
+        "propagations": "105846",
+        "quant-instantiations": "11509",
+        "rlimit-count": "4681002"
+      },
+      "parse_error": null
+    },
+    {
+      "threshold": 500,
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 4.678997411974706,
+      "response_count": 14033,
+      "original_responses_equal": true,
+      "response_difference_count": 0,
+      "first_difference_indices": [],
+      "statistics": {
+        "added-eqs": "574521",
+        "arith-eq-adapter": "60875",
+        "arith-assume-eqs": "1512",
+        "arith-bound-propagations-lp": "10583",
+        "arith-conflicts": "1054",
+        "arith-diseq": "7522",
+        "arith-fixed-eqs": "29603",
+        "arith-lower": "57352",
+        "arith-make-feasible": "23154",
+        "arith-max-columns": "584",
+        "arith-max-rows": "281",
+        "arith-offset-eqs": "5346",
+        "arith-upper": "68230",
+        "conflicts": "12823",
+        "datatype-accessor-ax": "13901",
+        "datatype-constructor-ax": "62523",
+        "datatype-occurs-check": "47152",
+        "datatype-splits": "30819",
+        "decisions": "85936",
+        "del-clause": "152310",
+        "final-checks": "1897",
+        "interface-eqs": "756",
+        "max-generation": "6",
+        "max-memory": "26.22",
+        "memory": "25.37",
+        "minimized-lits": "780",
+        "mk-bool-var": "328642",
+        "mk-clause": "152310",
+        "num-allocs": "1219202083",
+        "num-checks": "1110",
+        "propagations": "105846",
+        "quant-instantiations": "11509",
+        "rlimit-count": "4681002"
+      },
+      "parse_error": null
+    },
+    {
+      "threshold": 2000,
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 4.4935559569858015,
+      "response_count": 14033,
+      "original_responses_equal": true,
+      "response_difference_count": 0,
+      "first_difference_indices": [],
+      "statistics": {
+        "added-eqs": "574521",
+        "arith-eq-adapter": "60875",
+        "arith-assume-eqs": "1512",
+        "arith-bound-propagations-lp": "10583",
+        "arith-conflicts": "1054",
+        "arith-diseq": "7522",
+        "arith-fixed-eqs": "29603",
+        "arith-lower": "57352",
+        "arith-make-feasible": "23154",
+        "arith-max-columns": "584",
+        "arith-max-rows": "281",
+        "arith-offset-eqs": "5346",
+        "arith-upper": "68230",
+        "conflicts": "12823",
+        "datatype-accessor-ax": "13901",
+        "datatype-constructor-ax": "62523",
+        "datatype-occurs-check": "47152",
+        "datatype-splits": "30819",
+        "decisions": "85936",
+        "del-clause": "152310",
+        "final-checks": "1897",
+        "interface-eqs": "756",
+        "max-generation": "6",
+        "max-memory": "26.22",
+        "memory": "25.37",
+        "minimized-lits": "780",
+        "mk-bool-var": "328642",
+        "mk-clause": "152310",
+        "num-allocs": "1219202083",
+        "num-checks": "1110",
+        "propagations": "105846",
+        "quant-instantiations": "11509",
+        "rlimit-count": "4681002"
+      },
+      "parse_error": null
+    },
+    {
+      "threshold": 5000,
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 4.49282825703267,
+      "response_count": 14033,
+      "original_responses_equal": true,
+      "response_difference_count": 0,
+      "first_difference_indices": [],
+      "statistics": {
+        "added-eqs": "574521",
+        "arith-eq-adapter": "60875",
+        "arith-assume-eqs": "1512",
+        "arith-bound-propagations-lp": "10583",
+        "arith-conflicts": "1054",
+        "arith-diseq": "7522",
+        "arith-fixed-eqs": "29603",
+        "arith-lower": "57352",
+        "arith-make-feasible": "23154",
+        "arith-max-columns": "584",
+        "arith-max-rows": "281",
+        "arith-offset-eqs": "5346",
+        "arith-upper": "68230",
+        "conflicts": "12823",
+        "datatype-accessor-ax": "13901",
+        "datatype-constructor-ax": "62523",
+        "datatype-occurs-check": "47152",
+        "datatype-splits": "30819",
+        "decisions": "85936",
+        "del-clause": "152310",
+        "final-checks": "1897",
+        "interface-eqs": "756",
+        "max-generation": "6",
+        "max-memory": "26.22",
+        "memory": "25.37",
+        "minimized-lits": "780",
+        "mk-bool-var": "328642",
+        "mk-clause": "152310",
+        "num-allocs": "1219202083",
+        "num-checks": "1110",
+        "propagations": "105846",
+        "quant-instantiations": "11509",
+        "rlimit-count": "4681002"
+      },
+      "parse_error": null
+    }
+  ],
+  "offline_ground_nested": {
+    "maps_rewritten": 32,
+    "instances_by_qid": {
+      "qp.resPrmSumDef7": 3,
+      "qp.resPrmSumDef10": 3,
+      "qp.resPrmSumDef14": 2,
+      "qp.resPrmSumDef17": 3,
+      "qp.resPrmSumDef22": 2,
+      "qp.resPrmSumDef27": 3,
+      "qp.resPrmSumDef32": 3,
+      "qp.resPrmSumDef38": 3,
+      "qp.resPrmSumDef44": 2,
+      "qp.resPrmSumDef49": 8,
+      "qp.resPrmSumDef56": 2,
+      "qp.resPrmSumDef63": 3,
+      "qp.resPrmSumDef70": 3,
+      "qp.resPrmSumDef76": 3,
+      "qp.resPrmSumDef84": 2,
+      "qp.resPrmSumDef91": 3,
+      "qp.resPrmSumDef98": 3,
+      "qp.resPrmSumDef104": 3,
+      "qp.resPrmSumDef110": 2,
+      "qp.resPrmSumDef115": 3,
+      "qp.resPrmSumDef122": 2,
+      "qp.resPrmSumDef129": 3,
+      "qp.resPrmSumDef136": 39,
+      "qp.resPrmSumDef143": 2,
+      "qp.resPrmSumDef149": 2,
+      "qp.resPrmSumDef156": 2,
+      "qp.resPrmSumDef162": 2,
+      "qp.resPrmSumDef169": 2,
+      "qp.resPrmSumDef174": 2,
+      "qp.resPrmSumDef179": 2,
+      "qp.resPrmSumDef182": 2,
+      "qp.resPrmSumDef185": 2
+    },
+    "instances_total": 121,
+    "command_count": 14032,
+    "exit": 0,
+    "timed_out": false,
+    "wall_s": 1.8082572050043382,
+    "original_response_count": 14032,
+    "output_response_count": 14033,
+    "original_responses_equal": true,
+    "difference_count": 0,
+    "first_difference_indices": [],
+    "statistics": {
+      "added-eqs": "680591",
+      "arith-eq-adapter": "43403",
+      "arith-assume-eqs": "728",
+      "arith-bound-propagations-lp": "22239",
+      "arith-conflicts": "1309",
+      "arith-diseq": "13776",
+      "arith-fixed-eqs": "24804",
+      "arith-lower": "52230",
+      "arith-make-feasible": "38593",
+      "arith-max-columns": "639",
+      "arith-max-rows": "324",
+      "arith-offset-eqs": "6039",
+      "arith-upper": "56551",
+      "conflicts": "13268",
+      "datatype-accessor-ax": "21370",
+      "datatype-constructor-ax": "106819",
+      "datatype-occurs-check": "95238",
+      "datatype-splits": "67932",
+      "decisions": "129121",
+      "del-clause": "69866",
+      "final-checks": "1937",
+      "interface-eqs": "364",
+      "max-generation": "6",
+      "max-memory": "26.72",
+      "memory": "25.73",
+      "minimized-lits": "732",
+      "mk-bool-var": "233030",
+      "mk-clause": "69866",
+      "num-allocs": "1198123113",
+      "num-checks": "1110",
+      "propagations": "130664",
+      "quant-instantiations": "7553",
+      "rlimit-count": "4588324"
+    }
+  },
+  "offline_ground_array": {
+    "maps_rewritten": 16,
+    "instances_by_qid": {
+      "qp.resPrmSumDef3": 3,
+      "qp.resPrmSumDef5": 2,
+      "qp.resPrmSumDef7": 3,
+      "qp.resPrmSumDef10": 3,
+      "qp.resPrmSumDef12": 2,
+      "qp.resPrmSumDef14": 8,
+      "qp.resPrmSumDef17": 3,
+      "qp.resPrmSumDef21": 3,
+      "qp.resPrmSumDef23": 2,
+      "qp.resPrmSumDef25": 3,
+      "qp.resPrmSumDef28": 18,
+      "qp.resPrmSumDef31": 2,
+      "qp.resPrmSumDef34": 2,
+      "qp.resPrmSumDef37": 2,
+      "qp.resPrmSumDef40": 2,
+      "qp.resPrmSumDef42": 2
+    },
+    "instances_total": 60,
+    "command_count": 6678,
+    "exit": 0,
+    "timed_out": false,
+    "wall_s": 0.3945547710172832,
+    "original_response_count": 6678,
+    "output_response_count": 6679,
+    "original_responses_equal": true,
+    "difference_count": 0,
+    "first_difference_indices": [],
+    "statistics": {
+      "added-eqs": "26603",
+      "arith-eq-adapter": "1945",
+      "arith-assume-eqs": "4",
+      "arith-bound-propagations-lp": "359",
+      "arith-conflicts": "118",
+      "arith-diseq": "1249",
+      "arith-fixed-eqs": "855",
+      "arith-lower": "1720",
+      "arith-make-feasible": "1050",
+      "arith-max-columns": "97",
+      "arith-max-rows": "31",
+      "arith-offset-eqs": "4",
+      "arith-upper": "1419",
+      "conflicts": "1025",
+      "datatype-accessor-ax": "360",
+      "datatype-constructor-ax": "3724",
+      "datatype-occurs-check": "4919",
+      "datatype-splits": "3516",
+      "decisions": "5282",
+      "del-clause": "4842",
+      "final-checks": "285",
+      "interface-eqs": "2",
+      "max-generation": "5",
+      "max-memory": "20.68",
+      "memory": "20.48",
+      "minimized-lits": "20",
+      "mk-bool-var": "13215",
+      "mk-clause": "4842",
+      "num-allocs": "10240968",
+      "num-checks": "405",
+      "propagations": "4122",
+      "quant-instantiations": "776",
+      "rlimit-count": "527920"
+    }
+  },
+  "offline_ground_wrong": {
+    "maps_rewritten": 11,
+    "instances_by_qid": {
+      "qp.resPrmSumDef3": 3,
+      "qp.resPrmSumDef5": 2,
+      "qp.resPrmSumDef7": 3,
+      "qp.resPrmSumDef10": 3,
+      "qp.resPrmSumDef12": 2,
+      "qp.resPrmSumDef14": 8,
+      "qp.resPrmSumDef17": 3,
+      "qp.resPrmSumDef21": 3,
+      "qp.resPrmSumDef23": 2,
+      "qp.resPrmSumDef25": 3,
+      "qp.resPrmSumDef28": 9
+    },
+    "instances_total": 41,
+    "command_count": 6976,
+    "exit": 0,
+    "timed_out": false,
+    "wall_s": 0.4872487949905917,
+    "original_response_count": 6976,
+    "output_response_count": 6977,
+    "original_responses_equal": true,
+    "difference_count": 0,
+    "first_difference_indices": [],
+    "statistics": {
+      "added-eqs": "47180",
+      "arith-eq-adapter": "2302",
+      "arith-assume-eqs": "2",
+      "arith-bound-propagations-lp": "418",
+      "arith-conflicts": "89",
+      "arith-diseq": "1532",
+      "arith-fixed-eqs": "1498",
+      "arith-lower": "2140",
+      "arith-make-feasible": "1014",
+      "arith-max-columns": "82",
+      "arith-max-rows": "22",
+      "arith-offset-eqs": "4",
+      "arith-upper": "1676",
+      "conflicts": "942",
+      "datatype-accessor-ax": "485",
+      "datatype-constructor-ax": "7859",
+      "datatype-occurs-check": "10475",
+      "datatype-splits": "7780",
+      "decisions": "9738",
+      "del-clause": "4158",
+      "final-checks": "488",
+      "interface-eqs": "1",
+      "max-generation": "5",
+      "max-memory": "20.34",
+      "memory": "20.25",
+      "minimized-lits": "14",
+      "mk-bool-var": "16871",
+      "mk-clause": "4158",
+      "num-allocs": "9298899",
+      "num-checks": "474",
+      "propagations": "4983",
+      "quant-instantiations": "561",
+      "rlimit-count": "586365"
+    }
+  },
+  "offline_ground_paired": [
+    {
+      "index": 0,
+      "mode": "baseline",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 2.6279534680070356,
+      "input_sha256": "af686410a56989fa6e6db402ceb876695576dd36c613810aec2670d58418b239",
+      "original_responses_equal": true,
+      "resources": "4681002",
+      "instantiations": "11509"
+    },
+    {
+      "index": 1,
+      "mode": "ground",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 1.9147536929813214,
+      "input_sha256": "43cde7dd2a3baa5ff679f19c2f17d8d11907a797819375ff81cbdd339456ecd6",
+      "original_responses_equal": true,
+      "resources": "4588324",
+      "instantiations": "7553"
+    },
+    {
+      "index": 2,
+      "mode": "ground",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 1.9222709070309065,
+      "input_sha256": "43cde7dd2a3baa5ff679f19c2f17d8d11907a797819375ff81cbdd339456ecd6",
+      "original_responses_equal": true,
+      "resources": "4588324",
+      "instantiations": "7553"
+    },
+    {
+      "index": 3,
+      "mode": "baseline",
+      "exit": 0,
+      "timed_out": false,
+      "wall_s": 2.636119514994789,
+      "input_sha256": "af686410a56989fa6e6db402ceb876695576dd36c613810aec2670d58418b239",
+      "original_responses_equal": true,
+      "resources": "4681002",
+      "instantiations": "11509"
+    }
+  ],
+  "live_nested_trace": {
+    "off": {
+      "input_sha256": "815174c6f969f6d6d03d2f5287c7240ccfb1683381f55232adcb9e675ca93950",
+      "output_sha256": "0f6d03c4c58d15a529194c392d35ead22942c8525730dc4a90b16a53d57bd73e",
+      "queries": [
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown"
+      ],
+      "issues": [],
+      "permission_quantifiers": 32,
+      "audit": {
+        "streams": [
+          {
+            "capture": "/tmp/ferrum-next-solver-work/trials/14-iterator-mut_element_nested_pass-off-trace/smt/334423-351043747056916",
+            "queries": 1111,
+            "input_sha256": "815174c6f969f6d6d03d2f5287c7240ccfb1683381f55232adcb9e675ca93950",
+            "output_sha256": "0f6d03c4c58d15a529194c392d35ead22942c8525730dc4a90b16a53d57bd73e",
+            "commands": {
+              "get-info": 1,
+              "set-option": 2230,
+              "declare-datatypes": 1,
+              "declare-sort": 48,
+              "declare-const": 573,
+              "declare-fun": 506,
+              "assert": 3951,
+              "define-sort": 1,
+              "define-const": 2,
+              "define-fun": 60,
+              "check-sat": 1111,
+              "push": 2774,
+              "pop": 2774
+            },
+            "replay": {
+              "command": [
+                "taskset",
+                "--cpu-list",
+                "0,1,2,3",
+                "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+                "-smt2",
+                "-in"
+              ],
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_s": 3.0336357309715822,
+              "user_cpu_s": 2.9791879999999997,
+              "system_cpu_s": 0.040001999999999996,
+              "input_sha256": "af686410a56989fa6e6db402ceb876695576dd36c613810aec2670d58418b239",
+              "stdout_sha256": "ee98b58739d49e78418cdcb6520a387b178bb38f454663839a1fcfa781802625",
+              "statistics": {
+                "added-eqs": "574521",
+                "arith-eq-adapter": "60875",
+                "arith-assume-eqs": "1512",
+                "arith-bound-propagations-lp": "10583",
+                "arith-conflicts": "1054",
+                "arith-diseq": "7522",
+                "arith-fixed-eqs": "29603",
+                "arith-lower": "57352",
+                "arith-make-feasible": "23154",
+                "arith-max-columns": "584",
+                "arith-max-rows": "281",
+                "arith-offset-eqs": "5346",
+                "arith-upper": "68230",
+                "conflicts": "12823",
+                "datatype-accessor-ax": "13901",
+                "datatype-constructor-ax": "62523",
+                "datatype-occurs-check": "47152",
+                "datatype-splits": "30819",
+                "decisions": "85936",
+                "del-clause": "152310",
+                "final-checks": "1897",
+                "interface-eqs": "756",
+                "max-generation": "6",
+                "max-memory": "26.22",
+                "memory": "25.37",
+                "minimized-lits": "780",
+                "mk-bool-var": "328642",
+                "mk-clause": "152310",
+                "num-allocs": "1219202083",
+                "num-checks": "1110",
+                "propagations": "105846",
+                "quant-instantiations": "11509",
+                "rlimit-count": "4681002"
+              },
+              "original_response_prefix_equal": true,
+              "stderr": ""
+            }
+          }
+        ],
+        "instantiations": 11509,
+        "resources": 4681002,
+        "checks": 1111
+      }
+    },
+    "on": {
+      "input_sha256": "b53f1f5ed57c5a4960e0d27d070566b7348ab2071590fb708affc3f5ed3f3308",
+      "output_sha256": "9a10e6e2b8eb6a2828cd619fdcbd2427d7fba518931a050f9a8316a0f53f40f3",
+      "queries": [
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unknown",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unsat",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown"
+      ],
+      "issues": [],
+      "permission_quantifiers": 0,
+      "audit": {
+        "streams": [
+          {
+            "capture": "/tmp/ferrum-next-solver-work/trials/14-iterator-mut_element_nested_pass-on-trace/smt/336399-351053829815859",
+            "queries": 1111,
+            "input_sha256": "b53f1f5ed57c5a4960e0d27d070566b7348ab2071590fb708affc3f5ed3f3308",
+            "output_sha256": "9a10e6e2b8eb6a2828cd619fdcbd2427d7fba518931a050f9a8316a0f53f40f3",
+            "commands": {
+              "get-info": 1,
+              "set-option": 2230,
+              "declare-datatypes": 1,
+              "declare-sort": 48,
+              "declare-const": 573,
+              "declare-fun": 506,
+              "assert": 3959,
+              "define-sort": 1,
+              "define-const": 2,
+              "define-fun": 60,
+              "check-sat": 1111,
+              "push": 2774,
+              "pop": 2774
+            },
+            "replay": {
+              "command": [
+                "taskset",
+                "--cpu-list",
+                "0,1,2,3",
+                "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+                "-smt2",
+                "-in"
+              ],
+              "exit_code": 0,
+              "timed_out": false,
+              "wall_s": 2.229485765041318,
+              "user_cpu_s": 2.141044,
+              "system_cpu_s": 0.040981,
+              "input_sha256": "0a985f53344b650e995a1e2a5101b281c0d8d4f5b9410f56b3eb27770c4f89fe",
+              "stdout_sha256": "db8d3a31a18648ed416730a7298cc4aa734ca7b970c6bc3b733fb02462a90a55",
+              "statistics": {
+                "added-eqs": "638365",
+                "arith-eq-adapter": "49529",
+                "arith-assume-eqs": "810",
+                "arith-bound-propagations-lp": "28200",
+                "arith-conflicts": "1139",
+                "arith-diseq": "14174",
+                "arith-fixed-eqs": "32320",
+                "arith-lower": "63442",
+                "arith-make-feasible": "42750",
+                "arith-max-columns": "730",
+                "arith-max-rows": "357",
+                "arith-offset-eqs": "6339",
+                "arith-upper": "63581",
+                "conflicts": "13151",
+                "datatype-accessor-ax": "16779",
+                "datatype-constructor-ax": "84518",
+                "datatype-occurs-check": "64473",
+                "datatype-splits": "44129",
+                "decisions": "108739",
+                "del-clause": "83614",
+                "final-checks": "1665",
+                "interface-eqs": "405",
+                "max-generation": "6",
+                "max-memory": "27.34",
+                "memory": "26.35",
+                "minimized-lits": "664",
+                "mk-bool-var": "237863",
+                "mk-clause": "83614",
+                "num-allocs": "1470133312",
+                "num-checks": "1110",
+                "propagations": "139132",
+                "quant-instantiations": "9412",
+                "rlimit-count": "4440776"
+              },
+              "original_response_prefix_equal": true,
+              "stderr": ""
+            }
+          }
+        ],
+        "instantiations": 9412,
+        "resources": 4440776,
+        "checks": 1111
+      }
+    }
+  },
+  "live_restoration_trace": {
+    "off": {
+      "input_sha256": "2735b91286e838c89daf1d2768f3a390e5e0e10553d5a928f979069ee9bc64a4",
+      "output_sha256": "b8d93e55d503877ec7bcff513f108ece0c2e9f6c15b916aa7573f7047eed5d86"
+    },
+    "on": {
+      "input_sha256": "2735b91286e838c89daf1d2768f3a390e5e0e10553d5a928f979069ee9bc64a4",
+      "output_sha256": "b8d93e55d503877ec7bcff513f108ece0c2e9f6c15b916aa7573f7047eed5d86"
+    }
+  },
+  "final_nested_trace": {
+    "off": {
+      "input_sha256": "815174c6f969f6d6d03d2f5287c7240ccfb1683381f55232adcb9e675ca93950",
+      "output_sha256": "0f6d03c4c58d15a529194c392d35ead22942c8525730dc4a90b16a53d57bd73e"
+    },
+    "on": {
+      "input_sha256": "b53f1f5ed57c5a4960e0d27d070566b7348ab2071590fb708affc3f5ed3f3308",
+      "output_sha256": "9a10e6e2b8eb6a2828cd619fdcbd2427d7fba518931a050f9a8316a0f53f40f3"
+    }
+  },
+  "timing_trials": [
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/08-vec-symbolic_pass-off",
+      "result_sha256": "5103fafeaacb6b5a93226e4935c0e256b9d299426b70a2112d80ac27180a0634",
+      "case": {
+        "suite": "vec",
+        "name": "symbolic_pass",
+        "package": "stdlib_vec_spec",
+        "source_sha256": "d2833cad8f53aec4380e87d1ccfae4ae2cfafc2b0f95daeff1df621b62d7d76a",
+        "expect": {
+          "exit": 0,
+          "errors": []
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "off",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false",
+      "server_build": "measured",
+      "wall_s": 12.54,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          2723897363
+        ],
+        "VIR conversion": [
+          36110108
+        ],
+        "backend verification": [
+          8395547022
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 3.47,
+        "system_s": 0.31,
+        "child_user_s": 5.41,
+        "child_system_s": 0.14
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_vec_spec",
+            "line": "Checking stdlib_vec_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_vec_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "49021"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412318962233319,
+        "monotonic_ns": 351237524457137,
+        "load_average": [
+          4.8544921875,
+          6.501953125,
+          6.64990234375
+        ],
+        "memory_available": "MemAvailable:   14476748 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412331970414190,
+        "monotonic_ns": 351250532638409,
+        "load_average": [
+          4.955078125,
+          6.44384765625,
+          6.62841796875
+        ],
+        "memory_available": "MemAvailable:   14142960 kB"
+      },
+      "client_log_sha256": "ef5704cf99e34a8bdbc8c1f56e571e78983a6e02caec42dbc60021c7c6120d07",
+      "server_log_sha256": "83382bfa5ab568be1be50acbaff8e7d743637c74c7432b2c0187b5b12c196f81"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/08-vec-symbolic_pass-on",
+      "result_sha256": "a9d1a57ab3997c15f5c2a96fd777782370c2df988ec47a597d22bb615da117df",
+      "case": {
+        "suite": "vec",
+        "name": "symbolic_pass",
+        "package": "stdlib_vec_spec",
+        "source_sha256": "d2833cad8f53aec4380e87d1ccfae4ae2cfafc2b0f95daeff1df621b62d7d76a",
+        "expect": {
+          "exit": 0,
+          "errors": []
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "on",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --groundPermissionSummaries",
+      "server_build": "measured",
+      "wall_s": 13.27,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          4218141056
+        ],
+        "VIR conversion": [
+          28066468
+        ],
+        "backend verification": [
+          7524466294
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 3.14,
+        "system_s": 0.26,
+        "child_user_s": 4.77,
+        "child_system_s": 0.14
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_vec_spec",
+            "line": "Checking stdlib_vec_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_vec_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "38163"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412332430895452,
+        "monotonic_ns": 351250993119149,
+        "load_average": [
+          4.955078125,
+          6.44384765625,
+          6.62841796875
+        ],
+        "memory_available": "MemAvailable:   14356856 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412346230053665,
+        "monotonic_ns": 351264792278382,
+        "load_average": [
+          4.7275390625,
+          6.34619140625,
+          6.5947265625
+        ],
+        "memory_available": "MemAvailable:   14116804 kB"
+      },
+      "client_log_sha256": "8c7e14afa5864f318e490f73505893383abcf49bd93ff0142cf59a1fd2e0d893",
+      "server_log_sha256": "145b2231e10bc66cb2184b24dae88d5b904914b9dfe6a573781c1a0dc6026f19"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/114-iterator-mut_element_nested_pass-off",
+      "result_sha256": "b44e713a6a8be4b5f95f738c6ec11747780855ab8443e92f65982afe7c73cfcd",
+      "case": {
+        "suite": "iterator",
+        "name": "mut_element_nested_pass",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+        "expect": {
+          "exit": 0,
+          "errors": []
+        },
+        "notes": [],
+        "selection": "targeted"
+      },
+      "mode": "off",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false",
+      "server_build": "measured",
+      "wall_s": 7.83,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          897034227
+        ],
+        "VIR conversion": [
+          57810829
+        ],
+        "backend verification": [
+          5871129156
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 2.3600000000000003,
+        "system_s": 0.16,
+        "child_user_s": 3.66,
+        "child_system_s": 0.09
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "54447"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412225933074121,
+        "monotonic_ns": 351144495297854,
+        "load_average": [
+          5.8515625,
+          7.14208984375,
+          6.849609375
+        ],
+        "memory_available": "MemAvailable:   15111372 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412233862242264,
+        "monotonic_ns": 351152424466216,
+        "load_average": [
+          5.7080078125,
+          7.07080078125,
+          6.82958984375
+        ],
+        "memory_available": "MemAvailable:   14007012 kB"
+      },
+      "client_log_sha256": "86a508411c2fe5fafbfff910ca079db8c6a2a6813e387eb3cb2368943eb71ce3",
+      "server_log_sha256": "347329bb6d3e08b5854f36b360006d628ee76f0cdb190824fb34ee849ac5f853"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/114-iterator-mut_element_nested_pass-on",
+      "result_sha256": "121728f85c91ab78c81580cc44cbacf55d07ab24b6ff53254863d77e14ce7284",
+      "case": {
+        "suite": "iterator",
+        "name": "mut_element_nested_pass",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+        "expect": {
+          "exit": 0,
+          "errors": []
+        },
+        "notes": [],
+        "selection": "targeted"
+      },
+      "mode": "on",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --groundPermissionSummaries",
+      "server_build": "measured",
+      "wall_s": 8.09,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          910632694
+        ],
+        "VIR conversion": [
+          55715214
+        ],
+        "backend verification": [
+          6072836215
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 2.75,
+        "system_s": 0.2,
+        "child_user_s": 3.49,
+        "child_system_s": 0.09
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "54147"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412217283568322,
+        "monotonic_ns": 351135845792483,
+        "load_average": [
+          6.01318359375,
+          7.1953125,
+          6.865234375
+        ],
+        "memory_available": "MemAvailable:   15623368 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412225549620569,
+        "monotonic_ns": 351144111845000,
+        "load_average": [
+          5.8515625,
+          7.14208984375,
+          6.849609375
+        ],
+        "memory_available": "MemAvailable:   15061856 kB"
+      },
+      "client_log_sha256": "cc7b34d82eb9757be28990d5768ff3a04f2555300a2efe077475178b954a0b5a",
+      "server_log_sha256": "e2b25abb701a5ee176b417183a95a0ca5a09d87405243889674fe290209201d8"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/117-iterator-mut_native_restoration_vec_wrong-off",
+      "result_sha256": "cf4054a68f517ce78f2cc04582aa2fa14e755713dd9e2f1680855ea3acd93df7",
+      "case": {
+        "suite": "iterator",
+        "name": "mut_native_restoration_vec_wrong",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "d25ed2f875dd9e4172be5cff017c0176f436d6299125201a3fa0d2affe5f5a33",
+        "expect": {
+          "exit": 101,
+          "errors": [
+            "[Prusti: verification error] assertion might not hold"
+          ],
+          "location": "mut_native_restoration_vec_wrong.rs:31:"
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "off",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false",
+      "server_build": "measured",
+      "wall_s": 11.68,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          2279354083
+        ],
+        "VIR conversion": [
+          22698481
+        ],
+        "backend verification": [
+          8387773388
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 3.3,
+        "system_s": 0.21,
+        "child_user_s": 5.29,
+        "child_system_s": 0.11
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "39587"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412380470672793,
+        "monotonic_ns": 351299032896591,
+        "load_average": [
+          4.908203125,
+          6.21240234375,
+          6.5390625
+        ],
+        "memory_available": "MemAvailable:   14307120 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412392423307479,
+        "monotonic_ns": 351310985531470,
+        "load_average": [
+          5.14404296875,
+          6.201171875,
+          6.53076171875
+        ],
+        "memory_available": "MemAvailable:   14189620 kB"
+      },
+      "client_log_sha256": "43685e2b01fae5ca30100e055b53d5c0eef480e4cd8cb3927873f3533a7c532b",
+      "server_log_sha256": "3487b3b44306c2a7956218d73a14a47de8e1ab9aca39cf79e58f836d060aa5bb"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/117-iterator-mut_native_restoration_vec_wrong-on",
+      "result_sha256": "5dcca9f1e700795ec3df95fac2ee9971b529c8089861e9e10495a044e20de861",
+      "case": {
+        "suite": "iterator",
+        "name": "mut_native_restoration_vec_wrong",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "d25ed2f875dd9e4172be5cff017c0176f436d6299125201a3fa0d2affe5f5a33",
+        "expect": {
+          "exit": 101,
+          "errors": [
+            "[Prusti: verification error] assertion might not hold"
+          ],
+          "location": "mut_native_restoration_vec_wrong.rs:31:"
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "on",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --groundPermissionSummaries",
+      "server_build": "measured",
+      "wall_s": 17.62,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          2453920177
+        ],
+        "VIR conversion": [
+          25430703
+        ],
+        "backend verification": [
+          14040844795
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 4.61,
+        "system_s": 0.31,
+        "child_user_s": 9.48,
+        "child_system_s": 0.17
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "45507"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412392691753652,
+        "monotonic_ns": 351311253977095,
+        "load_average": [
+          5.14404296875,
+          6.201171875,
+          6.53076171875
+        ],
+        "memory_available": "MemAvailable:   14524636 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412410774280057,
+        "monotonic_ns": 351329336503919,
+        "load_average": [
+          4.9951171875,
+          6.11083984375,
+          6.49560546875
+        ],
+        "memory_available": "MemAvailable:   14270000 kB"
+      },
+      "client_log_sha256": "0a61d359b37c6e0702833fe24a9dc93156807d4611856f518b4661bcbdc6278b",
+      "server_log_sha256": "f690c750f2abe4213d4b51ea47da9309078a9a47fce4267a5ebb2bb746586c42"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/121-iterator-mut_native_empty_pass-off",
+      "result_sha256": "40e11fdcc78311a2e7d0fb9cae700602b38c4faac94533eb9733d8db2d93fb6e",
+      "case": {
+        "suite": "iterator",
+        "name": "mut_native_empty_pass",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "3f1c683da0372d4f8be85c9f197218c808ecee00d9fcc635d7a199f08ff8f5a1",
+        "expect": {
+          "exit": 0,
+          "errors": []
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "off",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false",
+      "server_build": "measured",
+      "wall_s": 11.72,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          3819251129
+        ],
+        "VIR conversion": [
+          32407863
+        ],
+        "backend verification": [
+          6803091655
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 3.8200000000000003,
+        "system_s": 0.32,
+        "child_user_s": 2.89,
+        "child_system_s": 0.17
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "48113"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412358444087385,
+        "monotonic_ns": 351277006311635,
+        "load_average": [
+          4.79296875,
+          6.28076171875,
+          6.56884765625
+        ],
+        "memory_available": "MemAvailable:   14491288 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412370351848351,
+        "monotonic_ns": 351288914072496,
+        "load_average": [
+          4.89892578125,
+          6.25439453125,
+          6.556640625
+        ],
+        "memory_available": "MemAvailable:   13965412 kB"
+      },
+      "client_log_sha256": "414efe7110c950901f07d8507f592b5420527d03909f05896320fcfd522c270d",
+      "server_log_sha256": "fa4c2fc15f91aa82d7bc97219e0a8037419b1144b3e2f9e542508f56f74e2b97"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/121-iterator-mut_native_empty_pass-on",
+      "result_sha256": "5df315d77ddcb849c45773ecaeca12c4dd1ac139344e72757e2d6eab563e4fee",
+      "case": {
+        "suite": "iterator",
+        "name": "mut_native_empty_pass",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "3f1c683da0372d4f8be85c9f197218c808ecee00d9fcc635d7a199f08ff8f5a1",
+        "expect": {
+          "exit": 0,
+          "errors": []
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "on",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --groundPermissionSummaries",
+      "server_build": "measured",
+      "wall_s": 9.24,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          3714341108
+        ],
+        "VIR conversion": [
+          38156950
+        ],
+        "backend verification": [
+          4412831086
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 2.77,
+        "system_s": 0.23,
+        "child_user_s": 1.78,
+        "child_system_s": 0.08
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "56461"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412370780190730,
+        "monotonic_ns": 351289342414811,
+        "load_average": [
+          4.89892578125,
+          6.25439453125,
+          6.556640625
+        ],
+        "memory_available": "MemAvailable:   14159300 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412380140136470,
+        "monotonic_ns": 351298702360099,
+        "load_average": [
+          4.908203125,
+          6.21240234375,
+          6.5390625
+        ],
+        "memory_available": "MemAvailable:   14025516 kB"
+      },
+      "client_log_sha256": "6700b4d1e6fe24480dd467dc5afbc64e6ab2420992dc8307ea3e9cef7fdf5898",
+      "server_log_sha256": "a08bf20a01adea4f2df5ad28cd5b0e024f6a18a86f3208cd1ebc212da56d523b"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/14-iterator-mut_element_nested_pass-off",
+      "result_sha256": "71da38ee320e4a84014b542c5b523bdb72082c7e8114b29fee5971e4a623f154",
+      "case": {
+        "suite": "iterator",
+        "name": "mut_element_nested_pass",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+        "expect": {
+          "exit": 0,
+          "errors": []
+        },
+        "notes": [],
+        "selection": "targeted"
+      },
+      "mode": "off",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false",
+      "server_build": "measured",
+      "wall_s": 8.71,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          433615422
+        ],
+        "VIR conversion": [
+          58357982
+        ],
+        "backend verification": [
+          7130506434
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 2.64,
+        "system_s": 0.19,
+        "child_user_s": 4.66,
+        "child_system_s": 0.09
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "41169"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412199058849442,
+        "monotonic_ns": 351117621073570,
+        "load_average": [
+          6.400390625,
+          7.34716796875,
+          6.90576171875
+        ],
+        "memory_available": "MemAvailable:   15805508 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412207956414375,
+        "monotonic_ns": 351126518638814,
+        "load_average": [
+          6.03076171875,
+          7.23681640625,
+          6.87451171875
+        ],
+        "memory_available": "MemAvailable:   15582076 kB"
+      },
+      "client_log_sha256": "7a046a9992c99d5ffc0da741439551ef2c58d3a311866c583ddccc3501881b88",
+      "server_log_sha256": "dccaf5cc668b7a4aa637ab27b613244ffdcb576e988426b1a59eb3d4f3e71433"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/14-iterator-mut_element_nested_pass-on",
+      "result_sha256": "3fa0edfe584f9fba0adfb252ce4f6eaec6f62833aaf3813ee44c178c28f4e82d",
+      "case": {
+        "suite": "iterator",
+        "name": "mut_element_nested_pass",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047",
+        "expect": {
+          "exit": 0,
+          "errors": []
+        },
+        "notes": [],
+        "selection": "targeted"
+      },
+      "mode": "on",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --groundPermissionSummaries",
+      "server_build": "measured",
+      "wall_s": 8.25,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          735688218
+        ],
+        "VIR conversion": [
+          66252868
+        ],
+        "backend verification": [
+          6362350392
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 2.87,
+        "system_s": 0.21,
+        "child_user_s": 3.63,
+        "child_system_s": 0.1
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "33403"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412208356937818,
+        "monotonic_ns": 351126919161711,
+        "load_average": [
+          6.03076171875,
+          7.23681640625,
+          6.87451171875
+        ],
+        "memory_available": "MemAvailable:   15815932 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412216767678067,
+        "monotonic_ns": 351135329902238,
+        "load_average": [
+          6.1884765625,
+          7.24951171875,
+          6.880859375
+        ],
+        "memory_available": "MemAvailable:   15383856 kB"
+      },
+      "client_log_sha256": "30a9ba01f6359cd8dd24017313aecbb524df99adf7a07474c783760c9294b291",
+      "server_log_sha256": "f533d2a30d705e7889df62e2c38d6160445a28ce54e777f4fcf6948c0c106d37"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/16-hash-collection_get_mut_expiry_pass-off",
+      "result_sha256": "2617418dbdc1dcdd6feef4efc495803929231b509b69e8a82050e8a172974348",
+      "case": {
+        "suite": "hash",
+        "name": "collection_get_mut_expiry_pass",
+        "package": "stdlib_hash_spec",
+        "source_sha256": "992cad15e290b095559d44c51841493d55ffa9ed338101ab3d5d0b2c5e41bc72",
+        "expect": {
+          "exit": 0,
+          "errors": []
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "off",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false",
+      "server_build": "measured",
+      "wall_s": 9.01,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          1453158873
+        ],
+        "VIR conversion": [
+          59586151
+        ],
+        "backend verification": [
+          5962162713
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 3.9800000000000004,
+        "system_s": 0.23,
+        "child_user_s": 2.55,
+        "child_system_s": 0.14
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_hash_spec",
+            "line": "Checking stdlib_hash_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_hash_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "51215"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412298634982998,
+        "monotonic_ns": 351217197206988,
+        "load_average": [
+          5.48779296875,
+          6.72802734375,
+          6.724609375
+        ],
+        "memory_available": "MemAvailable:   15263048 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412307893595896,
+        "monotonic_ns": 351226455819695,
+        "load_average": [
+          5.10498046875,
+          6.60498046875,
+          6.6845703125
+        ],
+        "memory_available": "MemAvailable:   15083080 kB"
+      },
+      "client_log_sha256": "b52a53115c3f71e836bb5290364db078ed9f99f32a61653747c238580610733f",
+      "server_log_sha256": "6d1f060543ea99603c501a2970885aca3080f8513de06437792b93172096382f"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/16-hash-collection_get_mut_expiry_pass-on",
+      "result_sha256": "1483e44192e6ea2a7cd33eeaf40c49f4f475550d54566ea7aeb16254813d8e62",
+      "case": {
+        "suite": "hash",
+        "name": "collection_get_mut_expiry_pass",
+        "package": "stdlib_hash_spec",
+        "source_sha256": "992cad15e290b095559d44c51841493d55ffa9ed338101ab3d5d0b2c5e41bc72",
+        "expect": {
+          "exit": 0,
+          "errors": []
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "on",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --groundPermissionSummaries",
+      "server_build": "measured",
+      "wall_s": 7.51,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          1029039913
+        ],
+        "VIR conversion": [
+          37904501
+        ],
+        "backend verification": [
+          5520203225
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 2.99,
+        "system_s": 0.21,
+        "child_user_s": 2.68,
+        "child_system_s": 0.12
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_hash_spec",
+            "line": "Checking stdlib_hash_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_hash_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "44547"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412308226288770,
+        "monotonic_ns": 351226788512207,
+        "load_average": [
+          5.10498046875,
+          6.60498046875,
+          6.6845703125
+        ],
+        "memory_available": "MemAvailable:   15390084 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412315932882233,
+        "monotonic_ns": 351234495105980,
+        "load_average": [
+          5.01611328125,
+          6.5615234375,
+          6.669921875
+        ],
+        "memory_available": "MemAvailable:   14900100 kB"
+      },
+      "client_log_sha256": "cc72baa90795e77db86d0646b7ce979021633d680172705d7b74e847e0a836e9",
+      "server_log_sha256": "70117e8659517808a49968eb35e9be56c92d8243e88ff826a473a55fc408fb25"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/17-iterator-mut_native_restoration_vec_wrong-off",
+      "result_sha256": "bbbff15e72eb1990c89e830d0565aa2fd0988c0e2e88667dbfde726b1bd7c712",
+      "case": {
+        "suite": "iterator",
+        "name": "mut_native_restoration_vec_wrong",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "d25ed2f875dd9e4172be5cff017c0176f436d6299125201a3fa0d2affe5f5a33",
+        "expect": {
+          "exit": 101,
+          "errors": [
+            "[Prusti: verification error] assertion might not hold"
+          ],
+          "location": "mut_native_restoration_vec_wrong.rs:31:"
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "off",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false",
+      "server_build": "measured",
+      "wall_s": 18.33,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          3666098111
+        ],
+        "VIR conversion": [
+          33778086
+        ],
+        "backend verification": [
+          13178646066
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 4.9,
+        "system_s": 0.37,
+        "child_user_s": 8.43,
+        "child_system_s": 0.18
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "36071"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412279253694570,
+        "monotonic_ns": 351197815918179,
+        "load_average": [
+          5.52294921875,
+          6.814453125,
+          6.75244140625
+        ],
+        "memory_available": "MemAvailable:   14999752 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412298067515258,
+        "monotonic_ns": 351216629739276,
+        "load_average": [
+          5.48779296875,
+          6.72802734375,
+          6.724609375
+        ],
+        "memory_available": "MemAvailable:   14929180 kB"
+      },
+      "client_log_sha256": "b0a3414b15992cf164f0b1a592e294890c18c25d29cd47ae6a705713fe94dc1f",
+      "server_log_sha256": "e88ced0cb680bc248c5ba1c47d45086d6b54dcee09bf6f266763f3a0e1d84ab3"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/17-iterator-mut_native_restoration_vec_wrong-on",
+      "result_sha256": "5ad49a16c48dc9f84a396e6271ce6f4bcdb63d73d2fddd88cede2d2a8194f763",
+      "case": {
+        "suite": "iterator",
+        "name": "mut_native_restoration_vec_wrong",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "d25ed2f875dd9e4172be5cff017c0176f436d6299125201a3fa0d2affe5f5a33",
+        "expect": {
+          "exit": 101,
+          "errors": [
+            "[Prusti: verification error] assertion might not hold"
+          ],
+          "location": "mut_native_restoration_vec_wrong.rs:31:"
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "on",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --groundPermissionSummaries",
+      "server_build": "measured",
+      "wall_s": 24.33,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          8984420381
+        ],
+        "VIR conversion": [
+          42230060
+        ],
+        "backend verification": [
+          13592376823
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 5.61,
+        "system_s": 0.35,
+        "child_user_s": 8.41,
+        "child_system_s": 0.2
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "40091"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412253922373946,
+        "monotonic_ns": 351172484597851,
+        "load_average": [
+          5.36328125,
+          6.9033203125,
+          6.779296875
+        ],
+        "memory_available": "MemAvailable:   13742884 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412278835304408,
+        "monotonic_ns": 351197397528147,
+        "load_average": [
+          5.52294921875,
+          6.814453125,
+          6.75244140625
+        ],
+        "memory_available": "MemAvailable:   14648516 kB"
+      },
+      "client_log_sha256": "373b80da1d86feb781eb94569eb5e282ac6b877181b90f7ac1759f246ef26472",
+      "server_log_sha256": "15dc84f17d84ff3e6a5540b678f1282039725d0c446c0c3f823b91f4aa84a87f"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/21-iterator-mut_native_empty_pass-off",
+      "result_sha256": "29f52cd9129e812b77f598fd96f9fe19fed301bd8b265fa2fa2633e6deffbcd0",
+      "case": {
+        "suite": "iterator",
+        "name": "mut_native_empty_pass",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "3f1c683da0372d4f8be85c9f197218c808ecee00d9fcc635d7a199f08ff8f5a1",
+        "expect": {
+          "exit": 0,
+          "errors": []
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "off",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false",
+      "server_build": "measured",
+      "wall_s": 10.52,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          2493570526
+        ],
+        "VIR conversion": [
+          24307523
+        ],
+        "backend verification": [
+          7205894000
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 3.54,
+        "system_s": 0.33,
+        "child_user_s": 3.46,
+        "child_system_s": 0.17
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "41467"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412242816295396,
+        "monotonic_ns": 351161378519230,
+        "load_average": [
+          5.52490234375,
+          6.98583984375,
+          6.80419921875
+        ],
+        "memory_available": "MemAvailable:   13635216 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412253444015434,
+        "monotonic_ns": 351172006239304,
+        "load_average": [
+          5.36328125,
+          6.9033203125,
+          6.779296875
+        ],
+        "memory_available": "MemAvailable:   13415752 kB"
+      },
+      "client_log_sha256": "f696af76b7bee07c6cd95a3c16f20c8571d8246d6b05e3d58d2c8be18cc775c8",
+      "server_log_sha256": "496b3819ff1f632750a7dd3f4b1249439e192ae284d54e14dd73ea6a9b6fed34"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/21-iterator-mut_native_empty_pass-on",
+      "result_sha256": "616489be8ae88aca8d16f9a1b2feddb524d0e318e4d31381d48c9ddc1a0f46ca",
+      "case": {
+        "suite": "iterator",
+        "name": "mut_native_empty_pass",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "3f1c683da0372d4f8be85c9f197218c808ecee00d9fcc635d7a199f08ff8f5a1",
+        "expect": {
+          "exit": 0,
+          "errors": []
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "on",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --groundPermissionSummaries",
+      "server_build": "measured",
+      "wall_s": 8.07,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          3088325355
+        ],
+        "VIR conversion": [
+          23131957
+        ],
+        "backend verification": [
+          4191339514
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 2.29,
+        "system_s": 0.2,
+        "child_user_s": 1.92,
+        "child_system_s": 0.09
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "54193"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412234284367466,
+        "monotonic_ns": 351152846591666,
+        "load_average": [
+          5.7080078125,
+          7.07080078125,
+          6.82958984375
+        ],
+        "memory_available": "MemAvailable:   14159532 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412242499070126,
+        "monotonic_ns": 351161061294044,
+        "load_average": [
+          5.52490234375,
+          6.98583984375,
+          6.80419921875
+        ],
+        "memory_available": "MemAvailable:   13428236 kB"
+      },
+      "client_log_sha256": "51153860a69ec45e32696ae41c95e4287c6e1764bdc1ea4bfe90f70e70da283f",
+      "server_log_sha256": "61e8b096d6160330bbd6a7c3d3517e9233598e8e6b0e4674e50c59ad08917071"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/22-iterator-shared_into_iter_wrong_value-off",
+      "result_sha256": "8237e5dade21bc3d42ca11bd3610c1bcce5d1299230b7bf4d2fca0bf5c77c79e",
+      "case": {
+        "suite": "iterator",
+        "name": "shared_into_iter_wrong_value",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "03804ad4296959f0cec26b6a5e711f87307238eedc157b0a1e2259da7f2389bb",
+        "expect": {
+          "exit": 101,
+          "errors": [
+            "[Prusti: verification error] assertion might not hold"
+          ],
+          "location": "shared_into_iter_wrong_value.rs:6:"
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "off",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false",
+      "server_build": "measured",
+      "wall_s": 0.93,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          138755963
+        ],
+        "VIR conversion": [
+          3087828
+        ],
+        "backend verification": [
+          288661829
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 0.25,
+        "system_s": 0.03,
+        "child_user_s": 0.05,
+        "child_system_s": 0.01
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "54571"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412316281190803,
+        "monotonic_ns": 351234843414397,
+        "load_average": [
+          5.01611328125,
+          6.5615234375,
+          6.669921875
+        ],
+        "memory_available": "MemAvailable:   15151792 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412317293812663,
+        "monotonic_ns": 351235856036652,
+        "load_average": [
+          4.8544921875,
+          6.501953125,
+          6.64990234375
+        ],
+        "memory_available": "MemAvailable:   15013436 kB"
+      },
+      "client_log_sha256": "412fcd296e17279b0d804c67fb637854b907018e0ad56db3cd1c81f618fc6cfd",
+      "server_log_sha256": "e17033e68008f9f794e10400b328040a907122c58ce3f5c5b4bfdcadf7cabf94"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/22-iterator-shared_into_iter_wrong_value-on",
+      "result_sha256": "bc0a92418c960c2945995162c298df4da44ce1427bb827128f21bab3d0522981",
+      "case": {
+        "suite": "iterator",
+        "name": "shared_into_iter_wrong_value",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "03804ad4296959f0cec26b6a5e711f87307238eedc157b0a1e2259da7f2389bb",
+        "expect": {
+          "exit": 101,
+          "errors": [
+            "[Prusti: verification error] assertion might not hold"
+          ],
+          "location": "shared_into_iter_wrong_value.rs:6:"
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "on",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --groundPermissionSummaries",
+      "server_build": "measured",
+      "wall_s": 0.88,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          108911838
+        ],
+        "VIR conversion": [
+          3055897
+        ],
+        "backend verification": [
+          360370410
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 0.29,
+        "system_s": 0.03,
+        "child_user_s": 0.09,
+        "child_system_s": 0.01
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "51501"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412317588987350,
+        "monotonic_ns": 351236151210672,
+        "load_average": [
+          4.8544921875,
+          6.501953125,
+          6.64990234375
+        ],
+        "memory_available": "MemAvailable:   14698792 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412318548229036,
+        "monotonic_ns": 351237110452797,
+        "load_average": [
+          4.8544921875,
+          6.501953125,
+          6.64990234375
+        ],
+        "memory_available": "MemAvailable:   14425288 kB"
+      },
+      "client_log_sha256": "f72bcac118ec296a45153f925be3b33e5658f52779db3e18af6567f47a4abe32",
+      "server_log_sha256": "1a25e86ad8ed67799e185f8d440a7f5392a3f1312ffb8914022ca1828a9b19df"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/221-iterator-mut_native_empty_pass-off",
+      "result_sha256": "ade59cb129eef309cd70bd05d229a537edb27249bbb879ef4a7c82d69492b6e4",
+      "case": {
+        "suite": "iterator",
+        "name": "mut_native_empty_pass",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "3f1c683da0372d4f8be85c9f197218c808ecee00d9fcc635d7a199f08ff8f5a1",
+        "expect": {
+          "exit": 0,
+          "errors": []
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "off",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false",
+      "server_build": "final",
+      "wall_s": 11.55,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          4623031379
+        ],
+        "VIR conversion": [
+          31192640
+        ],
+        "backend verification": [
+          5827160555
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 3.2300000000000004,
+        "system_s": 0.31,
+        "child_user_s": 2.57,
+        "child_system_s": 0.13
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "52593"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412735671535537,
+        "monotonic_ns": 351654233759615,
+        "load_average": [
+          6.322265625,
+          6.572265625,
+          6.58056640625
+        ],
+        "memory_available": "MemAvailable:   16885980 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412747381804365,
+        "monotonic_ns": 351665944028675,
+        "load_average": [
+          5.64697265625,
+          6.41259765625,
+          6.52734375
+        ],
+        "memory_available": "MemAvailable:   16605244 kB"
+      },
+      "client_log_sha256": "d0a7d37fd11d4af22fe145391ed8e66421ad82bee164cdb5a4839e0655c9d3bb",
+      "server_log_sha256": "b3d7b04e46bcd1523edb8e2aebd58aea96bf6e4b32b3ac25f3bbae2f9795a600"
+    },
+    {
+      "directory": "/tmp/ferrum-next-solver-work/trials/221-iterator-mut_native_empty_pass-on",
+      "result_sha256": "612d164dcc42034ddeeac3e505004c48ffbdd7695dd6986c66d68f6b96a60331",
+      "case": {
+        "suite": "iterator",
+        "name": "mut_native_empty_pass",
+        "package": "stdlib_iterator_spec",
+        "source_sha256": "3f1c683da0372d4f8be85c9f197218c808ecee00d9fcc635d7a199f08ff8f5a1",
+        "expect": {
+          "exit": 0,
+          "errors": []
+        },
+        "notes": [],
+        "selection": "seeded-stratified"
+      },
+      "mode": "on",
+      "options": "--timeout=60 --numberOfParallelVerifiers 1 --parallelizeBranches=false --groundPermissionSummaries",
+      "server_build": "final",
+      "wall_s": 10.12,
+      "phases_ns": {
+        "Rust to VIR encoding": [
+          2262417579
+        ],
+        "VIR conversion": [
+          21810215
+        ],
+        "backend verification": [
+          7066168887
+        ]
+      },
+      "server_cpu_s": {
+        "user_s": 3.62,
+        "system_s": 0.33,
+        "child_user_s": 3.24,
+        "child_system_s": 0.15
+      },
+      "classification": "valid",
+      "dependency_check": {
+        "valid": true,
+        "events": [
+          {
+            "action": "Checking",
+            "package": "stdlib_iterator_spec",
+            "line": "Checking stdlib_iterator_spec v0.1.0 (/tmp/ferrum-trigger-sample-13cfa/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec)"
+          }
+        ]
+      },
+      "client_cleanup": true,
+      "service_cleanup": {
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0,1,2,3",
+          "/tmp/ferrum-next-solver-work/target/debug/prusti-server-driver",
+          "--port",
+          "46359"
+        ],
+        "leader_exit": -15,
+        "stopped": true,
+        "cleanup_pending": [],
+        "error": null
+      },
+      "host_before": {
+        "wall_time_unix_ns": 1793412724994808140,
+        "monotonic_ns": 351643557031670,
+        "load_average": [
+          6.16845703125,
+          6.55615234375,
+          6.576171875
+        ],
+        "memory_available": "MemAvailable:   16665180 kB"
+      },
+      "host_after": {
+        "wall_time_unix_ns": 1793412735217564235,
+        "monotonic_ns": 351653779788146,
+        "load_average": [
+          6.322265625,
+          6.572265625,
+          6.58056640625
+        ],
+        "memory_available": "MemAvailable:   16604484 kB"
+      },
+      "client_log_sha256": "167864f71ac6b96110c670f370ff7312cd3cb0a3b24d90de0a7eb12e29c49aa4",
+      "server_log_sha256": "abca936d008964173fbdf2b5e700f995ec7e1fb173f4d1b8827fb0fe6b0326a6"
+    }
+  ],
+  "artifacts": {
+    "/tmp/ferrum-next-solver-work/final-candidate.patch": "f9ae7a5f66f3b6518287b5c2ac23e4482245a7c76331e7b15f95ea963fee8283",
+    "/tmp/ferrum-next-solver-work/screen_ground_permissions.py": "820763299a734a40361372d70a55c6fc884d4309bdd468ccf8d868141ae5262e",
+    "/tmp/ferrum-next-solver-work/compare_ground_replay.py": "a598fca70ea124b11bc10d643795309ac024f041ecddb7b14269cfd61183d8ae",
+    "/tmp/ferrum-next-solver-work/screen_thresholds.py": "3754316a0065b3bece4590577cc16a9f5e6c930f4f59de85b590a057811cbfbb",
+    "/tmp/ferrum-next-solver-work/run_ground_sample.py": "27f66ea9c26599899ad49c35295a95ec062aad2fc51f21a5f549254347775a92",
+    "/tmp/ferrum-next-solver-work/run_ground_sample.before-trace-select.py": "9448adb819fb3ccd57da8e87f3e1e9b0ff68cf9d8cf19fef1574b19905075f64",
+    "/tmp/ferrum-next-solver-work/time_ground_sample.py": "d0f7266e18554a4c9ad48ec85e9b10c744348967d548142b0e52aee794165c1f",
+    "/tmp/ferrum-next-solver-work/ground-timing-schedule.json": "4f6920a3865cc555964557b68f04bf9262e4694caf5fcf2a1e8c4480b7729557",
+    "/tmp/ferrum-next-solver-work/ground-timing-complete.json": "dba2c64a3e0f071ab73f5dc65a09dff4cf87a0a133816add8c32e51877e85ebf",
+    "/tmp/ferrum-next-solver-work/build-ground-server.log": "90360b91bbf528dae43c988163c696bc6917624e0baf49d2289d6d2ed03f4677",
+    "/tmp/ferrum-next-solver-work/build-ground-server-final.log": "260dd8c32ca891449bbe66b6d2042eb1531089d8eaff74e542ecaf91b62683bf"
+  }
+}

@@ -60,6 +60,16 @@ The [direct-Prusti trigger experiment](../../porting/performance-summary-trigger
 records the initial nested-case improvement, smaller controls, separate-solver
 interaction and remaining snapshot-cache reuse investigation.
 
+`--groundPermissionSummaries` is an opt-in Ferrum experiment for concrete
+permission lookups. In ordinary non-quantified contexts it emits the relevant
+instance of a permission-summary axiom instead of the whole quantified axiom.
+It retains the original definition in the cache and falls back to the quantified
+axiom in trigger, function-recording, packaging, debugger and other sensitive
+contexts, or if safe instantiation is unavailable. This can change proof
+completeness. Measure it on the intended workload before using it broadly.
+The [permission-summary experiment](../../porting/performance-ground-permissions.md)
+records the bounded replays and direct-Prusti comparison.
+
 ## Run paired backend measurements
 
 ```sh

@@ -751,6 +751,84 @@ mod snapshot_summary_trigger_tests {
     }
 
     #[test]
+    fn ground_permission_definitions_instantiate_each_binder() {
+        use crate::state::terms::Quantifier;
+
+        let factory = TermFactory::new(TermOptions {
+            use_flyweight: false,
+            use_old_axiomatization: false,
+            mask_heap_mode: false,
+        });
+        let var = |name, sort| factory.var(Identifier::new(name), sort, false);
+        let x = var("x", Sort::Int);
+        let y = var("y", Sort::Int);
+        let a = var("a", Sort::Int);
+        let b = var("b", Sort::Int);
+        let definition = factory
+            .quantification(
+                Quantifier::Forall,
+                vec![x.clone(), y.clone()],
+                factory.equals(x.clone(), y.clone()),
+                vec![],
+                "permission".into(),
+                true,
+                None,
+            )
+            .unwrap();
+        let original = [definition.clone()];
+        assert_eq!(
+            permission_summary_definitions(&factory, &original, None),
+            (original.to_vec(), false)
+        );
+        let (instances, instantiated) =
+            permission_summary_definitions(&factory, &original, Some(&[a.clone(), b.clone()]));
+        assert!(instantiated);
+        assert_eq!(instances, vec![factory.equals(a.clone(), b)]);
+        assert_eq!(
+            permission_summary_definitions(&factory, &original, Some(&[a.clone()])),
+            (original.to_vec(), false)
+        );
+        assert_eq!(
+            permission_summary_definitions(&factory, &original, Some(&[a, var("bad", Sort::Bool)]),),
+            (original.to_vec(), false)
+        );
+        let non_quantified = [factory.boolean(true)];
+        assert_eq!(
+            permission_summary_definitions(&factory, &non_quantified, Some(&[])),
+            (non_quantified.to_vec(), false)
+        );
+        let z = var("z", Sort::Int);
+        let nested = factory
+            .quantification(
+                Quantifier::Forall,
+                vec![z.clone()],
+                factory.equals(x.clone(), z),
+                vec![],
+                "nested".into(),
+                true,
+                None,
+            )
+            .unwrap();
+        let outer = factory
+            .quantification(
+                Quantifier::Forall,
+                vec![x, y],
+                nested,
+                vec![],
+                "outer".into(),
+                true,
+                None,
+            )
+            .unwrap();
+        let nested_definitions = [outer];
+        let args = [var("a2", Sort::Int), var("b2", Sort::Int)];
+        assert_eq!(
+            permission_summary_definitions(&factory, &nested_definitions, Some(&args)),
+            (nested_definitions.to_vec(), false)
+        );
+    }
+
+    #[test]
     fn summary_trigger_policy_preserves_bodies_domains_and_resource_triggers() {
         let factory = TermFactory::new(TermOptions {
             use_flyweight: false,
@@ -1439,6 +1517,54 @@ fn emit_snapshot_summary<S: SummaryEmission>(
         .assume_summary_definitions(&definitions, false, instantiations.is_some(), false)
         .map_err(SummaryCacheError::Emit)
 }
+
+/// Keep the original quantified definitions for caching and function recording,
+/// but optionally emit only their instances for the current permission lookup.
+fn permission_summary_definitions(
+    factory: &TermFactory,
+    definitions: &[Term],
+    args: Option<&[Term]>,
+) -> (Vec<Term>, bool) {
+    let Some(args) = args else {
+        return (definitions.to_vec(), false);
+    };
+    let instances = definitions
+        .iter()
+        .map(|definition| {
+            let TermKind::Quantification { vars, body, .. } = definition.kind() else {
+                return None;
+            };
+            if vars.len() != args.len()
+                || vars
+                    .iter()
+                    .zip(args)
+                    .any(|(var, arg)| var.sort() != arg.sort())
+            {
+                return None;
+            }
+            // The general replacement routine is not capture-avoiding. Keep
+            // the quantified definition if its body contains nested binders.
+            let mut nested_binder = false;
+            let traversed = body.visit_opt(&mut |term| {
+                if matches!(
+                    term.kind(),
+                    TermKind::Quantification { .. } | TermKind::Let(..)
+                ) {
+                    nested_binder = true;
+                    false
+                } else {
+                    true
+                }
+            });
+            if nested_binder || traversed.is_err() {
+                return None;
+            }
+            factory.instantiate(definition, args).ok()
+        })
+        .collect::<Option<Vec<_>>>();
+    instances.map_or_else(|| (definitions.to_vec(), false), |terms| (terms, true))
+}
+
 /// Compute or reuse both maps, re-emitting their definitions and recording them in state.
 pub fn heap_summarising_maps<P, D: Clone, J: Clone + PartialEq, S>(
     factory: &TermFactory,
@@ -1450,6 +1576,7 @@ pub fn heap_summarising_maps<P, D: Clone, J: Clone + PartialEq, S>(
     relevant_chunks: &[crate::state::chunks::Chunk],
     domain_condition: Option<Term>,
     instantiations: Option<&[Term]>,
+    permission_instantiations: Option<&[Term]>,
     used_as_trigger: bool,
     disable_isc_triggers: bool,
     disable_value_map_caching: bool,
@@ -1564,8 +1691,15 @@ where
         state.pm_cache.insert(key, definition.clone());
         definition
     };
+    let specialized = permission_instantiations.map(|args| {
+        permission_summary_definitions(factory, &permission.value_definitions, Some(args))
+    });
+    let permission_definitions = specialized
+        .as_ref()
+        .map_or(permission.value_definitions.as_slice(), |(terms, _)| terms);
+    let permission_instantiated = specialized.as_ref().is_some_and(|(_, used)| *used);
     services
-        .assume_summary_definitions(&permission.value_definitions, false, false, true)
+        .assume_summary_definitions(permission_definitions, false, permission_instantiated, true)
         .map_err(SummaryCacheError::Emit)?;
     state.function_recorder = state
         .function_recorder

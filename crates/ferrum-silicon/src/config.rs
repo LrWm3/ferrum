@@ -147,6 +147,8 @@ pub struct Config {
     /// Trigger snapshot value definitions only on the
     /// summarising map lookup. Logical axioms and permission checks are unchanged.
     pub snapshot_summary_only_triggers: bool,
+    /// Experiment: instantiate permission summaries at concrete lookups when safe.
+    pub ground_permission_summaries: bool,
     pub disable_chunk_order_heuristics: bool,
     pub enable_predicate_triggers_on_inhale: bool,
     pub disable_caches: bool,
@@ -220,6 +222,7 @@ impl Default for Config {
             disable_value_map_caching: false,
             disable_isc_triggers: false,
             snapshot_summary_only_triggers: true,
+            ground_permission_summaries: false,
             disable_chunk_order_heuristics: false,
             enable_predicate_triggers_on_inhale: false,
             disable_caches: false,
@@ -349,6 +352,9 @@ impl Config {
                 "disableISCTriggers" => config.disable_isc_triggers = parse_flag(inline, name)?,
                 "snapshotSummaryOnlyTriggers" => {
                     config.snapshot_summary_only_triggers = parse_flag(inline, name)?
+                }
+                "groundPermissionSummaries" => {
+                    config.ground_permission_summaries = parse_flag(inline, name)?
                 }
                 "disableChunkOrderHeuristics" => {
                     config.disable_chunk_order_heuristics = parse_flag(inline, name)?
@@ -866,6 +872,23 @@ mod tests {
             crate::verifier::native_context::NativeOptions::from_config(&disabled).unwrap();
         assert!(!options.snapshot_summary_only_triggers);
         assert!(parse(&["--snapshotSummaryOnlyTriggers=invalid"]).is_err());
+    }
+    #[test]
+    fn ground_permission_summaries_are_opt_in() {
+        assert!(!parse(&[]).unwrap().ground_permission_summaries);
+        let config = parse(&["--groundPermissionSummaries"]).unwrap();
+        assert!(config.ground_permission_summaries);
+        assert!(
+            crate::verifier::native_context::NativeOptions::from_config(&config)
+                .unwrap()
+                .ground_permission_summaries
+        );
+        assert!(
+            !parse(&["--groundPermissionSummaries=false"])
+                .unwrap()
+                .ground_permission_summaries
+        );
+        assert!(parse(&["--groundPermissionSummaries=invalid"]).is_err());
     }
     #[test]
     fn separate_method_solver_is_opt_in_and_independent_of_branch_parallelism() {
