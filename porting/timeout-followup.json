@@ -1,0 +1,3986 @@
+{
+  "kind": "bounded_timeout_followup",
+  "runtime_revision": "2df948c9014de33b7baa13599eaf9d5078906b28",
+  "baseline_runtime_revision": "afdf10cf59106c38d09df32939f1aa9c77d0b989",
+  "source_revisions": {
+    "silicon": "ff386aec4664231dc6f2cb56d8d35f1623088363",
+    "silver": "c4f54b84703a04434b03e97bfea87dbd09870fd2"
+  },
+  "original_report_sha256": "4e876a4733b0dc2bff242b62546559c7b3eb0134e255c1f4c08a3573255a3ec6",
+  "source_archive_sha256": "fdba0e03675c5746e7820098c24bed8091d1d5c5d159e740d119fd5812ee39bb",
+  "selection": [
+    {
+      "id": 0,
+      "key": "default/silver/src/test/resources/all/third_party/stefan_recent/testTreeWand.vpr",
+      "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/all/third_party/stefan_recent/testTreeWand.vpr",
+      "sha256": "8993dacf79a1f7d671dce0e2f7b5b1e1085ccee2d8b18ce2e3afd3f8dc99b91c",
+      "original_options": [
+        "--timeout",
+        "30"
+      ],
+      "annotations": [
+        {
+          "line": 4,
+          "text": "//:: IgnoreFile(/Carbon/issue/253/)"
+        }
+      ],
+      "original_outcomes": {
+        "source": "verifier_timeout",
+        "native": "verifier_timeout"
+      }
+    },
+    {
+      "id": 1,
+      "key": "default/silver/src/test/resources/all/third_party/stefan_recent/testTreeWandE1.vpr",
+      "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/all/third_party/stefan_recent/testTreeWandE1.vpr",
+      "sha256": "96876567e6556d4d99a87b937cf380faccdb15881628865bd727c76ee1f4d81c",
+      "original_options": [
+        "--timeout",
+        "30"
+      ],
+      "annotations": [
+        {
+          "line": 4,
+          "text": "//:: IgnoreFile(/Carbon/issue/253/)"
+        },
+        {
+          "line": 5,
+          "text": "//:: IgnoreFile(/Silicon/issue/1005/)"
+        },
+        {
+          "line": 83,
+          "text": "(forall i: Int :: (1 < i) && (i < |s|) ==> (s[i - 1] <= s[i])) // clear matching loop :("
+        },
+        {
+          "line": 420,
+          "text": "//:: ExpectedOutput(assert.failed:assertion.false)"
+        }
+      ],
+      "original_outcomes": {
+        "source": "verifier_timeout",
+        "native": "verifier_timeout"
+      }
+    },
+    {
+      "id": 2,
+      "key": "default/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+      "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+      "sha256": "54173914a5789a79c2b3022e2e9f9d9dfb598b046dfb25a426f4047352dc1894",
+      "original_options": [
+        "--timeout",
+        "30"
+      ],
+      "annotations": [
+        {
+          "line": 84,
+          "text": "//:: ExpectedOutput(assert.failed:assertion.false)"
+        }
+      ],
+      "original_outcomes": {
+        "source": "verifier_timeout",
+        "native": "verifier_timeout"
+      }
+    },
+    {
+      "id": 3,
+      "key": "default/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+      "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+      "sha256": "bbe165e4ec1039e40caf42e3fb74f251eb25971d1de49605629d1ebf0b6e87c6",
+      "original_options": [
+        "--timeout",
+        "30"
+      ],
+      "annotations": [
+        {
+          "line": 4,
+          "text": "//:: IgnoreFile(/carbon/issue/280/)"
+        },
+        {
+          "line": 5,
+          "text": "//:: IgnoreFile(/silicon/issue/104/)"
+        }
+      ],
+      "original_outcomes": {
+        "source": "verifier_timeout",
+        "native": "verifier_timeout"
+      }
+    },
+    {
+      "id": 4,
+      "key": "default/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+      "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+      "sha256": "0ca764e17e5157f68d5b9c5a6dc2feeffb58af632198360a49d9460862983abf",
+      "original_options": [
+        "--timeout",
+        "30"
+      ],
+      "annotations": [
+        {
+          "line": 4,
+          "text": "//:: IgnoreFile(/carbon/issue/280/)"
+        },
+        {
+          "line": 5,
+          "text": "//:: IgnoreFile(/silicon/issue/104/)"
+        }
+      ],
+      "original_outcomes": {
+        "source": "verifier_timeout",
+        "native": "verifier_timeout"
+      }
+    },
+    {
+      "id": 5,
+      "key": "default/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+      "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+      "sha256": "3bfb64af438a88d256e0acfef0f89d6c4b6c0d673bd19101bf26bfcbc0a1b6ab",
+      "original_options": [
+        "--timeout",
+        "30"
+      ],
+      "annotations": [
+        {
+          "line": 4,
+          "text": "//:: IgnoreFile(/carbon/issue/102/)"
+        },
+        {
+          "line": 5,
+          "text": "//:: IgnoreFile(/silicon/issue/208/)"
+        }
+      ],
+      "original_outcomes": {
+        "source": "verified",
+        "native": "verifier_timeout"
+      }
+    },
+    {
+      "id": 6,
+      "key": "default/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+      "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+      "sha256": "12c6fc8389c13ee35fc6c09e0ab3759fe259940702748d0b3928e295e3822528",
+      "original_options": [
+        "--timeout",
+        "30"
+      ],
+      "annotations": [],
+      "original_outcomes": {
+        "source": "verifier_timeout",
+        "native": "verifier_timeout"
+      }
+    },
+    {
+      "id": 7,
+      "key": "parallel_examples/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+      "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+      "sha256": "54173914a5789a79c2b3022e2e9f9d9dfb598b046dfb25a426f4047352dc1894",
+      "original_options": [
+        "--timeout",
+        "30",
+        "--parallelizeBranches",
+        "--numberOfParallelVerifiers",
+        "2"
+      ],
+      "annotations": [
+        {
+          "line": 84,
+          "text": "//:: ExpectedOutput(assert.failed:assertion.false)"
+        }
+      ],
+      "original_outcomes": {
+        "source": "verifier_timeout",
+        "native": "verifier_timeout"
+      }
+    },
+    {
+      "id": 8,
+      "key": "parallel_examples/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+      "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+      "sha256": "bbe165e4ec1039e40caf42e3fb74f251eb25971d1de49605629d1ebf0b6e87c6",
+      "original_options": [
+        "--timeout",
+        "30",
+        "--parallelizeBranches",
+        "--numberOfParallelVerifiers",
+        "2"
+      ],
+      "annotations": [
+        {
+          "line": 4,
+          "text": "//:: IgnoreFile(/carbon/issue/280/)"
+        },
+        {
+          "line": 5,
+          "text": "//:: IgnoreFile(/silicon/issue/104/)"
+        }
+      ],
+      "original_outcomes": {
+        "source": "verifier_timeout",
+        "native": "verifier_timeout"
+      }
+    },
+    {
+      "id": 9,
+      "key": "parallel_examples/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+      "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+      "sha256": "0ca764e17e5157f68d5b9c5a6dc2feeffb58af632198360a49d9460862983abf",
+      "original_options": [
+        "--timeout",
+        "30",
+        "--parallelizeBranches",
+        "--numberOfParallelVerifiers",
+        "2"
+      ],
+      "annotations": [
+        {
+          "line": 4,
+          "text": "//:: IgnoreFile(/carbon/issue/280/)"
+        },
+        {
+          "line": 5,
+          "text": "//:: IgnoreFile(/silicon/issue/104/)"
+        }
+      ],
+      "original_outcomes": {
+        "source": "verifier_timeout",
+        "native": "verifier_timeout"
+      }
+    },
+    {
+      "id": 10,
+      "key": "parallel_examples/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+      "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+      "sha256": "3bfb64af438a88d256e0acfef0f89d6c4b6c0d673bd19101bf26bfcbc0a1b6ab",
+      "original_options": [
+        "--timeout",
+        "30",
+        "--parallelizeBranches",
+        "--numberOfParallelVerifiers",
+        "2"
+      ],
+      "annotations": [
+        {
+          "line": 4,
+          "text": "//:: IgnoreFile(/carbon/issue/102/)"
+        },
+        {
+          "line": 5,
+          "text": "//:: IgnoreFile(/silicon/issue/208/)"
+        }
+      ],
+      "original_outcomes": {
+        "source": "verifier_timeout",
+        "native": "verified"
+      }
+    },
+    {
+      "id": 11,
+      "key": "parallel_examples/silver/src/test/resources/examples/vmcai2016/linked-list-predicates.vpr",
+      "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates.vpr",
+      "sha256": "5fb7723360179784abc7af42ab88f1e5399c99af0bbca5b6f980173483346c5a",
+      "original_options": [
+        "--timeout",
+        "30",
+        "--parallelizeBranches",
+        "--numberOfParallelVerifiers",
+        "2"
+      ],
+      "annotations": [
+        {
+          "line": 4,
+          "text": "//:: IgnoreFile(/carbon/issue/280/)"
+        },
+        {
+          "line": 5,
+          "text": "//:: IgnoreFile(/silicon/issue/1004/)"
+        }
+      ],
+      "original_outcomes": {
+        "source": "verifier_timeout",
+        "native": "verified"
+      }
+    },
+    {
+      "id": 12,
+      "key": "mask_heap/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+      "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+      "sha256": "bbe165e4ec1039e40caf42e3fb74f251eb25971d1de49605629d1ebf0b6e87c6",
+      "original_options": [
+        "--timeout",
+        "30",
+        "--maskHeapMode"
+      ],
+      "annotations": [
+        {
+          "line": 4,
+          "text": "//:: IgnoreFile(/carbon/issue/280/)"
+        },
+        {
+          "line": 5,
+          "text": "//:: IgnoreFile(/silicon/issue/104/)"
+        }
+      ],
+      "original_outcomes": {
+        "source": "verifier_timeout",
+        "native": "verified"
+      }
+    },
+    {
+      "id": 13,
+      "key": "mask_heap/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+      "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+      "sha256": "0ca764e17e5157f68d5b9c5a6dc2feeffb58af632198360a49d9460862983abf",
+      "original_options": [
+        "--timeout",
+        "30",
+        "--maskHeapMode"
+      ],
+      "annotations": [
+        {
+          "line": 4,
+          "text": "//:: IgnoreFile(/carbon/issue/280/)"
+        },
+        {
+          "line": 5,
+          "text": "//:: IgnoreFile(/silicon/issue/104/)"
+        }
+      ],
+      "original_outcomes": {
+        "source": "verifier_timeout",
+        "native": "verifier_timeout"
+      }
+    },
+    {
+      "id": 14,
+      "key": "mask_heap/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+      "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+      "sha256": "3bfb64af438a88d256e0acfef0f89d6c4b6c0d673bd19101bf26bfcbc0a1b6ab",
+      "original_options": [
+        "--timeout",
+        "30",
+        "--maskHeapMode"
+      ],
+      "annotations": [
+        {
+          "line": 4,
+          "text": "//:: IgnoreFile(/carbon/issue/102/)"
+        },
+        {
+          "line": 5,
+          "text": "//:: IgnoreFile(/silicon/issue/208/)"
+        }
+      ],
+      "original_outcomes": {
+        "source": "verifier_timeout",
+        "native": "verifier_timeout"
+      }
+    }
+  ],
+  "experiments": [
+    {
+      "label": "source-30",
+      "plan": {
+        "backend": "source",
+        "label": "source-30",
+        "seconds": 30,
+        "ids": [
+          5,
+          6,
+          2,
+          0,
+          1,
+          3,
+          4,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ],
+        "extra": [],
+        "cpus": "0-3",
+        "prefix": [
+          "/tmp/ferrum-jdk17/bin/java",
+          "-Xss128m",
+          "-cp",
+          "/tmp/ferrum-stage4-source-driver-classes:/tmp/ferrum-reference-silicon/target/scala-2.13/silicon.jar",
+          "SourceSession",
+          "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3"
+        ],
+        "started": 1793415936.055557,
+        "binary_sha256": "a2195ae9f8a91b82f53df7e1d1b9a650937ebbabbf67d0240c6378b4fbd9990b",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "load": [
+          3.2490234375,
+          2.01416015625,
+          2.3330078125
+        ],
+        "runner_sha256": "17252532625525467812b824c84f8001e91f67392f6c3269299db8914c4eb039"
+      },
+      "observations": [
+        {
+          "id": 5,
+          "key": "default/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+              "phase": "Verification",
+              "outcome": "verified",
+              "errors": [],
+              "warnings": [],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 23.05588917096611,
+          "result_sha256": "53c1f16887cb907332222227c2e26faf1413ea8f7a36da23978d8a9224b2a965",
+          "load": [
+            4.3603515625,
+            2.38232421875,
+            2.447265625
+          ]
+        },
+        {
+          "id": 6,
+          "key": "default/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+              "phase": "Verification",
+              "outcome": "verified",
+              "errors": [],
+              "warnings": [],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 34.095571184006985,
+          "result_sha256": "35d26e688f720cd43fda72ddcc96d04bf9273cef22f09614c914d865aa53094d",
+          "load": [
+            5.74755859375,
+            2.95654296875,
+            2.638671875
+          ]
+        },
+        {
+          "id": 2,
+          "key": "default/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 32.64989325799979,
+          "result_sha256": "f31c9f8202807aab78e91406064d00020d51cc31130564cc12b1d3268e9c0cc3",
+          "load": [
+            6.54833984375,
+            3.4228515625,
+            2.80517578125
+          ]
+        },
+        {
+          "id": 0,
+          "key": "default/silver/src/test/resources/all/third_party/stefan_recent/testTreeWand.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/all/third_party/stefan_recent/testTreeWand.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@45.73--45.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@48.75--48.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@53.73--53.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@55.75--55.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@60.73--60.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@63.75--63.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@68.73--68.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@70.75--70.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@74.48--74.53)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@76.60--76.65)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@86.48--86.53)"
+              ],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 35.56687493401114,
+          "result_sha256": "0aa6fed9c3a1727d1e202355a09b85d22a8352ee457a05c05561a5368740f73d",
+          "load": [
+            7.087890625,
+            3.9248046875,
+            2.99853515625
+          ]
+        },
+        {
+          "id": 1,
+          "key": "default/silver/src/test/resources/all/third_party/stefan_recent/testTreeWandE1.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/all/third_party/stefan_recent/testTreeWandE1.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@47.73--47.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@50.75--50.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@55.73--55.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@57.75--57.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@62.73--62.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@65.75--65.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@70.73--70.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@72.75--72.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@76.48--76.53)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@78.60--78.65)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@92.48--92.53)"
+              ],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 33.60099371499382,
+          "result_sha256": "c873bf164e47f8aa76015dd9f300c9c575249b906a8077fb8d8573be3888a3bc",
+          "load": [
+            7.56494140625,
+            4.40576171875,
+            3.1962890625
+          ]
+        },
+        {
+          "id": 3,
+          "key": "default/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 35.232167857000604,
+          "result_sha256": "d668007c7dcaf8667360b36e119fa88b426b106be3c68d874567de7ecc2d40f3",
+          "load": [
+            8.3603515625,
+            4.9873046875,
+            3.4384765625
+          ]
+        },
+        {
+          "id": 4,
+          "key": "default/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 32.81895865302067,
+          "result_sha256": "1f7b126ac5800f53c3f5879e63965024803acaf3edf8f99b4bd8512a9130cc82",
+          "load": [
+            9.31103515625,
+            5.61767578125,
+            3.708984375
+          ]
+        },
+        {
+          "id": 7,
+          "key": "parallel_examples/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 34.49974313296843,
+          "result_sha256": "1a8fe24548a791607105ce8a2e0cc7188f13d838072fe772f83a77e34bf78573",
+          "load": [
+            9.361328125,
+            6.04052734375,
+            3.92236328125
+          ]
+        },
+        {
+          "id": 8,
+          "key": "parallel_examples/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 33.381355457007885,
+          "result_sha256": "4e0f4d1cefce98e662e73d03663b91dd6bdccc20205c3f677aa682ada95afc5e",
+          "load": [
+            7.80712890625,
+            5.99951171875,
+            3.978515625
+          ]
+        },
+        {
+          "id": 9,
+          "key": "parallel_examples/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 34.50408534501912,
+          "result_sha256": "cce6bb1c1abe03329f36aa57a0cb6e06d79293bf5961f070ea6d0f28ee04946c",
+          "load": [
+            6.9052734375,
+            5.98095703125,
+            4.04833984375
+          ]
+        },
+        {
+          "id": 10,
+          "key": "parallel_examples/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 35.397070578008424,
+          "result_sha256": "34d0c85e600e368d6c69c040226fd38a3adc22ca849297eaacb03954ec08cc27",
+          "load": [
+            8.10791015625,
+            6.3798828125,
+            4.25439453125
+          ]
+        },
+        {
+          "id": 11,
+          "key": "parallel_examples/silver/src/test/resources/examples/vmcai2016/linked-list-predicates.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 35.003167520975694,
+          "result_sha256": "087ecb5a49c8d24ff7ccebf87b6e0e9c5ed2cc40459104ab01a1c54c509b4692",
+          "load": [
+            7.501953125,
+            6.43017578125,
+            4.3525390625
+          ]
+        },
+        {
+          "id": 12,
+          "key": "mask_heap/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 35.53252694796538,
+          "result_sha256": "0cf47af68871ed38073bdc8404d531d5b0b49e1b7146c152af93f15f9d20cd91",
+          "load": [
+            6.98779296875,
+            6.4404296875,
+            4.43505859375
+          ]
+        },
+        {
+          "id": 13,
+          "key": "mask_heap/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 34.80127007700503,
+          "result_sha256": "15716ae7d85f758a95a890f0ba646e48301cf988aa9853607d3dcf7650bce0dd",
+          "load": [
+            6.380859375,
+            6.37109375,
+            4.48681640625
+          ]
+        },
+        {
+          "id": 14,
+          "key": "mask_heap/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 32.969021247990895,
+          "result_sha256": "19b9eaf33ce64b9d4e9ad1bc6470501acee86cfe0d793fb619d6f6246102f80f",
+          "load": [
+            5.99462890625,
+            6.31884765625,
+            4.541015625
+          ]
+        }
+      ]
+    },
+    {
+      "label": "old-30-controls",
+      "plan": {
+        "backend": "old",
+        "label": "old-30-controls",
+        "seconds": 30,
+        "ids": [
+          5,
+          6,
+          2
+        ],
+        "extra": [],
+        "cpus": "4-7",
+        "prefix": [
+          "/tmp/ferrum-stage4-corrected-binaries/compatibility-stdio",
+          "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3"
+        ],
+        "started": 1793415976.2734601,
+        "binary_sha256": "8a576e99313b69c5592a53451740eb73a93a0b113bb409e8dd71f67ee74c3a31",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "load": [
+          5.2666015625,
+          2.67578125,
+          2.54248046875
+        ],
+        "runner_sha256": "17252532625525467812b824c84f8001e91f67392f6c3269299db8914c4eb039"
+      },
+      "observations": [
+        {
+          "id": 5,
+          "key": "default/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+              "configuration_warnings": [],
+              "errors": [],
+              "outcome": "verified",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 0,
+              "backend_warnings_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 12.151453492988367,
+          "result_sha256": "c723d888229994d6ea09887efd492ef712773b77df8d7259f1d76a3911b99b2d",
+          "load": [
+            5.72509765625,
+            2.90478515625,
+            2.6201171875
+          ]
+        },
+        {
+          "id": 6,
+          "key": "default/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 30 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "09c1a50eb94e9b98ccfd802797d1267fcf098c808a0f1c24654e3754c726b34a"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 30.17408940300811,
+          "result_sha256": "ff9f74a6cfb3be5d9dc08f5441cf2f2ee99d3cd7011cf73d4219fceb1b9fae75",
+          "load": [
+            6.5087890625,
+            3.3623046875,
+            2.7822265625
+          ]
+        },
+        {
+          "id": 2,
+          "key": "default/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 30 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "6cf1c61ca60bf4351f63bc78d80d9268f1679ffea8215f7fa159d76ebedb62ba"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 30.241910296026617,
+          "result_sha256": "ec7796329832eed1783a28ece60a5d59b556d46cf27c612a8b74b7f941251aef",
+          "load": [
+            7.19873046875,
+            3.8369140625,
+            2.9599609375
+          ]
+        }
+      ]
+    },
+    {
+      "label": "source-bounded-assert",
+      "plan": {
+        "backend": "source",
+        "label": "source-bounded-assert",
+        "seconds": 30,
+        "ids": [
+          2,
+          1,
+          3
+        ],
+        "extra": [
+          "--assertTimeout=1000",
+          "--reportReasonUnknown"
+        ],
+        "cpus": "4-7",
+        "prefix": [
+          "/tmp/ferrum-jdk17/bin/java",
+          "-Xss128m",
+          "-cp",
+          "/tmp/ferrum-stage4-source-driver-classes:/tmp/ferrum-reference-silicon/target/scala-2.13/silicon.jar",
+          "SourceSession",
+          "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3"
+        ],
+        "started": 1793416061.9093966,
+        "binary_sha256": "a2195ae9f8a91b82f53df7e1d1b9a650937ebbabbf67d0240c6378b4fbd9990b",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "load": [
+          7.087890625,
+          3.9248046875,
+          2.99853515625
+        ],
+        "runner_sha256": "17252532625525467812b824c84f8001e91f67392f6c3269299db8914c4eb039"
+      },
+      "observations": [
+        {
+          "id": 2,
+          "key": "default/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 34.21648868202465,
+          "result_sha256": "83fd476d806864c435765efe0c51c6f4cbb989b1e216c7bc73866a7a8d5b0c48",
+          "load": [
+            7.56494140625,
+            4.40576171875,
+            3.1962890625
+          ]
+        },
+        {
+          "id": 1,
+          "key": "default/silver/src/test/resources/all/third_party/stefan_recent/testTreeWandE1.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/all/third_party/stefan_recent/testTreeWandE1.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@47.73--47.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@50.75--50.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@55.73--55.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@57.75--57.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@62.73--62.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@65.75--65.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@70.73--70.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@72.75--72.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@76.48--76.53)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@78.60--78.65)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@92.48--92.53)"
+              ],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 40.08896442101104,
+          "result_sha256": "20865a8b08afa7e81e9730a8d1570be4a7de30ef2dadb8114372280c560d64a5",
+          "load": [
+            8.49169921875,
+            5.07080078125,
+            3.47412109375
+          ]
+        },
+        {
+          "id": 3,
+          "key": "default/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+              "phase": "Verification",
+              "outcome": "verifier_timeout",
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "position": "<no position>",
+                  "message": "Timeout occurred after 30 second(s)"
+                }
+              ],
+              "warnings": [],
+              "configuration_warnings": []
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 37.775196545990184,
+          "result_sha256": "a7826104691c3e5e451caaa51855790d5b5bb17fd962ad75e45dc3390714550d",
+          "load": [
+            9.34326171875,
+            5.74609375,
+            3.771484375
+          ]
+        }
+      ]
+    },
+    {
+      "label": "current-30-default",
+      "plan": {
+        "backend": "current",
+        "label": "current-30-default",
+        "seconds": 30,
+        "ids": [
+          5,
+          6,
+          2,
+          0,
+          1,
+          3,
+          4
+        ],
+        "extra": [],
+        "cpus": "4-7",
+        "prefix": [
+          "/tmp/ferrum-timeout-triage-2df948c/target/debug/examples/compatibility_session",
+          "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3"
+        ],
+        "started": 1793416250.2387962,
+        "binary_sha256": "a7c830b00367552e1fc8efac704aa10e930e07b4a620bdf87e89e5782d87dfb3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "load": [
+          7.2587890625,
+          5.9970703125,
+          4.021484375
+        ],
+        "runner_sha256": "17252532625525467812b824c84f8001e91f67392f6c3269299db8914c4eb039"
+      },
+      "observations": [
+        {
+          "id": 5,
+          "key": "default/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 30 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "c018e1e75f7286e7c0fb20b8d2ada326fef24e858e07abe7aa93114232a91056"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 30.51725819305284,
+          "result_sha256": "a386d1499ff80f864c972f29a2a275666cbf3fac76907a2b89e16af779a15a77",
+          "load": [
+            7.42529296875,
+            6.14501953125,
+            4.1337890625
+          ]
+        },
+        {
+          "id": 6,
+          "key": "default/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "fold.failed:assertion.false",
+                  "message": "Folding List(this) might fail. Assertion (forall i: Int ::\n  { this.nodes[i].next }\n  0 <= i && i < |this.nodes| ==>\n  (this.nodes[i] in this.nodes) &&\n  (i < |this.nodes| - 1 ?\n    this.nodes[i].next == this.nodes[i + 1] :\n    this.nodes[i].next == null)) might not hold. (linked-list-qp-append.vpr@60.2--60.22)\n",
+                  "position": "linked-list-qp-append.vpr@60.2--60.22"
+                }
+              ],
+              "outcome": "failure",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 0,
+              "backend_warnings_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 2.003080372000113,
+          "result_sha256": "88f8051bbce4c351fdf27c795b7c22e1797d8383b4f3d74ecbd9ee4dfe87e1df",
+          "load": [
+            7.5517578125,
+            6.19287109375,
+            4.16015625
+          ]
+        },
+        {
+          "id": 2,
+          "key": "default/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "postcondition.violated:assertion.false",
+                  "message": "Postcondition of trav_rec might not hold. Assertion (forall n: Ref ::\n  { (n in nodes), n.is_marked }\n  (n in nodes) ==> old(n.is_marked) ==> n.is_marked) might not hold. (graph-marking.vpr@30.10--30.102)\n",
+                  "position": "graph-marking.vpr@30.10--30.102"
+                },
+                {
+                  "id": "assert.failed:assertion.false",
+                  "message": "Assert might fail. Assertion (forall n: Ref :: { (n in nodes) } (n in nodes) ==> n.is_marked) might not hold. (graph-marking.vpr@67.9--67.52)\n",
+                  "position": "graph-marking.vpr@67.9--67.52"
+                },
+                {
+                  "id": "assert.failed:assertion.false",
+                  "message": "Assert might fail. Assertion (forall n: Ref :: { (n in nodes) } (n in nodes) ==> n.is_marked) might not hold. (graph-marking.vpr@85.9--85.52)\n",
+                  "position": "graph-marking.vpr@85.9--85.52"
+                }
+              ],
+              "outcome": "failure",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 0,
+              "backend_warnings_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 1.6345547399832867,
+          "result_sha256": "f01728449bbe0c1f7fdc1837fe9283254ed7104ecf536f1b08db808f018c904b",
+          "load": [
+            7.5517578125,
+            6.19287109375,
+            4.16015625
+          ]
+        },
+        {
+          "id": 0,
+          "key": "default/silver/src/test/resources/all/third_party/stefan_recent/testTreeWand.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/all/third_party/stefan_recent/testTreeWand.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 30 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@45.73--45.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@48.75--48.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@53.73--53.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@55.75--55.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@60.73--60.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@63.75--63.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@68.73--68.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@70.75--70.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@74.48--74.53)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@76.60--76.65)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@86.48--86.53)"
+              ],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "95b0e925261b8e158df104cd31728819ceb2a91f207cd781ed4bd5e755e71f9b"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 30.808446649985854,
+          "result_sha256": "344cc826ae927ed2968e33d9f087a902d164cd9c867f0b4fe29a6324a8973ed6",
+          "load": [
+            8.08935546875,
+            6.46044921875,
+            4.3154296875
+          ]
+        },
+        {
+          "id": 1,
+          "key": "default/silver/src/test/resources/all/third_party/stefan_recent/testTreeWandE1.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/all/third_party/stefan_recent/testTreeWandE1.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 30 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@47.73--47.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@50.75--50.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@55.73--55.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@57.75--57.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@62.73--62.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@65.75--65.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@70.73--70.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@72.75--72.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@76.48--76.53)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@78.60--78.65)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@92.48--92.53)"
+              ],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "190de4d7fae0737976f88536a85fb1b4e3c3a1aaf7b6961fa87e9ad32453491b"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 30.44502906803973,
+          "result_sha256": "e08108db0de40a2163b30a6ace6e80c8a5da209263cd4e101887937fab0710d2",
+          "load": [
+            7.71923828125,
+            6.5146484375,
+            4.40283203125
+          ]
+        },
+        {
+          "id": 3,
+          "key": "default/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+              "configuration_warnings": [],
+              "errors": [],
+              "outcome": "verified",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 0,
+              "backend_warnings_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 8.400234685046598,
+          "result_sha256": "5aa34c013d410a496f624370b1be69b380e0444d8c3cdce949c9aab25614d0a5",
+          "load": [
+            7.4677734375,
+            6.498046875,
+            4.419921875
+          ]
+        },
+        {
+          "id": 4,
+          "key": "default/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 30 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "a12b320ff1c0f329c64811aecfc10215e9cd293f894384f01abee39bebf47bed"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 30.358743779012002,
+          "result_sha256": "839d1139966f37feb51b4ee4cac13af60c6046e78e9e8ea6382e37233637d17b",
+          "load": [
+            6.97216796875,
+            6.4677734375,
+            4.4765625
+          ]
+        }
+      ]
+    },
+    {
+      "label": "current-30-modes",
+      "plan": {
+        "backend": "current",
+        "label": "current-30-modes",
+        "seconds": 30,
+        "ids": [
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ],
+        "extra": [],
+        "cpus": "8-11",
+        "prefix": [
+          "/tmp/ferrum-timeout-triage-2df948c/target/debug/examples/compatibility_session",
+          "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3"
+        ],
+        "started": 1793416241.7609005,
+        "binary_sha256": "a7c830b00367552e1fc8efac704aa10e930e07b4a620bdf87e89e5782d87dfb3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "load": [
+          7.6767578125,
+          6.0322265625,
+          4.01123046875
+        ],
+        "runner_sha256": "17252532625525467812b824c84f8001e91f67392f6c3269299db8914c4eb039"
+      },
+      "observations": [
+        {
+          "id": 7,
+          "key": "parallel_examples/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "postcondition.violated:assertion.false",
+                  "message": "Postcondition of trav_rec might not hold. Assertion (forall n: Ref ::\n  { (n in nodes), n.is_marked }\n  (n in nodes) ==> old(n.is_marked) ==> n.is_marked) might not hold. (graph-marking.vpr@30.10--30.102)\n",
+                  "position": "graph-marking.vpr@30.10--30.102"
+                },
+                {
+                  "id": "assert.failed:assertion.false",
+                  "message": "Assert might fail. Assertion (forall n: Ref :: { (n in nodes) } (n in nodes) ==> n.is_marked) might not hold. (graph-marking.vpr@67.9--67.52)\n",
+                  "position": "graph-marking.vpr@67.9--67.52"
+                },
+                {
+                  "id": "assert.failed:assertion.false",
+                  "message": "Assert might fail. Assertion (forall n: Ref :: { (n in nodes) } (n in nodes) ==> n.is_marked) might not hold. (graph-marking.vpr@85.9--85.52)\n",
+                  "position": "graph-marking.vpr@85.9--85.52"
+                }
+              ],
+              "outcome": "failure",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 0,
+              "backend_warnings_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 1.5440262199845165,
+          "result_sha256": "93659d55675395c75394fea180376d00032cd2b7b018e37a97f14f77f779dedd",
+          "load": [
+            7.54248046875,
+            6.03125,
+            4.02197265625
+          ]
+        },
+        {
+          "id": 8,
+          "key": "parallel_examples/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 30 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "ea0f7e3ada4173f5f27459eafb8cf1ffb63af4e0a654236230faeb5bcbf15ad3"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 30.857657012005802,
+          "result_sha256": "7c195c7a74d78aebbb99193f55b20c00ae537cc1f1f05a2660bd0e08aaf7d624",
+          "load": [
+            7.375,
+            6.11328125,
+            4.11279296875
+          ]
+        },
+        {
+          "id": 9,
+          "key": "parallel_examples/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 30 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "ea0f7e3ada4173f5f27459eafb8cf1ffb63af4e0a654236230faeb5bcbf15ad3"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 30.483747121004853,
+          "result_sha256": "3a12ad55ba8138c7a325f83a1871e1b0d2754371d0c03e3f8000aa7faf54de1d",
+          "load": [
+            8.01904296875,
+            6.390625,
+            4.26953125
+          ]
+        },
+        {
+          "id": 10,
+          "key": "parallel_examples/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 30 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "c5259f2a7c875618b0abb0dffe69a52596d7e268bd9d7956b7656286859276d8"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 30.71762802801095,
+          "result_sha256": "3d5aeb1e1debe7f6b1cec2c1d628ecf21d31f099c17ac8d4612b908c4c2cad6a",
+          "load": [
+            7.501953125,
+            6.43017578125,
+            4.3525390625
+          ]
+        },
+        {
+          "id": 11,
+          "key": "parallel_examples/silver/src/test/resources/examples/vmcai2016/linked-list-predicates.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates.vpr",
+              "configuration_warnings": [],
+              "errors": [],
+              "outcome": "verified",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 0,
+              "backend_warnings_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 9.690219864016399,
+          "result_sha256": "c170dc1e673e98b48eda9e70feef82e0fa8c63670d4ddc9613a129b038cbd613",
+          "load": [
+            7.71923828125,
+            6.5146484375,
+            4.40283203125
+          ]
+        },
+        {
+          "id": 12,
+          "key": "mask_heap/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+              "configuration_warnings": [],
+              "errors": [],
+              "outcome": "verified",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 0,
+              "backend_warnings_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 9.719090759987012,
+          "result_sha256": "7e8d57f581928081a1a624d1c5389aea1b22bd17f1dc2ff1d85fd65c3771bf3f",
+          "load": [
+            7.4677734375,
+            6.498046875,
+            4.419921875
+          ]
+        },
+        {
+          "id": 13,
+          "key": "mask_heap/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 30 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "a12b320ff1c0f329c64811aecfc10215e9cd293f894384f01abee39bebf47bed"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 30.347233448992483,
+          "result_sha256": "f218677b43620104a3126c70f0094ed18e0042fbfba69794983d29133bb8498a",
+          "load": [
+            6.97216796875,
+            6.4677734375,
+            4.4765625
+          ]
+        },
+        {
+          "id": 14,
+          "key": "mask_heap/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 30 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "057243c54a668c27a2b7439fcd08f0aaf7182ada252c43f47d22fee14c8a364b"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 30.359091439982876,
+          "result_sha256": "fa5551ea1a119ca89c0fcce4bb5882bc960cfa85f18c019bbfc627ad600aa03c",
+          "load": [
+            6.9921875,
+            6.5068359375,
+            4.5517578125
+          ]
+        }
+      ]
+    },
+    {
+      "label": "current-old-triggers",
+      "plan": {
+        "backend": "current",
+        "label": "current-old-triggers",
+        "seconds": 30,
+        "ids": [
+          6,
+          2,
+          3,
+          5
+        ],
+        "extra": [
+          "--snapshotSummaryOnlyTriggers=false",
+          "--reportReasonUnknown"
+        ],
+        "cpus": "4-7",
+        "prefix": [
+          "/tmp/ferrum-timeout-triage-2df948c/target/debug/examples/compatibility_session",
+          "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3"
+        ],
+        "started": 1793416404.9394925,
+        "binary_sha256": "a7c830b00367552e1fc8efac704aa10e930e07b4a620bdf87e89e5782d87dfb3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "load": [
+          6.380859375,
+          6.37109375,
+          4.48681640625
+        ],
+        "runner_sha256": "17252532625525467812b824c84f8001e91f67392f6c3269299db8914c4eb039"
+      },
+      "observations": [
+        {
+          "id": 6,
+          "key": "default/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 30 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "09c1a50eb94e9b98ccfd802797d1267fcf098c808a0f1c24654e3754c726b34a"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 30.19083055498777,
+          "result_sha256": "4559b2f689a9f5ec71b7e29d4af58cd309eb6593277bf1d8aff3b2cc9c5341de",
+          "load": [
+            6.25537109375,
+            6.375,
+            4.5498046875
+          ]
+        },
+        {
+          "id": 2,
+          "key": "default/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 30 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "6cf1c61ca60bf4351f63bc78d80d9268f1679ffea8215f7fa159d76ebedb62ba"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 30.18060964497272,
+          "result_sha256": "a895d5a6978d99cc62a8b04fa89d607c56246ddff6e81ae7cc65f66cd22c97f5",
+          "load": [
+            5.22900390625,
+            6.11474609375,
+            4.521484375
+          ]
+        },
+        {
+          "id": 3,
+          "key": "default/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 30 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "a12b320ff1c0f329c64811aecfc10215e9cd293f894384f01abee39bebf47bed"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 30.47612756898161,
+          "result_sha256": "709e234267576859e42ff1c69398dc78f19ef0231d039a3cc8a30b9d77902646",
+          "load": [
+            4.544921875,
+            5.86376953125,
+            4.48779296875
+          ]
+        },
+        {
+          "id": 5,
+          "key": "default/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+              "configuration_warnings": [],
+              "errors": [],
+              "outcome": "verified",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 0,
+              "backend_warnings_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 4.653040489007253,
+          "result_sha256": "968dcd049d42b7d8936258f69c3f342039f189ca16eeab5df60b88f716f5f62c",
+          "load": [
+            4.66162109375,
+            5.8662109375,
+            4.49609375
+          ]
+        }
+      ]
+    },
+    {
+      "label": "current-source-lifecycle",
+      "plan": {
+        "backend": "current",
+        "label": "current-source-lifecycle",
+        "seconds": 30,
+        "ids": [
+          6,
+          5
+        ],
+        "extra": [
+          "--snapshotSummaryOnlyTriggers=false",
+          "--separateMethodSolver",
+          "--reportReasonUnknown"
+        ],
+        "cpus": "0-3",
+        "prefix": [
+          "/tmp/ferrum-timeout-triage-2df948c/target/debug/examples/compatibility_session",
+          "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3"
+        ],
+        "started": 1793416490.5538342,
+        "binary_sha256": "a7c830b00367552e1fc8efac704aa10e930e07b4a620bdf87e89e5782d87dfb3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "load": [
+          4.5927734375,
+          5.8955078125,
+          4.49072265625
+        ],
+        "runner_sha256": "17252532625525467812b824c84f8001e91f67392f6c3269299db8914c4eb039"
+      },
+      "observations": [
+        {
+          "id": 6,
+          "key": "default/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+              "configuration_warnings": [],
+              "errors": [],
+              "outcome": "verified",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 0,
+              "backend_warnings_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 0.7100606060121208,
+          "result_sha256": "543fd9419403a29bc92f044424d44b2dae829043dab9e4432e53c6501faf5bef",
+          "load": [
+            4.5927734375,
+            5.8955078125,
+            4.49072265625
+          ]
+        },
+        {
+          "id": 5,
+          "key": "default/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 30 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "06b7ff84bfa5203c8e0925c20b07fa1c20fcde07239e3c0aa1b870a40e7e2465"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 30.409314663964324,
+          "result_sha256": "6736deb77bda82a0dddc209fb90accf216c0a109aaafce5f6249343c50696824",
+          "load": [
+            5.13720703125,
+            5.9052734375,
+            4.5400390625
+          ]
+        }
+      ]
+    },
+    {
+      "label": "current-source-lifecycle-repeat",
+      "plan": {
+        "backend": "current",
+        "label": "current-source-lifecycle-repeat",
+        "seconds": 30,
+        "ids": [
+          6
+        ],
+        "extra": [
+          "--reportReasonUnknown",
+          "--separateMethodSolver",
+          "--snapshotSummaryOnlyTriggers=false"
+        ],
+        "cpus": "0-3",
+        "prefix": [
+          "/tmp/ferrum-timeout-triage-2df948c/target/debug/examples/compatibility_session",
+          "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3"
+        ],
+        "started": 1793416565.8877249,
+        "binary_sha256": "a7c830b00367552e1fc8efac704aa10e930e07b4a620bdf87e89e5782d87dfb3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "load": [
+          3.98828125,
+          5.48388671875,
+          4.46044921875
+        ],
+        "runner_sha256": "17252532625525467812b824c84f8001e91f67392f6c3269299db8914c4eb039"
+      },
+      "observations": [
+        {
+          "id": 6,
+          "key": "default/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+              "configuration_warnings": [],
+              "errors": [],
+              "outcome": "verified",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 0,
+              "backend_warnings_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 0.7082111350027844,
+          "result_sha256": "1533b575b96ffb980d9772bcb9a6de9d65f76d57c15fb582e05235afe04ff3f6",
+          "load": [
+            3.98828125,
+            5.48388671875,
+            4.46044921875
+          ]
+        }
+      ]
+    },
+    {
+      "label": "current-separate-on",
+      "plan": {
+        "backend": "current",
+        "label": "current-separate-on",
+        "seconds": 30,
+        "ids": [
+          6
+        ],
+        "extra": [
+          "--reportReasonUnknown",
+          "--separateMethodSolver"
+        ],
+        "cpus": "0-3",
+        "prefix": [
+          "/tmp/ferrum-timeout-triage-2df948c/target/debug/examples/compatibility_session",
+          "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3"
+        ],
+        "started": 1793416564.899445,
+        "binary_sha256": "a7c830b00367552e1fc8efac704aa10e930e07b4a620bdf87e89e5782d87dfb3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "load": [
+          3.98828125,
+          5.48388671875,
+          4.46044921875
+        ],
+        "runner_sha256": "17252532625525467812b824c84f8001e91f67392f6c3269299db8914c4eb039"
+      },
+      "observations": [
+        {
+          "id": 6,
+          "key": "default/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "fold.failed:assertion.false",
+                  "message": "Folding List(this) might fail. Assertion (forall i: Int ::\n  { this.nodes[i].next }\n  0 <= i && i < |this.nodes| ==>\n  (this.nodes[i] in this.nodes) &&\n  (i < |this.nodes| - 1 ?\n    this.nodes[i].next == this.nodes[i + 1] :\n    this.nodes[i].next == null)) might not hold. (linked-list-qp-append.vpr@60.2--60.22)\n\nPotential prover incompleteness: (incomplete quantifiers)",
+                  "position": "linked-list-qp-append.vpr@60.2--60.22"
+                }
+              ],
+              "outcome": "failure",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 0,
+              "backend_warnings_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 0.5066945659928024,
+          "result_sha256": "a732d89d560b0a16a5ea042807e2f5b90a024429dc5063d9245176f7dcd2af5e",
+          "load": [
+            3.98828125,
+            5.48388671875,
+            4.46044921875
+          ]
+        }
+      ]
+    },
+    {
+      "label": "current-repeat-on",
+      "plan": {
+        "backend": "current",
+        "label": "current-repeat-on",
+        "seconds": 30,
+        "ids": [
+          5,
+          6,
+          3
+        ],
+        "extra": [
+          "--reportReasonUnknown"
+        ],
+        "cpus": "4-7",
+        "prefix": [
+          "/tmp/ferrum-timeout-triage-2df948c/target/debug/examples/compatibility_session",
+          "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3"
+        ],
+        "started": 1793416549.7711213,
+        "binary_sha256": "a7c830b00367552e1fc8efac704aa10e930e07b4a620bdf87e89e5782d87dfb3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "load": [
+          4.0888671875,
+          5.578125,
+          4.47412109375
+        ],
+        "runner_sha256": "17252532625525467812b824c84f8001e91f67392f6c3269299db8914c4eb039"
+      },
+      "observations": [
+        {
+          "id": 5,
+          "key": "default/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+              "configuration_warnings": [],
+              "errors": [],
+              "outcome": "verified",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 0,
+              "backend_warnings_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 5.915254039980937,
+          "result_sha256": "ca54347f215e128f3a122e2eca793f92c6adb7ef8405ba85049c78a5b98195c9",
+          "load": [
+            4.00146484375,
+            5.53515625,
+            4.4658203125
+          ]
+        },
+        {
+          "id": 6,
+          "key": "default/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "fold.failed:assertion.false",
+                  "message": "Folding List(this) might fail. Assertion (forall i: Int ::\n  { this.nodes[i].next }\n  0 <= i && i < |this.nodes| ==>\n  (this.nodes[i] in this.nodes) &&\n  (i < |this.nodes| - 1 ?\n    this.nodes[i].next == this.nodes[i + 1] :\n    this.nodes[i].next == null)) might not hold. (linked-list-qp-append.vpr@60.2--60.22)\n\nPotential prover incompleteness: (incomplete quantifiers)",
+                  "position": "linked-list-qp-append.vpr@60.2--60.22"
+                }
+              ],
+              "outcome": "failure",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 0,
+              "backend_warnings_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 0.8096867960412055,
+          "result_sha256": "476ab96c1d0178205ab9061486a4d592081f4379afd66cf8e708a4e83dd01fb8",
+          "load": [
+            4.00146484375,
+            5.53515625,
+            4.4658203125
+          ]
+        },
+        {
+          "id": 3,
+          "key": "default/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+              "configuration_warnings": [],
+              "errors": [],
+              "outcome": "verified",
+              "phase": "verification",
+              "warnings": [],
+              "backend_warning_count": 0,
+              "backend_warnings_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 4.542096950986888,
+          "result_sha256": "3a95b4dcf4f8c890c8584609e08e2adf3be4642b239df44d0aed3b9054f2e192",
+          "load": [
+            4.16162109375,
+            5.54296875,
+            4.47412109375
+          ]
+        }
+      ]
+    },
+    {
+      "label": "current-60-tree",
+      "plan": {
+        "backend": "current",
+        "label": "current-60-tree",
+        "seconds": 60,
+        "ids": [
+          0,
+          1
+        ],
+        "extra": [],
+        "cpus": "8-11",
+        "prefix": [
+          "/tmp/ferrum-timeout-triage-2df948c/target/debug/examples/compatibility_session",
+          "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3"
+        ],
+        "started": 1793416458.0753198,
+        "binary_sha256": "a7c830b00367552e1fc8efac704aa10e930e07b4a620bdf87e89e5782d87dfb3",
+        "z3_sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "load": [
+          5.33642578125,
+          6.15087890625,
+          4.5244140625
+        ],
+        "runner_sha256": "17252532625525467812b824c84f8001e91f67392f6c3269299db8914c4eb039"
+      },
+      "observations": [
+        {
+          "id": 0,
+          "key": "default/silver/src/test/resources/all/third_party/stefan_recent/testTreeWand.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/all/third_party/stefan_recent/testTreeWand.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 60 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@45.73--45.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@48.75--48.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@53.73--53.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@55.75--55.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@60.73--60.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@63.75--63.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@68.73--68.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@70.75--70.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@74.48--74.53)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@76.60--76.65)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWand.vpr@86.48--86.53)"
+              ],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "716ce5f3c7a401dd1fe04052c2993e19bc0a26bb370aa4b9c0697241e3e2900d"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 60.42231100302888,
+          "result_sha256": "eed48c68cd53bac5cf840bcde28a706175dfa63c4f7cf53636c9059a18a06cc9",
+          "load": [
+            5.13720703125,
+            5.9052734375,
+            4.5400390625
+          ]
+        },
+        {
+          "id": 1,
+          "key": "default/silver/src/test/resources/all/third_party/stefan_recent/testTreeWandE1.vpr",
+          "session": "completed",
+          "exit_code": 0,
+          "records": [
+            {
+              "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/all/third_party/stefan_recent/testTreeWandE1.vpr",
+              "configuration_warnings": [],
+              "errors": [
+                {
+                  "id": "timeout.error",
+                  "message": "Timeout occurred after 60 second(s)",
+                  "position": "<no position>"
+                }
+              ],
+              "outcome": "verifier_timeout",
+              "phase": "verification",
+              "warnings": [
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@47.73--47.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@50.75--50.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@55.73--55.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@57.75--57.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@62.73--62.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@65.75--65.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@70.73--70.78)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@72.75--72.80)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@76.48--76.53)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@78.60--78.65)",
+                "Type checker warning: Function contains specific permission amount that will be treated like wildcard if it is positive and none otherwise. (testTreeWandE1.vpr@92.48--92.53)"
+              ],
+              "backend_warning_count": 2,
+              "backend_warnings_sha256": "d8038bf54f9729b104545b68bbf5a4648d7d0730e6391875bf31ad0761fa82e2"
+            }
+          ],
+          "cleanup_pending": [],
+          "protocol_errors": [],
+          "wall_seconds": 60.701222395990044,
+          "result_sha256": "fde1b051be46a2d32a5f845ca177fef09f5dbb131db598971e838640da1d7e3e",
+          "load": [
+            3.54736328125,
+            5.3125,
+            4.42041015625
+          ]
+        }
+      ]
+    }
+  ],
+  "traces": [
+    {
+      "label": "old-graph-trace",
+      "command": [
+        "taskset",
+        "-c",
+        "4-7",
+        "/tmp/ferrum-stage4-corrected-binaries/compatibility-stdio",
+        "/tmp/ferrum-timeout-triage-2df948c/old-graph-trace/z3-relay",
+        "--timeout",
+        "30",
+        "--proverLogFile=/tmp/ferrum-timeout-triage-2df948c/old-graph-trace/prover.smt2",
+        "--",
+        "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr"
+      ],
+      "outcome": "completed",
+      "wall_seconds": 30.285339338995982,
+      "records": [
+        {
+          "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+          "configuration_warnings": [],
+          "errors": [
+            {
+              "id": "timeout.error",
+              "message": "Timeout occurred after 30 second(s)",
+              "position": "<no position>"
+            }
+          ],
+          "outcome": "verifier_timeout",
+          "phase": "verification",
+          "warnings": [],
+          "backend_warning_count": 2,
+          "backend_warnings_sha256": "6cf1c61ca60bf4351f63bc78d80d9268f1679ffea8215f7fa159d76ebedb62ba"
+        }
+      ],
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-timeout-triage-2df948c/old-graph-trace/streams/1121977-355130640050707",
+          "metadata": {
+            "argv": [
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "proxy_pid": 1121977,
+            "solver_pid": 1121988,
+            "started_monotonic_ns": 355130640311588,
+            "started_wall_ns": 1793416212078716870,
+            "capture_format": "persist-before-forward-v2",
+            "forwarded_ns_boundary": "forwarding start, recorded before write"
+          },
+          "issues": [
+            "Missing response to command 2397 check-sat"
+          ],
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 71,
+            "declare-datatypes": 1,
+            "declare-sort": 9,
+            "declare-const": 129,
+            "declare-fun": 112,
+            "assert": 1087,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 15,
+            "check-sat": 153,
+            "push": 411,
+            "pop": 406
+          },
+          "response_count": 2397,
+          "forall_count": 519,
+          "exists_count": 3,
+          "pattern_count": 681,
+          "input_bytes": 347029,
+          "output_bytes": 18902,
+          "input_sha256": "abb82996495819c389c9a4504f306940b41e4295ef6990937b709bfad7d60efa",
+          "output_sha256": "cf21ead7790edc499e1d9600d5e2d4832901e9f2e09ffa3ab88831b35309657e",
+          "last_query": {
+            "index": 2397,
+            "name": "check-sat",
+            "start": 347017,
+            "end": 347028,
+            "bytes": 11,
+            "sha256": "6f88caa47c10ce10786be06169194c03789188d3969eed4e8ed98187f767d41b",
+            "canonical_sha256": "d31d38a376072e41a81e76818e63b1fd60a691b4703ef0a07de7e3e3c0f67b62",
+            "forwarded_ns": 355131997487335,
+            "received_ns": 355131997484282,
+            "preview": "( check-sat )"
+          },
+          "query_response_wait_sum_s": 0.226000505,
+          "last_query_sent_after_s": 1.357172694,
+          "reason_unknown_responses": {}
+        }
+      ],
+      "result_sha256": "726b533ad4a13c3576b43788cc2b79bff7bd6f9c18d65ba5f6c6de7bbeddecd8"
+    },
+    {
+      "label": "current-append-trace",
+      "command": [
+        "taskset",
+        "-c",
+        "0-3",
+        "/tmp/ferrum-timeout-triage-2df948c/target/debug/examples/compatibility_session",
+        "/tmp/ferrum-timeout-triage-2df948c/current-append-trace/z3-relay",
+        "--timeout",
+        "30",
+        "--reportReasonUnknown",
+        "--proverLogFile=/tmp/ferrum-timeout-triage-2df948c/current-append-trace/prover.smt2",
+        "--",
+        "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr"
+      ],
+      "outcome": "completed",
+      "wall_seconds": 0.6611840039840899,
+      "records": [
+        {
+          "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+          "configuration_warnings": [],
+          "errors": [
+            {
+              "id": "fold.failed:assertion.false",
+              "message": "Folding List(this) might fail. Assertion (forall i: Int ::\n  { this.nodes[i].next }\n  0 <= i && i < |this.nodes| ==>\n  (this.nodes[i] in this.nodes) &&\n  (i < |this.nodes| - 1 ?\n    this.nodes[i].next == this.nodes[i + 1] :\n    this.nodes[i].next == null)) might not hold. (linked-list-qp-append.vpr@60.2--60.22)\n\nPotential prover incompleteness: (incomplete quantifiers)",
+              "position": "linked-list-qp-append.vpr@60.2--60.22"
+            }
+          ],
+          "outcome": "failure",
+          "phase": "verification",
+          "warnings": [],
+          "backend_warning_count": 0,
+          "backend_warnings_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      ],
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-timeout-triage-2df948c/current-append-trace/streams/1173001-355408443068444",
+          "metadata": {
+            "argv": [
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "proxy_pid": 1173001,
+            "solver_pid": 1173002,
+            "started_monotonic_ns": 355408443159164,
+            "started_wall_ns": 1793416489881214114,
+            "capture_format": "persist-before-forward-v2",
+            "forwarded_ns_boundary": "forwarding start, recorded before write"
+          },
+          "issues": [],
+          "command_counts": {
+            "get-info": 44,
+            "set-option": 307,
+            "declare-datatypes": 1,
+            "declare-sort": 13,
+            "declare-const": 184,
+            "declare-fun": 167,
+            "assert": 2052,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 12,
+            "check-sat": 264,
+            "push": 496,
+            "pop": 496
+          },
+          "response_count": 4039,
+          "forall_count": 1554,
+          "exists_count": 5,
+          "pattern_count": 1586,
+          "input_bytes": 839264,
+          "output_bytes": 33483,
+          "input_sha256": "91ca38bdb95a206610dcb83fe4089d91efba0dc9f8f35900bd07bd5038858937",
+          "output_sha256": "a46b4650ad1628eccc80b13b26d1cffb424dbc95cb3ef43165073d01961b1b6d",
+          "last_query": {
+            "index": 4033,
+            "name": "check-sat",
+            "start": 839185,
+            "end": 839196,
+            "bytes": 11,
+            "sha256": "6f88caa47c10ce10786be06169194c03789188d3969eed4e8ed98187f767d41b",
+            "canonical_sha256": "d31d38a376072e41a81e76818e63b1fd60a691b4703ef0a07de7e3e3c0f67b62",
+            "forwarded_ns": 355409033087313,
+            "received_ns": 355409033086736,
+            "preview": "( check-sat )",
+            "response_index": 4033,
+            "response": "unknown",
+            "response_received_ns": 355409033896534,
+            "response_wait_s": 0.000809798
+          },
+          "query_response_wait_sum_s": 0.099561138,
+          "last_query_sent_after_s": 0.589927572,
+          "reason_unknown_responses": {
+            "(:reason-unknown \"(incomplete quantifiers)\")": 43
+          }
+        }
+      ],
+      "result_sha256": "48366e176a6344a769b56c6df9c330dc1c68a1debd03c12e77c9c7d122d926c2"
+    },
+    {
+      "label": "current-wand-trace-0",
+      "command": [
+        "taskset",
+        "-c",
+        "0-3",
+        "/tmp/ferrum-timeout-triage-2df948c/target/debug/examples/compatibility_session",
+        "/tmp/ferrum-timeout-triage-2df948c/current-wand-trace-0/z3-relay",
+        "--timeout",
+        "30",
+        "--proverLogFile=/tmp/ferrum-timeout-triage-2df948c/current-wand-trace-0/prover.smt2",
+        "--",
+        "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr"
+      ],
+      "outcome": "completed",
+      "wall_seconds": 30.42290946096182,
+      "records": [
+        {
+          "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+          "configuration_warnings": [],
+          "errors": [
+            {
+              "id": "timeout.error",
+              "message": "Timeout occurred after 30 second(s)",
+              "position": "<no position>"
+            }
+          ],
+          "outcome": "verifier_timeout",
+          "phase": "verification",
+          "warnings": [],
+          "backend_warning_count": 2,
+          "backend_warnings_sha256": "c018e1e75f7286e7c0fb20b8d2ada326fef24e858e07abe7aa93114232a91056"
+        }
+      ],
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-timeout-triage-2df948c/current-wand-trace-0/streams/1198103-355551047189677",
+          "metadata": {
+            "argv": [
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "proxy_pid": 1198103,
+            "solver_pid": 1198105,
+            "started_monotonic_ns": 355551047297768,
+            "started_wall_ns": 1793416632485375060,
+            "capture_format": "persist-before-forward-v2",
+            "forwarded_ns_boundary": "forwarding start, recorded before write"
+          },
+          "issues": [
+            "Missing response to command 3546 check-sat"
+          ],
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 523,
+            "declare-datatypes": 1,
+            "declare-sort": 5,
+            "declare-const": 85,
+            "declare-fun": 79,
+            "assert": 1182,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 331,
+            "push": 673,
+            "pop": 660
+          },
+          "response_count": 3546,
+          "forall_count": 94,
+          "exists_count": 0,
+          "pattern_count": 102,
+          "input_bytes": 372920,
+          "output_bytes": 28248,
+          "input_sha256": "ba1ff377a99cdd99869d5a1e4694b25c7c2c19a41b2487ae2bf2a2865849430d",
+          "output_sha256": "3fe30b548f860dffbffaab64ffa8f51878a6bca704bdd4f63c15f64926cb6dce",
+          "last_query": {
+            "index": 3546,
+            "name": "check-sat",
+            "start": 372908,
+            "end": 372919,
+            "bytes": 11,
+            "sha256": "6f88caa47c10ce10786be06169194c03789188d3969eed4e8ed98187f767d41b",
+            "canonical_sha256": "d31d38a376072e41a81e76818e63b1fd60a691b4703ef0a07de7e3e3c0f67b62",
+            "forwarded_ns": 355553777912024,
+            "received_ns": 355553777911013,
+            "preview": "( check-sat )"
+          },
+          "query_response_wait_sum_s": 1.917179936,
+          "last_query_sent_after_s": 2.730613245,
+          "reason_unknown_responses": {}
+        }
+      ],
+      "result_sha256": "fb9f14bfd7ee66b9c52b5c0e71de66faef288de7f6d43ec0b851b23dbdf3ca0e"
+    },
+    {
+      "label": "current-wand-trace-1",
+      "command": [
+        "taskset",
+        "-c",
+        "4-7",
+        "/tmp/ferrum-timeout-triage-2df948c/target/debug/examples/compatibility_session",
+        "/tmp/ferrum-timeout-triage-2df948c/current-wand-trace-1/z3-relay",
+        "--timeout",
+        "30",
+        "--proverLogFile=/tmp/ferrum-timeout-triage-2df948c/current-wand-trace-1/prover.smt2",
+        "--",
+        "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr"
+      ],
+      "outcome": "completed",
+      "wall_seconds": 30.455062153982,
+      "records": [
+        {
+          "case": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+          "configuration_warnings": [],
+          "errors": [
+            {
+              "id": "timeout.error",
+              "message": "Timeout occurred after 30 second(s)",
+              "position": "<no position>"
+            }
+          ],
+          "outcome": "verifier_timeout",
+          "phase": "verification",
+          "warnings": [],
+          "backend_warning_count": 2,
+          "backend_warnings_sha256": "81dad98eadb729f3cce3e4281bd6c539614dc0d65e92a8f9451e62c83e26830e"
+        }
+      ],
+      "streams": [
+        {
+          "folder": "/tmp/ferrum-timeout-triage-2df948c/current-wand-trace-1/streams/1198104-355551070173871",
+          "metadata": {
+            "argv": [
+              "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+              "-smt2",
+              "-in"
+            ],
+            "proxy_pid": 1198104,
+            "solver_pid": 1198108,
+            "started_monotonic_ns": 355551070365526,
+            "started_wall_ns": 1793416632508657778,
+            "capture_format": "persist-before-forward-v2",
+            "forwarded_ns_boundary": "forwarding start, recorded before write"
+          },
+          "issues": [
+            "Missing response to command 4516 check-sat"
+          ],
+          "command_counts": {
+            "get-info": 1,
+            "set-option": 713,
+            "declare-datatypes": 1,
+            "declare-sort": 5,
+            "declare-const": 102,
+            "declare-fun": 79,
+            "assert": 1445,
+            "define-sort": 1,
+            "define-const": 2,
+            "define-fun": 4,
+            "check-sat": 446,
+            "push": 865,
+            "pop": 853
+          },
+          "response_count": 4516,
+          "forall_count": 95,
+          "exists_count": 0,
+          "pattern_count": 103,
+          "input_bytes": 479557,
+          "output_bytes": 35938,
+          "input_sha256": "a058920eacf1df9b70f8ef285bcdb407de29c4268ba0d5c1962965eece58ab2c",
+          "output_sha256": "61eda5cf0d538dbe7af8bf711b658be662036bf13d4ff47a892b2f5e6517f36d",
+          "last_query": {
+            "index": 4516,
+            "name": "check-sat",
+            "start": 479545,
+            "end": 479556,
+            "bytes": 11,
+            "sha256": "6f88caa47c10ce10786be06169194c03789188d3969eed4e8ed98187f767d41b",
+            "canonical_sha256": "d31d38a376072e41a81e76818e63b1fd60a691b4703ef0a07de7e3e3c0f67b62",
+            "forwarded_ns": 355558436678316,
+            "received_ns": 355558436674950,
+            "preview": "( check-sat )"
+          },
+          "query_response_wait_sum_s": 5.479961737,
+          "last_query_sent_after_s": 7.366309424,
+          "reason_unknown_responses": {}
+        }
+      ],
+      "result_sha256": "eebcc69d8ef4fe541758c77af98eed810bd5a2f2313392bfe2f0b1864f2c7930"
+    }
+  ],
+  "wand_emission_comparison": {
+    "streams": [
+      {
+        "folder": "/tmp/ferrum-timeout-triage-2df948c/current-wand-trace-0/streams/1198103-355551047189677",
+        "metadata": {
+          "argv": [
+            "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+            "-smt2",
+            "-in"
+          ],
+          "proxy_pid": 1198103,
+          "solver_pid": 1198105,
+          "started_monotonic_ns": 355551047297768,
+          "started_wall_ns": 1793416632485375060,
+          "capture_format": "persist-before-forward-v2",
+          "forwarded_ns_boundary": "forwarding start, recorded before write"
+        },
+        "issues": [
+          "Missing response to command 3546 check-sat"
+        ],
+        "command_counts": {
+          "get-info": 1,
+          "set-option": 523,
+          "declare-datatypes": 1,
+          "declare-sort": 5,
+          "declare-const": 85,
+          "declare-fun": 79,
+          "assert": 1182,
+          "define-sort": 1,
+          "define-const": 2,
+          "define-fun": 4,
+          "check-sat": 331,
+          "push": 673,
+          "pop": 660
+        },
+        "response_count": 3546,
+        "forall_count": 94,
+        "exists_count": 0,
+        "pattern_count": 102,
+        "input_bytes": 372920,
+        "output_bytes": 28248,
+        "input_sha256": "ba1ff377a99cdd99869d5a1e4694b25c7c2c19a41b2487ae2bf2a2865849430d",
+        "output_sha256": "3fe30b548f860dffbffaab64ffa8f51878a6bca704bdd4f63c15f64926cb6dce"
+      },
+      {
+        "folder": "/tmp/ferrum-timeout-triage-2df948c/current-wand-trace-1/streams/1198104-355551070173871",
+        "metadata": {
+          "argv": [
+            "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+            "-smt2",
+            "-in"
+          ],
+          "proxy_pid": 1198104,
+          "solver_pid": 1198108,
+          "started_monotonic_ns": 355551070365526,
+          "started_wall_ns": 1793416632508657778,
+          "capture_format": "persist-before-forward-v2",
+          "forwarded_ns_boundary": "forwarding start, recorded before write"
+        },
+        "issues": [
+          "Missing response to command 4516 check-sat"
+        ],
+        "command_counts": {
+          "get-info": 1,
+          "set-option": 713,
+          "declare-datatypes": 1,
+          "declare-sort": 5,
+          "declare-const": 102,
+          "declare-fun": 79,
+          "assert": 1445,
+          "define-sort": 1,
+          "define-const": 2,
+          "define-fun": 4,
+          "check-sat": 446,
+          "push": 865,
+          "pop": 853
+        },
+        "response_count": 4516,
+        "forall_count": 95,
+        "exists_count": 0,
+        "pattern_count": 103,
+        "input_bytes": 479557,
+        "output_bytes": 35938,
+        "input_sha256": "a058920eacf1df9b70f8ef285bcdb407de29c4268ba0d5c1962965eece58ab2c",
+        "output_sha256": "61eda5cf0d538dbe7af8bf711b658be662036bf13d4ff47a892b2f5e6517f36d"
+      }
+    ],
+    "first_difference": [
+      1679,
+      "( assert ( not ( = tmp@65@main ( $SortWrappers.$SnapTo$Ref ( $Snap.first snapshot@59@main ) ) ) ) )",
+      "( assert ( not ( = tmp@65@main tmp@61@main ) ) )"
+    ],
+    "identical_prior_command_count": 1679,
+    "identical_prior_responses": true,
+    "first_disjointness_group_same_multiset": true,
+    "first_disjointness_group_order": [
+      [
+        "( assert ( not ( = tmp@65@main ( $SortWrappers.$SnapTo$Ref ( $Snap.first snapshot@59@main ) ) ) ) )",
+        "( assert ( not ( = tmp@65@main this@56@main ) ) )",
+        "( assert ( not ( = tmp@65@main tmp@61@main ) ) )",
+        "( assert ( not ( = tmp@65@main ( $SortWrappers.$SnapTo$Ref ( $Snap.first ( $Snap.second ( $Snap.second snapshot@59@main ) ) ) ) ) ) )"
+      ],
+      [
+        "( assert ( not ( = tmp@65@main tmp@61@main ) ) )",
+        "( assert ( not ( = tmp@65@main ( $SortWrappers.$SnapTo$Ref ( $Snap.first ( $Snap.second ( $Snap.second snapshot@59@main ) ) ) ) ) ) )",
+        "( assert ( not ( = tmp@65@main ( $SortWrappers.$SnapTo$Ref ( $Snap.first snapshot@59@main ) ) ) ) )",
+        "( assert ( not ( = tmp@65@main this@56@main ) ) )"
+      ]
+    ]
+  },
+  "audit": {
+    "artifacts": [
+      {
+        "path": "/tmp/ferrum-reference-silicon/target/scala-2.13/silicon.jar",
+        "sha256": "bcab94591994788e41a62fa673f1001339ac2323ef58e27d428a7ca739c12726",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-jdk17/bin/java",
+        "sha256": "a2195ae9f8a91b82f53df7e1d1b9a650937ebbabbf67d0240c6378b4fbd9990b",
+        "matches": true
+      },
+      {
+        "path": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-stage4-corrected-binaries/compatibility-stdio",
+        "sha256": "8a576e99313b69c5592a53451740eb73a93a0b113bb409e8dd71f67ee74c3a31",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-stage4-source-driver-classes/SourceSession$CaptureReporter.class",
+        "sha256": "5d19f77eb95eb9402d417b9d281a2d873651ab972af3525a33d85b44ada11077",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-stage4-source-driver-classes/SourceSession.class",
+        "sha256": "baceab9d251d2b5c587290998965465fa7b8f62be6498723b19ab3e9b50422e7",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/all/third_party/stefan_recent/testTreeWand.vpr",
+        "sha256": "8993dacf79a1f7d671dce0e2f7b5b1e1085ccee2d8b18ce2e3afd3f8dc99b91c",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/all/third_party/stefan_recent/testTreeWandE1.vpr",
+        "sha256": "96876567e6556d4d99a87b937cf380faccdb15881628865bd727c76ee1f4d81c",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+        "sha256": "54173914a5789a79c2b3022e2e9f9d9dfb598b046dfb25a426f4047352dc1894",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+        "sha256": "bbe165e4ec1039e40caf42e3fb74f251eb25971d1de49605629d1ebf0b6e87c6",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+        "sha256": "0ca764e17e5157f68d5b9c5a6dc2feeffb58af632198360a49d9460862983abf",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+        "sha256": "3bfb64af438a88d256e0acfef0f89d6c4b6c0d673bd19101bf26bfcbc0a1b6ab",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+        "sha256": "12c6fc8389c13ee35fc6c09e0ab3759fe259940702748d0b3928e295e3822528",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+        "sha256": "54173914a5789a79c2b3022e2e9f9d9dfb598b046dfb25a426f4047352dc1894",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+        "sha256": "bbe165e4ec1039e40caf42e3fb74f251eb25971d1de49605629d1ebf0b6e87c6",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+        "sha256": "0ca764e17e5157f68d5b9c5a6dc2feeffb58af632198360a49d9460862983abf",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+        "sha256": "3bfb64af438a88d256e0acfef0f89d6c4b6c0d673bd19101bf26bfcbc0a1b6ab",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates.vpr",
+        "sha256": "5fb7723360179784abc7af42ab88f1e5399c99af0bbca5b6f980173483346c5a",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+        "sha256": "bbe165e4ec1039e40caf42e3fb74f251eb25971d1de49605629d1ebf0b6e87c6",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+        "sha256": "0ca764e17e5157f68d5b9c5a6dc2feeffb58af632198360a49d9460862983abf",
+        "matches": true
+      },
+      {
+        "path": "/tmp/ferrum-reference-silicon/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+        "sha256": "3bfb64af438a88d256e0acfef0f89d6c4b6c0d673bd19101bf26bfcbc0a1b6ab",
+        "matches": true
+      }
+    ],
+    "unchanged_source_files": 851,
+    "completed_runs": 49,
+    "completed_traces": 4
+  },
+  "preserved_evidence": {
+    "path": "porting/evidence/timeout-triage/observations.tar.gz",
+    "sha256": "459f0581fc4a5b5b8ca056eb61a7af303034e9c28d9242bb9525c022088fd935",
+    "inventory": [
+      {
+        "path": "build.log",
+        "bytes": 1191,
+        "sha256": "3b0e4769ab76dcff48ac033de6da17c8d3cdd70f828a0849beba4373d0e0bd16"
+      },
+      {
+        "path": "collect.py",
+        "bytes": 8255,
+        "sha256": "a87913a5d9bdd093e44a12c5acaa3b6c16df2113155f1fb7543801dd605d44da"
+      },
+      {
+        "path": "current-30-default/00.json",
+        "bytes": 11986,
+        "sha256": "344cc826ae927ed2968e33d9f087a902d164cd9c867f0b4fe29a6324a8973ed6"
+      },
+      {
+        "path": "current-30-default/00.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-30-default/01.json",
+        "bytes": 11385,
+        "sha256": "e08108db0de40a2163b30a6ace6e80c8a5da209263cd4e101887937fab0710d2"
+      },
+      {
+        "path": "current-30-default/01.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-30-default/02.json",
+        "bytes": 2856,
+        "sha256": "f01728449bbe0c1f7fdc1837fe9283254ed7104ecf536f1b08db808f018c904b"
+      },
+      {
+        "path": "current-30-default/02.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-30-default/03.json",
+        "bytes": 1090,
+        "sha256": "5aa34c013d410a496f624370b1be69b380e0444d8c3cdce949c9aab25614d0a5"
+      },
+      {
+        "path": "current-30-default/03.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-30-default/04.json",
+        "bytes": 5264,
+        "sha256": "839d1139966f37feb51b4ee4cac13af60c6046e78e9e8ea6382e37233637d17b"
+      },
+      {
+        "path": "current-30-default/04.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-30-default/05.json",
+        "bytes": 6300,
+        "sha256": "a386d1499ff80f864c972f29a2a275666cbf3fac76907a2b89e16af779a15a77"
+      },
+      {
+        "path": "current-30-default/05.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-30-default/06.json",
+        "bytes": 2038,
+        "sha256": "88f8051bbce4c351fdf27c795b7c22e1797d8383b4f3d74ecbd9ee4dfe87e1df"
+      },
+      {
+        "path": "current-30-default/06.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-30-default/complete.json",
+        "bytes": 22280,
+        "sha256": "ebdc26fdc58eb06d7f8293cb17902308c0490074c097b52000eb698fc30e11b9"
+      },
+      {
+        "path": "current-30-default/plan.json",
+        "bytes": 697,
+        "sha256": "d7f011ac9b55d6eb406adea17f6b77d34e6a0ebab0a946fdbc98fb00afa37195"
+      },
+      {
+        "path": "current-30-default/progress.json",
+        "bytes": 22280,
+        "sha256": "ebdc26fdc58eb06d7f8293cb17902308c0490074c097b52000eb698fc30e11b9"
+      },
+      {
+        "path": "current-30-default.log",
+        "bytes": 1200,
+        "sha256": "472d68b76d42be35ba636ea5cbb04167becb099ebde9eac453ce0595395130b4"
+      },
+      {
+        "path": "current-30-modes/07.json",
+        "bytes": 2930,
+        "sha256": "93659d55675395c75394fea180376d00032cd2b7b018e37a97f14f77f779dedd"
+      },
+      {
+        "path": "current-30-modes/07.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-30-modes/08.json",
+        "bytes": 2335,
+        "sha256": "7c195c7a74d78aebbb99193f55b20c00ae537cc1f1f05a2660bd0e08aaf7d624"
+      },
+      {
+        "path": "current-30-modes/08.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-30-modes/09.json",
+        "bytes": 2380,
+        "sha256": "3a12ad55ba8138c7a325f83a1871e1b0d2754371d0c03e3f8000aa7faf54de1d"
+      },
+      {
+        "path": "current-30-modes/09.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-30-modes/10.json",
+        "bytes": 10250,
+        "sha256": "3d5aeb1e1debe7f6b1cec2c1d628ecf21d31f099c17ac8d4612b908c4c2cad6a"
+      },
+      {
+        "path": "current-30-modes/10.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-30-modes/11.json",
+        "bytes": 1158,
+        "sha256": "c170dc1e673e98b48eda9e70feef82e0fa8c63670d4ddc9613a129b038cbd613"
+      },
+      {
+        "path": "current-30-modes/11.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-30-modes/12.json",
+        "bytes": 1113,
+        "sha256": "7e8d57f581928081a1a624d1c5389aea1b22bd17f1dc2ff1d85fd65c3771bf3f"
+      },
+      {
+        "path": "current-30-modes/12.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-30-modes/13.json",
+        "bytes": 5287,
+        "sha256": "f218677b43620104a3126c70f0094ed18e0042fbfba69794983d29133bb8498a"
+      },
+      {
+        "path": "current-30-modes/13.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-30-modes/14.json",
+        "bytes": 7040,
+        "sha256": "fa5551ea1a119ca89c0fcce4bb5882bc960cfa85f18c019bbfc627ad600aa03c"
+      },
+      {
+        "path": "current-30-modes/14.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-30-modes/complete.json",
+        "bytes": 17858,
+        "sha256": "2388644663fa37c390b5335ae31cd523ec8ab2966324ee4046225db3fa1b8ae5"
+      },
+      {
+        "path": "current-30-modes/plan.json",
+        "bytes": 710,
+        "sha256": "0b2b00c38a2bc529efde7416e6851154dc4da2ca43836bd4cd337af0fc2c6344"
+      },
+      {
+        "path": "current-30-modes/progress.json",
+        "bytes": 17858,
+        "sha256": "2388644663fa37c390b5335ae31cd523ec8ab2966324ee4046225db3fa1b8ae5"
+      },
+      {
+        "path": "current-30-modes.log",
+        "bytes": 1421,
+        "sha256": "2bf8c72c26522a462b911b81173b3187d3c2592a9f3ab2cc1ef8d6c6f71eff70"
+      },
+      {
+        "path": "current-60-tree/00.json",
+        "bytes": 11206,
+        "sha256": "eed48c68cd53bac5cf840bcde28a706175dfa63c4f7cf53636c9059a18a06cc9"
+      },
+      {
+        "path": "current-60-tree/00.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-60-tree/01.json",
+        "bytes": 12585,
+        "sha256": "fde1b051be46a2d32a5f845ca177fef09f5dbb131db598971e838640da1d7e3e"
+      },
+      {
+        "path": "current-60-tree/01.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-60-tree/complete.json",
+        "bytes": 12447,
+        "sha256": "789dd45c1cba8611a990bf6ba2dc1d11d57b167ad1c492aa4bca14903f451bd5"
+      },
+      {
+        "path": "current-60-tree/plan.json",
+        "bytes": 663,
+        "sha256": "8568b4453efa88b1fa411d9b63b13e41cda125d7b25075ed37a9f079ac35fec2"
+      },
+      {
+        "path": "current-60-tree/progress.json",
+        "bytes": 12447,
+        "sha256": "789dd45c1cba8611a990bf6ba2dc1d11d57b167ad1c492aa4bca14903f451bd5"
+      },
+      {
+        "path": "current-60-tree.log",
+        "bytes": 331,
+        "sha256": "0df0541d33faacb3a53a27b3070ee702aeedea58ca7ea6145f02ac6cbc6c7d18"
+      },
+      {
+        "path": "current-append-trace/command.json",
+        "bytes": 720,
+        "sha256": "8dae7d936097f7a922dcd0f96332dff2e1cc6350f398b7f56c2dc3f79fb8115b"
+      },
+      {
+        "path": "current-append-trace/prover.smt2-main.smt2",
+        "bytes": 874403,
+        "sha256": "13f9a292c75ecbb8cef4bfea407d57064d88ecfa7b6ada18e4bbb131bf523ec5"
+      },
+      {
+        "path": "current-append-trace/result.json",
+        "bytes": 2289,
+        "sha256": "48366e176a6344a769b56c6df9c330dc1c68a1debd03c12e77c9c7d122d926c2"
+      },
+      {
+        "path": "current-append-trace/streams/1173001-355408443068444/analysis.json",
+        "bytes": 3135200,
+        "sha256": "1502e44066a6330202475ec872978cc0293644deef755906104e6692a8a96759"
+      },
+      {
+        "path": "current-append-trace/streams/1173001-355408443068444/chunks.jsonl",
+        "bytes": 940769,
+        "sha256": "bb6a36da704e6ec24c7f3b5b791ac561ea3608d925f184842405ae5b53291252"
+      },
+      {
+        "path": "current-append-trace/streams/1173001-355408443068444/metadata.json",
+        "bytes": 357,
+        "sha256": "3b837e5b08b9463883f0b99fd9292013724126bda800507dc448ef930bc374f3"
+      },
+      {
+        "path": "current-append-trace/streams/1173001-355408443068444/stderr.bin",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-append-trace/streams/1173001-355408443068444/stdin.bin",
+        "bytes": 839264,
+        "sha256": "91ca38bdb95a206610dcb83fe4089d91efba0dc9f8f35900bd07bd5038858937"
+      },
+      {
+        "path": "current-append-trace/streams/1173001-355408443068444/stdout.bin",
+        "bytes": 33483,
+        "sha256": "a46b4650ad1628eccc80b13b26d1cffb424dbc95cb3ef43165073d01961b1b6d"
+      },
+      {
+        "path": "current-append-trace/z3-relay",
+        "bytes": 365,
+        "sha256": "14e63cae09440c644a62e0970daab63fb739dd1d1668067689be9051936c19ea"
+      },
+      {
+        "path": "current-old-triggers/02.json",
+        "bytes": 3050,
+        "sha256": "a895d5a6978d99cc62a8b04fa89d607c56246ddff6e81ae7cc65f66cd22c97f5"
+      },
+      {
+        "path": "current-old-triggers/02.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-old-triggers/03.json",
+        "bytes": 5290,
+        "sha256": "709e234267576859e42ff1c69398dc78f19ef0231d039a3cc8a30b9d77902646"
+      },
+      {
+        "path": "current-old-triggers/03.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-old-triggers/05.json",
+        "bytes": 1189,
+        "sha256": "968dcd049d42b7d8936258f69c3f342039f189ca16eeab5df60b88f716f5f62c"
+      },
+      {
+        "path": "current-old-triggers/05.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-old-triggers/06.json",
+        "bytes": 2765,
+        "sha256": "4559b2f689a9f5ec71b7e29d4af58cd309eb6593277bf1d8aff3b2cc9c5341de"
+      },
+      {
+        "path": "current-old-triggers/06.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-old-triggers/complete.json",
+        "bytes": 6934,
+        "sha256": "bfa501f0efb493b89d72c441e2fb07898dd08473c33e1748280dfdd327f6cd81"
+      },
+      {
+        "path": "current-old-triggers/plan.json",
+        "bytes": 751,
+        "sha256": "ba3f7bea0ea2d2aca6ec539fd2d4f47b38e50ed7c08a6dbf9d8a7840985d74c8"
+      },
+      {
+        "path": "current-old-triggers/progress.json",
+        "bytes": 6934,
+        "sha256": "bfa501f0efb493b89d72c441e2fb07898dd08473c33e1748280dfdd327f6cd81"
+      },
+      {
+        "path": "current-old-triggers.log",
+        "bytes": 707,
+        "sha256": "a44fd73920fcf6ea4341c72a80e9c1ba1cf076b455cc9bedb41cbbadb2609334"
+      },
+      {
+        "path": "current-repeat-on/03.json",
+        "bytes": 1119,
+        "sha256": "3a95b4dcf4f8c890c8584609e08e2adf3be4642b239df44d0aed3b9054f2e192"
+      },
+      {
+        "path": "current-repeat-on/03.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-repeat-on/05.json",
+        "bytes": 1146,
+        "sha256": "ca54347f215e128f3a122e2eca793f92c6adb7ef8405ba85049c78a5b98195c9"
+      },
+      {
+        "path": "current-repeat-on/05.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-repeat-on/06.json",
+        "bytes": 2187,
+        "sha256": "476ab96c1d0178205ab9061486a4d592081f4379afd66cf8e708a4e83dd01fb8"
+      },
+      {
+        "path": "current-repeat-on/06.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-repeat-on/complete.json",
+        "bytes": 2898,
+        "sha256": "d532548b10e67bb97912710bdd12c89d0b51db7fec6aba1bba2998ad3a62f66d"
+      },
+      {
+        "path": "current-repeat-on/plan.json",
+        "bytes": 697,
+        "sha256": "ff6bf9aaebfb777574c38face3baaf15edc488c52e986ce6d6fcbcbc10c1c463"
+      },
+      {
+        "path": "current-repeat-on/progress.json",
+        "bytes": 2898,
+        "sha256": "d532548b10e67bb97912710bdd12c89d0b51db7fec6aba1bba2998ad3a62f66d"
+      },
+      {
+        "path": "current-repeat-on.log",
+        "bytes": 501,
+        "sha256": "a4f45b4edef2b354f2f2595dc7ae5378cdef19fad5317b9476c78de674342e98"
+      },
+      {
+        "path": "current-separate-on/06.json",
+        "bytes": 2217,
+        "sha256": "a732d89d560b0a16a5ea042807e2f5b90a024429dc5063d9245176f7dcd2af5e"
+      },
+      {
+        "path": "current-separate-on/06.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-separate-on/complete.json",
+        "bytes": 1344,
+        "sha256": "1655b832cebb8b62b3867681a52befc9463f311f65bc872adff48789876dbd29"
+      },
+      {
+        "path": "current-separate-on/plan.json",
+        "bytes": 717,
+        "sha256": "0a165bc00de4ca7c70ba65420160916dd54e9354eda950d0ff5bbe999fb8553a"
+      },
+      {
+        "path": "current-separate-on/progress.json",
+        "bytes": 1344,
+        "sha256": "1655b832cebb8b62b3867681a52befc9463f311f65bc872adff48789876dbd29"
+      },
+      {
+        "path": "current-separate-on.log",
+        "bytes": 174,
+        "sha256": "0370b906727eff35dad536a3baad25cab7d7d0601ebdb451bf634c42e49819d7"
+      },
+      {
+        "path": "current-source-lifecycle/05.json",
+        "bytes": 6073,
+        "sha256": "6736deb77bda82a0dddc209fb90accf216c0a109aaafce5f6249343c50696824"
+      },
+      {
+        "path": "current-source-lifecycle/05.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-source-lifecycle/06.json",
+        "bytes": 1223,
+        "sha256": "543fd9419403a29bc92f044424d44b2dae829043dab9e4432e53c6501faf5bef"
+      },
+      {
+        "path": "current-source-lifecycle/06.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-source-lifecycle/complete.json",
+        "bytes": 4008,
+        "sha256": "ac9a2b74a5472beb9edf597af028167fd2fe44fc56057d0a6e4cc00ed414cfd4"
+      },
+      {
+        "path": "current-source-lifecycle/plan.json",
+        "bytes": 774,
+        "sha256": "29e11608d4e1fccda4d599b211d631b90a1fddb7aa07d52b0662ea1101be3c4e"
+      },
+      {
+        "path": "current-source-lifecycle/progress.json",
+        "bytes": 4008,
+        "sha256": "ac9a2b74a5472beb9edf597af028167fd2fe44fc56057d0a6e4cc00ed414cfd4"
+      },
+      {
+        "path": "current-source-lifecycle-repeat/06.json",
+        "bytes": 1223,
+        "sha256": "1533b575b96ffb980d9772bcb9a6de9d65f76d57c15fb582e05235afe04ff3f6"
+      },
+      {
+        "path": "current-source-lifecycle-repeat/06.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-source-lifecycle-repeat/complete.json",
+        "bytes": 793,
+        "sha256": "c6b814c7e5574988aebe56ddbbc974942a44b44f187fa1dfb63c7929b2b85386"
+      },
+      {
+        "path": "current-source-lifecycle-repeat/plan.json",
+        "bytes": 773,
+        "sha256": "cb8b65a51c1a240fac51499d4b0c655e379080c768e05f7d179b24e558c18979"
+      },
+      {
+        "path": "current-source-lifecycle-repeat/progress.json",
+        "bytes": 793,
+        "sha256": "c6b814c7e5574988aebe56ddbbc974942a44b44f187fa1dfb63c7929b2b85386"
+      },
+      {
+        "path": "current-source-lifecycle-repeat.log",
+        "bytes": 199,
+        "sha256": "05de30ce4f1855bd09bb37ef49a8ad14b2116d6be043769d7b49d14c79d07696"
+      },
+      {
+        "path": "current-source-lifecycle.log",
+        "bytes": 378,
+        "sha256": "53d047b5c0a8fdddd6c26e321c8911d8f102a369a932a2aa8cd8bbf5a6a488a9"
+      },
+      {
+        "path": "current-wand-trace-0/command.json",
+        "bytes": 692,
+        "sha256": "526410f0bff45b7f552b62be5258f5da58a689a54a1b66b98b99c68178c4772c"
+      },
+      {
+        "path": "current-wand-trace-0/prover.smt2-main.smt2",
+        "bytes": 417850,
+        "sha256": "8cda5e0dc77db9be61b5d4373f6d603b6979d374cccdc137fdb7b277bcca1a1d"
+      },
+      {
+        "path": "current-wand-trace-0/result.json",
+        "bytes": 6402,
+        "sha256": "fb9f14bfd7ee66b9c52b5c0e71de66faef288de7f6d43ec0b851b23dbdf3ca0e"
+      },
+      {
+        "path": "current-wand-trace-0/streams/1198103-355551047189677/analysis.json",
+        "bytes": 2445004,
+        "sha256": "fb2478046cd0c4a843b224da07bd90806c1ba7cf75b6b7303429b8b4148469d2"
+      },
+      {
+        "path": "current-wand-trace-0/streams/1198103-355551047189677/chunks.jsonl",
+        "bytes": 824560,
+        "sha256": "03f74f2f224757890390d4ba3ad546c4ca2960c5fa14299c898fb583841e3942"
+      },
+      {
+        "path": "current-wand-trace-0/streams/1198103-355551047189677/metadata.json",
+        "bytes": 357,
+        "sha256": "c997c7b4e6960b1e60b6515d8ed6c3e51101594bf6bfb1dec1adc451c3638636"
+      },
+      {
+        "path": "current-wand-trace-0/streams/1198103-355551047189677/stderr.bin",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-wand-trace-0/streams/1198103-355551047189677/stdin.bin",
+        "bytes": 372920,
+        "sha256": "ba1ff377a99cdd99869d5a1e4694b25c7c2c19a41b2487ae2bf2a2865849430d"
+      },
+      {
+        "path": "current-wand-trace-0/streams/1198103-355551047189677/stdout.bin",
+        "bytes": 28248,
+        "sha256": "3fe30b548f860dffbffaab64ffa8f51878a6bca704bdd4f63c15f64926cb6dce"
+      },
+      {
+        "path": "current-wand-trace-0/z3-relay",
+        "bytes": 365,
+        "sha256": "2b7461cb31b91f72c8a015f4edafd43361b54078c9afb3b811f3cdf63f58fbd2"
+      },
+      {
+        "path": "current-wand-trace-1/command.json",
+        "bytes": 692,
+        "sha256": "abb9098c90d385658af86ca462182d7f6222bd2610477ad2c1af9353047df2af"
+      },
+      {
+        "path": "current-wand-trace-1/prover.smt2-main.smt2",
+        "bytes": 537157,
+        "sha256": "e40dd45b5d57fd0669d3f7060595be73e17ce5a1e0fc7d78916061961f809be7"
+      },
+      {
+        "path": "current-wand-trace-1/result.json",
+        "bytes": 6198,
+        "sha256": "eebcc69d8ef4fe541758c77af98eed810bd5a2f2313392bfe2f0b1864f2c7930"
+      },
+      {
+        "path": "current-wand-trace-1/streams/1198104-355551070173871/analysis.json",
+        "bytes": 3117013,
+        "sha256": "5021483906063949e7fa13b2c6aa074c0964788448e857a391646f2ad60646d2"
+      },
+      {
+        "path": "current-wand-trace-1/streams/1198104-355551070173871/chunks.jsonl",
+        "bytes": 1050754,
+        "sha256": "763e5bff619c131236091d7d3b34afd801a3fca2dba87b39a747ab246909fda9"
+      },
+      {
+        "path": "current-wand-trace-1/streams/1198104-355551070173871/metadata.json",
+        "bytes": 357,
+        "sha256": "8ad4defe475c932924533db798518ddcded8e8d8c24ef1b372876ced19f7a6d5"
+      },
+      {
+        "path": "current-wand-trace-1/streams/1198104-355551070173871/stderr.bin",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "current-wand-trace-1/streams/1198104-355551070173871/stdin.bin",
+        "bytes": 479557,
+        "sha256": "a058920eacf1df9b70f8ef285bcdb407de29c4268ba0d5c1962965eece58ab2c"
+      },
+      {
+        "path": "current-wand-trace-1/streams/1198104-355551070173871/stdout.bin",
+        "bytes": 35938,
+        "sha256": "61eda5cf0d538dbe7af8bf711b658be662036bf13d4ff47a892b2f5e6517f36d"
+      },
+      {
+        "path": "current-wand-trace-1/z3-relay",
+        "bytes": 365,
+        "sha256": "60efc52ee9a06f9974a170134f590c78eef36b0c3f03968cad07ddb0c29edeba"
+      },
+      {
+        "path": "fixture-annotations.json",
+        "bytes": 5563,
+        "sha256": "f33b72702df1884c48ec75457357d48e6f3fdab5dacb83e79206adcf9800a637"
+      },
+      {
+        "path": "old-30-controls/02.json",
+        "bytes": 2958,
+        "sha256": "ec7796329832eed1783a28ece60a5d59b556d46cf27c612a8b74b7f941251aef"
+      },
+      {
+        "path": "old-30-controls/02.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "old-30-controls/05.json",
+        "bytes": 1097,
+        "sha256": "c723d888229994d6ea09887efd492ef712773b77df8d7259f1d76a3911b99b2d"
+      },
+      {
+        "path": "old-30-controls/05.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "old-30-controls/06.json",
+        "bytes": 2672,
+        "sha256": "ff9f74a6cfb3be5d9dc08f5441cf2f2ee99d3cd7011cf73d4219fceb1b9fae75"
+      },
+      {
+        "path": "old-30-controls/06.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "old-30-controls/complete.json",
+        "bytes": 4110,
+        "sha256": "e48d77e18ccd74401f400caa36b57369798f4ed3c41b356709e03235fb403253"
+      },
+      {
+        "path": "old-30-controls/plan.json",
+        "bytes": 641,
+        "sha256": "e76811dfced51e1c0de0220464ceb74a1fc1e313dfc516b62b7a002fc1277170"
+      },
+      {
+        "path": "old-30-controls/progress.json",
+        "bytes": 4110,
+        "sha256": "e48d77e18ccd74401f400caa36b57369798f4ed3c41b356709e03235fb403253"
+      },
+      {
+        "path": "old-30-controls.log",
+        "bytes": 502,
+        "sha256": "b177bec63eea7646dae6263c744a53956575a356ee372a66bdd6d30bd0aa86f6"
+      },
+      {
+        "path": "old-graph-trace/command.json",
+        "bytes": 640,
+        "sha256": "e94c04ae9f3e8a254b50184bb2b19b8476e49ecb651a34fc5c5e8e999a546f59"
+      },
+      {
+        "path": "old-graph-trace/prover.smt2-main.smt2",
+        "bytes": 374179,
+        "sha256": "e069d3ae0f2db77cebce6de303937e8980b8e78cbd7c40250fa379695ea7b1e2"
+      },
+      {
+        "path": "old-graph-trace/result.json",
+        "bytes": 3050,
+        "sha256": "726b533ad4a13c3576b43788cc2b79bff7bd6f9c18d65ba5f6c6de7bbeddecd8"
+      },
+      {
+        "path": "old-graph-trace/streams/1121977-355130640050707/analysis.json",
+        "bytes": 1736262,
+        "sha256": "3a7d9a373d808377e8af8ca39cc8381fafb095e41801632d00858e17845e2b90"
+      },
+      {
+        "path": "old-graph-trace/streams/1121977-355130640050707/chunks.jsonl",
+        "bytes": 557191,
+        "sha256": "e62e4ee7e309389cd77b5b63869a1f4818935c8f872d0881ccd992859bafc1ae"
+      },
+      {
+        "path": "old-graph-trace/streams/1121977-355130640050707/metadata.json",
+        "bytes": 357,
+        "sha256": "029561f226c56bff156ee192fd770f3cf04dce3fb432df2d13e43f5371297b07"
+      },
+      {
+        "path": "old-graph-trace/streams/1121977-355130640050707/stderr.bin",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "old-graph-trace/streams/1121977-355130640050707/stdin.bin",
+        "bytes": 347029,
+        "sha256": "abb82996495819c389c9a4504f306940b41e4295ef6990937b709bfad7d60efa"
+      },
+      {
+        "path": "old-graph-trace/streams/1121977-355130640050707/stdout.bin",
+        "bytes": 18902,
+        "sha256": "cf21ead7790edc499e1d9600d5e2d4832901e9f2e09ffa3ab88831b35309657e"
+      },
+      {
+        "path": "old-graph-trace/z3-relay",
+        "bytes": 360,
+        "sha256": "8a84384547b20cc35b371370cf547cb8ae6a0a3ea2d4b5b49b46b46c3955009c"
+      },
+      {
+        "path": "postflight.json",
+        "bytes": 4925,
+        "sha256": "0133e563803b209e5ade1211c27b311e4f3357fe56bedc31f8448b50d22eda0e"
+      },
+      {
+        "path": "preflight.json",
+        "bytes": 6376,
+        "sha256": "ac4983f2032a544fe421ae6d6365f70a1bf756f545aba061b48ae661ca1fc632"
+      },
+      {
+        "path": "run.py",
+        "bytes": 3588,
+        "sha256": "17252532625525467812b824c84f8001e91f67392f6c3269299db8914c4eb039"
+      },
+      {
+        "path": "selection.json",
+        "bytes": 120459,
+        "sha256": "ec5d56d6acb8a8d327e276471dcf3234215c6248800398b830668a78e70291a3"
+      },
+      {
+        "path": "source-30/00.json",
+        "bytes": 7495,
+        "sha256": "0aa6fed9c3a1727d1e202355a09b85d22a8352ee457a05c05561a5368740f73d"
+      },
+      {
+        "path": "source-30/00.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-30/01.json",
+        "bytes": 7567,
+        "sha256": "c873bf164e47f8aa76015dd9f300c9c575249b906a8077fb8d8573be3888a3bc"
+      },
+      {
+        "path": "source-30/01.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-30/02.json",
+        "bytes": 1685,
+        "sha256": "f31c9f8202807aab78e91406064d00020d51cc31130564cc12b1d3268e9c0cc3"
+      },
+      {
+        "path": "source-30/02.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-30/03.json",
+        "bytes": 1696,
+        "sha256": "d668007c7dcaf8667360b36e119fa88b426b106be3c68d874567de7ecc2d40f3"
+      },
+      {
+        "path": "source-30/03.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-30/04.json",
+        "bytes": 1740,
+        "sha256": "1f7b126ac5800f53c3f5879e63965024803acaf3edf8f99b4bd8512a9130cc82"
+      },
+      {
+        "path": "source-30/04.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-30/05.json",
+        "bytes": 1245,
+        "sha256": "53c1f16887cb907332222227c2e26faf1413ea8f7a36da23978d8a9224b2a965"
+      },
+      {
+        "path": "source-30/05.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-30/06.json",
+        "bytes": 1249,
+        "sha256": "35d26e688f720cd43fda72ddcc96d04bf9273cef22f09614c914d865aa53094d"
+      },
+      {
+        "path": "source-30/06.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-30/07.json",
+        "bytes": 1626,
+        "sha256": "1a8fe24548a791607105ce8a2e0cc7188f13d838072fe772f83a77e34bf78573"
+      },
+      {
+        "path": "source-30/07.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-30/08.json",
+        "bytes": 81310,
+        "sha256": "4e0f4d1cefce98e662e73d03663b91dd6bdccc20205c3f677aa682ada95afc5e"
+      },
+      {
+        "path": "source-30/08.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-30/09.json",
+        "bytes": 1693,
+        "sha256": "cce6bb1c1abe03329f36aa57a0cb6e06d79293bf5961f070ea6d0f28ee04946c"
+      },
+      {
+        "path": "source-30/09.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-30/10.json",
+        "bytes": 78101,
+        "sha256": "34d0c85e600e368d6c69c040226fd38a3adc22ca849297eaacb03954ec08cc27"
+      },
+      {
+        "path": "source-30/10.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-30/11.json",
+        "bytes": 320744,
+        "sha256": "087ecb5a49c8d24ff7ccebf87b6e0e9c5ed2cc40459104ab01a1c54c509b4692"
+      },
+      {
+        "path": "source-30/11.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-30/12.json",
+        "bytes": 1717,
+        "sha256": "0cf47af68871ed38073bdc8404d531d5b0b49e1b7146c152af93f15f9d20cd91"
+      },
+      {
+        "path": "source-30/12.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-30/13.json",
+        "bytes": 1762,
+        "sha256": "15716ae7d85f758a95a890f0ba646e48301cf988aa9853607d3dcf7650bce0dd"
+      },
+      {
+        "path": "source-30/13.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-30/14.json",
+        "bytes": 1737,
+        "sha256": "19b9eaf33ce64b9d4e9ad1bc6470501acee86cfe0d793fb619d6f6246102f80f"
+      },
+      {
+        "path": "source-30/14.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-30/complete.json",
+        "bytes": 17692,
+        "sha256": "73ac7a19bbe07b7ccade268e60cdca430e331c760c7fb9ba66ea1d5eb66abe4c"
+      },
+      {
+        "path": "source-30/plan.json",
+        "bytes": 853,
+        "sha256": "e22bb031de2806331d675de11bd65d57631387dbeb54090c812d46d588cd387d"
+      },
+      {
+        "path": "source-30/progress.json",
+        "bytes": 17692,
+        "sha256": "73ac7a19bbe07b7ccade268e60cdca430e331c760c7fb9ba66ea1d5eb66abe4c"
+      },
+      {
+        "path": "source-30.log",
+        "bytes": 2419,
+        "sha256": "648e97c0bcd0e85bfa1485247d33e64b95a1e4277144e125d2a9b0882b3fa386"
+      },
+      {
+        "path": "source-bounded-assert/01.json",
+        "bytes": 7624,
+        "sha256": "20865a8b08afa7e81e9730a8d1570be4a7de30ef2dadb8114372280c560d64a5"
+      },
+      {
+        "path": "source-bounded-assert/01.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-bounded-assert/02.json",
+        "bytes": 1742,
+        "sha256": "83fd476d806864c435765efe0c51c6f4cbb989b1e216c7bc73866a7a8d5b0c48"
+      },
+      {
+        "path": "source-bounded-assert/02.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-bounded-assert/03.json",
+        "bytes": 1753,
+        "sha256": "a7826104691c3e5e451caaa51855790d5b5bb17fd962ad75e45dc3390714550d"
+      },
+      {
+        "path": "source-bounded-assert/03.runner.log",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "source-bounded-assert/complete.json",
+        "bytes": 4805,
+        "sha256": "32ce278e62e5788eb74743275751587a762d062885c47de1632355eba62d371f"
+      },
+      {
+        "path": "source-bounded-assert/plan.json",
+        "bytes": 835,
+        "sha256": "d847b156571ef83eec8c8fd3134066261e761fb415c238d573889893b6f7cd44"
+      },
+      {
+        "path": "source-bounded-assert/progress.json",
+        "bytes": 4805,
+        "sha256": "32ce278e62e5788eb74743275751587a762d062885c47de1632355eba62d371f"
+      },
+      {
+        "path": "source-bounded-assert.log",
+        "bytes": 528,
+        "sha256": "d353e0a586923847c322d5f2a40f1266f1fa477fbc169691807f48e9287a7597"
+      },
+      {
+        "path": "wand-stream-comparison.json",
+        "bytes": 3882,
+        "sha256": "514799845f95753a95bd57a9b1f5505ce8ad1fe207979cfa0f5acfb1dd1b0160"
+      },
+      {
+        "path": "fixtures/silver/src/test/resources/all/third_party/stefan_recent/testTreeWand.vpr",
+        "bytes": 32005,
+        "sha256": "8993dacf79a1f7d671dce0e2f7b5b1e1085ccee2d8b18ce2e3afd3f8dc99b91c"
+      },
+      {
+        "path": "fixtures/silver/src/test/resources/all/third_party/stefan_recent/testTreeWandE1.vpr",
+        "bytes": 32147,
+        "sha256": "96876567e6556d4d99a87b937cf380faccdb15881628865bd727c76ee1f4d81c"
+      },
+      {
+        "path": "fixtures/silver/src/test/resources/examples/graph-marking/graph-marking.vpr",
+        "bytes": 2910,
+        "sha256": "54173914a5789a79c2b3022e2e9f9d9dfb598b046dfb25a426f4047352dc1894"
+      },
+      {
+        "path": "fixtures/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec.vpr",
+        "bytes": 10137,
+        "sha256": "bbe165e4ec1039e40caf42e3fb74f251eb25971d1de49605629d1ebf0b6e87c6"
+      },
+      {
+        "path": "fixtures/silver/src/test/resources/examples/quickselect/arrays_quickselect_rec_index-shifting.vpr",
+        "bytes": 10388,
+        "sha256": "0ca764e17e5157f68d5b9c5a6dc2feeffb58af632198360a49d9460862983abf"
+      },
+      {
+        "path": "fixtures/silver/src/test/resources/examples/vmcai2016/linked-list-predicates-with-wands.vpr",
+        "bytes": 6720,
+        "sha256": "3bfb64af438a88d256e0acfef0f89d6c4b6c0d673bd19101bf26bfcbc0a1b6ab"
+      },
+      {
+        "path": "fixtures/silver/src/test/resources/examples/vmcai2016/linked-list-predicates.vpr",
+        "bytes": 6447,
+        "sha256": "5fb7723360179784abc7af42ab88f1e5399c99af0bbca5b6f980173483346c5a"
+      },
+      {
+        "path": "fixtures/silver/src/test/resources/quantifiedpermissions/sequences/linked-list-qp-append.vpr",
+        "bytes": 1903,
+        "sha256": "12c6fc8389c13ee35fc6c09e0ab3759fe259940702748d0b3928e295e3822528"
+      }
+    ]
+  },
+  "limitations": [
+    "Fresh processes replace historical reused batches; the change in outcome is not solely attributable to code changes.",
+    "Concurrent jobs use recorded CPU sets on a shared host. Timings are observations, not causal speedup estimates.",
+    "Overall verifier budgets exclude some frontend/startup work; recorded wall times include the whole session.",
+    "Unexpected proof failures do not resolve a timeout or prove the input incorrect.",
+    "Killed diagnostic streams retain an unanswered final check and incomplete solver metadata.",
+    "All experiments are retained; later configurations/repeats do not overwrite the first pass.",
+    "No runtime code or defaults changed, no full corpus rerun, and no live Prusti worktree changes."
+  ]
+}

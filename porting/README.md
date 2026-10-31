@@ -5,6 +5,12 @@ The workspace inventory now covers 438 destinations, including 102 assembly
 files. Inventory stages describe implementation progress, not proof of complete
 source compatibility.
 
+The [timeout follow-up](timeout-followup.md) at current runtime `2df948c`
+revisits the 15 previously inconclusive entries. It identifies a snapshot-trigger
+proof-completeness difference on linked-list append and nondeterministic
+allocation-disjointness assumption order. These remain open; the older broad
+comparison below does not establish parity for the new trigger default.
+
 The measured runtime checkpoint is `afdf10c`. All five requested stages are
 complete within the scope recorded in [completion.md](completion.md): diagnostics,
 hardening, fresh Prusti validation, broader compatibility and performance testing.

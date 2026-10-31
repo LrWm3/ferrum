@@ -20,6 +20,10 @@ pinned Silicon trigger policy; it is not a correction of a porting mismatch.
 At the time of these measurements the option defaulted to false. It has since
 been enabled by default; `--snapshotSummaryOnlyTriggers=false` restores the
 previous trigger policy, and `--disableISCTriggers` takes precedence.
+The later [timeout follow-up](timeout-followup.md) identifies a concrete
+completeness limitation on linked-list append: with a separate method solver,
+older triggers verify while summary-only triggers return incomplete quantifiers.
+That case was outside the sampled Prusti workload and remains unresolved.
 Trigger selection can affect whether a proof succeeds within its limits even
 with unchanged formulas. The bounded passing/failing checks below justify
 trying the option on more workloads; they do not establish compatibility with
