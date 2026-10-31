@@ -1121,7 +1121,10 @@ impl PExpHandle {
 
 #[derive(Clone, Debug, Default)]
 pub struct PTypeSubstitution {
-    mappings: std::collections::HashMap<String, PTypeHandle>,
+    // Like Silver's immutable map, a solved substitution can be shared by
+    // every expression it grounds. Copying it per node makes large generated
+    // postconditions retain quadratic amounts of typechecking state.
+    mappings: Arc<std::collections::HashMap<String, PTypeHandle>>,
     can_generalise: bool,
 }
 
@@ -3119,7 +3122,7 @@ impl PTypeSubstitution {
             "invalid type substitution"
         );
         let result = Self {
-            mappings,
+            mappings: Arc::new(mappings),
             can_generalise,
         };
         assert!(
@@ -3143,12 +3146,13 @@ impl PTypeSubstitution {
     }
     pub fn restrict(&self, names: &std::collections::HashSet<String>) -> Self {
         Self {
-            mappings: self
-                .mappings
-                .iter()
-                .filter(|(name, _)| names.contains(*name))
-                .map(|(a, b)| (a.clone(), b.clone()))
-                .collect(),
+            mappings: Arc::new(
+                self.mappings
+                    .iter()
+                    .filter(|(name, _)| names.contains(*name))
+                    .map(|(a, b)| (a.clone(), b.clone()))
+                    .collect(),
+            ),
             can_generalise: self.can_generalise,
         }
     }
@@ -3159,7 +3163,7 @@ impl PTypeSubstitution {
         );
         assert!(typ.is_valid_or_undeclared(), "invalid type substitution");
         let replacement = Self {
-            mappings: [(name.clone(), typ.clone())].into_iter().collect(),
+            mappings: Arc::new([(name.clone(), typ.clone())].into_iter().collect()),
             can_generalise: false,
         };
         let mut mappings: std::collections::HashMap<_, _> = self
@@ -3169,7 +3173,7 @@ impl PTypeSubstitution {
             .collect();
         mappings.insert(name, typ);
         let result = Self {
-            mappings,
+            mappings: Arc::new(mappings),
             can_generalise: self.can_generalise,
         };
         assert!(
@@ -3181,7 +3185,7 @@ impl PTypeSubstitution {
     fn replace(&self, name: &str, typ: PTypeHandle) -> Self {
         assert!(self.can_generalise && self.mappings.contains_key(name));
         let mut result = self.clone();
-        result.mappings.insert(name.to_owned(), typ);
+        Arc::make_mut(&mut result.mappings).insert(name.to_owned(), typ);
         assert!(result.is_fully_reduced());
         result
     }
@@ -3277,7 +3281,7 @@ pub fn p_type_var(name: impl Into<String>) -> PTypeHandle {
 impl PTypeSubstitution {
     pub fn compose(&self, other: &Self) -> Result<Self, PTypeMismatch> {
         let mut result = self.clone();
-        for (name, typ) in &other.mappings {
+        for (name, typ) in other.mappings.iter() {
             result = result.add(&p_type_var(name), typ)?;
         }
         Ok(result)
@@ -3329,7 +3333,7 @@ impl PTypeSubstitutionInternal {
         self.added.get(key).or_else(|| self.base.get(key))
     }
     pub fn compose(&self, other: &PTypeSubstitution) -> Result<Self, PTypeMismatch> {
-        for (key, left) in &self.base.mappings {
+        for (key, left) in self.base.mappings.iter() {
             if let Some(right) = other.mappings.get(key) {
                 if !left.structurally_equals(right) {
                     return Err((left.clone(), right.clone()));
@@ -4479,7 +4483,7 @@ impl PTypeSubstitution {
         self.mappings.keys().cloned().collect()
     }
     pub fn without(&self, name: &str) -> Self {
-        let mut mappings = self.mappings.clone();
+        let mut mappings = (*self.mappings).clone();
         mappings.remove(name);
         Self::new(mappings, self.can_generalise)
     }
