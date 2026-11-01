@@ -1,0 +1,608 @@
+{
+  "date": "2026-11-01",
+  "case": "mut_element_nested_pass",
+  "raw_root": "/tmp/ferrum-z3-threads-20261101",
+  "scope": "Frozen historical Prusti fixture and trigger-refinement server; not current branch matrix or Silicon comparison.",
+  "decision": "Keep smt.threads=1 for this workload. All multithreaded observations are censored verifier timeouts.",
+  "controls": {
+    "verification_seconds": 60,
+    "client_seconds": 100,
+    "batch_seconds": 1200,
+    "ferrum_workers": 1,
+    "parallel_branches": false,
+    "summary_only_triggers": true,
+    "cpu_affinity": [
+      4,
+      5,
+      6,
+      7
+    ],
+    "cpu_note": "Four distinct efficiency cores; same affinity for all trials. Historical profile used CPUs 0-3.",
+    "timing_note": "Fresh server per trial. Request time excludes server startup, seed copy and cleaning. Solver I/O is inherited without a byte relay.",
+    "historical_source_revision": "a59ed917c1c3c4c4ca6ff1de12ad20d48491d021"
+  },
+  "pcg_revision": "c18a51899e37e0fa67f9b5f17f7d518ef2f5518c",
+  "solver_policy": "Only smt.threads varied; other solver options, resource limits and saturation retained.",
+  "internal_caches": true,
+  "prusti_result_cache": false,
+  "shared_host": {
+    "cpu": "Intel Core i5-1345U",
+    "logical_cpus": 12,
+    "other_prusti_work_continued": true
+  },
+  "identities": {
+    "source": {
+      "path": "/tmp/ferrum-stage5-prusti-inputs/source/prusti-tests/tests/cargo_verify/stdlib_iterator_spec/src/bin/mut_element_nested_pass.rs",
+      "sha256": "3d15689f461ef73ea500861337e6711442a59ab89c799ed10be46c452d8cc047"
+    },
+    "client": {
+      "path": "/tmp/prusti-final-compatibility-native-target/debug/cargo-prusti",
+      "sha256": "5a67abfa993a908babfcc9067197cf1b472b9a915fc2c3d26c1781f5e889e7cd"
+    },
+    "server": {
+      "path": "/tmp/ferrum-order-trigger-fix/trigger-server",
+      "sha256": "e94e0f5763e3feb906ed8c9ffeec10842453dcb2210fdfe523d365087949243f"
+    },
+    "run_batch.py": {
+      "path": "/tmp/ferrum-z3-threads-20261101/run_batch.py",
+      "sha256": "8b5d65b0a358ae70048a4293542885ef2e1e3e3d631328e5c3be2b9cfda374a3"
+    },
+    "run_direct.py": {
+      "path": "/tmp/ferrum-z3-threads-20261101/run_direct.py",
+      "sha256": "4e7c811b3be3f940dee471ffd687cfd5ba09ceeeff0019b89976842dac374f30"
+    },
+    "solver_wrapper.py": {
+      "path": "/tmp/ferrum-z3-threads-20261101/solver_wrapper.py",
+      "sha256": "7a51699dc64626d640c38737f82bd75116d3ed6a2e992223c47a29489d611652"
+    },
+    "z3": {
+      "path": "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+      "sha256": "e583c4186a45e72411fa2cb2048401eed03f0f8e5f24694676a8f6271a50b765",
+      "version": "4.16.0"
+    }
+  },
+  "seed": {
+    "path": "/tmp/ferrum-stage5-prusti-inputs/seeds/native-iterator",
+    "tree_sha256": "24837f073090fdec8802e57aa85d7bfa1e479c559888803f3e90554a481bac77"
+  },
+  "frozen_artifact_count": 4254,
+  "preflight": "passed",
+  "postflight_errors": [],
+  "parameter_controls": [
+    {
+      "threads": 1,
+      "exit": 0,
+      "stdout": "1\n",
+      "stderr": ""
+    },
+    {
+      "threads": 2,
+      "exit": 0,
+      "stdout": "2\n",
+      "stderr": ""
+    },
+    {
+      "threads": 4,
+      "exit": 0,
+      "stdout": "4\n",
+      "stderr": ""
+    }
+  ],
+  "live_thread_observation": {
+    "label": "block2-threads4",
+    "solver_pid": 1800724,
+    "status": [
+      "VmRSS:\t  123104 kB",
+      "Threads:\t5",
+      "Cpus_allowed_list:\t4-7"
+    ]
+  },
+  "schedule": [
+    {
+      "block": 1,
+      "threads": 1,
+      "label": "block1-threads1"
+    },
+    {
+      "block": 1,
+      "threads": 2,
+      "label": "block1-threads2"
+    },
+    {
+      "block": 1,
+      "threads": 4,
+      "label": "block1-threads4"
+    },
+    {
+      "block": 2,
+      "threads": 2,
+      "label": "block2-threads2"
+    },
+    {
+      "block": 2,
+      "threads": 4,
+      "label": "block2-threads4"
+    },
+    {
+      "block": 2,
+      "threads": 1,
+      "label": "block2-threads1"
+    },
+    {
+      "block": 3,
+      "threads": 4,
+      "label": "block3-threads4"
+    },
+    {
+      "block": 3,
+      "threads": 1,
+      "label": "block3-threads1"
+    },
+    {
+      "block": 3,
+      "threads": 2,
+      "label": "block3-threads2"
+    }
+  ],
+  "observations": [
+    {
+      "label": "block1-threads1",
+      "block": 1,
+      "smt_threads": 1,
+      "classification": "verified",
+      "raw_classification": "valid",
+      "diagnostic": null,
+      "request_seconds": 8.51,
+      "phase_seconds": {
+        "Rust to VIR encoding": [
+          0.316907996
+        ],
+        "VIR conversion": [
+          0.115097472
+        ],
+        "backend verification": [
+          6.84473268
+        ]
+      },
+      "client_exit": 0,
+      "outer_client_timeout": false,
+      "dependency_check_valid": true,
+      "timer_complete": true,
+      "client_cleanup_complete": true,
+      "service_cleanup_complete": true,
+      "solver_command": [
+        "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "smt.threads=1",
+        "-smt2",
+        "-in"
+      ],
+      "solver_affinity": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "solver_resource_metrics_complete": false,
+      "z3_cpu_seconds": null,
+      "z3_peak_rss_kib": null,
+      "raw_result": "block1-threads1/result.json",
+      "raw_result_sha256": "092e885d718c67415e5cdbdcf6c4ffe63edccb3ded49749e0a6835b9c8dfc8ad"
+    },
+    {
+      "label": "block1-threads2",
+      "block": 1,
+      "smt_threads": 2,
+      "classification": "verifier_timeout",
+      "raw_classification": "unexpected_result",
+      "diagnostic": "error: [Prusti: verification error] verification timed out after 60 seconds",
+      "request_seconds": 65.07,
+      "phase_seconds": {
+        "Rust to VIR encoding": [
+          0.185447765
+        ],
+        "VIR conversion": [
+          0.109028388
+        ],
+        "backend verification": [
+          63.70963361
+        ]
+      },
+      "client_exit": 101,
+      "outer_client_timeout": false,
+      "dependency_check_valid": true,
+      "timer_complete": true,
+      "client_cleanup_complete": true,
+      "service_cleanup_complete": true,
+      "solver_command": [
+        "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "smt.threads=2",
+        "-smt2",
+        "-in"
+      ],
+      "solver_affinity": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "solver_resource_metrics_complete": false,
+      "z3_cpu_seconds": null,
+      "z3_peak_rss_kib": null,
+      "raw_result": "block1-threads2/result.json",
+      "raw_result_sha256": "640d083397a581c3de9b70c0b2500f0b2dcbb712ceef37e15804e785cf773518"
+    },
+    {
+      "label": "block1-threads4",
+      "block": 1,
+      "smt_threads": 4,
+      "classification": "verifier_timeout",
+      "raw_classification": "unexpected_result",
+      "diagnostic": "error: [Prusti: verification error] verification timed out after 60 seconds",
+      "request_seconds": 61.72,
+      "phase_seconds": {
+        "Rust to VIR encoding": [
+          0.199292952
+        ],
+        "VIR conversion": [
+          0.107733947
+        ],
+        "backend verification": [
+          60.362769719
+        ]
+      },
+      "client_exit": 101,
+      "outer_client_timeout": false,
+      "dependency_check_valid": true,
+      "timer_complete": true,
+      "client_cleanup_complete": true,
+      "service_cleanup_complete": true,
+      "solver_command": [
+        "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "smt.threads=4",
+        "-smt2",
+        "-in"
+      ],
+      "solver_affinity": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "solver_resource_metrics_complete": false,
+      "z3_cpu_seconds": null,
+      "z3_peak_rss_kib": null,
+      "raw_result": "block1-threads4/result.json",
+      "raw_result_sha256": "42ffaa08ab50a4314a89c940fac1460459f26f2bd4f6cb46bd6cad36de686f2f"
+    },
+    {
+      "label": "block2-threads2",
+      "block": 2,
+      "smt_threads": 2,
+      "classification": "verifier_timeout",
+      "raw_classification": "unexpected_result",
+      "diagnostic": "error: [Prusti: verification error] verification timed out after 60 seconds",
+      "request_seconds": 62.59,
+      "phase_seconds": {
+        "Rust to VIR encoding": [
+          0.37985368
+        ],
+        "VIR conversion": [
+          0.17583572
+        ],
+        "backend verification": [
+          60.406262329
+        ]
+      },
+      "client_exit": 101,
+      "outer_client_timeout": false,
+      "dependency_check_valid": true,
+      "timer_complete": true,
+      "client_cleanup_complete": true,
+      "service_cleanup_complete": true,
+      "solver_command": [
+        "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "smt.threads=2",
+        "-smt2",
+        "-in"
+      ],
+      "solver_affinity": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "solver_resource_metrics_complete": false,
+      "z3_cpu_seconds": null,
+      "z3_peak_rss_kib": null,
+      "raw_result": "block2-threads2/result.json",
+      "raw_result_sha256": "339f88132bd4269462aaa14d05c1fffe73f10839400a6fcfe720281af0ac8458"
+    },
+    {
+      "label": "block2-threads4",
+      "block": 2,
+      "smt_threads": 4,
+      "classification": "verifier_timeout",
+      "raw_classification": "unexpected_result",
+      "diagnostic": "error: [Prusti: verification error] verification timed out after 60 seconds",
+      "request_seconds": 61.48,
+      "phase_seconds": {
+        "Rust to VIR encoding": [
+          0.18261633
+        ],
+        "VIR conversion": [
+          0.102857701
+        ],
+        "backend verification": [
+          60.180760666
+        ]
+      },
+      "client_exit": 101,
+      "outer_client_timeout": false,
+      "dependency_check_valid": true,
+      "timer_complete": true,
+      "client_cleanup_complete": true,
+      "service_cleanup_complete": true,
+      "solver_command": [
+        "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "smt.threads=4",
+        "-smt2",
+        "-in"
+      ],
+      "solver_affinity": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "solver_resource_metrics_complete": false,
+      "z3_cpu_seconds": null,
+      "z3_peak_rss_kib": null,
+      "raw_result": "block2-threads4/result.json",
+      "raw_result_sha256": "60977868808f4f9aea8ac5d2ee1f1048e11a67a01c6dedfbe24d25d649fa7d34"
+    },
+    {
+      "label": "block2-threads1",
+      "block": 2,
+      "smt_threads": 1,
+      "classification": "verified",
+      "raw_classification": "valid",
+      "diagnostic": null,
+      "request_seconds": 11.14,
+      "phase_seconds": {
+        "Rust to VIR encoding": [
+          0.397283954
+        ],
+        "VIR conversion": [
+          0.139076529
+        ],
+        "backend verification": [
+          9.048131209
+        ]
+      },
+      "client_exit": 0,
+      "outer_client_timeout": false,
+      "dependency_check_valid": true,
+      "timer_complete": true,
+      "client_cleanup_complete": true,
+      "service_cleanup_complete": true,
+      "solver_command": [
+        "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "smt.threads=1",
+        "-smt2",
+        "-in"
+      ],
+      "solver_affinity": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "solver_resource_metrics_complete": false,
+      "z3_cpu_seconds": null,
+      "z3_peak_rss_kib": null,
+      "raw_result": "block2-threads1/result.json",
+      "raw_result_sha256": "94d6433c0d8efc4b53fb920825c9d725266f9919139d77b89c9f841325ad4ec0"
+    },
+    {
+      "label": "block3-threads4",
+      "block": 3,
+      "smt_threads": 4,
+      "classification": "verifier_timeout",
+      "raw_classification": "unexpected_result",
+      "diagnostic": "error: [Prusti: verification error] verification timed out after 60 seconds",
+      "request_seconds": 62.25,
+      "phase_seconds": {
+        "Rust to VIR encoding": [
+          0.279931971
+        ],
+        "VIR conversion": [
+          0.149635511
+        ],
+        "backend verification": [
+          60.301369482
+        ]
+      },
+      "client_exit": 101,
+      "outer_client_timeout": false,
+      "dependency_check_valid": true,
+      "timer_complete": true,
+      "client_cleanup_complete": true,
+      "service_cleanup_complete": true,
+      "solver_command": [
+        "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "smt.threads=4",
+        "-smt2",
+        "-in"
+      ],
+      "solver_affinity": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "solver_resource_metrics_complete": false,
+      "z3_cpu_seconds": null,
+      "z3_peak_rss_kib": null,
+      "raw_result": "block3-threads4/result.json",
+      "raw_result_sha256": "677bd4734f63a216b88cd07f99771263fec2044db82ea9d3fe380a0dceb14ca1"
+    },
+    {
+      "label": "block3-threads1",
+      "block": 3,
+      "smt_threads": 1,
+      "classification": "verified",
+      "raw_classification": "valid",
+      "diagnostic": null,
+      "request_seconds": 11.37,
+      "phase_seconds": {
+        "Rust to VIR encoding": [
+          0.936950272
+        ],
+        "VIR conversion": [
+          0.165669481
+        ],
+        "backend verification": [
+          8.624776045
+        ]
+      },
+      "client_exit": 0,
+      "outer_client_timeout": false,
+      "dependency_check_valid": true,
+      "timer_complete": true,
+      "client_cleanup_complete": true,
+      "service_cleanup_complete": true,
+      "solver_command": [
+        "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "smt.threads=1",
+        "-smt2",
+        "-in"
+      ],
+      "solver_affinity": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "solver_resource_metrics_complete": false,
+      "z3_cpu_seconds": null,
+      "z3_peak_rss_kib": null,
+      "raw_result": "block3-threads1/result.json",
+      "raw_result_sha256": "46a1b0656c158a53e4d8015223e507d97390f83c2769b91f9376032c65322849"
+    },
+    {
+      "label": "block3-threads2",
+      "block": 3,
+      "smt_threads": 2,
+      "classification": "verifier_timeout",
+      "raw_classification": "unexpected_result",
+      "diagnostic": "error: [Prusti: verification error] verification timed out after 60 seconds",
+      "request_seconds": 62.55,
+      "phase_seconds": {
+        "Rust to VIR encoding": [
+          0.334890959
+        ],
+        "VIR conversion": [
+          0.161640559
+        ],
+        "backend verification": [
+          60.607468211
+        ]
+      },
+      "client_exit": 101,
+      "outer_client_timeout": false,
+      "dependency_check_valid": true,
+      "timer_complete": true,
+      "client_cleanup_complete": true,
+      "service_cleanup_complete": true,
+      "solver_command": [
+        "/home/will/wk/exp/prusti-stdlib/viper_tools/z3/bin/z3",
+        "smt.threads=2",
+        "-smt2",
+        "-in"
+      ],
+      "solver_affinity": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "solver_resource_metrics_complete": false,
+      "z3_cpu_seconds": null,
+      "z3_peak_rss_kib": null,
+      "raw_result": "block3-threads2/result.json",
+      "raw_result_sha256": "9eeac64c79a26d703daf325fdd4b9ec1fdf008529d31a457582882c25e75fa2b"
+    }
+  ],
+  "aggregates": [
+    {
+      "smt_threads": 1,
+      "runs": 3,
+      "verified": 3,
+      "verifier_timeouts": 0,
+      "request_seconds": [
+        8.51,
+        11.14,
+        11.37
+      ],
+      "median_successful_request_seconds": 11.14
+    },
+    {
+      "smt_threads": 2,
+      "runs": 3,
+      "verified": 0,
+      "verifier_timeouts": 3,
+      "request_seconds": [
+        65.07,
+        62.59,
+        62.55
+      ],
+      "median_successful_request_seconds": null
+    },
+    {
+      "smt_threads": 4,
+      "runs": 3,
+      "verified": 0,
+      "verifier_timeouts": 3,
+      "request_seconds": [
+        61.72,
+        61.48,
+        62.25
+      ],
+      "median_successful_request_seconds": null
+    }
+  ],
+  "batch_summary": {
+    "completed": 9,
+    "planned": 9,
+    "postflight_errors": [],
+    "elapsed_seconds": 417.45385928003816,
+    "finished_wall_ns": 1793564876379387972
+  },
+  "batch_supervisor": {
+    "command": [
+      "python3",
+      "/tmp/ferrum-z3-threads-20261101/run_batch.py"
+    ],
+    "exit_code": 0,
+    "outcome": "completed",
+    "protocol_errors": [],
+    "cleanup_pending": [],
+    "wall_seconds": 419.86666173901176,
+    "records": []
+  },
+  "limitations": [
+    "Six raw unexpected_result labels corrected using the exact lowercase timeout diagnostic and server cancellation; raw records unchanged.",
+    "Final solver resource records were not flushed; raw zero CPU/RSS counters are unavailable, not measured zeros. Derived resource fields are null.",
+    "A single live RSS sample is not a peak or a comparison.",
+    "Timeout durations are censored and cannot supply a completed-proof speed ratio.",
+    "Shared host; historical CPU affinity differs; no claim about current full stdlib matrix."
+  ],
+  "setup_failure": "Initial Python syntax error fixed before preflight and all timed observations; retained separately in archive.",
+  "raw_archive": {
+    "path": "porting/evidence/z3-threads/observations.tar.gz",
+    "sha256": "36a74bd4b2130eb8b84e5b0dd4f8ecbb808ee29a23406d0fbe30ee608cb4751d",
+    "bytes": 560279,
+    "files": 113
+  },
+  "audit": "Nine records match the predeclared schedule, binary/source/runner identities, options and affinity; each timeout is confirmed in both logs; dependencies, timers, cleanup and archive bytes audited."
+}
