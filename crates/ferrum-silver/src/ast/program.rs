@@ -883,7 +883,8 @@ impl BuiltinOp {
         use BuiltinOp::*;
         match self {
             Neg | PermNeg | Not => OperatorFixity::Prefix,
-            Implies | MagicWand => OperatorFixity::InfixRight,
+            // Match the parser so printing preserves Boolean expression trees.
+            Or | And | Implies | MagicWand => OperatorFixity::InfixRight,
             Lt | Le | Gt | Ge | PermLt | PermLe | PermGt | PermGe => {
                 OperatorFixity::InfixNonAssociative
             }
